@@ -954,6 +954,245 @@ static_assert((clang::Decl::Kind)ZigClangDeclPragmaDetectMismatch == clang::Decl
 static_assert((clang::Decl::Kind)ZigClangDeclStaticAssert == clang::Decl::StaticAssert, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTranslationUnit == clang::Decl::TranslationUnit, "");
 
+void ZigClang_detect_enum_BuiltinTypeKind(clang::BuiltinType::Kind x) {
+    switch (x) {
+        case clang::BuiltinType::OCLImage1dRO:
+        case clang::BuiltinType::OCLImage1dArrayRO:
+        case clang::BuiltinType::OCLImage1dBufferRO:
+        case clang::BuiltinType::OCLImage2dRO:
+        case clang::BuiltinType::OCLImage2dArrayRO:
+        case clang::BuiltinType::OCLImage2dDepthRO:
+        case clang::BuiltinType::OCLImage2dArrayDepthRO:
+        case clang::BuiltinType::OCLImage2dMSAARO:
+        case clang::BuiltinType::OCLImage2dArrayMSAARO:
+        case clang::BuiltinType::OCLImage2dMSAADepthRO:
+        case clang::BuiltinType::OCLImage2dArrayMSAADepthRO:
+        case clang::BuiltinType::OCLImage3dRO:
+        case clang::BuiltinType::OCLImage1dWO:
+        case clang::BuiltinType::OCLImage1dArrayWO:
+        case clang::BuiltinType::OCLImage1dBufferWO:
+        case clang::BuiltinType::OCLImage2dWO:
+        case clang::BuiltinType::OCLImage2dArrayWO:
+        case clang::BuiltinType::OCLImage2dDepthWO:
+        case clang::BuiltinType::OCLImage2dArrayDepthWO:
+        case clang::BuiltinType::OCLImage2dMSAAWO:
+        case clang::BuiltinType::OCLImage2dArrayMSAAWO:
+        case clang::BuiltinType::OCLImage2dMSAADepthWO:
+        case clang::BuiltinType::OCLImage2dArrayMSAADepthWO:
+        case clang::BuiltinType::OCLImage3dWO:
+        case clang::BuiltinType::OCLImage1dRW:
+        case clang::BuiltinType::OCLImage1dArrayRW:
+        case clang::BuiltinType::OCLImage1dBufferRW:
+        case clang::BuiltinType::OCLImage2dRW:
+        case clang::BuiltinType::OCLImage2dArrayRW:
+        case clang::BuiltinType::OCLImage2dDepthRW:
+        case clang::BuiltinType::OCLImage2dArrayDepthRW:
+        case clang::BuiltinType::OCLImage2dMSAARW:
+        case clang::BuiltinType::OCLImage2dArrayMSAARW:
+        case clang::BuiltinType::OCLImage2dMSAADepthRW:
+        case clang::BuiltinType::OCLImage2dArrayMSAADepthRW:
+        case clang::BuiltinType::OCLImage3dRW:
+        case clang::BuiltinType::OCLIntelSubgroupAVCMcePayload:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImePayload:
+        case clang::BuiltinType::OCLIntelSubgroupAVCRefPayload:
+        case clang::BuiltinType::OCLIntelSubgroupAVCSicPayload:
+        case clang::BuiltinType::OCLIntelSubgroupAVCMceResult:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImeResult:
+        case clang::BuiltinType::OCLIntelSubgroupAVCRefResult:
+        case clang::BuiltinType::OCLIntelSubgroupAVCSicResult:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
+        case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
+        case clang::BuiltinType::Void:
+        case clang::BuiltinType::Bool:
+        case clang::BuiltinType::Char_U:
+        case clang::BuiltinType::UChar:
+        case clang::BuiltinType::WChar_U:
+        case clang::BuiltinType::Char8:
+        case clang::BuiltinType::Char16:
+        case clang::BuiltinType::Char32:
+        case clang::BuiltinType::UShort:
+        case clang::BuiltinType::UInt:
+        case clang::BuiltinType::ULong:
+        case clang::BuiltinType::ULongLong:
+        case clang::BuiltinType::UInt128:
+        case clang::BuiltinType::Char_S:
+        case clang::BuiltinType::SChar:
+        case clang::BuiltinType::WChar_S:
+        case clang::BuiltinType::Short:
+        case clang::BuiltinType::Int:
+        case clang::BuiltinType::Long:
+        case clang::BuiltinType::LongLong:
+        case clang::BuiltinType::Int128:
+        case clang::BuiltinType::ShortAccum:
+        case clang::BuiltinType::Accum:
+        case clang::BuiltinType::LongAccum:
+        case clang::BuiltinType::UShortAccum:
+        case clang::BuiltinType::UAccum:
+        case clang::BuiltinType::ULongAccum:
+        case clang::BuiltinType::ShortFract:
+        case clang::BuiltinType::Fract:
+        case clang::BuiltinType::LongFract:
+        case clang::BuiltinType::UShortFract:
+        case clang::BuiltinType::UFract:
+        case clang::BuiltinType::ULongFract:
+        case clang::BuiltinType::SatShortAccum:
+        case clang::BuiltinType::SatAccum:
+        case clang::BuiltinType::SatLongAccum:
+        case clang::BuiltinType::SatUShortAccum:
+        case clang::BuiltinType::SatUAccum:
+        case clang::BuiltinType::SatULongAccum:
+        case clang::BuiltinType::SatShortFract:
+        case clang::BuiltinType::SatFract:
+        case clang::BuiltinType::SatLongFract:
+        case clang::BuiltinType::SatUShortFract:
+        case clang::BuiltinType::SatUFract:
+        case clang::BuiltinType::SatULongFract:
+        case clang::BuiltinType::Half:
+        case clang::BuiltinType::Float:
+        case clang::BuiltinType::Double:
+        case clang::BuiltinType::LongDouble:
+        case clang::BuiltinType::Float16:
+        case clang::BuiltinType::Float128:
+        case clang::BuiltinType::NullPtr:
+        case clang::BuiltinType::ObjCId:
+        case clang::BuiltinType::ObjCClass:
+        case clang::BuiltinType::ObjCSel:
+        case clang::BuiltinType::OCLSampler:
+        case clang::BuiltinType::OCLEvent:
+        case clang::BuiltinType::OCLClkEvent:
+        case clang::BuiltinType::OCLQueue:
+        case clang::BuiltinType::OCLReserveID:
+        case clang::BuiltinType::Dependent:
+        case clang::BuiltinType::Overload:
+        case clang::BuiltinType::BoundMember:
+        case clang::BuiltinType::PseudoObject:
+        case clang::BuiltinType::UnknownAny:
+        case clang::BuiltinType::BuiltinFn:
+        case clang::BuiltinType::ARCUnbridgedCast:
+        case clang::BuiltinType::OMPArraySection:
+            break;
+    }
+}
+
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dRO == clang::BuiltinType::OCLImage1dRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dArrayRO == clang::BuiltinType::OCLImage1dArrayRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dBufferRO == clang::BuiltinType::OCLImage1dBufferRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dRO == clang::BuiltinType::OCLImage2dRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayRO == clang::BuiltinType::OCLImage2dArrayRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dDepthRO == clang::BuiltinType::OCLImage2dDepthRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayDepthRO == clang::BuiltinType::OCLImage2dArrayDepthRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAARO == clang::BuiltinType::OCLImage2dMSAARO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAARO == clang::BuiltinType::OCLImage2dArrayMSAARO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAADepthRO == clang::BuiltinType::OCLImage2dMSAADepthRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRO == clang::BuiltinType::OCLImage2dArrayMSAADepthRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage3dRO == clang::BuiltinType::OCLImage3dRO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dWO == clang::BuiltinType::OCLImage1dWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dArrayWO == clang::BuiltinType::OCLImage1dArrayWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dBufferWO == clang::BuiltinType::OCLImage1dBufferWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dWO == clang::BuiltinType::OCLImage2dWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayWO == clang::BuiltinType::OCLImage2dArrayWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dDepthWO == clang::BuiltinType::OCLImage2dDepthWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayDepthWO == clang::BuiltinType::OCLImage2dArrayDepthWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAAWO == clang::BuiltinType::OCLImage2dMSAAWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAAWO == clang::BuiltinType::OCLImage2dArrayMSAAWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAADepthWO == clang::BuiltinType::OCLImage2dMSAADepthWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAADepthWO == clang::BuiltinType::OCLImage2dArrayMSAADepthWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage3dWO == clang::BuiltinType::OCLImage3dWO, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dRW == clang::BuiltinType::OCLImage1dRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dArrayRW == clang::BuiltinType::OCLImage1dArrayRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage1dBufferRW == clang::BuiltinType::OCLImage1dBufferRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dRW == clang::BuiltinType::OCLImage2dRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayRW == clang::BuiltinType::OCLImage2dArrayRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dDepthRW == clang::BuiltinType::OCLImage2dDepthRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayDepthRW == clang::BuiltinType::OCLImage2dArrayDepthRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAARW == clang::BuiltinType::OCLImage2dMSAARW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAARW == clang::BuiltinType::OCLImage2dArrayMSAARW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dMSAADepthRW == clang::BuiltinType::OCLImage2dMSAADepthRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRW == clang::BuiltinType::OCLImage2dArrayMSAADepthRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLImage3dRW == clang::BuiltinType::OCLImage3dRW, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCMcePayload == clang::BuiltinType::OCLIntelSubgroupAVCMcePayload, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImePayload == clang::BuiltinType::OCLIntelSubgroupAVCImePayload, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCRefPayload == clang::BuiltinType::OCLIntelSubgroupAVCRefPayload, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCSicPayload == clang::BuiltinType::OCLIntelSubgroupAVCSicPayload, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCMceResult == clang::BuiltinType::OCLIntelSubgroupAVCMceResult, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResult == clang::BuiltinType::OCLIntelSubgroupAVCImeResult, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCRefResult == clang::BuiltinType::OCLIntelSubgroupAVCRefResult, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCSicResult == clang::BuiltinType::OCLIntelSubgroupAVCSicResult, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultSingleRefStreamout == clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout == clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin == clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin == clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeVoid == clang::BuiltinType::Void, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBool == clang::BuiltinType::Bool, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar_U == clang::BuiltinType::Char_U, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUChar == clang::BuiltinType::UChar, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeWChar_U == clang::BuiltinType::WChar_U, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar8 == clang::BuiltinType::Char8, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar16 == clang::BuiltinType::Char16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar32 == clang::BuiltinType::Char32, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUShort == clang::BuiltinType::UShort, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUInt == clang::BuiltinType::UInt, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeULong == clang::BuiltinType::ULong, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeULongLong == clang::BuiltinType::ULongLong, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUInt128 == clang::BuiltinType::UInt128, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar_S == clang::BuiltinType::Char_S, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSChar == clang::BuiltinType::SChar, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeWChar_S == clang::BuiltinType::WChar_S, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeShort == clang::BuiltinType::Short, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeInt == clang::BuiltinType::Int, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeLong == clang::BuiltinType::Long, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeLongLong == clang::BuiltinType::LongLong, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeInt128 == clang::BuiltinType::Int128, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeShortAccum == clang::BuiltinType::ShortAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeAccum == clang::BuiltinType::Accum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeLongAccum == clang::BuiltinType::LongAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUShortAccum == clang::BuiltinType::UShortAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUAccum == clang::BuiltinType::UAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeULongAccum == clang::BuiltinType::ULongAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeShortFract == clang::BuiltinType::ShortFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeFract == clang::BuiltinType::Fract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeLongFract == clang::BuiltinType::LongFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUShortFract == clang::BuiltinType::UShortFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUFract == clang::BuiltinType::UFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeULongFract == clang::BuiltinType::ULongFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatShortAccum == clang::BuiltinType::SatShortAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatAccum == clang::BuiltinType::SatAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatLongAccum == clang::BuiltinType::SatLongAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatUShortAccum == clang::BuiltinType::SatUShortAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatUAccum == clang::BuiltinType::SatUAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatULongAccum == clang::BuiltinType::SatULongAccum, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatShortFract == clang::BuiltinType::SatShortFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatFract == clang::BuiltinType::SatFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatLongFract == clang::BuiltinType::SatLongFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatUShortFract == clang::BuiltinType::SatUShortFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatUFract == clang::BuiltinType::SatUFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSatULongFract == clang::BuiltinType::SatULongFract, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeHalf == clang::BuiltinType::Half, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeFloat == clang::BuiltinType::Float, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeDouble == clang::BuiltinType::Double, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeLongDouble == clang::BuiltinType::LongDouble, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeFloat16 == clang::BuiltinType::Float16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeFloat128 == clang::BuiltinType::Float128, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeNullPtr == clang::BuiltinType::NullPtr, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeObjCId == clang::BuiltinType::ObjCId, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeObjCClass == clang::BuiltinType::ObjCClass, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeObjCSel == clang::BuiltinType::ObjCSel, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLSampler == clang::BuiltinType::OCLSampler, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLEvent == clang::BuiltinType::OCLEvent, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLClkEvent == clang::BuiltinType::OCLClkEvent, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLQueue == clang::BuiltinType::OCLQueue, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLReserveID == clang::BuiltinType::OCLReserveID, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeDependent == clang::BuiltinType::Dependent, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOverload == clang::BuiltinType::Overload, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBoundMember == clang::BuiltinType::BoundMember, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypePseudoObject == clang::BuiltinType::PseudoObject, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeUnknownAny == clang::BuiltinType::UnknownAny, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBuiltinFn == clang::BuiltinType::BuiltinFn, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeARCUnbridgedCast == clang::BuiltinType::ARCUnbridgedCast, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOMPArraySection == clang::BuiltinType::OMPArraySection, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1448,4 +1687,9 @@ void ZigClangErrorMsg_delete(Stage2ErrorMsg *ptr, size_t len) {
 
 void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
     delete reinterpret_cast<clang::ASTUnit *>(self);
+}
+
+enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
+    auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
+    return (ZigClangBuiltinTypeKind)casted->getKind();
 }

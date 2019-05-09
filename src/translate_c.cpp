@@ -127,6 +127,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
         const ZigClangExpr *expr, TransLRValue lrval);
 static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigClangQualType qt,
         ZigClangSourceLocation source_loc);
+static bool c_is_unsigned_integer(Context *c, ZigClangQualType qt);
 
 static const ZigClangAPSInt *bitcast(const llvm::APSInt *src) {
     return reinterpret_cast<const ZigClangAPSInt *>(src);
@@ -581,33 +582,6 @@ static bool qual_type_is_ptr(ZigClangQualType qt) {
     return ZigClangType_getTypeClass(ty) == ZigClangType_Pointer;
 }
 
-static bool qual_type_is_int(ZigClangQualType qt) {
-    const ZigClangType *ty = qual_type_canon(qt);
-    if (ZigClangType_getTypeClass(ty) != ZigClangType_Builtin)
-        return false;
-    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
-    switch (builtin_ty->getKind()) {
-        case clang::BuiltinType::Char_U:
-        case clang::BuiltinType::UChar:
-        case clang::BuiltinType::Char_S:
-        case clang::BuiltinType::Char8:
-        case clang::BuiltinType::SChar:
-        case clang::BuiltinType::UShort:
-        case clang::BuiltinType::UInt:
-        case clang::BuiltinType::ULong:
-        case clang::BuiltinType::ULongLong:
-        case clang::BuiltinType::Short:
-        case clang::BuiltinType::Int:
-        case clang::BuiltinType::Long:
-        case clang::BuiltinType::LongLong:
-        case clang::BuiltinType::UInt128:
-        case clang::BuiltinType::Int128:
-            return true;
-        default:
-            return false;
-    }
-}
-
 static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType qt, bool *is_ptr) {
     const ZigClangType *ty = qual_type_canon(qt);
     *is_ptr = false;
@@ -639,15 +613,15 @@ static uint32_t qual_type_int_bit_width(Context *c, const ZigClangQualType qt, Z
     switch (ZigClangType_getTypeClass(ty)) {
         case ZigClangType_Builtin:
             {
-                const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
-                switch (builtin_ty->getKind()) {
-                    case clang::BuiltinType::Char_U:
-                    case clang::BuiltinType::UChar:
-                    case clang::BuiltinType::Char_S:
-                    case clang::BuiltinType::SChar:
+                const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(ty);
+                switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                    case ZigClangBuiltinTypeChar_U:
+                    case ZigClangBuiltinTypeUChar:
+                    case ZigClangBuiltinTypeChar_S:
+                    case ZigClangBuiltinTypeSChar:
                         return 8;
-                    case clang::BuiltinType::UInt128:
-                    case clang::BuiltinType::Int128:
+                    case ZigClangBuiltinTypeUInt128:
+                    case ZigClangBuiltinTypeInt128:
                         return 128;
                     default:
                         return 0;
@@ -771,12 +745,12 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
     if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
         return trans_c_ptr_cast(c, source_location, dest_type, src_type, expr);
     }
-    if (qual_type_is_int(dest_type) && qual_type_is_ptr(src_type)) {
+    if (c_is_unsigned_integer(c, dest_type) && qual_type_is_ptr(src_type)) {
         AstNode *addr_node = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
         addr_node->data.fn_call_expr.params.append(expr);
         return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), addr_node);
     }
-    if (qual_type_is_int(src_type) && qual_type_is_ptr(dest_type)) {
+    if (c_is_unsigned_integer(c, src_type) && qual_type_is_ptr(dest_type)) {
         AstNode *ptr_node = trans_create_node_builtin_fn_call_str(c, "intToPtr");
         ptr_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
         ptr_node->data.fn_call_expr.params.append(expr);
@@ -792,15 +766,15 @@ static bool c_is_signed_integer(Context *c, ZigClangQualType qt) {
     const ZigClangType *c_type = qual_type_canon(qt);
     if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
-    switch (builtin_ty->getKind()) {
-        case clang::BuiltinType::SChar:
-        case clang::BuiltinType::Short:
-        case clang::BuiltinType::Int:
-        case clang::BuiltinType::Long:
-        case clang::BuiltinType::LongLong:
-        case clang::BuiltinType::Int128:
-        case clang::BuiltinType::WChar_S:
+    const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(c_type);
+    switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        case ZigClangBuiltinTypeSChar:
+        case ZigClangBuiltinTypeShort:
+        case ZigClangBuiltinTypeInt:
+        case ZigClangBuiltinTypeLong:
+        case ZigClangBuiltinTypeLongLong:
+        case ZigClangBuiltinTypeInt128:
+        case ZigClangBuiltinTypeWChar_S:
             return true;
         default:
             return false;
@@ -811,42 +785,42 @@ static bool c_is_unsigned_integer(Context *c, ZigClangQualType qt) {
     const ZigClangType *c_type = qual_type_canon(qt);
     if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
-    switch (builtin_ty->getKind()) {
-        case clang::BuiltinType::Char_U:
-        case clang::BuiltinType::UChar:
-        case clang::BuiltinType::Char_S:
-        case clang::BuiltinType::UShort:
-        case clang::BuiltinType::UInt:
-        case clang::BuiltinType::ULong:
-        case clang::BuiltinType::ULongLong:
-        case clang::BuiltinType::UInt128:
-        case clang::BuiltinType::WChar_U:
+    const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(c_type);
+    switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        case ZigClangBuiltinTypeChar_U:
+        case ZigClangBuiltinTypeUChar:
+        case ZigClangBuiltinTypeChar_S:
+        case ZigClangBuiltinTypeUShort:
+        case ZigClangBuiltinTypeUInt:
+        case ZigClangBuiltinTypeULong:
+        case ZigClangBuiltinTypeULongLong:
+        case ZigClangBuiltinTypeUInt128:
+        case ZigClangBuiltinTypeWChar_U:
             return true;
         default:
             return false;
     }
 }
 
-static bool c_is_builtin_type(Context *c, ZigClangQualType qt, clang::BuiltinType::Kind kind) {
+static bool c_is_builtin_type(Context *c, ZigClangQualType qt, ZigClangBuiltinTypeKind kind) {
     const ZigClangType *c_type = qual_type_canon(qt);
     if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
-    return builtin_ty->getKind() == kind;
+    const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(c_type);
+    return ZigClangBuiltinType_getKind(builtin_ty) == kind;
 }
 
 static bool c_is_float(Context *c, ZigClangQualType qt) {
     const ZigClangType *c_type = ZigClangQualType_getTypePtr(qt);
     if (ZigClangType_getTypeClass(c_type) != ZigClangType_Builtin)
         return false;
-    const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(c_type);
-    switch (builtin_ty->getKind()) {
-        case clang::BuiltinType::Half:
-        case clang::BuiltinType::Float:
-        case clang::BuiltinType::Double:
-        case clang::BuiltinType::Float128:
-        case clang::BuiltinType::LongDouble:
+    const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(c_type);
+    switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        case ZigClangBuiltinTypeHalf:
+        case ZigClangBuiltinTypeFloat:
+        case ZigClangBuiltinTypeDouble:
+        case ZigClangBuiltinTypeFloat128:
+        case ZigClangBuiltinTypeLongDouble:
             return true;
         default:
             return false;
@@ -866,8 +840,8 @@ static bool qual_type_has_wrapping_overflow(Context *c, ZigClangQualType qt) {
 static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc) {
     switch (ZigClangType_getTypeClass(ty)) {
         case ZigClangType_Builtin: {
-            const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
-            return builtin_ty->getKind() == clang::BuiltinType::Void;
+            const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(ty);
+            return ZigClangBuiltinType_getKind(builtin_ty) == ZigClangBuiltinTypeVoid;
         }
         case ZigClangType_Record: {
             const clang::RecordType *record_ty = reinterpret_cast<const clang::RecordType*>(ty);
@@ -893,144 +867,144 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
     switch (ZigClangType_getTypeClass(ty)) {
         case ZigClangType_Builtin:
             {
-                const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
-                switch (builtin_ty->getKind()) {
-                    case clang::BuiltinType::Void:
+                const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType *>(ty);
+                switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                    case ZigClangBuiltinTypeVoid:
                         return trans_create_node_symbol_str(c, "c_void");
-                    case clang::BuiltinType::Bool:
+                    case ZigClangBuiltinTypeBool:
                         return trans_create_node_symbol_str(c, "bool");
-                    case clang::BuiltinType::Char_U:
-                    case clang::BuiltinType::UChar:
-                    case clang::BuiltinType::Char_S:
-                    case clang::BuiltinType::Char8:
+                    case ZigClangBuiltinTypeChar_U:
+                    case ZigClangBuiltinTypeUChar:
+                    case ZigClangBuiltinTypeChar_S:
+                    case ZigClangBuiltinTypeChar8:
                         return trans_create_node_symbol_str(c, "u8");
-                    case clang::BuiltinType::SChar:
+                    case ZigClangBuiltinTypeSChar:
                         return trans_create_node_symbol_str(c, "i8");
-                    case clang::BuiltinType::UShort:
+                    case ZigClangBuiltinTypeUShort:
                         return trans_create_node_symbol_str(c, "c_ushort");
-                    case clang::BuiltinType::UInt:
+                    case ZigClangBuiltinTypeUInt:
                         return trans_create_node_symbol_str(c, "c_uint");
-                    case clang::BuiltinType::ULong:
+                    case ZigClangBuiltinTypeULong:
                         return trans_create_node_symbol_str(c, "c_ulong");
-                    case clang::BuiltinType::ULongLong:
+                    case ZigClangBuiltinTypeULongLong:
                         return trans_create_node_symbol_str(c, "c_ulonglong");
-                    case clang::BuiltinType::Short:
+                    case ZigClangBuiltinTypeShort:
                         return trans_create_node_symbol_str(c, "c_short");
-                    case clang::BuiltinType::Int:
+                    case ZigClangBuiltinTypeInt:
                         return trans_create_node_symbol_str(c, "c_int");
-                    case clang::BuiltinType::Long:
+                    case ZigClangBuiltinTypeLong:
                         return trans_create_node_symbol_str(c, "c_long");
-                    case clang::BuiltinType::LongLong:
+                    case ZigClangBuiltinTypeLongLong:
                         return trans_create_node_symbol_str(c, "c_longlong");
-                    case clang::BuiltinType::UInt128:
+                    case ZigClangBuiltinTypeUInt128:
                         return trans_create_node_symbol_str(c, "u128");
-                    case clang::BuiltinType::Int128:
+                    case ZigClangBuiltinTypeInt128:
                         return trans_create_node_symbol_str(c, "i128");
-                    case clang::BuiltinType::Float:
+                    case ZigClangBuiltinTypeFloat:
                         return trans_create_node_symbol_str(c, "f32");
-                    case clang::BuiltinType::Double:
+                    case ZigClangBuiltinTypeDouble:
                         return trans_create_node_symbol_str(c, "f64");
-                    case clang::BuiltinType::Float128:
+                    case ZigClangBuiltinTypeFloat128:
                         return trans_create_node_symbol_str(c, "f128");
-                    case clang::BuiltinType::Float16:
+                    case ZigClangBuiltinTypeFloat16:
                         return trans_create_node_symbol_str(c, "f16");
-                    case clang::BuiltinType::LongDouble:
+                    case ZigClangBuiltinTypeLongDouble:
                         return trans_create_node_symbol_str(c, "c_longdouble");
-                    case clang::BuiltinType::WChar_U:
-                    case clang::BuiltinType::Char16:
-                    case clang::BuiltinType::Char32:
-                    case clang::BuiltinType::WChar_S:
-                    case clang::BuiltinType::Half:
-                    case clang::BuiltinType::NullPtr:
-                    case clang::BuiltinType::ObjCId:
-                    case clang::BuiltinType::ObjCClass:
-                    case clang::BuiltinType::ObjCSel:
-                    case clang::BuiltinType::OMPArraySection:
-                    case clang::BuiltinType::Dependent:
-                    case clang::BuiltinType::Overload:
-                    case clang::BuiltinType::BoundMember:
-                    case clang::BuiltinType::PseudoObject:
-                    case clang::BuiltinType::UnknownAny:
-                    case clang::BuiltinType::BuiltinFn:
-                    case clang::BuiltinType::ARCUnbridgedCast:
-                    case clang::BuiltinType::ShortAccum:
-                    case clang::BuiltinType::Accum:
-                    case clang::BuiltinType::LongAccum:
-                    case clang::BuiltinType::UShortAccum:
-                    case clang::BuiltinType::UAccum:
-                    case clang::BuiltinType::ULongAccum:
+                    case ZigClangBuiltinTypeWChar_U:
+                    case ZigClangBuiltinTypeChar16:
+                    case ZigClangBuiltinTypeChar32:
+                    case ZigClangBuiltinTypeWChar_S:
+                    case ZigClangBuiltinTypeHalf:
+                    case ZigClangBuiltinTypeNullPtr:
+                    case ZigClangBuiltinTypeObjCId:
+                    case ZigClangBuiltinTypeObjCClass:
+                    case ZigClangBuiltinTypeObjCSel:
+                    case ZigClangBuiltinTypeOMPArraySection:
+                    case ZigClangBuiltinTypeDependent:
+                    case ZigClangBuiltinTypeOverload:
+                    case ZigClangBuiltinTypeBoundMember:
+                    case ZigClangBuiltinTypePseudoObject:
+                    case ZigClangBuiltinTypeUnknownAny:
+                    case ZigClangBuiltinTypeBuiltinFn:
+                    case ZigClangBuiltinTypeARCUnbridgedCast:
+                    case ZigClangBuiltinTypeShortAccum:
+                    case ZigClangBuiltinTypeAccum:
+                    case ZigClangBuiltinTypeLongAccum:
+                    case ZigClangBuiltinTypeUShortAccum:
+                    case ZigClangBuiltinTypeUAccum:
+                    case ZigClangBuiltinTypeULongAccum:
 
-                    case clang::BuiltinType::OCLImage1dRO:
-                    case clang::BuiltinType::OCLImage1dArrayRO:
-                    case clang::BuiltinType::OCLImage1dBufferRO:
-                    case clang::BuiltinType::OCLImage2dRO:
-                    case clang::BuiltinType::OCLImage2dArrayRO:
-                    case clang::BuiltinType::OCLImage2dDepthRO:
-                    case clang::BuiltinType::OCLImage2dArrayDepthRO:
-                    case clang::BuiltinType::OCLImage2dMSAARO:
-                    case clang::BuiltinType::OCLImage2dArrayMSAARO:
-                    case clang::BuiltinType::OCLImage2dMSAADepthRO:
-                    case clang::BuiltinType::OCLImage2dArrayMSAADepthRO:
-                    case clang::BuiltinType::OCLImage3dRO:
-                    case clang::BuiltinType::OCLImage1dWO:
-                    case clang::BuiltinType::OCLImage1dArrayWO:
-                    case clang::BuiltinType::OCLImage1dBufferWO:
-                    case clang::BuiltinType::OCLImage2dWO:
-                    case clang::BuiltinType::OCLImage2dArrayWO:
-                    case clang::BuiltinType::OCLImage2dDepthWO:
-                    case clang::BuiltinType::OCLImage2dArrayDepthWO:
-                    case clang::BuiltinType::OCLImage2dMSAAWO:
-                    case clang::BuiltinType::OCLImage2dArrayMSAAWO:
-                    case clang::BuiltinType::OCLImage2dMSAADepthWO:
-                    case clang::BuiltinType::OCLImage2dArrayMSAADepthWO:
-                    case clang::BuiltinType::OCLImage3dWO:
-                    case clang::BuiltinType::OCLImage1dRW:
-                    case clang::BuiltinType::OCLImage1dArrayRW:
-                    case clang::BuiltinType::OCLImage1dBufferRW:
-                    case clang::BuiltinType::OCLImage2dRW:
-                    case clang::BuiltinType::OCLImage2dArrayRW:
-                    case clang::BuiltinType::OCLImage2dDepthRW:
-                    case clang::BuiltinType::OCLImage2dArrayDepthRW:
-                    case clang::BuiltinType::OCLImage2dMSAARW:
-                    case clang::BuiltinType::OCLImage2dArrayMSAARW:
-                    case clang::BuiltinType::OCLImage2dMSAADepthRW:
-                    case clang::BuiltinType::OCLImage2dArrayMSAADepthRW:
-                    case clang::BuiltinType::OCLImage3dRW:
-                    case clang::BuiltinType::OCLSampler:
-                    case clang::BuiltinType::OCLEvent:
-                    case clang::BuiltinType::OCLClkEvent:
-                    case clang::BuiltinType::OCLQueue:
-                    case clang::BuiltinType::OCLReserveID:
-                    case clang::BuiltinType::ShortFract:
-                    case clang::BuiltinType::Fract:
-                    case clang::BuiltinType::LongFract:
-                    case clang::BuiltinType::UShortFract:
-                    case clang::BuiltinType::UFract:
-                    case clang::BuiltinType::ULongFract:
-                    case clang::BuiltinType::SatShortAccum:
-                    case clang::BuiltinType::SatAccum:
-                    case clang::BuiltinType::SatLongAccum:
-                    case clang::BuiltinType::SatUShortAccum:
-                    case clang::BuiltinType::SatUAccum:
-                    case clang::BuiltinType::SatULongAccum:
-                    case clang::BuiltinType::SatShortFract:
-                    case clang::BuiltinType::SatFract:
-                    case clang::BuiltinType::SatLongFract:
-                    case clang::BuiltinType::SatUShortFract:
-                    case clang::BuiltinType::SatUFract:
-                    case clang::BuiltinType::SatULongFract:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCMcePayload:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImePayload:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCRefPayload:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCSicPayload:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCMceResult:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResult:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCRefResult:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCSicResult:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
-                    case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
+                    case ZigClangBuiltinTypeOCLImage1dRO:
+                    case ZigClangBuiltinTypeOCLImage1dArrayRO:
+                    case ZigClangBuiltinTypeOCLImage1dBufferRO:
+                    case ZigClangBuiltinTypeOCLImage2dRO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayRO:
+                    case ZigClangBuiltinTypeOCLImage2dDepthRO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayDepthRO:
+                    case ZigClangBuiltinTypeOCLImage2dMSAARO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAARO:
+                    case ZigClangBuiltinTypeOCLImage2dMSAADepthRO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRO:
+                    case ZigClangBuiltinTypeOCLImage3dRO:
+                    case ZigClangBuiltinTypeOCLImage1dWO:
+                    case ZigClangBuiltinTypeOCLImage1dArrayWO:
+                    case ZigClangBuiltinTypeOCLImage1dBufferWO:
+                    case ZigClangBuiltinTypeOCLImage2dWO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayWO:
+                    case ZigClangBuiltinTypeOCLImage2dDepthWO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayDepthWO:
+                    case ZigClangBuiltinTypeOCLImage2dMSAAWO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAAWO:
+                    case ZigClangBuiltinTypeOCLImage2dMSAADepthWO:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthWO:
+                    case ZigClangBuiltinTypeOCLImage3dWO:
+                    case ZigClangBuiltinTypeOCLImage1dRW:
+                    case ZigClangBuiltinTypeOCLImage1dArrayRW:
+                    case ZigClangBuiltinTypeOCLImage1dBufferRW:
+                    case ZigClangBuiltinTypeOCLImage2dRW:
+                    case ZigClangBuiltinTypeOCLImage2dArrayRW:
+                    case ZigClangBuiltinTypeOCLImage2dDepthRW:
+                    case ZigClangBuiltinTypeOCLImage2dArrayDepthRW:
+                    case ZigClangBuiltinTypeOCLImage2dMSAARW:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAARW:
+                    case ZigClangBuiltinTypeOCLImage2dMSAADepthRW:
+                    case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRW:
+                    case ZigClangBuiltinTypeOCLImage3dRW:
+                    case ZigClangBuiltinTypeOCLSampler:
+                    case ZigClangBuiltinTypeOCLEvent:
+                    case ZigClangBuiltinTypeOCLClkEvent:
+                    case ZigClangBuiltinTypeOCLQueue:
+                    case ZigClangBuiltinTypeOCLReserveID:
+                    case ZigClangBuiltinTypeShortFract:
+                    case ZigClangBuiltinTypeFract:
+                    case ZigClangBuiltinTypeLongFract:
+                    case ZigClangBuiltinTypeUShortFract:
+                    case ZigClangBuiltinTypeUFract:
+                    case ZigClangBuiltinTypeULongFract:
+                    case ZigClangBuiltinTypeSatShortAccum:
+                    case ZigClangBuiltinTypeSatAccum:
+                    case ZigClangBuiltinTypeSatLongAccum:
+                    case ZigClangBuiltinTypeSatUShortAccum:
+                    case ZigClangBuiltinTypeSatUAccum:
+                    case ZigClangBuiltinTypeSatULongAccum:
+                    case ZigClangBuiltinTypeSatShortFract:
+                    case ZigClangBuiltinTypeSatFract:
+                    case ZigClangBuiltinTypeSatLongFract:
+                    case ZigClangBuiltinTypeSatUShortFract:
+                    case ZigClangBuiltinTypeSatUFract:
+                    case ZigClangBuiltinTypeSatULongFract:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCMcePayload:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImePayload:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCRefPayload:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCSicPayload:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCMceResult:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResult:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCRefResult:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCSicResult:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin:
+                    case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -2729,128 +2703,128 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
     switch (classs) {
         case ZigClangType_Builtin:
         {
-            const clang::BuiltinType *builtin_ty = reinterpret_cast<const clang::BuiltinType*>(ty);
-            switch (builtin_ty->getKind()) {
-                case clang::BuiltinType::Bool:
-                case clang::BuiltinType::Char_U:
-                case clang::BuiltinType::UChar:
-                case clang::BuiltinType::Char_S:
-                case clang::BuiltinType::SChar:
-                case clang::BuiltinType::UShort:
-                case clang::BuiltinType::UInt:
-                case clang::BuiltinType::ULong:
-                case clang::BuiltinType::ULongLong:
-                case clang::BuiltinType::Short:
-                case clang::BuiltinType::Int:
-                case clang::BuiltinType::Long:
-                case clang::BuiltinType::LongLong:
-                case clang::BuiltinType::UInt128:
-                case clang::BuiltinType::Int128:
-                case clang::BuiltinType::Float:
-                case clang::BuiltinType::Double:
-                case clang::BuiltinType::Float128:
-                case clang::BuiltinType::LongDouble:
-                case clang::BuiltinType::WChar_U:
-                case clang::BuiltinType::Char8:
-                case clang::BuiltinType::Char16:
-                case clang::BuiltinType::Char32:
-                case clang::BuiltinType::WChar_S:
-                case clang::BuiltinType::Float16:
+            const ZigClangBuiltinType *builtin_ty = reinterpret_cast<const ZigClangBuiltinType*>(ty);
+            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                case ZigClangBuiltinTypeBool:
+                case ZigClangBuiltinTypeChar_U:
+                case ZigClangBuiltinTypeUChar:
+                case ZigClangBuiltinTypeChar_S:
+                case ZigClangBuiltinTypeSChar:
+                case ZigClangBuiltinTypeUShort:
+                case ZigClangBuiltinTypeUInt:
+                case ZigClangBuiltinTypeULong:
+                case ZigClangBuiltinTypeULongLong:
+                case ZigClangBuiltinTypeShort:
+                case ZigClangBuiltinTypeInt:
+                case ZigClangBuiltinTypeLong:
+                case ZigClangBuiltinTypeLongLong:
+                case ZigClangBuiltinTypeUInt128:
+                case ZigClangBuiltinTypeInt128:
+                case ZigClangBuiltinTypeFloat:
+                case ZigClangBuiltinTypeDouble:
+                case ZigClangBuiltinTypeFloat128:
+                case ZigClangBuiltinTypeLongDouble:
+                case ZigClangBuiltinTypeWChar_U:
+                case ZigClangBuiltinTypeChar8:
+                case ZigClangBuiltinTypeChar16:
+                case ZigClangBuiltinTypeChar32:
+                case ZigClangBuiltinTypeWChar_S:
+                case ZigClangBuiltinTypeFloat16:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
-                case clang::BuiltinType::NullPtr:
+                case ZigClangBuiltinTypeNullPtr:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
                             trans_create_node(c, NodeTypeNullLiteral));
 
-                case clang::BuiltinType::Void:
-                case clang::BuiltinType::Half:
-                case clang::BuiltinType::ObjCId:
-                case clang::BuiltinType::ObjCClass:
-                case clang::BuiltinType::ObjCSel:
-                case clang::BuiltinType::OMPArraySection:
-                case clang::BuiltinType::Dependent:
-                case clang::BuiltinType::Overload:
-                case clang::BuiltinType::BoundMember:
-                case clang::BuiltinType::PseudoObject:
-                case clang::BuiltinType::UnknownAny:
-                case clang::BuiltinType::BuiltinFn:
-                case clang::BuiltinType::ARCUnbridgedCast:
-                case clang::BuiltinType::OCLImage1dRO:
-                case clang::BuiltinType::OCLImage1dArrayRO:
-                case clang::BuiltinType::OCLImage1dBufferRO:
-                case clang::BuiltinType::OCLImage2dRO:
-                case clang::BuiltinType::OCLImage2dArrayRO:
-                case clang::BuiltinType::OCLImage2dDepthRO:
-                case clang::BuiltinType::OCLImage2dArrayDepthRO:
-                case clang::BuiltinType::OCLImage2dMSAARO:
-                case clang::BuiltinType::OCLImage2dArrayMSAARO:
-                case clang::BuiltinType::OCLImage2dMSAADepthRO:
-                case clang::BuiltinType::OCLImage2dArrayMSAADepthRO:
-                case clang::BuiltinType::OCLImage3dRO:
-                case clang::BuiltinType::OCLImage1dWO:
-                case clang::BuiltinType::OCLImage1dArrayWO:
-                case clang::BuiltinType::OCLImage1dBufferWO:
-                case clang::BuiltinType::OCLImage2dWO:
-                case clang::BuiltinType::OCLImage2dArrayWO:
-                case clang::BuiltinType::OCLImage2dDepthWO:
-                case clang::BuiltinType::OCLImage2dArrayDepthWO:
-                case clang::BuiltinType::OCLImage2dMSAAWO:
-                case clang::BuiltinType::OCLImage2dArrayMSAAWO:
-                case clang::BuiltinType::OCLImage2dMSAADepthWO:
-                case clang::BuiltinType::OCLImage2dArrayMSAADepthWO:
-                case clang::BuiltinType::OCLImage3dWO:
-                case clang::BuiltinType::OCLImage1dRW:
-                case clang::BuiltinType::OCLImage1dArrayRW:
-                case clang::BuiltinType::OCLImage1dBufferRW:
-                case clang::BuiltinType::OCLImage2dRW:
-                case clang::BuiltinType::OCLImage2dArrayRW:
-                case clang::BuiltinType::OCLImage2dDepthRW:
-                case clang::BuiltinType::OCLImage2dArrayDepthRW:
-                case clang::BuiltinType::OCLImage2dMSAARW:
-                case clang::BuiltinType::OCLImage2dArrayMSAARW:
-                case clang::BuiltinType::OCLImage2dMSAADepthRW:
-                case clang::BuiltinType::OCLImage2dArrayMSAADepthRW:
-                case clang::BuiltinType::OCLImage3dRW:
-                case clang::BuiltinType::OCLSampler:
-                case clang::BuiltinType::OCLEvent:
-                case clang::BuiltinType::OCLClkEvent:
-                case clang::BuiltinType::OCLQueue:
-                case clang::BuiltinType::OCLReserveID:
-                case clang::BuiltinType::ShortAccum:
-                case clang::BuiltinType::Accum:
-                case clang::BuiltinType::LongAccum:
-                case clang::BuiltinType::UShortAccum:
-                case clang::BuiltinType::UAccum:
-                case clang::BuiltinType::ULongAccum:
-                case clang::BuiltinType::ShortFract:
-                case clang::BuiltinType::Fract:
-                case clang::BuiltinType::LongFract:
-                case clang::BuiltinType::UShortFract:
-                case clang::BuiltinType::UFract:
-                case clang::BuiltinType::ULongFract:
-                case clang::BuiltinType::SatShortAccum:
-                case clang::BuiltinType::SatAccum:
-                case clang::BuiltinType::SatLongAccum:
-                case clang::BuiltinType::SatUShortAccum:
-                case clang::BuiltinType::SatUAccum:
-                case clang::BuiltinType::SatULongAccum:
-                case clang::BuiltinType::SatShortFract:
-                case clang::BuiltinType::SatFract:
-                case clang::BuiltinType::SatLongFract:
-                case clang::BuiltinType::SatUShortFract:
-                case clang::BuiltinType::SatUFract:
-                case clang::BuiltinType::SatULongFract:
-                case clang::BuiltinType::OCLIntelSubgroupAVCMcePayload:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImePayload:
-                case clang::BuiltinType::OCLIntelSubgroupAVCRefPayload:
-                case clang::BuiltinType::OCLIntelSubgroupAVCSicPayload:
-                case clang::BuiltinType::OCLIntelSubgroupAVCMceResult:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImeResult:
-                case clang::BuiltinType::OCLIntelSubgroupAVCRefResult:
-                case clang::BuiltinType::OCLIntelSubgroupAVCSicResult:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImeResultSingleRefStreamout:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
-                case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
+                case ZigClangBuiltinTypeVoid:
+                case ZigClangBuiltinTypeHalf:
+                case ZigClangBuiltinTypeObjCId:
+                case ZigClangBuiltinTypeObjCClass:
+                case ZigClangBuiltinTypeObjCSel:
+                case ZigClangBuiltinTypeOMPArraySection:
+                case ZigClangBuiltinTypeDependent:
+                case ZigClangBuiltinTypeOverload:
+                case ZigClangBuiltinTypeBoundMember:
+                case ZigClangBuiltinTypePseudoObject:
+                case ZigClangBuiltinTypeUnknownAny:
+                case ZigClangBuiltinTypeBuiltinFn:
+                case ZigClangBuiltinTypeARCUnbridgedCast:
+                case ZigClangBuiltinTypeOCLImage1dRO:
+                case ZigClangBuiltinTypeOCLImage1dArrayRO:
+                case ZigClangBuiltinTypeOCLImage1dBufferRO:
+                case ZigClangBuiltinTypeOCLImage2dRO:
+                case ZigClangBuiltinTypeOCLImage2dArrayRO:
+                case ZigClangBuiltinTypeOCLImage2dDepthRO:
+                case ZigClangBuiltinTypeOCLImage2dArrayDepthRO:
+                case ZigClangBuiltinTypeOCLImage2dMSAARO:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAARO:
+                case ZigClangBuiltinTypeOCLImage2dMSAADepthRO:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRO:
+                case ZigClangBuiltinTypeOCLImage3dRO:
+                case ZigClangBuiltinTypeOCLImage1dWO:
+                case ZigClangBuiltinTypeOCLImage1dArrayWO:
+                case ZigClangBuiltinTypeOCLImage1dBufferWO:
+                case ZigClangBuiltinTypeOCLImage2dWO:
+                case ZigClangBuiltinTypeOCLImage2dArrayWO:
+                case ZigClangBuiltinTypeOCLImage2dDepthWO:
+                case ZigClangBuiltinTypeOCLImage2dArrayDepthWO:
+                case ZigClangBuiltinTypeOCLImage2dMSAAWO:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAAWO:
+                case ZigClangBuiltinTypeOCLImage2dMSAADepthWO:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthWO:
+                case ZigClangBuiltinTypeOCLImage3dWO:
+                case ZigClangBuiltinTypeOCLImage1dRW:
+                case ZigClangBuiltinTypeOCLImage1dArrayRW:
+                case ZigClangBuiltinTypeOCLImage1dBufferRW:
+                case ZigClangBuiltinTypeOCLImage2dRW:
+                case ZigClangBuiltinTypeOCLImage2dArrayRW:
+                case ZigClangBuiltinTypeOCLImage2dDepthRW:
+                case ZigClangBuiltinTypeOCLImage2dArrayDepthRW:
+                case ZigClangBuiltinTypeOCLImage2dMSAARW:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAARW:
+                case ZigClangBuiltinTypeOCLImage2dMSAADepthRW:
+                case ZigClangBuiltinTypeOCLImage2dArrayMSAADepthRW:
+                case ZigClangBuiltinTypeOCLImage3dRW:
+                case ZigClangBuiltinTypeOCLSampler:
+                case ZigClangBuiltinTypeOCLEvent:
+                case ZigClangBuiltinTypeOCLClkEvent:
+                case ZigClangBuiltinTypeOCLQueue:
+                case ZigClangBuiltinTypeOCLReserveID:
+                case ZigClangBuiltinTypeShortAccum:
+                case ZigClangBuiltinTypeAccum:
+                case ZigClangBuiltinTypeLongAccum:
+                case ZigClangBuiltinTypeUShortAccum:
+                case ZigClangBuiltinTypeUAccum:
+                case ZigClangBuiltinTypeULongAccum:
+                case ZigClangBuiltinTypeShortFract:
+                case ZigClangBuiltinTypeFract:
+                case ZigClangBuiltinTypeLongFract:
+                case ZigClangBuiltinTypeUShortFract:
+                case ZigClangBuiltinTypeUFract:
+                case ZigClangBuiltinTypeULongFract:
+                case ZigClangBuiltinTypeSatShortAccum:
+                case ZigClangBuiltinTypeSatAccum:
+                case ZigClangBuiltinTypeSatLongAccum:
+                case ZigClangBuiltinTypeSatUShortAccum:
+                case ZigClangBuiltinTypeSatUAccum:
+                case ZigClangBuiltinTypeSatULongAccum:
+                case ZigClangBuiltinTypeSatShortFract:
+                case ZigClangBuiltinTypeSatFract:
+                case ZigClangBuiltinTypeSatLongFract:
+                case ZigClangBuiltinTypeSatUShortFract:
+                case ZigClangBuiltinTypeSatUFract:
+                case ZigClangBuiltinTypeSatULongFract:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCMcePayload:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImePayload:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCRefPayload:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCSicPayload:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCMceResult:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResult:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCRefResult:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCSicResult:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultSingleRefStreamout:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin:
+                case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin:
                     return res;
             }
             break;
@@ -4268,8 +4242,8 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
     // TODO only emit this tag type if the enum tag type is not the default.
     // I don't know what the default is, need to figure out how clang is deciding.
     // it appears to at least be different across gcc/msvc
-    if (!c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), clang::BuiltinType::UInt) &&
-        !c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), clang::BuiltinType::Int))
+    if (!c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), ZigClangBuiltinTypeUInt) &&
+        !c_is_builtin_type(c, ZigClangEnumDecl_getIntegerType(enum_decl), ZigClangBuiltinTypeInt))
     {
         enum_node->data.container_decl.init_arg_expr = tag_int_type;
     }
