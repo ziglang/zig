@@ -99,9 +99,11 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
 }
 
 extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
-    var env_count: usize = 0;
-    while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast([*][*]u8, c_envp)[0..env_count];
+    const envp = if (builtin.os != builtin.Os.nspire) blk: {
+        var env_count: usize = 0;
+        while (c_envp[env_count] != null) : (env_count += 1) {}
+        break :blk @ptrCast([*][*]u8, c_envp)[0..env_count];
+    } else [][*]u8{};
     return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 

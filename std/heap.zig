@@ -117,8 +117,8 @@ pub const DirectAllocator = struct {
                 // dedicate enough space to the book-keeping.
                 data += @sizeOf(usize);
 
-                // find a memory location with correct alignment.  the alignment minus 
-                // the remainder of this mod operation is how many bytes forward we need 
+                // find a memory location with correct alignment.  the alignment minus
+                // the remainder of this mod operation is how many bytes forward we need
                 // to move to find an aligned byte.
                 const offset = alignment - (data % alignment);
 
@@ -212,8 +212,8 @@ pub const DirectAllocator = struct {
                 return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
             },
             Os.nspire => {
-                // we have to assume this memory was allocated with malloc_aligned.  
-                // this means the sizeof(size_t) bytes before data are the book-keeping 
+                // we have to assume this memory was allocated with malloc_aligned.
+                // this means the sizeof(size_t) bytes before data are the book-keeping
                 // which points to the location we need to pass to free.
                 const data = @ptrToInt(&old_mem[0]) - @sizeOf(usize);
 
