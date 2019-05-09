@@ -1718,9 +1718,9 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     while (true) {
         const file_name = readStringMem(&ptr);
         if (file_name.len == 0) break;
-        const dir_index = try leb.readULEB128Mem(u64, &ptr);
-        const mtime = try leb.readULEB128Mem(u64, &ptr);
-        const len_bytes = try leb.readULEB128Mem(u64, &ptr);
+        const dir_index = try leb.readULEB128Mem(usize, &ptr);
+        const mtime = try leb.readULEB128Mem(usize, &ptr);
+        const len_bytes = try leb.readULEB128Mem(usize, &ptr);
         try file_entries.append(FileEntry{
             .file_name = file_name,
             .dir_index = dir_index,
@@ -1749,9 +1749,9 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                 },
                 DW.LNE_define_file => {
                     const file_name = readStringMem(&ptr);
-                    const dir_index = try leb.readULEB128Mem(u64, &ptr);
-                    const mtime = try leb.readULEB128Mem(u64, &ptr);
-                    const len_bytes = try leb.readULEB128Mem(u64, &ptr);
+                    const dir_index = try leb.readULEB128Mem(usize, &ptr);
+                    const mtime = try leb.readULEB128Mem(usize, &ptr);
+                    const len_bytes = try leb.readULEB128Mem(usize, &ptr);
                     try file_entries.append(FileEntry{
                         .file_name = file_name,
                         .dir_index = dir_index,
@@ -1882,9 +1882,9 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
     while (true) {
         const file_name = try di.readString();
         if (file_name.len == 0) break;
-        const dir_index = try leb.readULEB128(u64, di.dwarf_in_stream);
-        const mtime = try leb.readULEB128(u64, di.dwarf_in_stream);
-        const len_bytes = try leb.readULEB128(u64, di.dwarf_in_stream);
+        const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
+        const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
+        const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
         try file_entries.append(FileEntry{
             .file_name = file_name,
             .dir_index = dir_index,
@@ -1914,9 +1914,9 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                 },
                 DW.LNE_define_file => {
                     const file_name = try di.readString();
-                    const dir_index = try leb.readULEB128(u64, di.dwarf_in_stream);
-                    const mtime = try leb.readULEB128(u64, di.dwarf_in_stream);
-                    const len_bytes = try leb.readULEB128(u64, di.dwarf_in_stream);
+                    const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
+                    const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
+                    const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
                     try file_entries.append(FileEntry{
                         .file_name = file_name,
                         .dir_index = dir_index,
