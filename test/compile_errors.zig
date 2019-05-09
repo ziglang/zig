@@ -3,6 +3,17 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempt to cast enum literal to error",
+        \\export fn entry() void {
+        \\    switch (error.Hi) {
+        \\        .Hi => {},
+        \\    }
+        \\}
+    ,
+        "tmp.zig:3:9: error: expected type 'error{Hi}', found '(enum literal)'",
+    );
+
+    cases.add(
         "@sizeOf bad type",
         \\export fn entry() void {
         \\    _ = @sizeOf(@typeOf(null));
