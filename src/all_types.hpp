@@ -1471,6 +1471,7 @@ enum BuiltinFnId {
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
+    BuiltinFnIdUnionInit,
 };
 
 struct BuiltinFnEntry {
@@ -2297,6 +2298,7 @@ enum IrInstructionId {
     IrInstructionIdArrayToVector,
     IrInstructionIdAssertZero,
     IrInstructionIdAssertNonNull,
+    IrInstructionIdUnionInit2,
 };
 
 struct IrInstruction {
@@ -3501,6 +3503,17 @@ struct IrInstructionAssertNonNull {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+// TODO, need a better name. Using 2 because there is currently a IrInstructionUnionInit
+// It seems like the first one should only be used during the analyze phase, but still
+// don't understand it all.
+struct IrInstructionUnionInit2 {
+    IrInstruction base;
+
+    IrInstruction *union_type_value;
+    IrInstruction *field_name_expr;
+    IrInstruction *value;
 };
 
 static const size_t slice_ptr_index = 0;

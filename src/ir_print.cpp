@@ -1453,6 +1453,17 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_va
     }
 }
 
+
+static void ir_print_uniont_init_2(IrPrint *irp, IrInstructionUnionInit2 *instruction) {
+    fprintf(irp->f, "@unionInit(");
+    ir_print_other_instruction(irp, instruction->union_type_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->field_name_expr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1919,6 +1930,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResizeSlice:
             ir_print_resize_slice(irp, (IrInstructionResizeSlice *)instruction);
+            break;
+        case IrInstructionIdUnionInit2:
+            ir_print_uniont_init_2(irp, (IrInstructionUnionInit2 *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
