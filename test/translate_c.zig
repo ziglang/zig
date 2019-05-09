@@ -2,6 +2,12 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("macro with left shift",
+        \\#define REDISMODULE_READ (1<<0)
+    ,
+        \\pub const REDISMODULE_READ = 1 << 0;
+    );
+
     cases.add("casting pointers to ints and ints to pointers",
         \\void foo(void);
         \\void bar(void) {

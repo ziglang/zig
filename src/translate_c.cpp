@@ -4922,6 +4922,8 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
         case CTokIdAsterisk:
         case CTokIdBang:
         case CTokIdTilde:
+        case CTokIdShl:
+        case CTokIdLt:
             // not able to make sense of this
             return nullptr;
     }
@@ -4953,6 +4955,13 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
             *tok_i += 1;
 
             node = trans_create_node_ptr_type(c, false, false, node, PtrLenC);
+        } else if (first_tok->id == CTokIdShl) {
+            *tok_i += 1;
+
+            AstNode *rhs_node = parse_ctok_expr(c, ctok, tok_i);
+            if (rhs_node == nullptr)
+                return nullptr;
+            node = trans_create_node_bin_op(c, node, BinOpTypeBitShiftLeft, rhs_node);
         } else {
             return node;
         }
