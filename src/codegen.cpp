@@ -7870,6 +7870,30 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         //assert(EndianLittle == 1);
     }
     {
+        buf_appendf(contents,
+        "pub const SubSystem = enum {\n"
+        "    Auto,\n"
+        "    Console,\n"
+        "    Windows,\n"
+        "    Posix,\n"
+        "    Native,\n"
+        "    EfiApplication,\n"
+        "    EfiBootServiceDriver,\n"
+        "    EfiRom,\n"
+        "    EfiRuntimeDriver,\n"
+        "};\n\n");
+
+        assert(TargetSubsystemAuto == 0);
+        assert(TargetSubsystemConsole == 1);
+        assert(TargetSubsystemWindows == 2);
+        assert(TargetSubsystemPosix == 3);
+        assert(TargetSubsystemNative == 4);
+        assert(TargetSubsystemEfiApplication == 5);
+        assert(TargetSubsystemEfiBootServiceDriver == 6);
+        assert(TargetSubsystemEfiRom == 7);
+        assert(TargetSubsystemEfiRuntimeDriver == 8);
+    }
+    {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
     }
@@ -7884,6 +7908,21 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
+
+    {
+        static const char* subsystem_strings[] = {
+            "Auto",
+            "Console",
+            "Windows",
+            "Posix",
+            "Native",
+            "EfiApplication",
+            "EfiBootServiceDriver",
+            "EfiRom",
+            "EfiRuntimeDriver",
+        };
+        buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[g->subsystem]);
+    }
 
     if (g->is_test_build) {
         buf_appendf(contents,
@@ -7928,6 +7967,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
+    cache_int(&cache_hash, g->subsystem);
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
