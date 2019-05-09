@@ -806,13 +806,13 @@ pub const enum_ZigClangAPValueKind = extern enum {
     ZigClangAPValueAddrLabelDiff,
 };
 pub extern fn ZigClangSourceManager_getSpellingLoc(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
-pub extern fn ZigClangSourceManager_getFilename(arg0: ?*const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) [*c]const u8;
+pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
 pub extern fn ZigClangSourceManager_getSpellingColumnNumber(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
 pub extern fn ZigClangSourceManager_getCharacterData(arg0: ?*const struct_ZigClangSourceManager, SL: struct_ZigClangSourceLocation) [*c]const u8;
 pub extern fn ZigClangASTContext_getPointerType(arg0: ?*const struct_ZigClangASTContext, T: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangASTUnit_getASTContext(arg0: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
-pub extern fn ZigClangASTUnit_getSourceManager(arg0: ?*struct_ZigClangASTUnit) ?*struct_ZigClangSourceManager;
+pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;
 pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?extern fn (?*c_void, *const struct_ZigClangDecl) bool) bool;
 pub extern fn ZigClangRecordType_getDecl(record_ty: ?*const struct_ZigClangRecordType) ?*const struct_ZigClangRecordDecl;
 pub extern fn ZigClangEnumType_getDecl(record_ty: ?*const struct_ZigClangEnumType) ?*const struct_ZigClangEnumDecl;
@@ -824,6 +824,7 @@ pub extern fn ZigClangEnumDecl_getDefinition(arg0: ?*const struct_ZigClangEnumDe
 pub extern fn ZigClangRecordDecl_getLocation(arg0: ?*const struct_ZigClangRecordDecl) struct_ZigClangSourceLocation;
 pub extern fn ZigClangEnumDecl_getLocation(arg0: ?*const struct_ZigClangEnumDecl) struct_ZigClangSourceLocation;
 pub extern fn ZigClangTypedefNameDecl_getLocation(arg0: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangSourceLocation;
+pub extern fn ZigClangDecl_getLocation(self: *const ZigClangDecl) ZigClangSourceLocation;
 pub extern fn ZigClangRecordDecl_isUnion(record_decl: ?*const struct_ZigClangRecordDecl) bool;
 pub extern fn ZigClangRecordDecl_isStruct(record_decl: ?*const struct_ZigClangRecordDecl) bool;
 pub extern fn ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl: ?*const struct_ZigClangRecordDecl) bool;
@@ -833,7 +834,7 @@ pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: str
 pub extern fn ZigClangTypedefType_getDecl(arg0: ?*const struct_ZigClangTypedefType) ?*const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(arg0: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getCanonicalType(arg0: struct_ZigClangQualType) struct_ZigClangQualType;
-pub extern fn ZigClangQualType_getTypePtr(arg0: struct_ZigClangQualType) ?*const struct_ZigClangType;
+pub extern fn ZigClangQualType_getTypePtr(self: struct_ZigClangQualType) *const struct_ZigClangType;
 pub extern fn ZigClangQualType_addConst(arg0: [*c]struct_ZigClangQualType) void;
 pub extern fn ZigClangQualType_eq(arg0: struct_ZigClangQualType, arg1: struct_ZigClangQualType) bool;
 pub extern fn ZigClangQualType_isConstQualified(arg0: struct_ZigClangQualType) bool;
@@ -841,7 +842,7 @@ pub extern fn ZigClangQualType_isVolatileQualified(arg0: struct_ZigClangQualType
 pub extern fn ZigClangQualType_isRestrictQualified(arg0: struct_ZigClangQualType) bool;
 pub extern fn ZigClangType_getTypeClass(self: ?*const struct_ZigClangType) enum_ZigClangTypeClass;
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
-pub extern fn ZigClangType_getTypeClassName(self: ?*const struct_ZigClangType) [*c]const u8;
+pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*]const u8;
 pub extern fn ZigClangStmt_getBeginLoc(self: ?*const struct_ZigClangStmt) struct_ZigClangSourceLocation;
 pub extern fn ZigClangStmt_getStmtClass(self: ?*const struct_ZigClangStmt) enum_ZigClangStmtClass;
 pub extern fn ZigClangStmt_classof_Expr(self: ?*const struct_ZigClangStmt) bool;
@@ -863,6 +864,10 @@ pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*c
 pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
 pub extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(self: struct_ZigClangAPValueLValueBase) ?*const struct_ZigClangExpr;
 pub extern fn ZigClangASTUnit_delete(arg0: ?*struct_ZigClangASTUnit) void;
+
+pub extern fn ZigClangFunctionDecl_getType(self: *const struct_ZigClangFunctionDecl) struct_ZigClangQualType;
+pub extern fn ZigClangFunctionDecl_getLocation(self: *const struct_ZigClangFunctionDecl) struct_ZigClangSourceLocation;
+
 pub const ZigClangSourceLocation = struct_ZigClangSourceLocation;
 pub const ZigClangQualType = struct_ZigClangQualType;
 pub const ZigClangAPValueLValueBase = struct_ZigClangAPValueLValueBase;
@@ -944,6 +949,10 @@ pub const ZigClangStmtClass = enum_ZigClangStmtClass;
 pub const ZigClangCK = enum_ZigClangCK;
 pub const ZigClangAPValueKind = enum_ZigClangAPValueKind;
 
+pub const struct_ZigClangSourceLocation = extern struct {
+    ID: c_uint,
+};
+
 pub const Stage2ErrorMsg = extern struct {
     filename_ptr: ?[*]const u8,
     filename_len: usize,
@@ -968,8 +977,8 @@ pub extern fn ZigClangLoadFromCommandLine(
     resources_path: [*c]const u8,
 ) ?*ZigClangASTUnit;
 
-
 pub extern fn ZigClangDecl_getKind(decl: *const ZigClangDecl) ZigClangDeclKind;
+pub extern fn ZigClangDecl_getDeclKindName(decl: *const struct_ZigClangDecl) [*]const u8;
 
 pub const ZigClangDeclKind = extern enum {
     AccessSpec,
@@ -1046,4 +1055,8 @@ pub const ZigClangDeclKind = extern enum {
     PragmaDetectMismatch,
     StaticAssert,
     TranslationUnit,
+};
+
+pub const struct_ZigClangQualType = extern struct {
+    ptr: ?*c_void,
 };

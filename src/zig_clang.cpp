@@ -1142,6 +1142,16 @@ ZigClangQualType ZigClangEnumDecl_getIntegerType(const ZigClangEnumDecl *self) {
     return bitcast(reinterpret_cast<const clang::EnumDecl *>(self)->getIntegerType());
 }
 
+struct ZigClangQualType ZigClangFunctionDecl_getType(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return bitcast(casted->getType());
+}
+
+struct ZigClangSourceLocation ZigClangFunctionDecl_getLocation(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return bitcast(casted->getLocation());
+}
+
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
     auto casted = reinterpret_cast<const clang::TypedefType *>(self);
     const clang::TypedefNameDecl *name_decl = casted->getDecl();
