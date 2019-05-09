@@ -938,3 +938,15 @@ test "enum literal in array literal" {
     expect(array[0] == .one);
     expect(array[1] == .two);
 }
+
+test "signed integer as enum tag" {
+    const SignedEnum = enum (i2) {
+        A0 = -1,
+        A1 =  0,
+        A2 =  1,
+    };
+
+    expect(@enumToInt(SignedEnum.A0) == -1);
+    expect(@enumToInt(SignedEnum.A1) ==  0);
+    expect(@enumToInt(SignedEnum.A2) ==  1);
+}

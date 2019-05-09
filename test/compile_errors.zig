@@ -5397,7 +5397,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = Small.One;
         \\}
     ,
-        "tmp.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
+        "tmp.zig:6:5: error: enumeration value 4 too large for type 'u2'"
     );
 
     cases.add(
@@ -5446,22 +5446,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
-    );
-
-    cases.add(
-        "non unsigned integer enum tag type",
-        \\const Small = enum(i2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var y = Small.Two;
-        \\}
-    ,
-        "tmp.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(

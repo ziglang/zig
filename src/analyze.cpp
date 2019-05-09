@@ -2005,15 +2005,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                             buf_ptr(&wanted_tag_int_type->name)));
             add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("valid types are 'i8', 'c_int' and 'c_uint' or compatible types"));
-        } else if (wanted_tag_int_type->data.integral.is_signed) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
-                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
         } else {
             tag_int_type = wanted_tag_int_type;
         }
@@ -2078,30 +2069,46 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     }
 
     // Now iterate again and populate the unspecified tag values
-    uint32_t next_maybe_unoccupied_index = 0;
+    BigInt next_maybe_unoccupied_index;
+    bigint_init_unsigned(&next_maybe_unoccupied_index, 0);
+
+    // Since we're allocating positive values only we have one less bit
+    // available if the tag type is signed (eg. for a i8 we can only use (0,127))
+    unsigned tag_bit_width = tag_int_type->size_in_bits;
+    if (tag_int_type->data.integral.is_signed)
+        tag_bit_width--;
 
     for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
         AstNode *tag_value = field_node->data.struct_field.value;
 
-        if (tag_value == nullptr) {
-            if (occupied_tag_values.size() == 0) {
-                bigint_init_unsigned(&type_enum_field->value, next_maybe_unoccupied_index);
-                next_maybe_unoccupied_index += 1;
-            } else {
-                BigInt proposed_value;
-                for (;;) {
-                    bigint_init_unsigned(&proposed_value, next_maybe_unoccupied_index);
-                    next_maybe_unoccupied_index += 1;
-                    auto entry = occupied_tag_values.put_unique(proposed_value, field_node);
-                    if (entry != nullptr) {
-                        continue;
-                    }
+        // Already handled in the loop above
+        if (tag_value != nullptr)
+            continue;
+
+        // Make sure we can represent this number with tag_int_type
+        const unsigned repr_bits = bigint_bits_needed(&next_maybe_unoccupied_index);
+        if (repr_bits > tag_bit_width) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, field_node,
+               buf_sprintf("enumeration value %" ZIG_PRI_u64 " too large for type '%s'",
+                    bigint_as_unsigned(&next_maybe_unoccupied_index),
+                    buf_ptr(&tag_int_type->name)));
+            break;
+        }
+
+        if (occupied_tag_values.size() == 0) {
+            type_enum_field->value = next_maybe_unoccupied_index;
+            bigint_incr(&next_maybe_unoccupied_index);
+        } else {
+            for (;;) {
+                auto entry = occupied_tag_values.put_unique(next_maybe_unoccupied_index, field_node);
+                if (entry == nullptr)
                     break;
-                }
-                bigint_init_bigint(&type_enum_field->value, &proposed_value);
+                bigint_incr(&next_maybe_unoccupied_index);
             }
+            type_enum_field->value = next_maybe_unoccupied_index;
         }
     }
 
