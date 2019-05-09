@@ -2,21 +2,27 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
+pub extern fn __extendsfdf2(a: f32) f64 {
+    return @inlineCall(extendXfYf2, f64, f32, @bitCast(u32, a));
+}
+
 pub extern fn __extenddftf2(a: f64) f128 {
-    return extendXfYf2(f128, f64, @bitCast(u64, a));
+    return @inlineCall(extendXfYf2, f128, f64, @bitCast(u64, a));
 }
 
 pub extern fn __extendsftf2(a: f32) f128 {
-    return extendXfYf2(f128, f32, @bitCast(u32, a));
+    return @inlineCall(extendXfYf2, f128, f32, @bitCast(u32, a));
 }
 
 pub extern fn __extendhfsf2(a: u16) f32 {
-    return extendXfYf2(f32, f16, a);
+    return @inlineCall(extendXfYf2, f32, f16, a);
 }
 
 const CHAR_BIT = 8;
 
-inline fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @typeInfo(src_t).Float.bits)) dst_t {
+fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @typeInfo(src_t).Float.bits)) dst_t {
+    @setRuntimeSafety(builtin.is_test);
+
     const src_rep_t = @IntType(false, @typeInfo(src_t).Float.bits);
     const dst_rep_t = @IntType(false, @typeInfo(dst_t).Float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);

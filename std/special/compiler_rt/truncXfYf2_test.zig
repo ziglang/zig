@@ -200,3 +200,40 @@ test "trunctfdf2" {
     test__trunctfdf2(0x1.2f34dd5f437e849b4baab754cdefp+4534, 0x7ff0000000000000);
     test__trunctfdf2(0x1.edcbff8ad76ab5bf46463233214fp-435, 0x24cedcbff8ad76ab);
 }
+
+const __truncdfsf2 = @import("truncXfYf2.zig").__truncdfsf2;
+
+fn test__truncdfsf2(a: f64, expected: u32) void {
+    const x = __truncdfsf2(a);
+
+    const rep = @bitCast(u32, x);
+    if (rep == expected) {
+        return;
+    }
+    // test other possible NaN representation(signal NaN)
+    else if (expected == 0x7fc00000) {
+        if ((rep & 0x7f800000) == 0x7f800000 and (rep & 0x7fffff) > 0) {
+            return;
+        }
+    }
+
+    @import("std").debug.warn("got 0x{x} wanted 0x{x}\n", rep, expected);
+
+    @panic("__trunctfsf2 test failure");
+}
+
+test "truncdfsf2" {
+    // nan & qnan
+    test__truncdfsf2(@bitCast(f64, u64(0x7ff8000000000000)), 0x7fc00000);
+    test__truncdfsf2(@bitCast(f64, u64(0x7ff0000000000001)), 0x7fc00000);
+    // inf
+    test__truncdfsf2(@bitCast(f64, u64(0x7ff0000000000000)), 0x7f800000);
+    test__truncdfsf2(@bitCast(f64, u64(0xfff0000000000000)), 0xff800000);
+
+    test__truncdfsf2(0.0, 0x0);
+    test__truncdfsf2(1.0, 0x3f800000);
+    test__truncdfsf2(-1.0, 0xbf800000);
+
+    // huge number becomes inf
+    test__truncdfsf2(340282366920938463463374607431768211456.0, 0x7f800000);
+}

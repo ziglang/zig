@@ -62,6 +62,13 @@ comptime {
     @export("__divsf3", @import("compiler_rt/divsf3.zig").__divsf3, linkage);
     @export("__divdf3", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
 
+    @export("__floatsidf", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
+    @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
+    @export("__floatdidf", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
+    @export("__floatsitf", @import("compiler_rt/floatsiXf.zig").__floatsitf, linkage);
+    @export("__floatunsidf", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
+    @export("__floatundidf", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
+
     @export("__floattitf", @import("compiler_rt/floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("compiler_rt/floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("compiler_rt/floattisf.zig").__floattisf, linkage);
@@ -81,6 +88,10 @@ comptime {
     @export("__truncdfhf2", @import("compiler_rt/truncXfYf2.zig").__truncdfhf2, linkage);
     @export("__trunctfdf2", @import("compiler_rt/truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("compiler_rt/truncXfYf2.zig").__trunctfsf2, linkage);
+
+    @export("__truncdfsf2", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
+
+    @export("__extendsfdf2", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
 
     @export("__fixunssfsi", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
@@ -107,6 +118,7 @@ comptime {
     @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
     @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
+    @export("__divmoddi4", __divmoddi4, linkage);
     @export("__divsi3", __divsi3, linkage);
     @export("__divdi3", __divdi3, linkage);
     @export("__udivsi3", __udivsi3, linkage);
@@ -122,10 +134,15 @@ comptime {
     @export("__negdf2", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
     if (is_arm_arch and !is_arm_64) {
+        @export("__aeabi_unwind_cpp_pr0", __aeabi_unwind_cpp_pr0, strong_linkage);
+        @export("__aeabi_unwind_cpp_pr1", __aeabi_unwind_cpp_pr1, linkage);
+        @export("__aeabi_unwind_cpp_pr2", __aeabi_unwind_cpp_pr2, linkage);
+
+        @export("__aeabi_ldivmod", __aeabi_ldivmod, linkage);
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
 
         @export("__aeabi_idiv", __divsi3, linkage);
-        @export("__aeabi_idivmod", __divmodsi4, linkage);
+        @export("__aeabi_idivmod", __aeabi_idivmod, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
 
@@ -149,6 +166,12 @@ comptime {
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
 
+        @export("__aeabi_f2d", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
+        @export("__aeabi_i2d", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
+        @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
+        @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
+        @export("__aeabi_ul2d", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
+
         @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
         @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
@@ -167,6 +190,9 @@ comptime {
 
         @export("__aeabi_h2f", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
         @export("__aeabi_f2h", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
+
+        @export("__aeabi_i2f", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
+        @export("__aeabi_d2f", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
 
         @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
         @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
@@ -250,6 +276,24 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     }
 }
 
+extern fn __aeabi_unwind_cpp_pr0() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr1() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr2() void {
+    unreachable;
+}
+
+extern fn __divmoddi4(a: i64, b: i64, rem: *i64) i64 {
+    @setRuntimeSafety(is_test);
+
+    const d = __divdi3(a, b);
+    rem.* = a -% (d *% b);
+    return d;
+}
+
 extern fn __divdi3(a: i64, b: i64) i64 {
     @setRuntimeSafety(is_test);
 
@@ -290,14 +334,35 @@ extern fn __umoddi3(a: u64, b: u64) u64 {
     return r;
 }
 
-const AeabiUlDivModResult = extern struct {
-    quot: u64,
-    rem: u64,
-};
-extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult {
+extern fn __aeabi_uidivmod(n: u32, d: u32) extern struct{q: u32, r: u32} {
     @setRuntimeSafety(is_test);
-    var result: AeabiUlDivModResult = undefined;
-    result.quot = __udivmoddi4(numerator, denominator, &result.rem);
+
+    var result: @typeOf(__aeabi_uidivmod).ReturnType = undefined;
+    result.q = __udivmodsi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_uldivmod(n: u64, d: u64) extern struct{q: u64, r: u64} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_uldivmod).ReturnType = undefined;
+    result.q = __udivmoddi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_idivmod(n: i32, d: i32) extern struct{q: i32, r: i32} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_idivmod).ReturnType = undefined;
+    result.q = __divmodsi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_ldivmod(n: i64, d: i64) extern struct{q: i64, r:i64} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_ldivmod).ReturnType = undefined;
+    result.q = __divmoddi4(n, d, &result.r);
     return result;
 }
 
@@ -389,22 +454,6 @@ test "usesThumb1" {
     testing.expect(!usesThumb1(builtin.Arch.x86_64));
     testing.expect(!usesThumb1(builtin.Arch.riscv32));
     //etc.
-}
-
-nakedcc fn __aeabi_uidivmod() void {
-    @setRuntimeSafety(false);
-    asm volatile (
-        \\ push    { lr }
-        \\ sub     sp, sp, #4
-        \\ mov     r2, sp
-        \\ bl      __udivmodsi4
-        \\ ldr     r1, [sp]
-        \\ add     sp, sp, #4
-        \\ pop     { pc }
-            :
-        :
-        : "r2", "r1"
-    );
 }
 
 nakedcc fn __aeabi_memcpy() noreturn {
