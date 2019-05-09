@@ -101,6 +101,7 @@ struct ZigClangUnaryOperator;
 struct ZigClangValueDecl;
 struct ZigClangVarDecl;
 struct ZigClangWhileStmt;
+struct ZigClangFunctionType;
 
 enum ZigClangBO {
     ZigClangBO_PtrMemD,
@@ -678,6 +679,27 @@ enum ZigClangBuiltinTypeKind {
     ZigClangBuiltinTypeOMPArraySection,
 };
 
+enum ZigClangCallingConv {
+    ZigClangCallingConv_C,           // __attribute__((cdecl))
+    ZigClangCallingConv_X86StdCall,  // __attribute__((stdcall))
+    ZigClangCallingConv_X86FastCall, // __attribute__((fastcall))
+    ZigClangCallingConv_X86ThisCall, // __attribute__((thiscall))
+    ZigClangCallingConv_X86VectorCall, // __attribute__((vectorcall))
+    ZigClangCallingConv_X86Pascal,   // __attribute__((pascal))
+    ZigClangCallingConv_Win64,       // __attribute__((ms_abi))
+    ZigClangCallingConv_X86_64SysV,  // __attribute__((sysv_abi))
+    ZigClangCallingConv_X86RegCall, // __attribute__((regcall))
+    ZigClangCallingConv_AAPCS,       // __attribute__((pcs("aapcs")))
+    ZigClangCallingConv_AAPCS_VFP,   // __attribute__((pcs("aapcs-vfp")))
+    ZigClangCallingConv_IntelOclBicc, // __attribute__((intel_ocl_bicc))
+    ZigClangCallingConv_SpirFunction, // default for OpenCL functions on SPIR target
+    ZigClangCallingConv_OpenCLKernel, // inferred for OpenCL kernels
+    ZigClangCallingConv_Swift,        // __attribute__((swiftcall))
+    ZigClangCallingConv_PreserveMost, // __attribute__((preserve_most))
+    ZigClangCallingConv_PreserveAll,  // __attribute__((preserve_all))
+    ZigClangCallingConv_AArch64VectorCall, // __attribute__((aarch64_vector_pcs))
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -775,5 +797,9 @@ ZIG_EXTERN_C unsigned ZigClangAPSInt_getNumWords(const struct ZigClangAPSInt *se
 ZIG_EXTERN_C const struct ZigClangExpr *ZigClangAPValueLValueBase_dyn_cast_Expr(struct ZigClangAPValueLValueBase self);
 
 ZIG_EXTERN_C enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self);
+
+ZIG_EXTERN_C bool ZigClangFunctionType_getNoReturnAttr(const struct ZigClangFunctionType *self);
+ZIG_EXTERN_C enum ZigClangCallingConv ZigClangFunctionType_getCallConv(const struct ZigClangFunctionType *self);
+ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionType_getReturnType(const struct ZigClangFunctionType *self);
 
 #endif

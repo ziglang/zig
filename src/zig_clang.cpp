@@ -1193,6 +1193,49 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBuiltinFn == clang::B
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeARCUnbridgedCast == clang::BuiltinType::ARCUnbridgedCast, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOMPArraySection == clang::BuiltinType::OMPArraySection, "");
 
+void ZigClang_detect_enum_CallingConv(clang::CallingConv x) {
+    switch (x) {
+        case clang::CC_C:
+        case clang::CC_X86StdCall:
+        case clang::CC_X86FastCall:
+        case clang::CC_X86ThisCall:
+        case clang::CC_X86VectorCall:
+        case clang::CC_X86Pascal:
+        case clang::CC_Win64:
+        case clang::CC_X86_64SysV:
+        case clang::CC_X86RegCall:
+        case clang::CC_AAPCS:
+        case clang::CC_AAPCS_VFP:
+        case clang::CC_IntelOclBicc:
+        case clang::CC_SpirFunction:
+        case clang::CC_OpenCLKernel:
+        case clang::CC_Swift:
+        case clang::CC_PreserveMost:
+        case clang::CC_PreserveAll:
+        case clang::CC_AArch64VectorCall:
+            break;
+    }
+}
+
+static_assert((clang::CallingConv)ZigClangCallingConv_C == clang::CC_C, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86StdCall == clang::CC_X86StdCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86FastCall == clang::CC_X86FastCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86ThisCall == clang::CC_X86ThisCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86VectorCall == clang::CC_X86VectorCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86Pascal == clang::CC_X86Pascal, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_Win64 == clang::CC_Win64, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86_64SysV == clang::CC_X86_64SysV, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_X86RegCall == clang::CC_X86RegCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_AAPCS == clang::CC_AAPCS, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_AAPCS_VFP == clang::CC_AAPCS_VFP, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_IntelOclBicc == clang::CC_IntelOclBicc, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_SpirFunction == clang::CC_SpirFunction, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_OpenCLKernel == clang::CC_OpenCLKernel, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_Swift == clang::CC_Swift, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_PreserveMost == clang::CC_PreserveMost, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_PreserveAll == clang::CC_PreserveAll, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_AArch64VectorCall == clang::CC_AArch64VectorCall, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1692,4 +1735,19 @@ void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
     auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
     return (ZigClangBuiltinTypeKind)casted->getKind();
+}
+
+bool ZigClangFunctionType_getNoReturnAttr(const struct ZigClangFunctionType *self) {
+    auto casted = reinterpret_cast<const clang::FunctionType *>(self);
+    return casted->getNoReturnAttr();
+}
+
+enum ZigClangCallingConv ZigClangFunctionType_getCallConv(const struct ZigClangFunctionType *self) {
+    auto casted = reinterpret_cast<const clang::FunctionType *>(self);
+    return (ZigClangCallingConv)casted->getCallConv();
+}
+
+struct ZigClangQualType ZigClangFunctionType_getReturnType(const struct ZigClangFunctionType *self) {
+    auto casted = reinterpret_cast<const clang::FunctionType *>(self);
+    return bitcast(casted->getReturnType());
 }

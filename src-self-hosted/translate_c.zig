@@ -11,6 +11,15 @@ pub const Mode = enum {
     translate,
 };
 
+// TODO merge with Type.Fn.CallingConvention
+pub const CallingConvention = enum {
+    auto,
+    c,
+    cold,
+    naked,
+    stdcall,
+};
+
 pub const ClangErrMsg = Stage2ErrorMsg;
 
 pub const Error = error{
@@ -165,9 +174,95 @@ fn transQualType(c: *Context, qt: ZigClangQualType, source_loc: ZigClangSourceLo
 }
 
 fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) !*ast.Node {
-    const type_name = c.str(ZigClangType_getTypeClassName(ty));
-    try emitWarning(c, source_loc, "unsupported type: '{}'", type_name);
-    return error.UnsupportedType;
+    switch (ZigClangType_getTypeClass(ty)) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                else => {
+                    try emitWarning(c, source_loc, "unsupported builtin type");
+                    return error.UnsupportedType;
+                },
+            }
+        },
+        .FunctionProto => {
+            const fn_ty = @ptrCast(*const ZigClangFunctionType, ty);
+            const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
+                .C => CallingConvention.c,
+                .X86StdCall => CallingConvention.stdcall,
+                .X86FastCall => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 fastcall");
+                    return error.UnsupportedType;
+                },
+                .X86ThisCall => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 thiscall");
+                    return error.UnsupportedType;
+                },
+                .X86VectorCall => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 vectorcall");
+                    return error.UnsupportedType;
+                },
+                .X86Pascal => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 pascal");
+                    return error.UnsupportedType;
+                },
+                .Win64 => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: win64");
+                    return error.UnsupportedType;
+                },
+                .X86_64SysV => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 64sysv");
+                    return error.UnsupportedType;
+                },
+                .X86RegCall => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: x86 reg");
+                    return error.UnsupportedType;
+                },
+                .AAPCS => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: aapcs");
+                    return error.UnsupportedType;
+                },
+                .AAPCS_VFP => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: aapcs-vfp");
+                    return error.UnsupportedType;
+                },
+                .IntelOclBicc => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: intel_ocl_bicc");
+                    return error.UnsupportedType;
+                },
+                .SpirFunction => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: SPIR function");
+                    return error.UnsupportedType;
+                },
+                .OpenCLKernel => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: OpenCLKernel");
+                    return error.UnsupportedType;
+                },
+                .Swift => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: Swift");
+                    return error.UnsupportedType;
+                },
+                .PreserveMost => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: PreserveMost");
+                    return error.UnsupportedType;
+                },
+                .PreserveAll => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: PreserveAll");
+                    return error.UnsupportedType;
+                },
+                .AArch64VectorCall => {
+                    try emitWarning(c, source_loc, "unsupported calling convention: AArch64VectorCall");
+                    return error.UnsupportedType;
+                },
+            };
+            try emitWarning(c, source_loc, "TODO: implement transType for FunctionProto");
+            return error.UnsupportedType;
+        },
+        else => {
+            const type_name = c.str(ZigClangType_getTypeClassName(ty));
+            try emitWarning(c, source_loc, "unsupported type: '{}'", type_name);
+            return error.UnsupportedType;
+        },
+    }
 }
 
 fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: ...) !void {

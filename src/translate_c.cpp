@@ -1061,72 +1061,72 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
         case ZigClangType_FunctionProto:
         case ZigClangType_FunctionNoProto:
             {
-                const clang::FunctionType *fn_ty = reinterpret_cast<const clang::FunctionType*>(ty);
+                const ZigClangFunctionType *fn_ty = reinterpret_cast<const ZigClangFunctionType*>(ty);
 
                 AstNode *proto_node = trans_create_node(c, NodeTypeFnProto);
-                switch (fn_ty->getCallConv()) {
-                    case clang::CC_C:           // __attribute__((cdecl))
+                switch (ZigClangFunctionType_getCallConv(fn_ty)) {
+                    case ZigClangCallingConv_C:           // __attribute__((cdecl))
                         proto_node->data.fn_proto.cc = CallingConventionC;
                         proto_node->data.fn_proto.is_extern = true;
                         break;
-                    case clang::CC_X86StdCall:  // __attribute__((stdcall))
+                    case ZigClangCallingConv_X86StdCall:  // __attribute__((stdcall))
                         proto_node->data.fn_proto.cc = CallingConventionStdcall;
                         break;
-                    case clang::CC_X86FastCall: // __attribute__((fastcall))
+                    case ZigClangCallingConv_X86FastCall: // __attribute__((fastcall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 fastcall");
                         return nullptr;
-                    case clang::CC_X86ThisCall: // __attribute__((thiscall))
+                    case ZigClangCallingConv_X86ThisCall: // __attribute__((thiscall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 thiscall");
                         return nullptr;
-                    case clang::CC_X86VectorCall: // __attribute__((vectorcall))
+                    case ZigClangCallingConv_X86VectorCall: // __attribute__((vectorcall))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 vectorcall");
                         return nullptr;
-                    case clang::CC_X86Pascal:   // __attribute__((pascal))
+                    case ZigClangCallingConv_X86Pascal:   // __attribute__((pascal))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 pascal");
                         return nullptr;
-                    case clang::CC_Win64: // __attribute__((ms_abi))
+                    case ZigClangCallingConv_Win64: // __attribute__((ms_abi))
                         emit_warning(c, source_loc, "unsupported calling convention: win64");
                         return nullptr;
-                    case clang::CC_X86_64SysV:  // __attribute__((sysv_abi))
+                    case ZigClangCallingConv_X86_64SysV:  // __attribute__((sysv_abi))
                         emit_warning(c, source_loc, "unsupported calling convention: x86 64sysv");
                         return nullptr;
-                    case clang::CC_X86RegCall:
+                    case ZigClangCallingConv_X86RegCall:
                         emit_warning(c, source_loc, "unsupported calling convention: x86 reg");
                         return nullptr;
-                    case clang::CC_AAPCS:       // __attribute__((pcs("aapcs")))
+                    case ZigClangCallingConv_AAPCS:       // __attribute__((pcs("aapcs")))
                         emit_warning(c, source_loc, "unsupported calling convention: aapcs");
                         return nullptr;
-                    case clang::CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
+                    case ZigClangCallingConv_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
                         emit_warning(c, source_loc, "unsupported calling convention: aapcs-vfp");
                         return nullptr;
-                    case clang::CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
+                    case ZigClangCallingConv_IntelOclBicc: // __attribute__((intel_ocl_bicc))
                         emit_warning(c, source_loc, "unsupported calling convention: intel_ocl_bicc");
                         return nullptr;
-                    case clang::CC_SpirFunction: // default for OpenCL functions on SPIR target
+                    case ZigClangCallingConv_SpirFunction: // default for OpenCL functions on SPIR target
                         emit_warning(c, source_loc, "unsupported calling convention: SPIR function");
                         return nullptr;
-                    case clang::CC_OpenCLKernel:
+                    case ZigClangCallingConv_OpenCLKernel:
                         emit_warning(c, source_loc, "unsupported calling convention: OpenCLKernel");
                         return nullptr;
-                    case clang::CC_Swift:
+                    case ZigClangCallingConv_Swift:
                         emit_warning(c, source_loc, "unsupported calling convention: Swift");
                         return nullptr;
-                    case clang::CC_PreserveMost:
+                    case ZigClangCallingConv_PreserveMost:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveMost");
                         return nullptr;
-                    case clang::CC_PreserveAll:
+                    case ZigClangCallingConv_PreserveAll:
                         emit_warning(c, source_loc, "unsupported calling convention: PreserveAll");
                         return nullptr;
-                    case clang::CC_AArch64VectorCall:
+                    case ZigClangCallingConv_AArch64VectorCall:
                         emit_warning(c, source_loc, "unsupported calling convention: AArch64VectorCall");
                         return nullptr;
                 }
 
-                if (fn_ty->getNoReturnAttr()) {
+                if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
                     proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "noreturn");
                 } else {
-                    proto_node->data.fn_proto.return_type = trans_qual_type(c, bitcast(fn_ty->getReturnType()),
-                            source_loc);
+                    proto_node->data.fn_proto.return_type = trans_qual_type(c,
+                            ZigClangFunctionType_getReturnType(fn_ty), source_loc);
                     if (proto_node->data.fn_proto.return_type == nullptr) {
                         emit_warning(c, source_loc, "unsupported function proto return type");
                         return nullptr;
