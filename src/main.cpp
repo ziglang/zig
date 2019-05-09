@@ -56,6 +56,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --disable-gen-h              do not generate a C header file (.h)\n"
         "  --disable-valgrind           omit valgrind client requests in debug builds\n"
         "  --enable-valgrind            include valgrind client requests release builds\n"
+        "  --disable-stack-probing      workaround for macosx\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -fPIC                        enable Position Independent Code\n"
         "  -fno-PIC                     disable Position Independent Code\n"
@@ -444,6 +445,7 @@ int main(int argc, char **argv) {
     bool want_single_threaded = false;
     bool disable_gen_h = false;
     bool bundle_compiler_rt = false;
+    bool disable_stack_probing = false;
     Buf *override_std_dir = nullptr;
     Buf *override_lib_dir = nullptr;
     Buf *main_pkg_path = nullptr;
@@ -656,6 +658,8 @@ int main(int argc, char **argv) {
                 disable_gen_h = true;
             } else if (strcmp(arg, "--bundle-compiler-rt") == 0) {
                 bundle_compiler_rt = true;
+            } else if (strcmp(arg, "--disable-stack-probing") == 0) {
+                disable_stack_probing = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -1075,6 +1079,7 @@ int main(int argc, char **argv) {
             g->output_dir = output_dir;
             g->disable_gen_h = disable_gen_h;
             g->bundle_compiler_rt = bundle_compiler_rt;
+            g->disable_stack_probing = disable_stack_probing;
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
 

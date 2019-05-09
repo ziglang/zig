@@ -401,7 +401,7 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
 
 static void add_probe_stack_attr(CodeGen *g, LLVMValueRef fn_val) {
     // Windows already emits its own stack probes
-    if (g->zig_target->os != OsWindows &&
+    if (!g->disable_stack_probing && g->zig_target->os != OsWindows &&
         (g->zig_target->arch == ZigLLVM_x86 ||
          g->zig_target->arch == ZigLLVM_x86_64)) {
         addLLVMFnAttrStr(fn_val, "probe-stack", "__zig_probe_stack");
@@ -7043,6 +7043,11 @@ static void zig_llvm_emit_output(CodeGen *g) {
             }
             validate_inline_fns(g);
             g->link_objects.append(output_path);
+            if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
+                (g->out_type == OutTypeLib && !g->is_dynamic)))
+            {
+                zig_link_add_compiler_rt(g);
+            }
             break;
 
         case EmitFileTypeAssembly:
@@ -9347,6 +9352,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_gen_h);
     cache_bool(ch, g->bundle_compiler_rt);
+    cache_bool(ch, g->disable_stack_probing);
     cache_bool(ch, want_valgrind_support(g));
     cache_bool(ch, g->have_pic);
     cache_bool(ch, g->have_dynamic_link);

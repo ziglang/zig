@@ -25,6 +25,7 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
         parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
     child_gen->disable_gen_h = true;
+    child_gen->disable_stack_probing = true;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
     child_gen->verbose_ast = parent_gen->verbose_ast;
     child_gen->verbose_link = parent_gen->verbose_link;
@@ -1653,6 +1654,11 @@ static void construct_linker_job(LinkJob *lj) {
     }
 }
 
+void zig_link_add_compiler_rt(CodeGen *g) {
+    Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj);
+    g->link_objects.append(compiler_rt_o_path);
+}
+
 void codegen_link(CodeGen *g) {
     codegen_add_time_event(g, "Build Dependencies");
 
@@ -1680,10 +1686,6 @@ void codegen_link(CodeGen *g) {
         ZigList<const char *> file_names = {};
         for (size_t i = 0; i < g->link_objects.length; i += 1) {
             file_names.append(buf_ptr(g->link_objects.at(i)));
-        }
-        if (g->bundle_compiler_rt) {
-            Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj);
-            file_names.append(buf_ptr(compiler_rt_o_path));
         }
         ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target->os);
         codegen_add_time_event(g, "LLVM Link");

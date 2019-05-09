@@ -1862,6 +1862,7 @@ struct CodeGen {
     bool is_dummy_so;
     bool disable_gen_h;
     bool bundle_compiler_rt;
+    bool disable_stack_probing;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
