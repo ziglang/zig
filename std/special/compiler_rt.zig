@@ -64,6 +64,7 @@ comptime {
 
     @export("__ashlti3", @import("compiler_rt/ashlti3.zig").__ashlti3, linkage);
     @export("__lshrti3", @import("compiler_rt/lshrti3.zig").__lshrti3, linkage);
+    @export("__ashrti3", @import("compiler_rt/ashrti3.zig").__ashrti3, linkage);
 
     @export("__floatsidf", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
     @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
