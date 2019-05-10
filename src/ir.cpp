@@ -10225,6 +10225,7 @@ static void ir_finish_bb(IrAnalyze *ira) {
         ira->instruction_index += 1;
     }
 
+    size_t my_old_bb_index = ira->old_bb_index;
     ira->old_bb_index += 1;
 
     bool need_repeat = true;
@@ -10235,7 +10236,7 @@ static void ir_finish_bb(IrAnalyze *ira) {
                 ira->old_bb_index += 1;
                 continue;
             }
-            if (old_bb->other->instruction_list.length != 0) {
+            if (old_bb->other->instruction_list.length != 0 || ira->old_bb_index == my_old_bb_index) {
                 ira->old_bb_index += 1;
                 continue;
             }
