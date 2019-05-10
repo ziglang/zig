@@ -1236,6 +1236,25 @@ static_assert((clang::CallingConv)ZigClangCallingConv_PreserveMost == clang::CC_
 static_assert((clang::CallingConv)ZigClangCallingConv_PreserveAll == clang::CC_PreserveAll, "");
 static_assert((clang::CallingConv)ZigClangCallingConv_AArch64VectorCall == clang::CC_AArch64VectorCall, "");
 
+void ZigClang_detect_enum_StorageClass(clang::StorageClass x) {
+    switch (x) {
+        case clang::SC_None:
+        case clang::SC_Extern:
+        case clang::SC_Static:
+        case clang::SC_PrivateExtern:
+        case clang::SC_Auto:
+        case clang::SC_Register:
+            break;
+    }
+}
+
+static_assert((clang::StorageClass)ZigClangStorageClass_None == clang::SC_None, "");
+static_assert((clang::StorageClass)ZigClangStorageClass_Extern == clang::SC_Extern, "");
+static_assert((clang::StorageClass)ZigClangStorageClass_Static == clang::SC_Static, "");
+static_assert((clang::StorageClass)ZigClangStorageClass_PrivateExtern == clang::SC_PrivateExtern, "");
+static_assert((clang::StorageClass)ZigClangStorageClass_Auto == clang::SC_Auto, "");
+static_assert((clang::StorageClass)ZigClangStorageClass_Register == clang::SC_Register, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1432,6 +1451,30 @@ struct ZigClangQualType ZigClangFunctionDecl_getType(const struct ZigClangFuncti
 struct ZigClangSourceLocation ZigClangFunctionDecl_getLocation(const struct ZigClangFunctionDecl *self) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     return bitcast(casted->getLocation());
+}
+
+bool ZigClangFunctionDecl_hasBody(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->hasBody();
+}
+
+enum ZigClangStorageClass ZigClangFunctionDecl_getStorageClass(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return (ZigClangStorageClass)casted->getStorageClass();
+}
+
+const struct ZigClangParmVarDecl *ZigClangFunctionDecl_getParamDecl(const struct ZigClangFunctionDecl *self,
+        unsigned i)
+{
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    const clang::ParmVarDecl *parm_var_decl = casted->getParamDecl(i);
+    return reinterpret_cast<const ZigClangParmVarDecl *>(parm_var_decl);
+}
+
+const struct ZigClangStmt *ZigClangFunctionDecl_getBody(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    const clang::Stmt *stmt = casted->getBody();
+    return reinterpret_cast<const ZigClangStmt *>(stmt);
 }
 
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {

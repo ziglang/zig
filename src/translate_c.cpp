@@ -4038,15 +4038,15 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
     }
 
     proto_node->data.fn_proto.name = fn_name;
-    proto_node->data.fn_proto.is_extern = !((const clang::FunctionDecl*)fn_decl)->hasBody();
+    proto_node->data.fn_proto.is_extern = !ZigClangFunctionDecl_hasBody(fn_decl);
 
-    clang::StorageClass sc = ((const clang::FunctionDecl*)fn_decl)->getStorageClass();
-    if (sc == clang::SC_None) {
+    ZigClangStorageClass sc = ZigClangFunctionDecl_getStorageClass(fn_decl);
+    if (sc == ZigClangStorageClass_None) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
-        proto_node->data.fn_proto.is_export = ((const clang::FunctionDecl*)fn_decl)->hasBody() ? c->want_export : false;
-    } else if (sc == clang::SC_Extern || sc == clang::SC_Static) {
+        proto_node->data.fn_proto.is_export = ZigClangFunctionDecl_hasBody(fn_decl) ? c->want_export : false;
+    } else if (sc == ZigClangStorageClass_Extern || sc == ZigClangStorageClass_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
-    } else if (sc == clang::SC_PrivateExtern) {
+    } else if (sc == ZigClangStorageClass_PrivateExtern) {
         emit_warning(c, ZigClangFunctionDecl_getLocation(fn_decl), "unsupported storage class: private extern");
         return;
     } else {
@@ -4058,7 +4058,7 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
-        const clang::ParmVarDecl *param = ((const clang::FunctionDecl*)fn_decl)->getParamDecl(i);
+        const ZigClangParmVarDecl *param = ZigClangFunctionDecl_getParamDecl(fn_decl, i);
         const char *name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)param);
 
         Buf *proto_param_name;
@@ -4077,7 +4077,7 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
         param_node->data.param_decl.name = scope_var->zig_name;
     }
 
-    if (!((const clang::FunctionDecl*)fn_decl)->hasBody()) {
+    if (!ZigClangFunctionDecl_hasBody(fn_decl)) {
         // just a prototype
         add_top_level_decl(c, proto_node->data.fn_proto.name, proto_node);
         return;
@@ -4085,7 +4085,7 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
 
     // actual function definition with body
     c->ptr_params.clear();
-    const ZigClangStmt *body = bitcast(((const clang::FunctionDecl*)fn_decl)->getBody());
+    const ZigClangStmt *body = ZigClangFunctionDecl_getBody(fn_decl);
     AstNode *actual_body_node;
     TransScope *result_scope = trans_stmt(c, scope, body, &actual_body_node);
     if (result_scope == nullptr) {

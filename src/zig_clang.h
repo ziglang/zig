@@ -88,7 +88,6 @@ struct ZigClangSkipFunctionBodiesScope;
 struct ZigClangSourceManager;
 struct ZigClangSourceRange;
 struct ZigClangStmt;
-struct ZigClangStorageClass;
 struct ZigClangStringLiteral;
 struct ZigClangStringRef;
 struct ZigClangSwitchStmt;
@@ -700,6 +699,18 @@ enum ZigClangCallingConv {
     ZigClangCallingConv_AArch64VectorCall, // __attribute__((aarch64_vector_pcs))
 };
 
+enum ZigClangStorageClass {
+    // These are legal on both functions and variables.
+    ZigClangStorageClass_None,
+    ZigClangStorageClass_Extern,
+    ZigClangStorageClass_Static,
+    ZigClangStorageClass_PrivateExtern,
+
+    // These are only legal on variables.
+    ZigClangStorageClass_Auto,
+    ZigClangStorageClass_Register,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -742,6 +753,10 @@ ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangDecl_getLocation(const struct
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionDecl_getType(const struct ZigClangFunctionDecl *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangFunctionDecl_getLocation(const struct ZigClangFunctionDecl *);
+ZIG_EXTERN_C bool ZigClangFunctionDecl_hasBody(const struct ZigClangFunctionDecl *);
+ZIG_EXTERN_C enum ZigClangStorageClass ZigClangFunctionDecl_getStorageClass(const struct ZigClangFunctionDecl *);
+ZIG_EXTERN_C const struct ZigClangParmVarDecl *ZigClangFunctionDecl_getParamDecl(const struct ZigClangFunctionDecl *, unsigned i);
+ZIG_EXTERN_C const struct ZigClangStmt *ZigClangFunctionDecl_getBody(const struct ZigClangFunctionDecl *);
 
 ZIG_EXTERN_C bool ZigClangRecordDecl_isUnion(const struct ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C bool ZigClangRecordDecl_isStruct(const struct ZigClangRecordDecl *record_decl);

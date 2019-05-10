@@ -2,6 +2,7 @@
 // and stage2. Currently the only way it is used is with `zig translate-c-2`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ast = std.zig.ast;
 const Token = std.zig.Token;
 use @import("clang.zig");
@@ -12,13 +13,7 @@ pub const Mode = enum {
 };
 
 // TODO merge with Type.Fn.CallingConvention
-pub const CallingConvention = enum {
-    auto,
-    c,
-    cold,
-    naked,
-    stdcall,
-};
+const CallingConvention = builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 
@@ -27,11 +22,64 @@ pub const Error = error{
     UnsupportedType,
 };
 
+const DeclTable = std.HashMap(usize, void, addrHash, addrEql);
+
+fn addrHash(x: usize) u32 {
+    switch (@typeInfo(usize).Int.bits) {
+        32 => return x,
+        // pointers are usually aligned so we ignore the bits that are probably all 0 anyway
+        // usually the larger bits of addr space are unused so we just chop em off
+        64 => return @truncate(u32, x >> 4),
+        else => @compileError("unreachable"),
+    }
+}
+
+fn addrEql(a: usize, b: usize) bool {
+    return a == b;
+}
+
+const Scope = struct {
+    id: Id,
+    parent: ?*Scope,
+
+    const Id = enum {
+        Switch,
+        Var,
+        Block,
+        Root,
+        While,
+    };
+    const Switch = struct {
+        base: Scope,
+    };
+
+    const Var = struct {
+        base: Scope,
+        c_name: []const u8,
+        zig_name: []const u8,
+    };
+
+    const Block = struct {
+        base: Scope,
+    };
+
+    const Root = struct {
+        base: Scope,
+    };
+
+    const While = struct {
+        base: Scope,
+    };
+};
+
 const Context = struct {
     tree: *ast.Tree,
     source_buffer: *std.Buffer,
     err: Error,
     source_manager: *ZigClangSourceManager,
+    decl_table: DeclTable,
+    global_scope: *Scope.Root,
+    mode: Mode,
 
     fn a(c: *Context) *std.mem.Allocator {
         return &c.tree.arena_allocator.allocator;
@@ -76,7 +124,7 @@ pub fn translate(
 
     var tree_arena = std.heap.ArenaAllocator.init(backing_allocator);
     errdefer tree_arena.deinit();
-    const arena = &tree_arena.allocator;
+    var arena = &tree_arena.allocator;
 
     const root_node = try arena.create(ast.Node.Root);
     root_node.* = ast.Node.Root{
@@ -96,14 +144,24 @@ pub fn translate(
         .errors = ast.Tree.ErrorList.init(arena),
     };
     tree.arena_allocator = tree_arena;
+    arena = &tree.arena_allocator.allocator;
 
-    var source_buffer = try std.Buffer.initSize(&tree.arena_allocator.allocator, 0);
+    var source_buffer = try std.Buffer.initSize(arena, 0);
 
     var context = Context{
         .tree = tree,
         .source_buffer = &source_buffer,
         .source_manager = ZigClangASTUnit_getSourceManager(ast_unit),
         .err = undefined,
+        .decl_table = DeclTable.init(arena),
+        .global_scope = try arena.create(Scope.Root),
+        .mode = mode,
+    };
+    context.global_scope.* = Scope.Root{
+        .base = Scope{
+            .id = Scope.Id.Root,
+            .parent = null,
+        },
     };
 
     if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorC)) {
@@ -149,27 +207,39 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
+    if (try c.decl_table.put(@ptrToInt(fn_decl), {})) |_| return; // Avoid processing this decl twice
+
     const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
-
-    // TODO The C++ code has this:
-    //if (get_global(c, fn_name)) {
-    //    // we already saw this function
-    //    return;
-    //}
-
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
-    const proto_node = transQualType(c, ZigClangFunctionDecl_getType(fn_decl), fn_decl_loc) catch |e| switch (e) {
-        error.UnsupportedType => {
-            try failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
-            return;
+    const fn_qt = ZigClangFunctionDecl_getType(fn_decl);
+    const fn_type = ZigClangQualType_getTypePtr(fn_qt);
+    const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
+        .FunctionProto => transFnProto(
+            c,
+            @ptrCast(*const ZigClangFunctionProtoType, fn_type),
+            fn_decl_loc,
+            fn_decl,
+            fn_name,
+        ) catch |err| switch (err) {
+            error.UnsupportedType => {
+                return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
+            },
+            else => return err,
         },
-        else => return e,
+        .FunctionNoProto => return failDecl(c, fn_decl_loc, fn_name, "TODO support functions with no prototype"),
+        else => unreachable,
     };
-    const semi_tok = try appendToken(c, .Semicolon, ";");
 
-    try emitWarning(c, fn_decl_loc, "TODO implement more translate-c for function decls");
+    if (!ZigClangFunctionDecl_hasBody(fn_decl)) {
+        const semi_tok = try appendToken(c, .Semicolon, ";");
+        return addTopLevelDecl(c, fn_name, &proto_node.base);
+    }
 
-    try c.tree.root_node.decls.push(proto_node);
+    try emitWarning(c, fn_decl_loc, "TODO implement function body translation");
+}
+
+fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
+    try c.tree.root_node.decls.push(decl_node);
 }
 
 fn transQualType(c: *Context, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !*ast.Node {
@@ -205,96 +275,124 @@ fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLoc
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
             }
         },
-        .FunctionProto => {
-            const fn_ty = @ptrCast(*const ZigClangFunctionType, ty);
-            const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
-                .C => CallingConvention.c,
-                .X86StdCall => CallingConvention.stdcall,
-                .X86FastCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 fastcall"),
-                .X86ThisCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 thiscall"),
-                .X86VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 vectorcall"),
-                .X86Pascal => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 pascal"),
-                .Win64 => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: win64"),
-                .X86_64SysV => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 64sysv"),
-                .X86RegCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 reg"),
-                .AAPCS => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs"),
-                .AAPCS_VFP => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs-vfp"),
-                .IntelOclBicc => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: intel_ocl_bicc"),
-                .SpirFunction => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: SPIR function"),
-                .OpenCLKernel => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: OpenCLKernel"),
-                .Swift => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: Swift"),
-                .PreserveMost => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveMost"),
-                .PreserveAll => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveAll"),
-                .AArch64VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: AArch64VectorCall"),
-            };
-
-            const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
-            const is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
-            const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
-            var i: usize = 0;
-            while (i < param_count) : (i += 1) {
-                return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
-            }
-            // TODO check for always_inline attribute
-            // TODO check for align attribute
-
-            // extern fn (...) T
-            const cc_tok = if (cc == .stdcall) try appendToken(c, .Keyword_stdcallcc, "stdcallcc") else null;
-            const extern_tok = if (cc == .c) try appendToken(c, .Keyword_extern, "extern") else null;
-            const fn_tok = try appendToken(c, .Keyword_fn, "fn");
-            const lparen_tok = try appendToken(c, .LParen, "(");
-            const var_args_tok = if (is_var_args) try appendToken(c, .Ellipsis3, "...") else null;
-            const rparen_tok = try appendToken(c, .RParen, ")");
-
-            const return_type_node = blk: {
-                if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
-                    break :blk try appendIdentifier(c, "noreturn");
-                } else {
-                    return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: non-noreturn FunctionProto return type");
-                    //proto_node->data.fn_proto.return_type = trans_qual_type(c,
-                    //        ZigClangFunctionType_getReturnType(fn_ty), source_loc);
-                    //if (proto_node->data.fn_proto.return_type == nullptr) {
-                    //    emit_warning(c, source_loc, "unsupported function proto return type");
-                    //    return nullptr;
-                    //}
-                    //// convert c_void to actual void (only for return type)
-                    //// we do want to look at the AstNode instead of ZigClangQualType, because
-                    //// if they do something like:
-                    ////     typedef Foo void;
-                    ////     void foo(void) -> Foo;
-                    //// we want to keep the return type AST node.
-                    //if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
-                    //    proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
-                    //}
-                }
-            };
-
-            const fn_proto = try c.a().create(ast.Node.FnProto);
-            fn_proto.* = ast.Node.FnProto{
-                .base = ast.Node{ .id = ast.Node.Id.FnProto },
-                .doc_comments = null,
-                .visib_token = null,
-                .fn_token = fn_tok,
-                .name_token = null,
-                .params = ast.Node.FnProto.ParamList.init(c.a()),
-                .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
-                .var_args_token = var_args_tok,
-                .extern_export_inline_token = extern_tok,
-                .cc_token = cc_tok,
-                .async_attr = null,
-                .body_node = null,
-                .lib_name = null,
-                .align_expr = null,
-                .section_expr = null,
-            };
-            return &fn_proto.base;
-        },
-
+        .FunctionProto => return transFnProto(c, @ptrCast(*const ZigClangFunctionType, ty), source_loc, null, false),
         else => {
             const type_name = c.str(ZigClangType_getTypeClassName(ty));
             return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", type_name);
         },
     }
+}
+
+fn transFnProto(
+    c: *Context,
+    fn_proto_ty: *const ZigClangFunctionProtoType,
+    source_loc: ZigClangSourceLocation,
+    opt_fn_decl: ?*const ZigClangFunctionDecl,
+    fn_name: ?[]const u8,
+) !*ast.Node.FnProto {
+    const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
+    const rp = makeRestorePoint(c);
+    const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
+        .C => CallingConvention.C,
+        .X86StdCall => CallingConvention.Stdcall,
+        .X86FastCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 fastcall"),
+        .X86ThisCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 thiscall"),
+        .X86VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 vectorcall"),
+        .X86Pascal => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 pascal"),
+        .Win64 => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: win64"),
+        .X86_64SysV => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 64sysv"),
+        .X86RegCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 reg"),
+        .AAPCS => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs"),
+        .AAPCS_VFP => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs-vfp"),
+        .IntelOclBicc => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: intel_ocl_bicc"),
+        .SpirFunction => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: SPIR function"),
+        .OpenCLKernel => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: OpenCLKernel"),
+        .Swift => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: Swift"),
+        .PreserveMost => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveMost"),
+        .PreserveAll => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveAll"),
+        .AArch64VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: AArch64VectorCall"),
+    };
+
+    const is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
+    const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
+    var i: usize = 0;
+    while (i < param_count) : (i += 1) {
+        return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
+    }
+    // TODO check for always_inline attribute
+    // TODO check for align attribute
+
+    // extern fn name(...) T
+    const cc_tok = if (cc == .Stdcall) try appendToken(c, .Keyword_stdcallcc, "stdcallcc") else null;
+    const is_export = exp: {
+        const fn_decl = opt_fn_decl orelse break :exp false;
+        const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
+        const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
+        break :exp switch (storage_class) {
+            .None => switch (c.mode) {
+                .import => false,
+                .translate => has_body,
+            },
+            .Extern, .Static => false,
+            .PrivateExtern => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported storage class: private extern"),
+            .Auto => unreachable, // Not legal on functions
+            .Register => unreachable, // Not legal on functions
+        };
+    };
+    const extern_export_inline_tok = if (is_export)
+        try appendToken(c, .Keyword_export, "export")
+    else if (cc == .C)
+        try appendToken(c, .Keyword_extern, "extern")
+    else
+        null;
+    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
+    const name_tok = if (fn_name) |n| try appendToken(c, .Identifier, "{}", n) else null;
+    const lparen_tok = try appendToken(c, .LParen, "(");
+    const var_args_tok = if (is_var_args) try appendToken(c, .Ellipsis3, "...") else null;
+    const rparen_tok = try appendToken(c, .RParen, ")");
+
+    const return_type_node = blk: {
+        if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
+            break :blk try appendIdentifier(c, "noreturn");
+        } else {
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: non-noreturn FunctionProto return type");
+            //proto_node->data.fn_proto.return_type = trans_qual_type(c,
+            //        ZigClangFunctionType_getReturnType(fn_ty), source_loc);
+            //if (proto_node->data.fn_proto.return_type == nullptr) {
+            //    emit_warning(c, source_loc, "unsupported function proto return type");
+            //    return nullptr;
+            //}
+            //// convert c_void to actual void (only for return type)
+            //// we do want to look at the AstNode instead of ZigClangQualType, because
+            //// if they do something like:
+            ////     typedef Foo void;
+            ////     void foo(void) -> Foo;
+            //// we want to keep the return type AST node.
+            //if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
+            //    proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
+            //}
+        }
+    };
+
+    const fn_proto = try c.a().create(ast.Node.FnProto);
+    fn_proto.* = ast.Node.FnProto{
+        .base = ast.Node{ .id = ast.Node.Id.FnProto },
+        .doc_comments = null,
+        .visib_token = null,
+        .fn_token = fn_tok,
+        .name_token = name_tok,
+        .params = ast.Node.FnProto.ParamList.init(c.a()),
+        .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
+        .var_args_token = var_args_tok,
+        .extern_export_inline_token = extern_export_inline_tok,
+        .cc_token = cc_tok,
+        .async_attr = null,
+        .body_node = null,
+        .lib_name = null,
+        .align_expr = null,
+        .section_expr = null,
+    };
+    return fn_proto;
 }
 
 fn revertAndWarn(

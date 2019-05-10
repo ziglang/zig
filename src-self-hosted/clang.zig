@@ -56,7 +56,6 @@ pub const struct_ZigClangSkipFunctionBodiesScope = @OpaqueType();
 pub const struct_ZigClangSourceManager = @OpaqueType();
 pub const struct_ZigClangSourceRange = @OpaqueType();
 pub const struct_ZigClangStmt = @OpaqueType();
-pub const struct_ZigClangStorageClass = @OpaqueType();
 pub const struct_ZigClangStringLiteral = @OpaqueType();
 pub const struct_ZigClangStringRef = @OpaqueType();
 pub const struct_ZigClangSwitchStmt = @OpaqueType();
@@ -513,6 +512,10 @@ pub extern fn ZigClangASTUnit_delete(arg0: ?*struct_ZigClangASTUnit) void;
 
 pub extern fn ZigClangFunctionDecl_getType(self: *const struct_ZigClangFunctionDecl) struct_ZigClangQualType;
 pub extern fn ZigClangFunctionDecl_getLocation(self: *const struct_ZigClangFunctionDecl) struct_ZigClangSourceLocation;
+pub extern fn ZigClangFunctionDecl_hasBody(self: *const struct_ZigClangFunctionDecl) bool;
+pub extern fn ZigClangFunctionDecl_getStorageClass(self: *const struct_ZigClangFunctionDecl) ZigClangStorageClass;
+pub extern fn ZigClangFunctionDecl_getParamDecl(self: *const struct_ZigClangFunctionDecl, i: c_uint) *const struct_ZigClangParmVarDecl;
+
 pub extern fn ZigClangBuiltinType_getKind(self: *const struct_ZigClangBuiltinType) ZigClangBuiltinTypeKind;
 
 pub extern fn ZigClangFunctionType_getNoReturnAttr(self: *const ZigClangFunctionType) bool;
@@ -584,7 +587,6 @@ pub const ZigClangSkipFunctionBodiesScope = struct_ZigClangSkipFunctionBodiesSco
 pub const ZigClangSourceManager = struct_ZigClangSourceManager;
 pub const ZigClangSourceRange = struct_ZigClangSourceRange;
 pub const ZigClangStmt = struct_ZigClangStmt;
-pub const ZigClangStorageClass = struct_ZigClangStorageClass;
 pub const ZigClangStringLiteral = struct_ZigClangStringLiteral;
 pub const ZigClangStringRef = struct_ZigClangStringRef;
 pub const ZigClangSwitchStmt = struct_ZigClangSwitchStmt;
@@ -848,4 +850,13 @@ pub const ZigClangCallingConv = extern enum {
     PreserveMost,
     PreserveAll,
     AArch64VectorCall,
+};
+
+pub const ZigClangStorageClass = extern enum {
+    None,
+    Extern,
+    Static,
+    PrivateExtern,
+    Auto,
+    Register,
 };

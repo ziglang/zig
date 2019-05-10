@@ -2,6 +2,12 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add_both("simple noreturn fn",
+        \\void __attribute__((noreturn)) foo(void);
+    ,
+        \\extern fn foo() noreturn;
+    );
+
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     ,
