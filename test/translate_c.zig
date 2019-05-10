@@ -3,10 +3,12 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
-    cases.add_both("simple noreturn fn",
+    cases.add_both("simple function prototypes",
         \\void __attribute__((noreturn)) foo(void);
+        \\int bar(void);
     ,
-        \\extern fn foo() noreturn;
+        \\pub extern fn foo() noreturn;
+        \\pub extern fn bar() c_int;
     );
 
     /////////////// Cases that pass for only stage2 ////////////////

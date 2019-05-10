@@ -275,6 +275,25 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
             switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                .Void => return appendIdentifier(rp.c, "c_void"),
+                .Bool => return appendIdentifier(rp.c, "bool"),
+                .Char_U, .UChar, .Char_S, .Char8 => return appendIdentifier(rp.c, "u8"),
+                .SChar => return appendIdentifier(rp.c, "i8"),
+                .UShort => return appendIdentifier(rp.c, "c_ushort"),
+                .UInt => return appendIdentifier(rp.c, "c_uint"),
+                .ULong => return appendIdentifier(rp.c, "c_ulong"),
+                .ULongLong => return appendIdentifier(rp.c, "c_ulonglong"),
+                .Short => return appendIdentifier(rp.c, "c_short"),
+                .Int => return appendIdentifier(rp.c, "c_int"),
+                .Long => return appendIdentifier(rp.c, "c_long"),
+                .LongLong => return appendIdentifier(rp.c, "c_longlong"),
+                .UInt128 => return appendIdentifier(rp.c, "u128"),
+                .Int128 => return appendIdentifier(rp.c, "i128"),
+                .Float => return appendIdentifier(rp.c, "f32"),
+                .Double => return appendIdentifier(rp.c, "f64"),
+                .Float128 => return appendIdentifier(rp.c, "f128"),
+                .Float16 => return appendIdentifier(rp.c, "f16"),
+                .LongDouble => return appendIdentifier(rp.c, "c_longdouble"),
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
             }
         },
@@ -328,7 +347,8 @@ fn transFnProto(
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
-    // extern fn name(...) T
+    // pub extern fn name(...) T
+    const pub_tok = try appendToken(rp.c, .Keyword_pub, "pub");
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const is_export = exp: {
         const fn_decl = opt_fn_decl orelse break :exp false;
@@ -380,7 +400,7 @@ fn transFnProto(
     fn_proto.* = ast.Node.FnProto{
         .base = ast.Node{ .id = ast.Node.Id.FnProto },
         .doc_comments = null,
-        .visib_token = null,
+        .visib_token = pub_tok,
         .fn_token = fn_tok,
         .name_token = name_tok,
         .params = ast.Node.FnProto.ParamList.init(rp.c.a()),
