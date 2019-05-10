@@ -519,6 +519,10 @@ pub extern fn ZigClangFunctionType_getNoReturnAttr(self: *const ZigClangFunction
 pub extern fn ZigClangFunctionType_getCallConv(self: *const ZigClangFunctionType) ZigClangCallingConv;
 pub extern fn ZigClangFunctionType_getReturnType(self: *const ZigClangFunctionType) ZigClangQualType;
 
+pub extern fn ZigClangFunctionProtoType_isVariadic(self: *const struct_ZigClangFunctionProtoType) bool;
+pub extern fn ZigClangFunctionProtoType_getNumParams(self: *const struct_ZigClangFunctionProtoType) c_uint;
+pub extern fn ZigClangFunctionProtoType_getParamType(self: *const struct_ZigClangFunctionProtoType, i: c_uint) ZigClangQualType;
+
 pub const ZigClangSourceLocation = struct_ZigClangSourceLocation;
 pub const ZigClangQualType = struct_ZigClangQualType;
 pub const ZigClangAPValueLValueBase = struct_ZigClangAPValueLValueBase;

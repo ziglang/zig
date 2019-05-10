@@ -1751,3 +1751,20 @@ struct ZigClangQualType ZigClangFunctionType_getReturnType(const struct ZigClang
     auto casted = reinterpret_cast<const clang::FunctionType *>(self);
     return bitcast(casted->getReturnType());
 }
+
+bool ZigClangFunctionProtoType_isVariadic(const struct ZigClangFunctionProtoType *self) {
+    auto casted = reinterpret_cast<const clang::FunctionProtoType *>(self);
+    return casted->isVariadic();
+}
+
+unsigned ZigClangFunctionProtoType_getNumParams(const struct ZigClangFunctionProtoType *self) {
+    auto casted = reinterpret_cast<const clang::FunctionProtoType *>(self);
+    return casted->getNumParams();
+}
+
+struct ZigClangQualType ZigClangFunctionProtoType_getParamType(const struct ZigClangFunctionProtoType *self,
+        unsigned index)
+{
+    auto casted = reinterpret_cast<const clang::FunctionProtoType *>(self);
+    return bitcast(casted->getParamType(index));
+}

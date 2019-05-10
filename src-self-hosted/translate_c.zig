@@ -110,7 +110,7 @@ pub fn translate(
         return context.err;
     }
 
-    try appendToken(&context, .Eof, "");
+    _ = try appendToken(&context, .Eof, "");
     tree.source = source_buffer.toOwnedSlice();
     return tree;
 }
@@ -149,7 +149,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
-    const fn_name = c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
+    const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
 
     // TODO The C++ code has this:
     //if (get_global(c, fn_name)) {
@@ -160,28 +160,49 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
     const proto_node = transQualType(c, ZigClangFunctionDecl_getType(fn_decl), fn_decl_loc) catch |e| switch (e) {
         error.UnsupportedType => {
-            try emitWarning(c, fn_decl_loc, "unable to resolve prototype of function '{}'", fn_name);
+            try failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
             return;
         },
         else => return e,
     };
+    const semi_tok = try appendToken(c, .Semicolon, ";");
 
-    try emitWarning(c, fn_decl_loc, "TODO implement translate-c for function decls");
+    try emitWarning(c, fn_decl_loc, "TODO implement more translate-c for function decls");
+
+    try c.tree.root_node.decls.push(proto_node);
 }
 
 fn transQualType(c: *Context, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !*ast.Node {
     return transType(c, ZigClangQualType_getTypePtr(qt), source_loc);
 }
 
+const RestorePoint = struct {
+    context: *Context,
+    token_index: ast.TokenIndex,
+    src_buf_index: usize,
+
+    fn activate(self: RestorePoint) void {
+        self.context.tree.tokens.shrink(self.token_index);
+        self.context.source_buffer.shrink(self.src_buf_index);
+    }
+};
+
+fn makeRestorePoint(c: *Context) RestorePoint {
+    return RestorePoint{
+        .context = c,
+        .token_index = c.tree.tokens.len,
+        .src_buf_index = c.source_buffer.len(),
+    };
+}
+
 fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) !*ast.Node {
+    const rp = makeRestorePoint(c);
+
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
             switch (ZigClangBuiltinType_getKind(builtin_ty)) {
-                else => {
-                    try emitWarning(c, source_loc, "unsupported builtin type");
-                    return error.UnsupportedType;
-                },
+                else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
             }
         },
         .FunctionProto => {
@@ -189,87 +210,157 @@ fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLoc
             const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
                 .C => CallingConvention.c,
                 .X86StdCall => CallingConvention.stdcall,
-                .X86FastCall => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 fastcall");
-                    return error.UnsupportedType;
-                },
-                .X86ThisCall => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 thiscall");
-                    return error.UnsupportedType;
-                },
-                .X86VectorCall => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 vectorcall");
-                    return error.UnsupportedType;
-                },
-                .X86Pascal => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 pascal");
-                    return error.UnsupportedType;
-                },
-                .Win64 => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: win64");
-                    return error.UnsupportedType;
-                },
-                .X86_64SysV => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 64sysv");
-                    return error.UnsupportedType;
-                },
-                .X86RegCall => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: x86 reg");
-                    return error.UnsupportedType;
-                },
-                .AAPCS => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: aapcs");
-                    return error.UnsupportedType;
-                },
-                .AAPCS_VFP => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: aapcs-vfp");
-                    return error.UnsupportedType;
-                },
-                .IntelOclBicc => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: intel_ocl_bicc");
-                    return error.UnsupportedType;
-                },
-                .SpirFunction => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: SPIR function");
-                    return error.UnsupportedType;
-                },
-                .OpenCLKernel => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: OpenCLKernel");
-                    return error.UnsupportedType;
-                },
-                .Swift => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: Swift");
-                    return error.UnsupportedType;
-                },
-                .PreserveMost => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: PreserveMost");
-                    return error.UnsupportedType;
-                },
-                .PreserveAll => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: PreserveAll");
-                    return error.UnsupportedType;
-                },
-                .AArch64VectorCall => {
-                    try emitWarning(c, source_loc, "unsupported calling convention: AArch64VectorCall");
-                    return error.UnsupportedType;
-                },
+                .X86FastCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 fastcall"),
+                .X86ThisCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 thiscall"),
+                .X86VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 vectorcall"),
+                .X86Pascal => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 pascal"),
+                .Win64 => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: win64"),
+                .X86_64SysV => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 64sysv"),
+                .X86RegCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 reg"),
+                .AAPCS => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs"),
+                .AAPCS_VFP => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs-vfp"),
+                .IntelOclBicc => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: intel_ocl_bicc"),
+                .SpirFunction => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: SPIR function"),
+                .OpenCLKernel => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: OpenCLKernel"),
+                .Swift => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: Swift"),
+                .PreserveMost => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveMost"),
+                .PreserveAll => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveAll"),
+                .AArch64VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: AArch64VectorCall"),
             };
-            try emitWarning(c, source_loc, "TODO: implement transType for FunctionProto");
-            return error.UnsupportedType;
+
+            const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
+            const is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
+            const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
+            var i: usize = 0;
+            while (i < param_count) : (i += 1) {
+                return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
+            }
+            // TODO check for always_inline attribute
+            // TODO check for align attribute
+
+            // extern fn (...) T
+            const cc_tok = if (cc == .stdcall) try appendToken(c, .Keyword_stdcallcc, "stdcallcc") else null;
+            const extern_tok = if (cc == .c) try appendToken(c, .Keyword_extern, "extern") else null;
+            const fn_tok = try appendToken(c, .Keyword_fn, "fn");
+            const lparen_tok = try appendToken(c, .LParen, "(");
+            const var_args_tok = if (is_var_args) try appendToken(c, .Ellipsis3, "...") else null;
+            const rparen_tok = try appendToken(c, .RParen, ")");
+
+            const return_type_node = blk: {
+                if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
+                    break :blk try appendIdentifier(c, "noreturn");
+                } else {
+                    return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: non-noreturn FunctionProto return type");
+                    //proto_node->data.fn_proto.return_type = trans_qual_type(c,
+                    //        ZigClangFunctionType_getReturnType(fn_ty), source_loc);
+                    //if (proto_node->data.fn_proto.return_type == nullptr) {
+                    //    emit_warning(c, source_loc, "unsupported function proto return type");
+                    //    return nullptr;
+                    //}
+                    //// convert c_void to actual void (only for return type)
+                    //// we do want to look at the AstNode instead of ZigClangQualType, because
+                    //// if they do something like:
+                    ////     typedef Foo void;
+                    ////     void foo(void) -> Foo;
+                    //// we want to keep the return type AST node.
+                    //if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
+                    //    proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
+                    //}
+                }
+            };
+
+            const fn_proto = try c.a().create(ast.Node.FnProto);
+            fn_proto.* = ast.Node.FnProto{
+                .base = ast.Node{ .id = ast.Node.Id.FnProto },
+                .doc_comments = null,
+                .visib_token = null,
+                .fn_token = fn_tok,
+                .name_token = null,
+                .params = ast.Node.FnProto.ParamList.init(c.a()),
+                .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
+                .var_args_token = var_args_tok,
+                .extern_export_inline_token = extern_tok,
+                .cc_token = cc_tok,
+                .async_attr = null,
+                .body_node = null,
+                .lib_name = null,
+                .align_expr = null,
+                .section_expr = null,
+            };
+            return &fn_proto.base;
         },
+
         else => {
             const type_name = c.str(ZigClangType_getTypeClassName(ty));
-            try emitWarning(c, source_loc, "unsupported type: '{}'", type_name);
-            return error.UnsupportedType;
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", type_name);
         },
     }
 }
 
-fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: ...) !void {
-    try appendToken(c, .LineComment, "// {}: warning: " ++ format, c.locStr(loc), args);
+fn revertAndWarn(
+    restore_point: RestorePoint,
+    err: var,
+    source_loc: ZigClangSourceLocation,
+    comptime format: []const u8,
+    args: ...,
+) (@typeOf(err) || error{OutOfMemory}) {
+    restore_point.activate();
+    try emitWarning(restore_point.context, source_loc, format, args);
+    return err;
 }
 
-fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !void {
+fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: ...) !void {
+    _ = try appendToken(c, .LineComment, "// {}: warning: " ++ format, c.locStr(loc), args);
+}
+
+fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: ...) !void {
+    // const name = @compileError(msg);
+    const const_tok = try appendToken(c, .Keyword_const, "const");
+    const name_tok = try appendToken(c, .Identifier, "{}", name);
+    const eq_tok = try appendToken(c, .Equal, "=");
+    const builtin_tok = try appendToken(c, .Builtin, "@compileError");
+    const lparen_tok = try appendToken(c, .LParen, "(");
+    const msg_tok = try appendToken(c, .StringLiteral, "\"" ++ format ++ "\"", args);
+    const rparen_tok = try appendToken(c, .RParen, ")");
+    const semi_tok = try appendToken(c, .Semicolon, ";");
+
+    const msg_node = try c.a().create(ast.Node.StringLiteral);
+    msg_node.* = ast.Node.StringLiteral{
+        .base = ast.Node{ .id = ast.Node.Id.StringLiteral },
+        .token = msg_tok,
+    };
+
+    const call_node = try c.a().create(ast.Node.BuiltinCall);
+    call_node.* = ast.Node.BuiltinCall{
+        .base = ast.Node{ .id = ast.Node.Id.BuiltinCall },
+        .builtin_token = builtin_tok,
+        .params = ast.Node.BuiltinCall.ParamList.init(c.a()),
+        .rparen_token = rparen_tok,
+    };
+    try call_node.params.push(&msg_node.base);
+
+    const var_decl_node = try c.a().create(ast.Node.VarDecl);
+    var_decl_node.* = ast.Node.VarDecl{
+        .base = ast.Node{ .id = ast.Node.Id.VarDecl },
+        .doc_comments = null,
+        .visib_token = null,
+        .thread_local_token = null,
+        .name_token = name_tok,
+        .eq_token = eq_tok,
+        .mut_token = const_tok,
+        .comptime_token = null,
+        .extern_export_token = null,
+        .lib_name = null,
+        .type_node = null,
+        .align_node = null,
+        .section_node = null,
+        .init_node = &call_node.base,
+        .semicolon_token = semi_tok,
+    };
+    try c.tree.root_node.decls.push(&var_decl_node.base);
+}
+
+fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !ast.TokenIndex {
     const S = struct {
         fn callback(context: *Context, bytes: []const u8) Error!void {
             return context.source_buffer.append(bytes);
@@ -280,8 +371,9 @@ fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, arg
 
     try std.fmt.format(c, Error, S.callback, format, args);
     const end_index = c.source_buffer.len();
+    const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();
-    errdefer c.tree.tokens.shrink(c.tree.tokens.len - 1);
+    errdefer c.tree.tokens.shrink(token_index);
 
     new_token.* = Token{
         .id = token_id,
@@ -289,6 +381,18 @@ fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, arg
         .end = end_index,
     };
     try c.source_buffer.appendByte('\n');
+
+    return token_index;
+}
+
+fn appendIdentifier(c: *Context, name: []const u8) !*ast.Node {
+    const token_index = try appendToken(c, .Identifier, "{}", name);
+    const identifier = try c.a().create(ast.Node.Identifier);
+    identifier.* = ast.Node.Identifier{
+        .base = ast.Node{ .id = ast.Node.Id.Identifier },
+        .token = token_index,
+    };
+    return &identifier.base;
 }
 
 pub fn freeErrors(errors: []ClangErrMsg) void {

@@ -1152,13 +1152,13 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
                     return proto_node;
                 }
 
-                const clang::FunctionProtoType *fn_proto_ty = reinterpret_cast<const clang::FunctionProtoType*>(ty);
+                const ZigClangFunctionProtoType *fn_proto_ty = reinterpret_cast<const ZigClangFunctionProtoType*>(ty);
 
-                proto_node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
-                size_t param_count = fn_proto_ty->getNumParams();
+                proto_node->data.fn_proto.is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
+                size_t param_count = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
 
                 for (size_t i = 0; i < param_count; i += 1) {
-                    ZigClangQualType qt = bitcast(fn_proto_ty->getParamType(i));
+                    ZigClangQualType qt = ZigClangFunctionProtoType_getParamType(fn_proto_ty, i);
                     AstNode *param_type_node = trans_qual_type(c, qt, source_loc);
 
                     if (param_type_node == nullptr) {
