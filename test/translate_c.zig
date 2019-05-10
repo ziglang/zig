@@ -2,10 +2,24 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    /////////////// Cases that pass for both stage1/stage2 ////////////////
     cases.add_both("simple noreturn fn",
         \\void __attribute__((noreturn)) foo(void);
     ,
         \\extern fn foo() noreturn;
+    );
+
+    /////////////// Cases that pass for only stage2 ////////////////
+    // (none)
+
+    /////////////// Cases that pass for only stage1 ////////////////
+
+    cases.addC("Parameterless function prototypes",
+        \\void foo() {}
+        \\void bar(void) {}
+    ,
+        \\pub export fn foo() void {}
+        \\pub export fn bar() void {}
     );
 
     cases.add("macro with left shift",
@@ -1523,14 +1537,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     );
 
-    cases.addC("Parameterless function prototypes",
-        \\void foo() {}
-        \\void bar(void) {}
-    ,
-        \\pub export fn foo() void {}
-        \\pub export fn bar() void {}
-    );
-
     cases.addC(
         "u integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0U",
@@ -1667,34 +1673,4 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     );
-
-    // cases.add("empty array with initializer",
-    //     "int a[4] = {};"
-    // ,
-    //     "pub var a: [4]c_int = [1]c_int{0} ** 4;"
-    // );
-
-    // cases.add("array with initialization",
-    //     "int a[4] = {1, 2, 3, 4};"
-    // ,
-    //     "pub var a: [4]c_int = [4]c_int{1, 2, 3, 4};"
-    // );
-
-    // cases.add("array with incomplete initialization",
-    //     "int a[4] = {3, 4};"
-    // ,
-    //     "pub var a: [4]c_int = [2]c_int{3, 4} ++ ([1]c_int{0} ** 2);"
-    // );
-
-    // cases.add("2D array with initialization",
-    //     "int a[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };"
-    // ,
-    //     "pub var a: [3][3]c_int = [3][3]c_int{[3]c_int{1, 2, 3}, [3]c_int{4, 5, 6}, [3]c_int{7, 8, 9}};"
-    // );
-
-    // cases.add("2D array with incomplete initialization",
-    //     "int a[3][3] = { {1, 2}, {4, 5, 6} };"
-    // ,
-    //     "pub var a: [3][3]c_int = [2][3]c_int{[2]c_int{1, 2} ++ [1]c_int{0}, [3]c_int{4, 5, 6}} ++ [1][3]c_int{[1]c_int{0} ** 3};"
-    // );
 }

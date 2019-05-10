@@ -208,14 +208,14 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     if (try c.decl_table.put(@ptrToInt(fn_decl), {})) |_| return; // Avoid processing this decl twice
-
+    const rp = makeRestorePoint(c);
     const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
     const fn_qt = ZigClangFunctionDecl_getType(fn_decl);
     const fn_type = ZigClangQualType_getTypePtr(fn_qt);
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => transFnProto(
-            c,
+            rp,
             @ptrCast(*const ZigClangFunctionProtoType, fn_type),
             fn_decl_loc,
             fn_decl,
@@ -242,32 +242,35 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
     try c.tree.root_node.decls.push(decl_node);
 }
 
-fn transQualType(c: *Context, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !*ast.Node {
-    return transType(c, ZigClangQualType_getTypePtr(qt), source_loc);
+fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) Error!*ast.Node {
+    return transType(rp, ZigClangQualType_getTypePtr(qt), source_loc);
+}
+
+fn qualTypeCanon(qt: ZigClangQualType) *const ZigClangType {
+    const canon = ZigClangQualType_getCanonicalType(qt);
+    return ZigClangQualType_getTypePtr(canon);
 }
 
 const RestorePoint = struct {
-    context: *Context,
+    c: *Context,
     token_index: ast.TokenIndex,
     src_buf_index: usize,
 
     fn activate(self: RestorePoint) void {
-        self.context.tree.tokens.shrink(self.token_index);
-        self.context.source_buffer.shrink(self.src_buf_index);
+        self.c.tree.tokens.shrink(self.token_index);
+        self.c.source_buffer.shrink(self.src_buf_index);
     }
 };
 
 fn makeRestorePoint(c: *Context) RestorePoint {
     return RestorePoint{
-        .context = c,
+        .c = c,
         .token_index = c.tree.tokens.len,
         .src_buf_index = c.source_buffer.len(),
     };
 }
 
-fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) !*ast.Node {
-    const rp = makeRestorePoint(c);
-
+fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) Error!*ast.Node {
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
@@ -275,23 +278,26 @@ fn transType(c: *Context, ty: *const ZigClangType, source_loc: ZigClangSourceLoc
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
             }
         },
-        .FunctionProto => return transFnProto(c, @ptrCast(*const ZigClangFunctionType, ty), source_loc, null, false),
+        .FunctionProto => {
+            const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
+            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null, null);
+            return &fn_proto.base;
+        },
         else => {
-            const type_name = c.str(ZigClangType_getTypeClassName(ty));
+            const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
             return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", type_name);
         },
     }
 }
 
 fn transFnProto(
-    c: *Context,
+    rp: RestorePoint,
     fn_proto_ty: *const ZigClangFunctionProtoType,
     source_loc: ZigClangSourceLocation,
     opt_fn_decl: ?*const ZigClangFunctionDecl,
     fn_name: ?[]const u8,
 ) !*ast.Node.FnProto {
     const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
-    const rp = makeRestorePoint(c);
     const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
         .C => CallingConvention.C,
         .X86StdCall => CallingConvention.Stdcall,
@@ -323,13 +329,13 @@ fn transFnProto(
     // TODO check for align attribute
 
     // extern fn name(...) T
-    const cc_tok = if (cc == .Stdcall) try appendToken(c, .Keyword_stdcallcc, "stdcallcc") else null;
+    const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const is_export = exp: {
         const fn_decl = opt_fn_decl orelse break :exp false;
         const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
         const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
         break :exp switch (storage_class) {
-            .None => switch (c.mode) {
+            .None => switch (rp.c.mode) {
                 .import => false,
                 .translate => has_body,
             },
@@ -340,48 +346,44 @@ fn transFnProto(
         };
     };
     const extern_export_inline_tok = if (is_export)
-        try appendToken(c, .Keyword_export, "export")
+        try appendToken(rp.c, .Keyword_export, "export")
     else if (cc == .C)
-        try appendToken(c, .Keyword_extern, "extern")
+        try appendToken(rp.c, .Keyword_extern, "extern")
     else
         null;
-    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
-    const name_tok = if (fn_name) |n| try appendToken(c, .Identifier, "{}", n) else null;
-    const lparen_tok = try appendToken(c, .LParen, "(");
-    const var_args_tok = if (is_var_args) try appendToken(c, .Ellipsis3, "...") else null;
-    const rparen_tok = try appendToken(c, .RParen, ")");
+    const fn_tok = try appendToken(rp.c, .Keyword_fn, "fn");
+    const name_tok = if (fn_name) |n| try appendToken(rp.c, .Identifier, "{}", n) else null;
+    const lparen_tok = try appendToken(rp.c, .LParen, "(");
+    const var_args_tok = if (is_var_args) try appendToken(rp.c, .Ellipsis3, "...") else null;
+    const rparen_tok = try appendToken(rp.c, .RParen, ")");
 
     const return_type_node = blk: {
         if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
-            break :blk try appendIdentifier(c, "noreturn");
+            break :blk try appendIdentifier(rp.c, "noreturn");
         } else {
-            return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: non-noreturn FunctionProto return type");
-            //proto_node->data.fn_proto.return_type = trans_qual_type(c,
-            //        ZigClangFunctionType_getReturnType(fn_ty), source_loc);
-            //if (proto_node->data.fn_proto.return_type == nullptr) {
-            //    emit_warning(c, source_loc, "unsupported function proto return type");
-            //    return nullptr;
-            //}
-            //// convert c_void to actual void (only for return type)
-            //// we do want to look at the AstNode instead of ZigClangQualType, because
-            //// if they do something like:
-            ////     typedef Foo void;
-            ////     void foo(void) -> Foo;
-            //// we want to keep the return type AST node.
-            //if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
-            //    proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
-            //}
+            const return_qt = ZigClangFunctionType_getReturnType(fn_ty);
+            if (ZigClangType_isVoidType(qualTypeCanon(return_qt))) {
+                break :blk try appendIdentifier(rp.c, "void");
+            } else {
+                break :blk transQualType(rp, return_qt, source_loc) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try emitWarning(rp.c, source_loc, "unsupported function proto return type");
+                        return err;
+                    },
+                    else => return err,
+                };
+            }
         }
     };
 
-    const fn_proto = try c.a().create(ast.Node.FnProto);
+    const fn_proto = try rp.c.a().create(ast.Node.FnProto);
     fn_proto.* = ast.Node.FnProto{
         .base = ast.Node{ .id = ast.Node.Id.FnProto },
         .doc_comments = null,
         .visib_token = null,
         .fn_token = fn_tok,
         .name_token = name_tok,
-        .params = ast.Node.FnProto.ParamList.init(c.a()),
+        .params = ast.Node.FnProto.ParamList.init(rp.c.a()),
         .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
         .var_args_token = var_args_tok,
         .extern_export_inline_token = extern_export_inline_tok,
@@ -396,14 +398,14 @@ fn transFnProto(
 }
 
 fn revertAndWarn(
-    restore_point: RestorePoint,
+    rp: RestorePoint,
     err: var,
     source_loc: ZigClangSourceLocation,
     comptime format: []const u8,
     args: ...,
 ) (@typeOf(err) || error{OutOfMemory}) {
-    restore_point.activate();
-    try emitWarning(restore_point.context, source_loc, format, args);
+    rp.activate();
+    try emitWarning(rp.c, source_loc, format, args);
     return err;
 }
 
