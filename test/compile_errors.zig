@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "peer cast then implicit cast const pointer to mutable C pointer",
+        \\export fn func() void {
+        \\    var strValue: [*c]u8 = undefined;
+        \\    strValue = strValue orelse c"";
+        \\}
+    ,
+        "tmp.zig:3:32: error: cast discards const qualifier",
+    );
+
+    cases.add(
         "attempt to cast enum literal to error",
         \\export fn entry() void {
         \\    switch (error.Hi) {
