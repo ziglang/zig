@@ -7872,7 +7872,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     {
         buf_appendf(contents,
         "pub const SubSystem = enum {\n"
-        "    Auto,\n"
         "    Console,\n"
         "    Windows,\n"
         "    Posix,\n"
@@ -7883,7 +7882,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         "    EfiRuntimeDriver,\n"
         "};\n\n");
 
-        assert(TargetSubsystemAuto == 0);
         assert(TargetSubsystemConsole == 1);
         assert(TargetSubsystemWindows == 2);
         assert(TargetSubsystemPosix == 3);
@@ -7911,7 +7909,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     {
         static const char* subsystem_strings[] = {
-            "Auto",
             "Console",
             "Windows",
             "Posix",
@@ -7921,7 +7918,19 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "EfiRom",
             "EfiRuntimeDriver",
         };
-        buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[g->subsystem]);
+
+        if (g->subsystem == TargetSubsystemAuto) {
+            if (g->have_c_main || g->have_pub_main) {
+                buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[TargetSubsystemConsole - 1]);
+            } else if (g->have_winmain || g->have_winmain_crt_startup) {
+                buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[TargetSubsystemWindows - 1]);
+            } else if (g->have_dllmain_crt_startup || g->out_type == OutTypeLib) {
+                buf_appendf(contents, "pub const subsystem = null;\n");
+            }
+        } else {
+            buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[g->subsystem - 1]);
+        }
+        
     }
 
     if (g->is_test_build) {
@@ -7967,7 +7976,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
-    cache_int(&cache_hash, g->subsystem);
+    cache_int(&cache_hash, g->subsystem - 1);
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
