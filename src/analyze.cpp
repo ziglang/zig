@@ -2003,6 +2003,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
 
+    BigInt bi_one;
+    bigint_init_unsigned(&bi_one, 1);
+
+    TypeEnumField *last_enum_field = nullptr;
+
     for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
@@ -2028,76 +2033,58 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         AstNode *tag_value = field_node->data.struct_field.value;
 
-        // In this first pass we resolve explicit tag values.
-        // In a second pass we will fill in the unspecified ones.
         if (tag_value != nullptr) {
+            // A user-specified value is available
             ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.is_invalid = true;
                 continue;
             }
+
             assert(result->special != ConstValSpecialRuntime);
-            assert(result->type->id == ZigTypeIdInt ||
-                   result->type->id == ZigTypeIdComptimeInt);
-            auto entry = occupied_tag_values.put_unique(result->data.x_bigint, tag_value);
-            if (entry == nullptr) {
-                bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
-            } else {
-                Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &result->data.x_bigint, 10);
+            assert(result->type->id == ZigTypeIdInt || result->type->id == ZigTypeIdComptimeInt);
 
-                ErrorMsg *msg = add_node_error(g, tag_value,
-                        buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
-                add_error_note(g, msg, entry->value,
-                        buf_sprintf("other occurrence here"));
-                enum_type->data.enumeration.is_invalid = true;
-                continue;
-            }
-        }
-    }
-
-    // Now iterate again and populate the unspecified tag values
-    BigInt next_maybe_unoccupied_index;
-    bigint_init_unsigned(&next_maybe_unoccupied_index, 0);
-
-    // Since we're allocating positive values only we have one less bit
-    // available if the tag type is signed (eg. for a i8 we can only use (0,127))
-    unsigned tag_bit_width = tag_int_type->size_in_bits;
-    if (tag_int_type->data.integral.is_signed)
-        tag_bit_width--;
-
-    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
-        AstNode *tag_value = field_node->data.struct_field.value;
-
-        // Already handled in the loop above
-        if (tag_value != nullptr)
-            continue;
-
-        // Make sure we can represent this number with tag_int_type
-        const unsigned repr_bits = bigint_bits_needed(&next_maybe_unoccupied_index);
-        if (repr_bits > tag_bit_width) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, field_node,
-               buf_sprintf("enumeration value %" ZIG_PRI_u64 " too large for type '%s'",
-                    bigint_as_unsigned(&next_maybe_unoccupied_index),
-                    buf_ptr(&tag_int_type->name)));
-            break;
-        }
-
-        if (occupied_tag_values.size() == 0) {
-            type_enum_field->value = next_maybe_unoccupied_index;
-            bigint_incr(&next_maybe_unoccupied_index);
+            bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
         } else {
-            for (;;) {
-                auto entry = occupied_tag_values.put_unique(next_maybe_unoccupied_index, field_node);
-                if (entry == nullptr)
-                    break;
-                bigint_incr(&next_maybe_unoccupied_index);
+            // No value was explicitly specified: allocate the last value + 1
+            // or, if this is the first element, zero
+            if (last_enum_field != nullptr) {
+                bigint_add(&type_enum_field->value, &last_enum_field->value, &bi_one);
+            } else {
+                bigint_init_unsigned(&type_enum_field->value, 0);
             }
-            type_enum_field->value = next_maybe_unoccupied_index;
+
+            // Make sure we can represent this number with tag_int_type
+            if (!bigint_fits_in_bits(&type_enum_field->value,
+                                     tag_int_type->size_in_bits,
+                                     tag_int_type->data.integral.is_signed)) {
+                enum_type->data.enumeration.is_invalid = true;
+
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &type_enum_field->value, 10);
+                add_node_error(g, field_node,
+                    buf_sprintf("enumeration value %s too large for type '%s'",
+                        buf_ptr(val_buf), buf_ptr(&tag_int_type->name)));
+
+                break;
+            }
         }
+
+        // Make sure the value is unique
+        auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
+        if (entry != nullptr) {
+            enum_type->data.enumeration.is_invalid = true;
+
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &type_enum_field->value, 10);
+
+            ErrorMsg *msg = add_node_error(g, field_node,
+                    buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+            add_error_note(g, msg, entry->value,
+                    buf_sprintf("other occurrence here"));
+        }
+
+        last_enum_field = type_enum_field;
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = false;
