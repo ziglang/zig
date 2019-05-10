@@ -1908,28 +1908,16 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static bool type_is_int_compatible(ZigType *t1, ZigType *t2) {
-    assert(t1->id == ZigTypeIdInt);
-    assert(t2->id == ZigTypeIdInt);
-
-    if (t1 == t2)
-        return true;
-
-    return (t1->data.integral.bit_count == t2->data.integral.bit_count &&
-            t1->data.integral.is_signed == t2->data.integral.is_signed);
-}
-
 static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
-    // According to the ANSI C standard:
-    // Each enumerated type shall be compatible with char, a signed integer
-    // type, or an unsigned integer type.
-    ZigType *c_uint_type = get_c_int_type(g, CIntTypeInt);
-    ZigType *c_int_type = get_c_int_type(g, CIntTypeInt);
-    ZigType *c_schar_type = g->builtin_types.entry_i8;
+    // Only integer types are allowed by the C ABI
+    if(ty->id != ZigTypeIdInt)
+        return false;
 
-    return (type_is_int_compatible(ty, c_schar_type) ||
-            type_is_int_compatible(ty, c_int_type)   ||
-            type_is_int_compatible(ty, c_uint_type));
+    // According to the ANSI C standard the enumeration type should be either a
+    // signed char, a signed integer or an unsigned one. But GCC/Clang allow
+    // other integral types as a compiler extension so let's accomodate them
+    // aswell.
+    return type_allowed_in_extern(g, ty);
 }
 
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
