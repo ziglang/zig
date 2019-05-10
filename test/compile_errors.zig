@@ -588,15 +588,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "threadlocal qualifier on local variable",
-        \\export fn entry() void {
-        \\    threadlocal var x: i32 = 1234;
-        \\}
-    ,
-        "tmp.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
-    );
-
-    cases.add(
         "@bitCast same size but bit count mismatch",
         \\export fn entry(byte: u8) void {
         \\    var oops = @bitCast(u7, byte);
