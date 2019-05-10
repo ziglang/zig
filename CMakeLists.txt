@@ -487,6 +487,7 @@ set(ZIG_STD_FILES
     "crypto/x25519.zig"
     "cstr.zig"
     "debug.zig"
+    "debug/leb128.zig"
     "debug/failing_allocator.zig"
     "dwarf.zig"
     "dynamic_library.zig"
