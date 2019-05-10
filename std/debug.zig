@@ -1181,8 +1181,8 @@ pub const DwarfInfo = struct {
     func_list: ArrayList(Func),
 
     pub const Section = struct {
-        offset: usize,
-        size: usize,
+        offset: u64,
+        size: u64,
     };
 
     pub fn allocator(self: DwarfInfo) *mem.Allocator {
@@ -1344,8 +1344,8 @@ const FileEntry = struct {
 };
 
 pub const LineInfo = struct {
-    line: usize,
-    column: usize,
+    line: u64,
+    column: u64,
     file_name: []const u8,
     allocator: ?*mem.Allocator,
 
@@ -1358,8 +1358,8 @@ pub const LineInfo = struct {
 const LineNumberProgram = struct {
     address: usize,
     file: usize,
-    line: isize,
-    column: usize,
+    line: i64,
+    column: u64,
     is_stmt: bool,
     basic_block: bool,
     end_sequence: bool,
@@ -1370,8 +1370,8 @@ const LineNumberProgram = struct {
 
     prev_address: usize,
     prev_file: usize,
-    prev_line: isize,
-    prev_column: usize,
+    prev_line: i64,
+    prev_column: u64,
     prev_is_stmt: bool,
     prev_basic_block: bool,
     prev_end_sequence: bool,
@@ -1414,7 +1414,7 @@ const LineNumberProgram = struct {
             const file_name = try os.path.join(self.file_entries.allocator, [][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
-                .line = if (self.prev_line >= 0) @intCast(usize, self.prev_line) else 0,
+                .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
                 .allocator = self.file_entries.allocator,
@@ -1789,7 +1789,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                     prog.basic_block = false;
                 },
                 DW.LNS_advance_pc => {
-                    const arg = try leb.readULEB128Mem(u64, &ptr);
+                    const arg = try leb.readULEB128Mem(usize, &ptr);
                     prog.address += arg * minimum_instruction_length;
                 },
                 DW.LNS_advance_line => {
@@ -1797,7 +1797,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                     prog.line += arg;
                 },
                 DW.LNS_set_file => {
-                    const arg = try leb.readULEB128Mem(u64, &ptr);
+                    const arg = try leb.readULEB128Mem(usize, &ptr);
                     prog.file = arg;
                 },
                 DW.LNS_set_column => {
@@ -1955,7 +1955,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                     prog.basic_block = false;
                 },
                 DW.LNS_advance_pc => {
-                    const arg = try leb.readULEB128(u64, di.dwarf_in_stream);
+                    const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
                     prog.address += arg * minimum_instruction_length;
                 },
                 DW.LNS_advance_line => {
@@ -1963,7 +1963,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                     prog.line += arg;
                 },
                 DW.LNS_set_file => {
-                    const arg = try leb.readULEB128(u64, di.dwarf_in_stream);
+                    const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
                     prog.file = arg;
                 },
                 DW.LNS_set_column => {
