@@ -63,6 +63,8 @@ comptime {
     @export("__divdf3", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
 
     @export("__ashlti3", @import("compiler_rt/ashlti3.zig").__ashlti3, linkage);
+    @export("__lshrti3", @import("compiler_rt/lshrti3.zig").__lshrti3, linkage);
+
     @export("__floatsidf", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
     @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
     @export("__floatdidf", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
