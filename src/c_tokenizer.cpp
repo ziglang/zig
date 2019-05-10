@@ -265,6 +265,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->state = CTokStateStart;
                         break;
                     default:
+                        end_token(ctok);
                         ctok->state = CTokStateStart;
                         continue;
                 }
