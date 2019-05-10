@@ -7899,13 +7899,13 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "EfiRuntimeDriver",
         };
 
-        if (g->subsystem == TargetSubsystemAuto) {
+        if (g->zig_target->os != OsWindows || g->zig_target->os != OsUefi || g->have_dllmain_crt_startup || g->out_type == OutTypeLib) {
+                buf_appendf(contents, "pub const subsystem = null;\n");
+        } else if (g->subsystem == TargetSubsystemAuto) {
             if (g->have_c_main || g->have_pub_main) {
                 buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[TargetSubsystemConsole - 1]);
             } else if (g->have_winmain || g->have_winmain_crt_startup) {
                 buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[TargetSubsystemWindows - 1]);
-            } else if (g->have_dllmain_crt_startup || g->out_type == OutTypeLib) {
-                buf_appendf(contents, "pub const subsystem = null;\n");
             }
         } else {
             buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_strings[g->subsystem - 1]);
