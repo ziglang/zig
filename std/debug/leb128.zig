@@ -108,53 +108,37 @@ pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
     }
 }
 
-const OneByteReadInStream = struct {
-    const Error = error{NoError};
-    const Stream = std.io.InStream(Error);
+fn test_read_stream_ileb128(comptime T: type, encoded: []const u8) !T {
+    var in_stream = std.io.SliceInStream.init(encoded);
+    return try readILEB128(T, &in_stream.stream);
+}
 
-    stream: Stream,
-    str: []const u8,
-    curr: usize,
-
-    fn init(str: []const u8) @This() {
-        return @This(){
-            .stream = Stream{ .readFn = readFn },
-            .str = str,
-            .curr = 0,
-        };
-    }
-
-    fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-        const self = @fieldParentPtr(@This(), "stream", in_stream);
-        if (self.str.len <= self.curr or dest.len == 0)
-            return 0;
-
-        dest[0] = self.str[self.curr];
-        self.curr += 1;
-        return 1;
-    }
-};
+fn test_read_stream_uleb128(comptime T: type, encoded: []const u8) !T {
+    var in_stream = std.io.SliceInStream.init(encoded);
+    return try readULEB128(T, &in_stream.stream);
+}
 
 fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = OneByteReadInStream.init(encoded);
-    const v1 = try readILEB128(T, &in_stream.stream);
+    var in_stream = std.io.SliceInStream.init(encoded);
+    const v1 = readILEB128(T, &in_stream.stream);
     var in_ptr = encoded.ptr;
-    const v2 = try readILEB128Mem(T, &in_ptr);
+    const v2 = readILEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
-    return v2;
+    return v1;
 }
 
 fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
-    var in_stream = OneByteReadInStream.init(encoded);
-    const v1 = try readULEB128(T, &in_stream.stream);
+    var in_stream = std.io.SliceInStream.init(encoded);
+    const v1 = readULEB128(T, &in_stream.stream);
     var in_ptr = encoded.ptr;
-    const v2 = try readULEB128Mem(T, &in_ptr);
-    return v2;
+    const v2 = readULEB128Mem(T, &in_ptr);
+    testing.expectEqual(v1, v2);
+    return v1;
 }
 
 test "deserialize signed LEB128" {
     // Truncated
-    testing.expectError(error.EndOfStream, test_read_ileb128(i64, "\x80"));
+    testing.expectError(error.EndOfStream, test_read_stream_ileb128(i64, "\x80"));
 
     // Overflow
     testing.expectError(error.Overflow, test_read_ileb128(i8, "\x80\x80\x40"));
@@ -188,7 +172,7 @@ test "deserialize signed LEB128" {
 
 test "deserialize unsigned LEB128" {
     // Truncated
-    testing.expectError(error.EndOfStream, test_read_uleb128(u64, "\x80"));
+    testing.expectError(error.EndOfStream, test_read_stream_uleb128(u64, "\x80"));
 
     // Overflow
     testing.expectError(error.Overflow, test_read_uleb128(u8, "\x80\x80\x40"));
