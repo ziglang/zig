@@ -5808,8 +5808,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
 
-    if (!instr_is_unreachable(body_result))
+    if (!instr_is_unreachable(body_result)) {
+        ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.for_expr.body, body_result));
         ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
+    }
 
     ir_set_cursor_at_end_and_append_block(irb, continue_block);
     IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one, false);

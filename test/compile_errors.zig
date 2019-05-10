@@ -5918,4 +5918,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:3:23: error: expected type '[]u32', found '*const u32'",
     );
+
+    cases.add(
+        "for loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    for ("hello") |_| returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: anyerror!i32 = error.Bad;
+        \\    for ("hello") |_| returns() else unreachable;
+        \\}
+    ,
+        "tmp.zig:5:30: error: expression value is ignored",
+        "tmp.zig:9:30: error: expression value is ignored",
+    );
 }
