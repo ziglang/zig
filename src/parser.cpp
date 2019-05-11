@@ -591,17 +591,22 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
             lib_name = eat_token_if(pc, TokenIdStringLiteral);
 
         if (first->id != TokenIdKeywordInline) {
+            Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
                 assert(var_decl->type == NodeTypeVariableDeclaration);
                 var_decl->line = first->start_line;
                 var_decl->column = first->start_column;
+                var_decl->data.variable_declaration.threadlocal_tok = thread_local_kw;
                 var_decl->data.variable_declaration.visib_mod = visib_mod;
                 var_decl->data.variable_declaration.is_extern = first->id == TokenIdKeywordExtern;
                 var_decl->data.variable_declaration.is_export = first->id == TokenIdKeywordExport;
                 var_decl->data.variable_declaration.lib_name = token_buf(lib_name);
                 return var_decl;
             }
+
+            if (thread_local_kw != nullptr)
+                put_back_token(pc);
         }
 
         AstNode *fn_proto = ast_parse_fn_proto(pc);
