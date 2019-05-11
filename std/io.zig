@@ -195,8 +195,8 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
-            var i: usize = 0;
+        pub fn skipBytes(self: *Self, num_bytes: u64) !void {
+            var i: u64 = 0;
             while (i < num_bytes) : (i += 1) {
                 _ = try self.readByte();
             }
@@ -290,7 +290,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
     var file = try File.openRead(path);
     defer file.close();
 
-    const size = try file.getEndPos();
+    const size = try math.cast(usize, try file.getEndPos());
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
@@ -743,7 +743,7 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Error = OutStreamError;
 
         pub stream: Stream,
-        pub bytes_written: usize,
+        pub bytes_written: u64,
         child_stream: *Stream,
 
         pub fn init(child_stream: *Stream) Self {

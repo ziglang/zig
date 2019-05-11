@@ -941,6 +941,8 @@ pub const LibExeObjStep = struct {
     verbose_link: bool,
     verbose_cc: bool,
     disable_gen_h: bool,
+    bundle_compiler_rt: bool,
+    disable_stack_probing: bool,
     c_std: Builder.CStd,
     override_std_dir: ?[]const u8,
     override_lib_dir: ?[]const u8,
@@ -1050,6 +1052,8 @@ pub const LibExeObjStep = struct {
             .name_prefix = "",
             .filter = null,
             .disable_gen_h = false,
+            .bundle_compiler_rt = false,
+            .disable_stack_probing = false,
             .output_dir = null,
             .need_system_paths = false,
             .single_threaded = false,
@@ -1451,6 +1455,12 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_gen_h) {
             try zig_args.append("--disable-gen-h");
+        }
+        if (self.bundle_compiler_rt) {
+            try zig_args.append("--bundle-compiler-rt");
+        }
+        if (self.disable_stack_probing) {
+            try zig_args.append("--disable-stack-probing");
         }
 
         switch (self.target) {

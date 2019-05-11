@@ -3,6 +3,27 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "peer cast then implicit cast const pointer to mutable C pointer",
+        \\export fn func() void {
+        \\    var strValue: [*c]u8 = undefined;
+        \\    strValue = strValue orelse c"";
+        \\}
+    ,
+        "tmp.zig:3:32: error: cast discards const qualifier",
+    );
+
+    cases.add(
+        "attempt to cast enum literal to error",
+        \\export fn entry() void {
+        \\    switch (error.Hi) {
+        \\        .Hi => {},
+        \\    }
+        \\}
+    ,
+        "tmp.zig:3:9: error: expected type 'error{Hi}', found '(enum literal)'",
+    );
+
+    cases.add(
         "@sizeOf bad type",
         \\export fn entry() void {
         \\    _ = @sizeOf(@typeOf(null));
@@ -577,15 +598,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "threadlocal qualifier on local variable",
-        \\export fn entry() void {
-        \\    threadlocal var x: i32 = 1234;
-        \\}
-    ,
-        "tmp.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
-    );
-
-    cases.add(
         "@bitCast same size but bit count mismatch",
         \\export fn entry(byte: u8) void {
         \\    var oops = @bitCast(u7, byte);
@@ -863,7 +875,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = &x == null;
         \\}
     ,
-        "tmp.zig:3:12: error: only optionals (not '*i32') can compare to null",
+        "tmp.zig:3:12: error: comparison of '*i32' with null",
     );
 
     cases.add(
@@ -5906,5 +5918,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:3:23: error: expected type '[]u32', found '*const u32'",
+    );
+
+    cases.add(
+        "for loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    for ("hello") |_| returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: anyerror!i32 = error.Bad;
+        \\    for ("hello") |_| returns() else unreachable;
+        \\}
+    ,
+        "tmp.zig:5:30: error: expression value is ignored",
+        "tmp.zig:9:30: error: expression value is ignored",
     );
 }

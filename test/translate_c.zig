@@ -2,6 +2,54 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    /////////////// Cases that pass for both stage1/stage2 ////////////////
+    cases.add_both("simple function prototypes",
+        \\void __attribute__((noreturn)) foo(void);
+        \\int bar(void);
+    ,
+        \\pub extern fn foo() noreturn;
+        \\pub extern fn bar() c_int;
+    );
+
+    cases.add_both("simple function definition",
+        \\void foo(void) {};
+    ,
+        \\pub export fn foo() void {}
+    );
+
+    /////////////// Cases that pass for only stage2 ////////////////
+    // (none)
+
+    /////////////// Cases that pass for only stage1 ////////////////
+
+    cases.addC("Parameterless function prototypes",
+        \\void foo() {}
+        \\void bar(void) {}
+    ,
+        \\pub export fn foo() void {}
+        \\pub export fn bar() void {}
+    );
+
+    cases.add("macro with left shift",
+        \\#define REDISMODULE_READ (1<<0)
+    ,
+        \\pub const REDISMODULE_READ = 1 << 0;
+    );
+
+    cases.add("casting pointers to ints and ints to pointers",
+        \\void foo(void);
+        \\void bar(void) {
+        \\    void *func_ptr = foo;
+        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
+        \\}
+    ,
+        \\pub extern fn foo() void;
+        \\pub fn bar() void {
+        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
+        \\    var typed_func_ptr: ?extern fn() void = @intToPtr(?extern fn() void, c_ulong(@ptrToInt(func_ptr)));
+        \\}
+    );
+
     if (builtin.os != builtin.Os.windows) {
         // Windows treats this as an enum with type c_int
         cases.add("big negative enum init values when C ABI supports long long enums",
@@ -72,7 +120,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = c"void foo(void)";
         \\}
     );
-    
+
     cases.add("ignore result",
         \\void foo() {
         \\    int a;
@@ -648,11 +696,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    if ((a != 0) and (b != 0)) return 0;
-        \\    if ((b != 0) and (c != 0)) return 1;
-        \\    if ((a != 0) and (c != 0)) return 2;
+        \\    if ((b != 0) and (c != null)) return 1;
+        \\    if ((a != 0) and (c != null)) return 2;
         \\    if ((a != 0) or (b != 0)) return 3;
-        \\    if ((b != 0) or (c != 0)) return 4;
-        \\    if ((a != 0) or (c != 0)) return 5;
+        \\    if ((b != 0) or (c != null)) return 4;
+        \\    if ((a != 0) or (c != null)) return 5;
         \\    return 6;
         \\}
     );
@@ -832,7 +880,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo() [*c]c_int {
-        \\    return 0;
+        \\    return null;
         \\}
     );
 
@@ -1360,7 +1408,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
-        \\    return !(c != 0);
+        \\    return !(c != null);
         \\}
     );
 
@@ -1417,7 +1465,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
-        \\    if (c != 0) return 2;
+        \\    if (c != null) return 2;
         \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
         \\    return 4;
         \\}
@@ -1434,7 +1482,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != 0) return 2;
+        \\    while (c != null) return 2;
         \\    return 3;
         \\}
     );
@@ -1450,7 +1498,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
-        \\    while (c != 0) return 2;
+        \\    while (c != null) return 2;
         \\    return 3;
         \\}
     );
@@ -1495,14 +1543,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        res = 5;
         \\    }
         \\}
-    );
-
-    cases.addC("Parameterless function prototypes",
-        \\void foo() {}
-        \\void bar(void) {}
-    ,
-        \\pub export fn foo() void {}
-        \\pub export fn bar() void {}
     );
 
     cases.addC(
@@ -1581,7 +1621,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_int(&fn_int);
         \\    fn_ptr(42);
         \\}
-        ,
+    ,
         \\pub extern fn fn_int(x: c_int) void;
         \\pub extern fn fn_f32(x: f32) void;
         \\pub extern fn fn_f64(x: f64) void;
@@ -1624,7 +1664,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        long long *to_longlong = p;
         \\    }
         \\}
-        ,
+    ,
         \\pub export fn test_ptr_cast() void {
         \\    var p: ?*c_void = undefined;
         \\    {
@@ -1641,34 +1681,4 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     );
-
-    // cases.add("empty array with initializer",
-    //     "int a[4] = {};"
-    // ,
-    //     "pub var a: [4]c_int = [1]c_int{0} ** 4;"
-    // );
-
-    // cases.add("array with initialization",
-    //     "int a[4] = {1, 2, 3, 4};"
-    // ,
-    //     "pub var a: [4]c_int = [4]c_int{1, 2, 3, 4};"
-    // );
-
-    // cases.add("array with incomplete initialization",
-    //     "int a[4] = {3, 4};"
-    // ,
-    //     "pub var a: [4]c_int = [2]c_int{3, 4} ++ ([1]c_int{0} ** 2);"
-    // );
-
-    // cases.add("2D array with initialization",
-    //     "int a[3][3] = { {1, 2, 3}, {4, 5, 6}, {7, 8, 9} };"
-    // ,
-    //     "pub var a: [3][3]c_int = [3][3]c_int{[3]c_int{1, 2, 3}, [3]c_int{4, 5, 6}, [3]c_int{7, 8, 9}};"
-    // );
-
-    // cases.add("2D array with incomplete initialization",
-    //     "int a[3][3] = { {1, 2}, {4, 5, 6} };"
-    // ,
-    //     "pub var a: [3][3]c_int = [2][3]c_int{[2]c_int{1, 2} ++ [1]c_int{0}, [3]c_int{4, 5, 6}} ++ [1][3]c_int{[1]c_int{0} ** 3};"
-    // );
 }

@@ -588,7 +588,7 @@ const SuperBlock = packed struct {
 
 const MsfStream = struct {
     in_file: os.File,
-    pos: usize,
+    pos: u64,
     blocks: []u32,
     block_size: u32,
 
@@ -598,7 +598,7 @@ const MsfStream = struct {
     pub const Error = @typeOf(read).ReturnType.ErrorSet;
     pub const Stream = io.InStream(Error);
 
-    fn init(block_size: u32, block_count: u32, pos: usize, file: os.File, allocator: *mem.Allocator) !MsfStream {
+    fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: *mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
@@ -660,23 +660,24 @@ const MsfStream = struct {
         return size;
     }
 
-    fn seekForward(self: *MsfStream, len: usize) !void {
+    // XXX: The `len` parameter should be signed
+    fn seekForward(self: *MsfStream, len: u64) !void {
         self.pos += len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
     }
 
-    fn seekTo(self: *MsfStream, len: usize) !void {
+    fn seekTo(self: *MsfStream, len: u64) !void {
         self.pos = len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
     }
 
-    fn getSize(self: *const MsfStream) usize {
+    fn getSize(self: *const MsfStream) u64 {
         return self.blocks.len * self.block_size;
     }
 
-    fn getFilePos(self: MsfStream) usize {
+    fn getFilePos(self: MsfStream) u64 {
         const block_id = self.pos / self.block_size;
         const block = self.blocks[block_id];
         const offset = self.pos % self.block_size;

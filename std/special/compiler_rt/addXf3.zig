@@ -78,8 +78,8 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     const infRep = @bitCast(Z, std.math.inf(T));
 
     // Detect if a or b is zero, infinity, or NaN.
-    if (aAbs - Z(1) >= infRep - Z(1) or
-        bAbs - Z(1) >= infRep - Z(1))
+    if (aAbs -% Z(1) >= infRep - Z(1) or
+        bAbs -% Z(1) >= infRep - Z(1))
     {
         // NaN + anything = qNaN
         if (aAbs > infRep) return @bitCast(T, @bitCast(Z, a) | quietBit);

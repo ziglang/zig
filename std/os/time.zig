@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const debug = std.debug;
 const testing = std.testing;
+const math = std.math;
 
 const windows = std.os.windows;
 const linux = std.os.linux;
@@ -12,33 +13,34 @@ const posix = std.os.posix;
 
 pub const epoch = @import("epoch.zig");
 
-/// Sleep for the specified duration
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
     switch (builtin.os) {
         Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
             const s = nanoseconds / ns_per_s;
             const ns = nanoseconds % ns_per_s;
-            posixSleep(@intCast(u63, s), @intCast(u63, ns));
+            posixSleep(s, ns);
         },
         Os.windows => {
             const ns_per_ms = ns_per_s / ms_per_s;
             const milliseconds = nanoseconds / ns_per_ms;
-            windows.Sleep(@intCast(windows.DWORD, milliseconds));
+            const ms_that_will_fit = std.math.cast(windows.DWORD, milliseconds) catch std.math.maxInt(windows.DWORD);
+            windows.Sleep(ms_that_will_fit);
         },
         else => @compileError("Unsupported OS"),
     }
 }
 
-pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn posixSleep(seconds: u64, nanoseconds: u64) void {
     var req = posix.timespec{
-        .tv_sec = seconds,
-        .tv_nsec = nanoseconds,
+        .tv_sec = std.math.cast(isize, seconds) catch std.math.maxInt(isize),
+        .tv_nsec = std.math.cast(isize, nanoseconds) catch std.math.maxInt(isize),
     };
     var rem: posix.timespec = undefined;
     while (true) {
         const ret_val = posix.nanosleep(&req, &rem);
         const err = posix.getErrno(ret_val);
-        if (err == 0) return;
         switch (err) {
             posix.EFAULT => unreachable,
             posix.EINVAL => {
@@ -50,6 +52,7 @@ pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
                 req = rem;
                 continue;
             },
+            // This prong handles success as well as unexpected errors.
             else => return,
         }
     }

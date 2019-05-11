@@ -399,6 +399,15 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
+static void add_probe_stack_attr(CodeGen *g, LLVMValueRef fn_val) {
+    // Windows already emits its own stack probes
+    if (!g->disable_stack_probing && g->zig_target->os != OsWindows &&
+        (g->zig_target->arch == ZigLLVM_x86 ||
+         g->zig_target->arch == ZigLLVM_x86_64)) {
+        addLLVMFnAttrStr(fn_val, "probe-stack", "__zig_probe_stack");
+    }
+}
+
 static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     switch (id) {
         case GlobalLinkageIdInternal:
@@ -587,6 +596,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
+
+            add_probe_stack_attr(g, fn_table_entry->llvm_value);
         }
     } else {
         maybe_import_dll(g, fn_table_entry->llvm_value, linkage);
@@ -997,8 +1008,17 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     LLVMBuildUnreachable(g->builder);
 }
 
+// TODO update most callsites to call gen_assertion instead of this
 static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
+}
+
+static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
+    if (ir_want_runtime_safety(g, source_instruction)) {
+        gen_safety_crash(g, msg_id);
+    } else {
+        LLVMBuildUnreachable(g->builder);
+    }
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -4012,19 +4032,19 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
-    assert(maybe_type->id == ZigTypeIdOptional);
+    assert(maybe_type->id == ZigTypeIdOptional ||
+            (maybe_type->id == ZigTypeIdPointer && maybe_type->data.pointer.allow_zero));
+
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(child_type))
         return maybe_handle;
-    } else {
-        bool is_scalar = !handle_is_ptr(maybe_type);
-        if (is_scalar) {
-            return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
-        } else {
-            LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
-            return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
-        }
-    }
+
+    bool is_scalar = !handle_is_ptr(maybe_type);
+    if (is_scalar)
+        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
+
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
+    return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
 }
 
 static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable,
@@ -4045,8 +4065,8 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -5484,6 +5504,31 @@ static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertNonNull *instruction)
+{
+    LLVMValueRef target = ir_llvm_value(g, instruction->target);
+    ZigType *target_type = instruction->target->value.type;
+
+    if (target_type->id == ZigTypeIdPointer) {
+        assert(target_type->data.pointer.ptr_len == PtrLenC);
+        LLVMValueRef non_null_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target,
+                LLVMConstNull(get_llvm_type(g, target_type)), "");
+
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullOk");
+        LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_assertion(g, PanicMsgIdUnwrapOptionalFail, &instruction->base);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    } else {
+        zig_unreachable();
+    }
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5738,6 +5783,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
         case IrInstructionIdAssertZero:
             return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
+        case IrInstructionIdAssertNonNull:
+            return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
         case IrInstructionIdResizeSlice:
             return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
     }
@@ -7004,6 +7051,11 @@ static void zig_llvm_emit_output(CodeGen *g) {
             }
             validate_inline_fns(g);
             g->link_objects.append(output_path);
+            if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
+                (g->out_type == OutTypeLib && !g->is_dynamic)))
+            {
+                zig_link_add_compiler_rt(g);
+            }
             break;
 
         case EmitFileTypeAssembly:
@@ -9307,6 +9359,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_gen_h);
+    cache_bool(ch, g->bundle_compiler_rt);
+    cache_bool(ch, g->disable_stack_probing);
     cache_bool(ch, want_valgrind_support(g));
     cache_bool(ch, g->have_pic);
     cache_bool(ch, g->have_dynamic_link);

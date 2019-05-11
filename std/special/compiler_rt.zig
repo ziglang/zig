@@ -5,6 +5,11 @@ comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
+    switch (builtin.arch) {
+        .i386, .x86_64 => @export("__zig_probe_stack", @import("compiler_rt/stack_probe.zig").zig_probe_stack, linkage),
+        else => {},
+    }
+
     @export("__lesf2", @import("compiler_rt/comparesf2.zig").__lesf2, linkage);
     @export("__ledf2", @import("compiler_rt/comparedf2.zig").__ledf2, linkage);
     @export("__letf2", @import("compiler_rt/comparetf2.zig").__letf2, linkage);
@@ -57,6 +62,17 @@ comptime {
     @export("__divsf3", @import("compiler_rt/divsf3.zig").__divsf3, linkage);
     @export("__divdf3", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
 
+    @export("__ashlti3", @import("compiler_rt/ashlti3.zig").__ashlti3, linkage);
+    @export("__lshrti3", @import("compiler_rt/lshrti3.zig").__lshrti3, linkage);
+    @export("__ashrti3", @import("compiler_rt/ashrti3.zig").__ashrti3, linkage);
+
+    @export("__floatsidf", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
+    @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
+    @export("__floatdidf", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
+    @export("__floatsitf", @import("compiler_rt/floatsiXf.zig").__floatsitf, linkage);
+    @export("__floatunsidf", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
+    @export("__floatundidf", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
+
     @export("__floattitf", @import("compiler_rt/floattitf.zig").__floattitf, linkage);
     @export("__floattidf", @import("compiler_rt/floattidf.zig").__floattidf, linkage);
     @export("__floattisf", @import("compiler_rt/floattisf.zig").__floattisf, linkage);
@@ -76,6 +92,10 @@ comptime {
     @export("__truncdfhf2", @import("compiler_rt/truncXfYf2.zig").__truncdfhf2, linkage);
     @export("__trunctfdf2", @import("compiler_rt/truncXfYf2.zig").__trunctfdf2, linkage);
     @export("__trunctfsf2", @import("compiler_rt/truncXfYf2.zig").__trunctfsf2, linkage);
+
+    @export("__truncdfsf2", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
+
+    @export("__extendsfdf2", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
 
     @export("__fixunssfsi", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
     @export("__fixunssfdi", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
@@ -102,6 +122,7 @@ comptime {
     @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
     @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
+    @export("__divmoddi4", __divmoddi4, linkage);
     @export("__divsi3", __divsi3, linkage);
     @export("__divdi3", __divdi3, linkage);
     @export("__udivsi3", __udivsi3, linkage);
@@ -117,10 +138,15 @@ comptime {
     @export("__negdf2", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
     if (is_arm_arch and !is_arm_64) {
+        @export("__aeabi_unwind_cpp_pr0", __aeabi_unwind_cpp_pr0, strong_linkage);
+        @export("__aeabi_unwind_cpp_pr1", __aeabi_unwind_cpp_pr1, linkage);
+        @export("__aeabi_unwind_cpp_pr2", __aeabi_unwind_cpp_pr2, linkage);
+
+        @export("__aeabi_ldivmod", __aeabi_ldivmod, linkage);
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
 
         @export("__aeabi_idiv", __divsi3, linkage);
-        @export("__aeabi_idivmod", __divmodsi4, linkage);
+        @export("__aeabi_idivmod", __aeabi_idivmod, linkage);
         @export("__aeabi_uidiv", __udivsi3, linkage);
         @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
 
@@ -144,6 +170,12 @@ comptime {
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
 
+        @export("__aeabi_f2d", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
+        @export("__aeabi_i2d", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
+        @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
+        @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
+        @export("__aeabi_ul2d", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
+
         @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
         @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
@@ -162,6 +194,9 @@ comptime {
 
         @export("__aeabi_h2f", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
         @export("__aeabi_f2h", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
+
+        @export("__aeabi_i2f", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
+        @export("__aeabi_d2f", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
 
         @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
         @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
@@ -191,20 +226,20 @@ comptime {
         @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
     if (builtin.os == builtin.Os.windows) {
+        if (!builtin.link_libc) {
+            @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
+            @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
+            @export("___chkstk", @import("compiler_rt/stack_probe.zig").___chkstk, strong_linkage);
+            @export("__chkstk_ms", @import("compiler_rt/stack_probe.zig").__chkstk_ms, strong_linkage);
+            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        }
+
         switch (builtin.arch) {
             builtin.Arch.i386 => {
-                if (!builtin.link_libc) {
-                    @export("_chkstk", _chkstk, strong_linkage);
-                    @export("__chkstk_ms", __chkstk_ms, linkage);
-                }
                 @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
                 @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
             },
             builtin.Arch.x86_64 => {
-                if (!builtin.link_libc) {
-                    @export("__chkstk", __chkstk, strong_linkage);
-                    @export("___chkstk_ms", ___chkstk_ms, linkage);
-                }
                 // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI
                 // that LLVM expects compiler-rt to have.
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
@@ -243,6 +278,24 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     } else {
         unreachable;
     }
+}
+
+extern fn __aeabi_unwind_cpp_pr0() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr1() void {
+    unreachable;
+}
+extern fn __aeabi_unwind_cpp_pr2() void {
+    unreachable;
+}
+
+extern fn __divmoddi4(a: i64, b: i64, rem: *i64) i64 {
+    @setRuntimeSafety(is_test);
+
+    const d = __divdi3(a, b);
+    rem.* = a -% (d *% b);
+    return d;
 }
 
 extern fn __divdi3(a: i64, b: i64) i64 {
@@ -285,14 +338,35 @@ extern fn __umoddi3(a: u64, b: u64) u64 {
     return r;
 }
 
-const AeabiUlDivModResult = extern struct {
-    quot: u64,
-    rem: u64,
-};
-extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult {
+extern fn __aeabi_uidivmod(n: u32, d: u32) extern struct{q: u32, r: u32} {
     @setRuntimeSafety(is_test);
-    var result: AeabiUlDivModResult = undefined;
-    result.quot = __udivmoddi4(numerator, denominator, &result.rem);
+
+    var result: @typeOf(__aeabi_uidivmod).ReturnType = undefined;
+    result.q = __udivmodsi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_uldivmod(n: u64, d: u64) extern struct{q: u64, r: u64} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_uldivmod).ReturnType = undefined;
+    result.q = __udivmoddi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_idivmod(n: i32, d: i32) extern struct{q: i32, r: i32} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_idivmod).ReturnType = undefined;
+    result.q = __divmodsi4(n, d, &result.r);
+    return result;
+}
+
+extern fn __aeabi_ldivmod(n: i64, d: i64) extern struct{q: i64, r:i64} {
+    @setRuntimeSafety(is_test);
+
+    var result: @typeOf(__aeabi_ldivmod).ReturnType = undefined;
+    result.q = __divmoddi4(n, d, &result.r);
     return result;
 }
 
@@ -386,22 +460,6 @@ test "usesThumb1" {
     //etc.
 }
 
-nakedcc fn __aeabi_uidivmod() void {
-    @setRuntimeSafety(false);
-    asm volatile (
-        \\ push    { lr }
-        \\ sub     sp, sp, #4
-        \\ mov     r2, sp
-        \\ bl      __udivmodsi4
-        \\ ldr     r1, [sp]
-        \\ add     sp, sp, #4
-        \\ pop     { pc }
-            :
-        :
-        : "r2", "r1"
-    );
-}
-
 nakedcc fn __aeabi_memcpy() noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1) {
@@ -490,109 +548,6 @@ nakedcc fn __aeabi_memcmp() noreturn {
         );
     }
     unreachable;
-}
-
-// _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
-// then decrement %esp by %eax.  Preserves all registers except %esp and flags.
-// This routine is windows specific
-// http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn _chkstk() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\         push   %%ecx
-        \\         push   %%eax
-        \\         cmp    $0x1000,%%eax
-        \\         lea    12(%%esp),%%ecx
-        \\         jb     1f
-        \\ 2:
-        \\         sub    $0x1000,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         sub    $0x1000,%%eax
-        \\         cmp    $0x1000,%%eax
-        \\         ja     2b
-        \\ 1:
-        \\         sub    %%eax,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         pop    %%eax
-        \\         pop    %%ecx
-        \\         ret
-    );
-}
-
-nakedcc fn __chkstk() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\        push   %%rcx
-        \\        push   %%rax
-        \\        cmp    $0x1000,%%rax
-        \\        lea    24(%%rsp),%%rcx
-        \\        jb     1f
-        \\2:
-        \\        sub    $0x1000,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        sub    $0x1000,%%rax
-        \\        cmp    $0x1000,%%rax
-        \\        ja     2b
-        \\1:
-        \\        sub    %%rax,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        pop    %%rax
-        \\        pop    %%rcx
-        \\        ret
-    );
-}
-
-// _chkstk routine
-// This routine is windows specific
-// http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn __chkstk_ms() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\         push   %%ecx
-        \\         push   %%eax
-        \\         cmp    $0x1000,%%eax
-        \\         lea    12(%%esp),%%ecx
-        \\         jb     1f
-        \\ 2:
-        \\         sub    $0x1000,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         sub    $0x1000,%%eax
-        \\         cmp    $0x1000,%%eax
-        \\         ja     2b
-        \\ 1:
-        \\         sub    %%eax,%%ecx
-        \\         test   %%ecx,(%%ecx)
-        \\         pop    %%eax
-        \\         pop    %%ecx
-        \\         ret
-    );
-}
-
-nakedcc fn ___chkstk_ms() align(4) void {
-    @setRuntimeSafety(false);
-
-    asm volatile (
-        \\        push   %%rcx
-        \\        push   %%rax
-        \\        cmp    $0x1000,%%rax
-        \\        lea    24(%%rsp),%%rcx
-        \\        jb     1f
-        \\2:
-        \\        sub    $0x1000,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        sub    $0x1000,%%rax
-        \\        cmp    $0x1000,%%rax
-        \\        ja     2b
-        \\1:
-        \\        sub    %%rax,%%rcx
-        \\        test   %%rcx,(%%rcx)
-        \\        pop    %%rax
-        \\        pop    %%rcx
-        \\        ret
-    );
 }
 
 extern fn __divmodsi4(a: i32, b: i32, rem: *i32) i32 {
@@ -1367,17 +1322,17 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
 
 test "test_divsi3" {
     const cases = [][3]i32{
-        []i32{ 0,  1,  0},
-        []i32{ 0, -1,  0},
-        []i32{ 2,  1,  2},
-        []i32{ 2, -1, -2},
-        []i32{-2,  1, -2},
-        []i32{-2, -1,  2},
+        []i32{ 0, 1, 0 },
+        []i32{ 0, -1, 0 },
+        []i32{ 2, 1, 2 },
+        []i32{ 2, -1, -2 },
+        []i32{ -2, 1, -2 },
+        []i32{ -2, -1, 2 },
 
-        []i32{@bitCast(i32, u32(0x80000000)),  1, @bitCast(i32, u32(0x80000000))},
-        []i32{@bitCast(i32, u32(0x80000000)), -1, @bitCast(i32, u32(0x80000000))},
-        []i32{@bitCast(i32, u32(0x80000000)), -2, 0x40000000},
-        []i32{@bitCast(i32, u32(0x80000000)),  2, @bitCast(i32, u32(0xC0000000))},
+        []i32{ @bitCast(i32, u32(0x80000000)), 1, @bitCast(i32, u32(0x80000000)) },
+        []i32{ @bitCast(i32, u32(0x80000000)), -1, @bitCast(i32, u32(0x80000000)) },
+        []i32{ @bitCast(i32, u32(0x80000000)), -2, 0x40000000 },
+        []i32{ @bitCast(i32, u32(0x80000000)), 2, @bitCast(i32, u32(0xC0000000)) },
     };
 
     for (cases) |case| {
@@ -1392,19 +1347,19 @@ fn test_one_divsi3(a: i32, b: i32, expected_q: i32) void {
 
 test "test_divmodsi4" {
     const cases = [][4]i32{
-        []i32{ 0,  1,  0,  0},
-        []i32{ 0, -1,  0,  0},
-        []i32{ 2,  1,  2,  0},
-        []i32{ 2, -1, -2,  0},
-        []i32{-2,  1, -2,  0},
-        []i32{-2, -1,  2,  0},
-        []i32{ 7,  5,  1,  2},
-        []i32{-7,  5, -1, -2},
-        []i32{19,  5,  3,  4},
-        []i32{19, -5, -3,  4},
+        []i32{ 0, 1, 0, 0 },
+        []i32{ 0, -1, 0, 0 },
+        []i32{ 2, 1, 2, 0 },
+        []i32{ 2, -1, -2, 0 },
+        []i32{ -2, 1, -2, 0 },
+        []i32{ -2, -1, 2, 0 },
+        []i32{ 7, 5, 1, 2 },
+        []i32{ -7, 5, -1, -2 },
+        []i32{ 19, 5, 3, 4 },
+        []i32{ 19, -5, -3, 4 },
 
-        []i32{@bitCast(i32, u32(0x80000000)), 8, @bitCast(i32, u32(0xf0000000)), 0},
-        []i32{@bitCast(i32, u32(0x80000007)), 8, @bitCast(i32, u32(0xf0000001)), -1},
+        []i32{ @bitCast(i32, u32(0x80000000)), 8, @bitCast(i32, u32(0xf0000000)), 0 },
+        []i32{ @bitCast(i32, u32(0x80000007)), 8, @bitCast(i32, u32(0xf0000001)), -1 },
     };
 
     for (cases) |case| {
@@ -1420,17 +1375,17 @@ fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) void {
 
 test "test_divdi3" {
     const cases = [][3]i64{
-        []i64{ 0,  1,  0},
-        []i64{ 0, -1,  0},
-        []i64{ 2,  1,  2},
-        []i64{ 2, -1, -2},
-        []i64{-2,  1, -2},
-        []i64{-2, -1,  2},
+        []i64{ 0, 1, 0 },
+        []i64{ 0, -1, 0 },
+        []i64{ 2, 1, 2 },
+        []i64{ 2, -1, -2 },
+        []i64{ -2, 1, -2 },
+        []i64{ -2, -1, 2 },
 
-        []i64{@bitCast(i64, u64(0x8000000000000000)),  1, @bitCast(i64, u64(0x8000000000000000))},
-        []i64{@bitCast(i64, u64(0x8000000000000000)), -1, @bitCast(i64, u64(0x8000000000000000))},
-        []i64{@bitCast(i64, u64(0x8000000000000000)), -2, 0x4000000000000000},
-        []i64{@bitCast(i64, u64(0x8000000000000000)),  2, @bitCast(i64, u64(0xC000000000000000))},
+        []i64{ @bitCast(i64, u64(0x8000000000000000)), 1, @bitCast(i64, u64(0x8000000000000000)) },
+        []i64{ @bitCast(i64, u64(0x8000000000000000)), -1, @bitCast(i64, u64(0x8000000000000000)) },
+        []i64{ @bitCast(i64, u64(0x8000000000000000)), -2, 0x4000000000000000 },
+        []i64{ @bitCast(i64, u64(0x8000000000000000)), 2, @bitCast(i64, u64(0xC000000000000000)) },
     };
 
     for (cases) |case| {
@@ -1445,19 +1400,19 @@ fn test_one_divdi3(a: i64, b: i64, expected_q: i64) void {
 
 test "test_moddi3" {
     const cases = [][3]i64{
-        []i64{0, 1, 0},
-        []i64{0, -1, 0},
-        []i64{5, 3, 2},
-        []i64{5, -3, 2},
-        []i64{-5, 3, -2},
-        []i64{-5, -3, -2},
+        []i64{ 0, 1, 0 },
+        []i64{ 0, -1, 0 },
+        []i64{ 5, 3, 2 },
+        []i64{ 5, -3, 2 },
+        []i64{ -5, 3, -2 },
+        []i64{ -5, -3, -2 },
 
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  1,  0},
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -1,  0},
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  2,  0},
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -2,  0},
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)),  3, -2},
-        []i64{@bitCast(i64, @intCast(u64, 0x8000000000000000)), -3, -2},
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 1, 0 },
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -1, 0 },
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 2, 0 },
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -2, 0 },
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 3, -2 },
+        []i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -3, -2 },
     };
 
     for (cases) |case| {
@@ -1472,17 +1427,17 @@ fn test_one_moddi3(a: i64, b: i64, expected_r: i64) void {
 
 test "test_modsi3" {
     const cases = [][3]i32{
-        []i32{0, 1, 0},
-        []i32{0, -1, 0},
-        []i32{5, 3, 2},
-        []i32{5, -3, 2},
-        []i32{-5, 3, -2},
-        []i32{-5, -3, -2},
-        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 1, 0x0},
-        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 2, 0x0},
-        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), -2, 0x0},
-        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), 3, -2},
-        []i32{@bitCast(i32, @intCast(u32, 0x80000000)), -3, -2},
+        []i32{ 0, 1, 0 },
+        []i32{ 0, -1, 0 },
+        []i32{ 5, 3, 2 },
+        []i32{ 5, -3, 2 },
+        []i32{ -5, 3, -2 },
+        []i32{ -5, -3, -2 },
+        []i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 1, 0x0 },
+        []i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 2, 0x0 },
+        []i32{ @bitCast(i32, @intCast(u32, 0x80000000)), -2, 0x0 },
+        []i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 3, -2 },
+        []i32{ @bitCast(i32, @intCast(u32, 0x80000000)), -3, -2 },
     };
 
     for (cases) |case| {
@@ -1497,138 +1452,138 @@ fn test_one_modsi3(a: i32, b: i32, expected_r: i32) void {
 
 test "test_umodsi3" {
     const cases = [][3]u32{
-        []u32{0x00000000, 0x00000001, 0x00000000},
-        []u32{0x00000000, 0x00000002, 0x00000000},
-        []u32{0x00000000, 0x00000003, 0x00000000},
-        []u32{0x00000000, 0x00000010, 0x00000000},
-        []u32{0x00000000, 0x078644FA, 0x00000000},
-        []u32{0x00000000, 0x0747AE14, 0x00000000},
-        []u32{0x00000000, 0x7FFFFFFF, 0x00000000},
-        []u32{0x00000000, 0x80000000, 0x00000000},
-        []u32{0x00000000, 0xFFFFFFFD, 0x00000000},
-        []u32{0x00000000, 0xFFFFFFFE, 0x00000000},
-        []u32{0x00000000, 0xFFFFFFFF, 0x00000000},
-        []u32{0x00000001, 0x00000001, 0x00000000},
-        []u32{0x00000001, 0x00000002, 0x00000001},
-        []u32{0x00000001, 0x00000003, 0x00000001},
-        []u32{0x00000001, 0x00000010, 0x00000001},
-        []u32{0x00000001, 0x078644FA, 0x00000001},
-        []u32{0x00000001, 0x0747AE14, 0x00000001},
-        []u32{0x00000001, 0x7FFFFFFF, 0x00000001},
-        []u32{0x00000001, 0x80000000, 0x00000001},
-        []u32{0x00000001, 0xFFFFFFFD, 0x00000001},
-        []u32{0x00000001, 0xFFFFFFFE, 0x00000001},
-        []u32{0x00000001, 0xFFFFFFFF, 0x00000001},
-        []u32{0x00000002, 0x00000001, 0x00000000},
-        []u32{0x00000002, 0x00000002, 0x00000000},
-        []u32{0x00000002, 0x00000003, 0x00000002},
-        []u32{0x00000002, 0x00000010, 0x00000002},
-        []u32{0x00000002, 0x078644FA, 0x00000002},
-        []u32{0x00000002, 0x0747AE14, 0x00000002},
-        []u32{0x00000002, 0x7FFFFFFF, 0x00000002},
-        []u32{0x00000002, 0x80000000, 0x00000002},
-        []u32{0x00000002, 0xFFFFFFFD, 0x00000002},
-        []u32{0x00000002, 0xFFFFFFFE, 0x00000002},
-        []u32{0x00000002, 0xFFFFFFFF, 0x00000002},
-        []u32{0x00000003, 0x00000001, 0x00000000},
-        []u32{0x00000003, 0x00000002, 0x00000001},
-        []u32{0x00000003, 0x00000003, 0x00000000},
-        []u32{0x00000003, 0x00000010, 0x00000003},
-        []u32{0x00000003, 0x078644FA, 0x00000003},
-        []u32{0x00000003, 0x0747AE14, 0x00000003},
-        []u32{0x00000003, 0x7FFFFFFF, 0x00000003},
-        []u32{0x00000003, 0x80000000, 0x00000003},
-        []u32{0x00000003, 0xFFFFFFFD, 0x00000003},
-        []u32{0x00000003, 0xFFFFFFFE, 0x00000003},
-        []u32{0x00000003, 0xFFFFFFFF, 0x00000003},
-        []u32{0x00000010, 0x00000001, 0x00000000},
-        []u32{0x00000010, 0x00000002, 0x00000000},
-        []u32{0x00000010, 0x00000003, 0x00000001},
-        []u32{0x00000010, 0x00000010, 0x00000000},
-        []u32{0x00000010, 0x078644FA, 0x00000010},
-        []u32{0x00000010, 0x0747AE14, 0x00000010},
-        []u32{0x00000010, 0x7FFFFFFF, 0x00000010},
-        []u32{0x00000010, 0x80000000, 0x00000010},
-        []u32{0x00000010, 0xFFFFFFFD, 0x00000010},
-        []u32{0x00000010, 0xFFFFFFFE, 0x00000010},
-        []u32{0x00000010, 0xFFFFFFFF, 0x00000010},
-        []u32{0x078644FA, 0x00000001, 0x00000000},
-        []u32{0x078644FA, 0x00000002, 0x00000000},
-        []u32{0x078644FA, 0x00000003, 0x00000000},
-        []u32{0x078644FA, 0x00000010, 0x0000000A},
-        []u32{0x078644FA, 0x078644FA, 0x00000000},
-        []u32{0x078644FA, 0x0747AE14, 0x003E96E6},
-        []u32{0x078644FA, 0x7FFFFFFF, 0x078644FA},
-        []u32{0x078644FA, 0x80000000, 0x078644FA},
-        []u32{0x078644FA, 0xFFFFFFFD, 0x078644FA},
-        []u32{0x078644FA, 0xFFFFFFFE, 0x078644FA},
-        []u32{0x078644FA, 0xFFFFFFFF, 0x078644FA},
-        []u32{0x0747AE14, 0x00000001, 0x00000000},
-        []u32{0x0747AE14, 0x00000002, 0x00000000},
-        []u32{0x0747AE14, 0x00000003, 0x00000002},
-        []u32{0x0747AE14, 0x00000010, 0x00000004},
-        []u32{0x0747AE14, 0x078644FA, 0x0747AE14},
-        []u32{0x0747AE14, 0x0747AE14, 0x00000000},
-        []u32{0x0747AE14, 0x7FFFFFFF, 0x0747AE14},
-        []u32{0x0747AE14, 0x80000000, 0x0747AE14},
-        []u32{0x0747AE14, 0xFFFFFFFD, 0x0747AE14},
-        []u32{0x0747AE14, 0xFFFFFFFE, 0x0747AE14},
-        []u32{0x0747AE14, 0xFFFFFFFF, 0x0747AE14},
-        []u32{0x7FFFFFFF, 0x00000001, 0x00000000},
-        []u32{0x7FFFFFFF, 0x00000002, 0x00000001},
-        []u32{0x7FFFFFFF, 0x00000003, 0x00000001},
-        []u32{0x7FFFFFFF, 0x00000010, 0x0000000F},
-        []u32{0x7FFFFFFF, 0x078644FA, 0x00156B65},
-        []u32{0x7FFFFFFF, 0x0747AE14, 0x043D70AB},
-        []u32{0x7FFFFFFF, 0x7FFFFFFF, 0x00000000},
-        []u32{0x7FFFFFFF, 0x80000000, 0x7FFFFFFF},
-        []u32{0x7FFFFFFF, 0xFFFFFFFD, 0x7FFFFFFF},
-        []u32{0x7FFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF},
-        []u32{0x7FFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF},
-        []u32{0x80000000, 0x00000001, 0x00000000},
-        []u32{0x80000000, 0x00000002, 0x00000000},
-        []u32{0x80000000, 0x00000003, 0x00000002},
-        []u32{0x80000000, 0x00000010, 0x00000000},
-        []u32{0x80000000, 0x078644FA, 0x00156B66},
-        []u32{0x80000000, 0x0747AE14, 0x043D70AC},
-        []u32{0x80000000, 0x7FFFFFFF, 0x00000001},
-        []u32{0x80000000, 0x80000000, 0x00000000},
-        []u32{0x80000000, 0xFFFFFFFD, 0x80000000},
-        []u32{0x80000000, 0xFFFFFFFE, 0x80000000},
-        []u32{0x80000000, 0xFFFFFFFF, 0x80000000},
-        []u32{0xFFFFFFFD, 0x00000001, 0x00000000},
-        []u32{0xFFFFFFFD, 0x00000002, 0x00000001},
-        []u32{0xFFFFFFFD, 0x00000003, 0x00000001},
-        []u32{0xFFFFFFFD, 0x00000010, 0x0000000D},
-        []u32{0xFFFFFFFD, 0x078644FA, 0x002AD6C9},
-        []u32{0xFFFFFFFD, 0x0747AE14, 0x01333341},
-        []u32{0xFFFFFFFD, 0x7FFFFFFF, 0x7FFFFFFE},
-        []u32{0xFFFFFFFD, 0x80000000, 0x7FFFFFFD},
-        []u32{0xFFFFFFFD, 0xFFFFFFFD, 0x00000000},
-        []u32{0xFFFFFFFD, 0xFFFFFFFE, 0xFFFFFFFD},
-        []u32{0xFFFFFFFD, 0xFFFFFFFF, 0xFFFFFFFD},
-        []u32{0xFFFFFFFE, 0x00000001, 0x00000000},
-        []u32{0xFFFFFFFE, 0x00000002, 0x00000000},
-        []u32{0xFFFFFFFE, 0x00000003, 0x00000002},
-        []u32{0xFFFFFFFE, 0x00000010, 0x0000000E},
-        []u32{0xFFFFFFFE, 0x078644FA, 0x002AD6CA},
-        []u32{0xFFFFFFFE, 0x0747AE14, 0x01333342},
-        []u32{0xFFFFFFFE, 0x7FFFFFFF, 0x00000000},
-        []u32{0xFFFFFFFE, 0x80000000, 0x7FFFFFFE},
-        []u32{0xFFFFFFFE, 0xFFFFFFFD, 0x00000001},
-        []u32{0xFFFFFFFE, 0xFFFFFFFE, 0x00000000},
-        []u32{0xFFFFFFFE, 0xFFFFFFFF, 0xFFFFFFFE},
-        []u32{0xFFFFFFFF, 0x00000001, 0x00000000},
-        []u32{0xFFFFFFFF, 0x00000002, 0x00000001},
-        []u32{0xFFFFFFFF, 0x00000003, 0x00000000},
-        []u32{0xFFFFFFFF, 0x00000010, 0x0000000F},
-        []u32{0xFFFFFFFF, 0x078644FA, 0x002AD6CB},
-        []u32{0xFFFFFFFF, 0x0747AE14, 0x01333343},
-        []u32{0xFFFFFFFF, 0x7FFFFFFF, 0x00000001},
-        []u32{0xFFFFFFFF, 0x80000000, 0x7FFFFFFF},
-        []u32{0xFFFFFFFF, 0xFFFFFFFD, 0x00000002},
-        []u32{0xFFFFFFFF, 0xFFFFFFFE, 0x00000001},
-        []u32{0xFFFFFFFF, 0xFFFFFFFF, 0x00000000}
+        []u32{ 0x00000000, 0x00000001, 0x00000000 },
+        []u32{ 0x00000000, 0x00000002, 0x00000000 },
+        []u32{ 0x00000000, 0x00000003, 0x00000000 },
+        []u32{ 0x00000000, 0x00000010, 0x00000000 },
+        []u32{ 0x00000000, 0x078644FA, 0x00000000 },
+        []u32{ 0x00000000, 0x0747AE14, 0x00000000 },
+        []u32{ 0x00000000, 0x7FFFFFFF, 0x00000000 },
+        []u32{ 0x00000000, 0x80000000, 0x00000000 },
+        []u32{ 0x00000000, 0xFFFFFFFD, 0x00000000 },
+        []u32{ 0x00000000, 0xFFFFFFFE, 0x00000000 },
+        []u32{ 0x00000000, 0xFFFFFFFF, 0x00000000 },
+        []u32{ 0x00000001, 0x00000001, 0x00000000 },
+        []u32{ 0x00000001, 0x00000002, 0x00000001 },
+        []u32{ 0x00000001, 0x00000003, 0x00000001 },
+        []u32{ 0x00000001, 0x00000010, 0x00000001 },
+        []u32{ 0x00000001, 0x078644FA, 0x00000001 },
+        []u32{ 0x00000001, 0x0747AE14, 0x00000001 },
+        []u32{ 0x00000001, 0x7FFFFFFF, 0x00000001 },
+        []u32{ 0x00000001, 0x80000000, 0x00000001 },
+        []u32{ 0x00000001, 0xFFFFFFFD, 0x00000001 },
+        []u32{ 0x00000001, 0xFFFFFFFE, 0x00000001 },
+        []u32{ 0x00000001, 0xFFFFFFFF, 0x00000001 },
+        []u32{ 0x00000002, 0x00000001, 0x00000000 },
+        []u32{ 0x00000002, 0x00000002, 0x00000000 },
+        []u32{ 0x00000002, 0x00000003, 0x00000002 },
+        []u32{ 0x00000002, 0x00000010, 0x00000002 },
+        []u32{ 0x00000002, 0x078644FA, 0x00000002 },
+        []u32{ 0x00000002, 0x0747AE14, 0x00000002 },
+        []u32{ 0x00000002, 0x7FFFFFFF, 0x00000002 },
+        []u32{ 0x00000002, 0x80000000, 0x00000002 },
+        []u32{ 0x00000002, 0xFFFFFFFD, 0x00000002 },
+        []u32{ 0x00000002, 0xFFFFFFFE, 0x00000002 },
+        []u32{ 0x00000002, 0xFFFFFFFF, 0x00000002 },
+        []u32{ 0x00000003, 0x00000001, 0x00000000 },
+        []u32{ 0x00000003, 0x00000002, 0x00000001 },
+        []u32{ 0x00000003, 0x00000003, 0x00000000 },
+        []u32{ 0x00000003, 0x00000010, 0x00000003 },
+        []u32{ 0x00000003, 0x078644FA, 0x00000003 },
+        []u32{ 0x00000003, 0x0747AE14, 0x00000003 },
+        []u32{ 0x00000003, 0x7FFFFFFF, 0x00000003 },
+        []u32{ 0x00000003, 0x80000000, 0x00000003 },
+        []u32{ 0x00000003, 0xFFFFFFFD, 0x00000003 },
+        []u32{ 0x00000003, 0xFFFFFFFE, 0x00000003 },
+        []u32{ 0x00000003, 0xFFFFFFFF, 0x00000003 },
+        []u32{ 0x00000010, 0x00000001, 0x00000000 },
+        []u32{ 0x00000010, 0x00000002, 0x00000000 },
+        []u32{ 0x00000010, 0x00000003, 0x00000001 },
+        []u32{ 0x00000010, 0x00000010, 0x00000000 },
+        []u32{ 0x00000010, 0x078644FA, 0x00000010 },
+        []u32{ 0x00000010, 0x0747AE14, 0x00000010 },
+        []u32{ 0x00000010, 0x7FFFFFFF, 0x00000010 },
+        []u32{ 0x00000010, 0x80000000, 0x00000010 },
+        []u32{ 0x00000010, 0xFFFFFFFD, 0x00000010 },
+        []u32{ 0x00000010, 0xFFFFFFFE, 0x00000010 },
+        []u32{ 0x00000010, 0xFFFFFFFF, 0x00000010 },
+        []u32{ 0x078644FA, 0x00000001, 0x00000000 },
+        []u32{ 0x078644FA, 0x00000002, 0x00000000 },
+        []u32{ 0x078644FA, 0x00000003, 0x00000000 },
+        []u32{ 0x078644FA, 0x00000010, 0x0000000A },
+        []u32{ 0x078644FA, 0x078644FA, 0x00000000 },
+        []u32{ 0x078644FA, 0x0747AE14, 0x003E96E6 },
+        []u32{ 0x078644FA, 0x7FFFFFFF, 0x078644FA },
+        []u32{ 0x078644FA, 0x80000000, 0x078644FA },
+        []u32{ 0x078644FA, 0xFFFFFFFD, 0x078644FA },
+        []u32{ 0x078644FA, 0xFFFFFFFE, 0x078644FA },
+        []u32{ 0x078644FA, 0xFFFFFFFF, 0x078644FA },
+        []u32{ 0x0747AE14, 0x00000001, 0x00000000 },
+        []u32{ 0x0747AE14, 0x00000002, 0x00000000 },
+        []u32{ 0x0747AE14, 0x00000003, 0x00000002 },
+        []u32{ 0x0747AE14, 0x00000010, 0x00000004 },
+        []u32{ 0x0747AE14, 0x078644FA, 0x0747AE14 },
+        []u32{ 0x0747AE14, 0x0747AE14, 0x00000000 },
+        []u32{ 0x0747AE14, 0x7FFFFFFF, 0x0747AE14 },
+        []u32{ 0x0747AE14, 0x80000000, 0x0747AE14 },
+        []u32{ 0x0747AE14, 0xFFFFFFFD, 0x0747AE14 },
+        []u32{ 0x0747AE14, 0xFFFFFFFE, 0x0747AE14 },
+        []u32{ 0x0747AE14, 0xFFFFFFFF, 0x0747AE14 },
+        []u32{ 0x7FFFFFFF, 0x00000001, 0x00000000 },
+        []u32{ 0x7FFFFFFF, 0x00000002, 0x00000001 },
+        []u32{ 0x7FFFFFFF, 0x00000003, 0x00000001 },
+        []u32{ 0x7FFFFFFF, 0x00000010, 0x0000000F },
+        []u32{ 0x7FFFFFFF, 0x078644FA, 0x00156B65 },
+        []u32{ 0x7FFFFFFF, 0x0747AE14, 0x043D70AB },
+        []u32{ 0x7FFFFFFF, 0x7FFFFFFF, 0x00000000 },
+        []u32{ 0x7FFFFFFF, 0x80000000, 0x7FFFFFFF },
+        []u32{ 0x7FFFFFFF, 0xFFFFFFFD, 0x7FFFFFFF },
+        []u32{ 0x7FFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF },
+        []u32{ 0x7FFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF },
+        []u32{ 0x80000000, 0x00000001, 0x00000000 },
+        []u32{ 0x80000000, 0x00000002, 0x00000000 },
+        []u32{ 0x80000000, 0x00000003, 0x00000002 },
+        []u32{ 0x80000000, 0x00000010, 0x00000000 },
+        []u32{ 0x80000000, 0x078644FA, 0x00156B66 },
+        []u32{ 0x80000000, 0x0747AE14, 0x043D70AC },
+        []u32{ 0x80000000, 0x7FFFFFFF, 0x00000001 },
+        []u32{ 0x80000000, 0x80000000, 0x00000000 },
+        []u32{ 0x80000000, 0xFFFFFFFD, 0x80000000 },
+        []u32{ 0x80000000, 0xFFFFFFFE, 0x80000000 },
+        []u32{ 0x80000000, 0xFFFFFFFF, 0x80000000 },
+        []u32{ 0xFFFFFFFD, 0x00000001, 0x00000000 },
+        []u32{ 0xFFFFFFFD, 0x00000002, 0x00000001 },
+        []u32{ 0xFFFFFFFD, 0x00000003, 0x00000001 },
+        []u32{ 0xFFFFFFFD, 0x00000010, 0x0000000D },
+        []u32{ 0xFFFFFFFD, 0x078644FA, 0x002AD6C9 },
+        []u32{ 0xFFFFFFFD, 0x0747AE14, 0x01333341 },
+        []u32{ 0xFFFFFFFD, 0x7FFFFFFF, 0x7FFFFFFE },
+        []u32{ 0xFFFFFFFD, 0x80000000, 0x7FFFFFFD },
+        []u32{ 0xFFFFFFFD, 0xFFFFFFFD, 0x00000000 },
+        []u32{ 0xFFFFFFFD, 0xFFFFFFFE, 0xFFFFFFFD },
+        []u32{ 0xFFFFFFFD, 0xFFFFFFFF, 0xFFFFFFFD },
+        []u32{ 0xFFFFFFFE, 0x00000001, 0x00000000 },
+        []u32{ 0xFFFFFFFE, 0x00000002, 0x00000000 },
+        []u32{ 0xFFFFFFFE, 0x00000003, 0x00000002 },
+        []u32{ 0xFFFFFFFE, 0x00000010, 0x0000000E },
+        []u32{ 0xFFFFFFFE, 0x078644FA, 0x002AD6CA },
+        []u32{ 0xFFFFFFFE, 0x0747AE14, 0x01333342 },
+        []u32{ 0xFFFFFFFE, 0x7FFFFFFF, 0x00000000 },
+        []u32{ 0xFFFFFFFE, 0x80000000, 0x7FFFFFFE },
+        []u32{ 0xFFFFFFFE, 0xFFFFFFFD, 0x00000001 },
+        []u32{ 0xFFFFFFFE, 0xFFFFFFFE, 0x00000000 },
+        []u32{ 0xFFFFFFFE, 0xFFFFFFFF, 0xFFFFFFFE },
+        []u32{ 0xFFFFFFFF, 0x00000001, 0x00000000 },
+        []u32{ 0xFFFFFFFF, 0x00000002, 0x00000001 },
+        []u32{ 0xFFFFFFFF, 0x00000003, 0x00000000 },
+        []u32{ 0xFFFFFFFF, 0x00000010, 0x0000000F },
+        []u32{ 0xFFFFFFFF, 0x078644FA, 0x002AD6CB },
+        []u32{ 0xFFFFFFFF, 0x0747AE14, 0x01333343 },
+        []u32{ 0xFFFFFFFF, 0x7FFFFFFF, 0x00000001 },
+        []u32{ 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF },
+        []u32{ 0xFFFFFFFF, 0xFFFFFFFD, 0x00000002 },
+        []u32{ 0xFFFFFFFF, 0xFFFFFFFE, 0x00000001 },
+        []u32{ 0xFFFFFFFF, 0xFFFFFFFF, 0x00000000 },
     };
 
     for (cases) |case| {

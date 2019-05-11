@@ -90,7 +90,8 @@ export fn stage2_translate_c(
         .import => translate_c.Mode.import,
         .translate => translate_c.Mode.translate,
     }, &errors, resources_path) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => {
+        // TODO after https://github.com/ziglang/zig/issues/769 we can remove error.UnsupportedType
+        error.SemanticAnalyzeFail, error.UnsupportedType => {
             out_errors_ptr.* = errors.ptr;
             out_errors_len.* = errors.len;
             return Error.CCompileErrors;
