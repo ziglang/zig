@@ -11,6 +11,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     );
 
+    cases.add_both("simple function definition",
+        \\void foo(void) {};
+    ,
+        \\pub export fn foo() void {}
+    );
+
     /////////////// Cases that pass for only stage2 ////////////////
     // (none)
 

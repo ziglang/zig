@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const ast = std.zig.ast;
 const Token = std.zig.Token;
 use @import("clang.zig");
@@ -20,6 +21,10 @@ pub const ClangErrMsg = Stage2ErrorMsg;
 pub const Error = error{
     OutOfMemory,
     UnsupportedType,
+};
+pub const TransError = error{
+    OutOfMemory,
+    UnsupportedTranslation,
 };
 
 const DeclTable = std.HashMap(usize, void, addrHash, addrEql);
@@ -61,6 +66,27 @@ const Scope = struct {
 
     const Block = struct {
         base: Scope,
+        block_node: *ast.Node.Block,
+
+        /// Don't forget to set rbrace token later
+        fn create(c: *Context, parent: *Scope, lbrace_tok: ast.TokenIndex) !*Block {
+            const block = try c.a().create(Block);
+            block.* = Block{
+                .base = Scope{
+                    .id = Id.Block,
+                    .parent = parent,
+                },
+                .block_node = try c.a().create(ast.Node.Block),
+            };
+            block.block_node.* = ast.Node.Block{
+                .base = ast.Node{ .id = ast.Node.Id.Block },
+                .label = null,
+                .lbrace = lbrace_tok,
+                .statements = ast.Node.Block.StatementList.init(c.a()),
+                .rbrace = undefined,
+            };
+            return block;
+        }
     };
 
     const Root = struct {
@@ -70,6 +96,12 @@ const Scope = struct {
     const While = struct {
         base: Scope,
     };
+};
+
+const TransResult = struct {
+    node: *ast.Node,
+    node_scope: *Scope,
+    child_scope: *Scope,
 };
 
 const Context = struct {
@@ -170,6 +202,14 @@ pub fn translate(
 
     _ = try appendToken(&context, .Eof, "");
     tree.source = source_buffer.toOwnedSlice();
+    if (false) {
+        std.debug.warn("debug source:\n{}\n==EOF==\ntokens:\n", tree.source);
+        var i: usize = 0;
+        while (i < tree.tokens.len) : (i += 1) {
+            const token = tree.tokens.at(i);
+            std.debug.warn("{}\n", token);
+        }
+    }
     return tree;
 }
 
@@ -213,29 +253,107 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
     const fn_qt = ZigClangFunctionDecl_getType(fn_decl);
     const fn_type = ZigClangQualType_getTypePtr(fn_qt);
+    var scope = &c.global_scope.base;
+    const decl_ctx = FnDeclContext{
+        .fn_name = fn_name,
+        .has_body = ZigClangFunctionDecl_hasBody(fn_decl),
+        .storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl),
+        .scope = &scope,
+    };
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
-        .FunctionProto => transFnProto(
-            rp,
-            @ptrCast(*const ZigClangFunctionProtoType, fn_type),
-            fn_decl_loc,
-            fn_decl,
-            fn_name,
-        ) catch |err| switch (err) {
-            error.UnsupportedType => {
-                return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
-            },
-            else => return err,
+        .FunctionProto => blk: {
+            const fn_proto_type = @ptrCast(*const ZigClangFunctionProtoType, fn_type);
+            break :blk transFnProto(rp, fn_proto_type, fn_decl_loc, decl_ctx) catch |err| switch (err) {
+                error.UnsupportedType => {
+                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         },
         .FunctionNoProto => return failDecl(c, fn_decl_loc, fn_name, "TODO support functions with no prototype"),
         else => unreachable,
     };
 
-    if (!ZigClangFunctionDecl_hasBody(fn_decl)) {
+    if (!decl_ctx.has_body) {
         const semi_tok = try appendToken(c, .Semicolon, ";");
         return addTopLevelDecl(c, fn_name, &proto_node.base);
     }
 
-    try emitWarning(c, fn_decl_loc, "TODO implement function body translation");
+    // actual function definition with body
+    const body_stmt = ZigClangFunctionDecl_getBody(fn_decl);
+    const result = transStmt(rp, scope, body_stmt, .unused, .r_value) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.UnsupportedTranslation => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function"),
+    };
+    assert(result.node.id == ast.Node.Id.Block);
+    proto_node.body_node = result.node;
+
+    return addTopLevelDecl(c, fn_name, &proto_node.base);
+}
+
+const ResultUsed = enum {
+    used,
+    unused,
+};
+
+const LRValue = enum {
+    l_value,
+    r_value,
+};
+
+fn transStmt(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangStmt,
+    result_used: ResultUsed,
+    lrvalue: LRValue,
+) !TransResult {
+    const sc = ZigClangStmt_getStmtClass(stmt);
+    switch (sc) {
+        .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
+        else => {
+            return revertAndWarn(
+                rp,
+                error.UnsupportedTranslation,
+                ZigClangStmt_getBeginLoc(stmt),
+                "TODO implement translation of stmt class {}",
+                @tagName(sc),
+            );
+        },
+    }
+}
+
+fn transCompoundStmtInline(
+    rp: RestorePoint,
+    parent_scope: *Scope,
+    stmt: *const ZigClangCompoundStmt,
+    block_node: *ast.Node.Block,
+) TransError!TransResult {
+    var it = ZigClangCompoundStmt_body_begin(stmt);
+    const end_it = ZigClangCompoundStmt_body_end(stmt);
+    var scope = parent_scope;
+    while (it != end_it) : (it += 1) {
+        const result = try transStmt(rp, scope, it.*, .unused, .r_value);
+        scope = result.child_scope;
+        try block_node.statements.push(result.node);
+    }
+    return TransResult{
+        .node = &block_node.base,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
+}
+
+fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) !TransResult {
+    const lbrace_tok = try appendToken(rp.c, .LBrace, "{");
+    const block_scope = try Scope.Block.create(rp.c, scope, lbrace_tok);
+    const inline_result = try transCompoundStmtInline(rp, &block_scope.base, stmt, block_scope.block_node);
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    return TransResult{
+        .node = &block_scope.block_node.base,
+        .node_scope = inline_result.node_scope,
+        .child_scope = inline_result.child_scope,
+    };
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
@@ -299,7 +417,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         },
         .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
-            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null, null);
+            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null);
             return &fn_proto.base;
         },
         else => {
@@ -309,12 +427,18 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
     }
 }
 
+const FnDeclContext = struct {
+    fn_name: []const u8,
+    has_body: bool,
+    storage_class: ZigClangStorageClass,
+    scope: **Scope,
+};
+
 fn transFnProto(
     rp: RestorePoint,
     fn_proto_ty: *const ZigClangFunctionProtoType,
     source_loc: ZigClangSourceLocation,
-    opt_fn_decl: ?*const ZigClangFunctionDecl,
-    fn_name: ?[]const u8,
+    fn_decl_context: ?FnDeclContext,
 ) !*ast.Node.FnProto {
     const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
     const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
@@ -351,13 +475,11 @@ fn transFnProto(
     const pub_tok = try appendToken(rp.c, .Keyword_pub, "pub");
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const is_export = exp: {
-        const fn_decl = opt_fn_decl orelse break :exp false;
-        const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
-        const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
-        break :exp switch (storage_class) {
+        const decl_ctx = fn_decl_context orelse break :exp false;
+        break :exp switch (decl_ctx.storage_class) {
             .None => switch (rp.c.mode) {
                 .import => false,
-                .translate => has_body,
+                .translate => decl_ctx.has_body,
             },
             .Extern, .Static => false,
             .PrivateExtern => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported storage class: private extern"),
@@ -372,7 +494,7 @@ fn transFnProto(
     else
         null;
     const fn_tok = try appendToken(rp.c, .Keyword_fn, "fn");
-    const name_tok = if (fn_name) |n| try appendToken(rp.c, .Identifier, "{}", n) else null;
+    const name_tok = if (fn_decl_context) |ctx| try appendToken(rp.c, .Identifier, ctx.fn_name) else null;
     const lparen_tok = try appendToken(rp.c, .LParen, "(");
     const var_args_tok = if (is_var_args) try appendToken(rp.c, .Ellipsis3, "...") else null;
     const rparen_tok = try appendToken(rp.c, .RParen, ")");
@@ -390,7 +512,7 @@ fn transFnProto(
                         try emitWarning(rp.c, source_loc, "unsupported function proto return type");
                         return err;
                     },
-                    else => return err,
+                    error.OutOfMemory => return error.OutOfMemory,
                 };
             }
         }
@@ -430,17 +552,17 @@ fn revertAndWarn(
 }
 
 fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: ...) !void {
-    _ = try appendToken(c, .LineComment, "// {}: warning: " ++ format, c.locStr(loc), args);
+    _ = try appendTokenFmt(c, .LineComment, "// {}: warning: " ++ format, c.locStr(loc), args);
 }
 
 fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: ...) !void {
     // const name = @compileError(msg);
     const const_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendToken(c, .Identifier, "{}", name);
+    const name_tok = try appendToken(c, .Identifier, name);
     const eq_tok = try appendToken(c, .Equal, "=");
     const builtin_tok = try appendToken(c, .Builtin, "@compileError");
     const lparen_tok = try appendToken(c, .LParen, "(");
-    const msg_tok = try appendToken(c, .StringLiteral, "\"" ++ format ++ "\"", args);
+    const msg_tok = try appendTokenFmt(c, .StringLiteral, "\"" ++ format ++ "\"", args);
     const rparen_tok = try appendToken(c, .RParen, ")");
     const semi_tok = try appendToken(c, .Semicolon, ";");
 
@@ -480,16 +602,20 @@ fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime
     try c.tree.root_node.decls.push(&var_decl_node.base);
 }
 
-fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !ast.TokenIndex {
+fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {
+    return appendTokenFmt(c, token_id, "{}", bytes);
+}
+
+fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !ast.TokenIndex {
     const S = struct {
-        fn callback(context: *Context, bytes: []const u8) Error!void {
+        fn callback(context: *Context, bytes: []const u8) error{OutOfMemory}!void {
             return context.source_buffer.append(bytes);
         }
     };
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 
-    try std.fmt.format(c, Error, S.callback, format, args);
+    try std.fmt.format(c, error{OutOfMemory}, S.callback, format, args);
     const end_index = c.source_buffer.len();
     const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();
@@ -506,7 +632,7 @@ fn appendToken(c: *Context, token_id: Token.Id, comptime format: []const u8, arg
 }
 
 fn appendIdentifier(c: *Context, name: []const u8) !*ast.Node {
-    const token_index = try appendToken(c, .Identifier, "{}", name);
+    const token_index = try appendToken(c, .Identifier, name);
     const identifier = try c.a().create(ast.Node.Identifier);
     identifier.* = ast.Node.Identifier{
         .base = ast.Node{ .id = ast.Node.Id.Identifier },

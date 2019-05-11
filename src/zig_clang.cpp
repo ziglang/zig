@@ -1292,6 +1292,14 @@ static clang::APValue::LValueBase bitcast(ZigClangAPValueLValueBase src) {
     return dest;
 }
 
+static_assert(sizeof(ZigClangCompoundStmt_const_body_iterator) == sizeof(clang::CompoundStmt::const_body_iterator), "");
+static ZigClangCompoundStmt_const_body_iterator bitcast(clang::CompoundStmt::const_body_iterator src) {
+    ZigClangCompoundStmt_const_body_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangCompoundStmt_const_body_iterator));
+    return dest;
+}
+
+
 ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
 {
@@ -1810,4 +1818,14 @@ struct ZigClangQualType ZigClangFunctionProtoType_getParamType(const struct ZigC
 {
     auto casted = reinterpret_cast<const clang::FunctionProtoType *>(self);
     return bitcast(casted->getParamType(index));
+}
+
+ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const struct ZigClangCompoundStmt *self) {
+    auto casted = reinterpret_cast<const clang::CompoundStmt *>(self);
+    return bitcast(casted->body_begin());
+}
+
+ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self) {
+    auto casted = reinterpret_cast<const clang::CompoundStmt *>(self);
+    return bitcast(casted->body_end());
 }

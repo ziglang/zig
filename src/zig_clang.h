@@ -102,6 +102,8 @@ struct ZigClangVarDecl;
 struct ZigClangWhileStmt;
 struct ZigClangFunctionType;
 
+typedef struct ZigClangStmt *const * ZigClangCompoundStmt_const_body_iterator;
+
 enum ZigClangBO {
     ZigClangBO_PtrMemD,
     ZigClangBO_PtrMemI,
@@ -820,4 +822,9 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionType_getReturnType(const st
 ZIG_EXTERN_C bool ZigClangFunctionProtoType_isVariadic(const struct ZigClangFunctionProtoType *self);
 ZIG_EXTERN_C unsigned ZigClangFunctionProtoType_getNumParams(const struct ZigClangFunctionProtoType *self);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionProtoType_getParamType(const struct ZigClangFunctionProtoType *self, unsigned i);
+
+
+ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const struct ZigClangCompoundStmt *self);
+ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self);
+
 #endif

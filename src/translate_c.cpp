@@ -1277,15 +1277,15 @@ static AstNode *trans_qual_type(Context *c, ZigClangQualType qt, ZigClangSourceL
     return trans_type(c, ZigClangQualType_getTypePtr(qt), source_loc);
 }
 
-static int trans_compound_stmt_inline(Context *c, TransScope *scope, const clang::CompoundStmt *stmt,
+static int trans_compound_stmt_inline(Context *c, TransScope *scope, const ZigClangCompoundStmt *stmt,
         AstNode *block_node, TransScope **out_node_scope)
 {
     assert(block_node->type == NodeTypeBlock);
-    for (clang::CompoundStmt::const_body_iterator it = stmt->body_begin(), end_it = stmt->body_end();
-            it != end_it; ++it)
+    for (ZigClangCompoundStmt_const_body_iterator it = ZigClangCompoundStmt_body_begin(stmt),
+        end_it = ZigClangCompoundStmt_body_end(stmt); it != end_it; ++it)
     {
         AstNode *child_node;
-        scope = trans_stmt(c, scope, bitcast(*it), &child_node);
+        scope = trans_stmt(c, scope, *it, &child_node);
         if (scope == nullptr)
             return ErrorUnexpected;
         if (child_node != nullptr)
@@ -1297,7 +1297,7 @@ static int trans_compound_stmt_inline(Context *c, TransScope *scope, const clang
     return ErrorNone;
 }
 
-static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const clang::CompoundStmt *stmt,
+static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const ZigClangCompoundStmt *stmt,
         TransScope **out_node_scope)
 {
     TransScopeBlock *child_scope_block = trans_scope_block_create(c, scope);
@@ -1309,7 +1309,7 @@ static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const clang::
 static AstNode *trans_stmt_expr(Context *c, ResultUsed result_used, TransScope *scope,
         const clang::StmtExpr *stmt, TransScope **out_node_scope)
 {
-    AstNode *block = trans_compound_stmt(c, scope, stmt->getSubStmt(), out_node_scope);
+    AstNode *block = trans_compound_stmt(c, scope, (const ZigClangCompoundStmt *)stmt->getSubStmt(), out_node_scope);
     if (block == nullptr)
         return block;
     assert(block->type == NodeTypeBlock);
@@ -3220,7 +3220,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
     AstNode *body_node;
     const ZigClangStmt *body_stmt = bitcast(stmt->getBody());
     if (ZigClangStmt_getStmtClass(body_stmt) == ZigClangStmt_CompoundStmtClass) {
-        if (trans_compound_stmt_inline(c, &switch_scope->base, (const clang::CompoundStmt *)body_stmt,
+        if (trans_compound_stmt_inline(c, &switch_scope->base, (const ZigClangCompoundStmt *)body_stmt,
                                        block_scope->node, nullptr))
         {
             return nullptr;
@@ -3399,7 +3399,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
                     trans_return_stmt(c, scope, (const clang::ReturnStmt *)stmt));
         case ZigClangStmt_CompoundStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_compound_stmt(c, scope, (const clang::CompoundStmt *)stmt, out_node_scope));
+                    trans_compound_stmt(c, scope, (const ZigClangCompoundStmt *)stmt, out_node_scope));
         case ZigClangStmt_IntegerLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_integer_literal(c, result_used, (const clang::IntegerLiteral *)stmt));
