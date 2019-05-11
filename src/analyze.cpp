@@ -1989,10 +1989,10 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                    !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
             enum_type->data.enumeration.is_invalid = true;
             ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' is not a valid tag type for an extern union",
+                buf_sprintf("'%s' is not a valid tag type for an extern enum",
                             buf_ptr(&wanted_tag_int_type->name)));
             add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("valid types are 'i8', 'c_int' and 'c_uint' or compatible types"));
+                buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
         } else {
             tag_int_type = wanted_tag_int_type;
         }
