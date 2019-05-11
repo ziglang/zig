@@ -1112,8 +1112,8 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []u32{0xffffffff, 0xffffffff};
-const app_mask = []u32{0xfffffffc, 0x7fffffff};
+const all_mask = []u32{ 0xffffffff, 0xffffffff };
+const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
 
 const k_sigaction = extern struct {
     handler: extern fn (i32) void,
@@ -1411,9 +1411,15 @@ pub const epoll_data = extern union {
 // On x86_64 the structure is packed so that it matches the definition of its
 // 32bit counterpart
 pub const epoll_event = if (builtin.arch != .x86_64)
-        extern struct { events: u32, data: epoll_data }
-    else
-        packed struct { events: u32, data: epoll_data };
+    extern struct {
+        events: u32,
+        data: epoll_data,
+    }
+else
+    packed struct {
+        events: u32,
+        data: epoll_data,
+    };
 
 pub fn epoll_create() usize {
     return epoll_create1(0);
