@@ -923,3 +923,18 @@ test "peer type resolution with enum literal" {
     expect(Items.two == .two);
     expect(.two == Items.two);
 }
+
+test "enum literal in array literal" {
+    const Items = enum {
+        one,
+        two,
+    };
+
+    const array = []Items {
+      .one,
+      .two,
+    };
+
+    expect(array[0] == .one);
+    expect(array[1] == .two);
+}
