@@ -113,12 +113,22 @@ pub const Tree = struct {
 
 pub const Error = union(enum) {
     InvalidToken: InvalidToken,
+    ExpectedContainerMembers: ExpectedContainerMembers,
+    ExpectedStringLiteral: ExpectedStringLiteral,
+    ExpectedIntegerLiteral: ExpectedIntegerLiteral,
+    ExpectedPubItem: ExpectedPubItem,
+    ExpectedIdentifier: ExpectedIdentifier,
+    ExpectedStatement: ExpectedStatement,
     ExpectedVarDeclOrFn: ExpectedVarDeclOrFn,
     ExpectedVarDecl: ExpectedVarDecl,
+    ExpectedReturnType: ExpectedReturnType,
     ExpectedAggregateKw: ExpectedAggregateKw,
     UnattachedDocComment: UnattachedDocComment,
     ExpectedEqOrSemi: ExpectedEqOrSemi,
     ExpectedSemiOrLBrace: ExpectedSemiOrLBrace,
+    ExpectedSemiOrElse: ExpectedSemiOrElse,
+    ExpectedLabelOrLBrace: ExpectedLabelOrLBrace,
+    ExpectedLBrace: ExpectedLBrace,
     ExpectedColonOrRParen: ExpectedColonOrRParen,
     ExpectedLabelable: ExpectedLabelable,
     ExpectedInlinable: ExpectedInlinable,
@@ -130,20 +140,43 @@ pub const Error = union(enum) {
     ExtraConstQualifier: ExtraConstQualifier,
     ExtraVolatileQualifier: ExtraVolatileQualifier,
     ExtraAllowZeroQualifier: ExtraAllowZeroQualifier,
+    ExpectedTypeExpr: ExpectedTypeExpr,
+    ExpectedPrimaryTypeExpr: ExpectedPrimaryTypeExpr,
+    ExpectedParamType: ExpectedParamType,
+    ExpectedExpr: ExpectedExpr,
     ExpectedPrimaryExpr: ExpectedPrimaryExpr,
     ExpectedToken: ExpectedToken,
     ExpectedCommaOrEnd: ExpectedCommaOrEnd,
+    ExpectedParamList: ExpectedParamList,
+    ExpectedPayload: ExpectedPayload,
+    ExpectedBlockOrAssignment: ExpectedBlockOrAssignment,
+    ExpectedBlockOrExpression: ExpectedBlockOrExpression,
+    ExpectedExprOrAssignment: ExpectedExprOrAssignment,
+    ExpectedPrefixExpr: ExpectedPrefixExpr,
+    ExpectedLoopExpr: ExpectedLoopExpr,
+    ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
+    ExpectedSuffixOp: ExpectedSuffixOp,
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedContainerMembers => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedStringLiteral => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedPubItem => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedIdentifier => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedStatement => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedVarDecl => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedReturnType => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedAggregateKw => |*x| return x.render(tokens, stream),
             @TagType(Error).UnattachedDocComment => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedSemiOrElse => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedLabelOrLBrace => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedLBrace => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedLabelable => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedInlinable => |*x| return x.render(tokens, stream),
@@ -155,9 +188,22 @@ pub const Error = union(enum) {
             @TagType(Error).ExtraConstQualifier => |*x| return x.render(tokens, stream),
             @TagType(Error).ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
             @TagType(Error).ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedTypeExpr => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedPrimaryTypeExpr => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedParamType => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedExpr => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedToken => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedParamList => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedPayload => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedBlockOrAssignment => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedBlockOrExpression => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedExprOrAssignment => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedPrefixExpr => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedLoopExpr => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
+            @TagType(Error).ExpectedSuffixOp => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -165,12 +211,22 @@ pub const Error = union(enum) {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
+            @TagType(Error).ExpectedContainerMembers => |x| return x.token,
+            @TagType(Error).ExpectedStringLiteral => |x| return x.token,
+            @TagType(Error).ExpectedIntegerLiteral => |x| return x.token,
+            @TagType(Error).ExpectedPubItem => |x| return x.token,
+            @TagType(Error).ExpectedIdentifier => |x| return x.token,
+            @TagType(Error).ExpectedStatement => |x| return x.token,
             @TagType(Error).ExpectedVarDeclOrFn => |x| return x.token,
             @TagType(Error).ExpectedVarDecl => |x| return x.token,
+            @TagType(Error).ExpectedReturnType => |x| return x.token,
             @TagType(Error).ExpectedAggregateKw => |x| return x.token,
             @TagType(Error).UnattachedDocComment => |x| return x.token,
             @TagType(Error).ExpectedEqOrSemi => |x| return x.token,
             @TagType(Error).ExpectedSemiOrLBrace => |x| return x.token,
+            @TagType(Error).ExpectedSemiOrElse => |x| return x.token,
+            @TagType(Error).ExpectedLabelOrLBrace => |x| return x.token,
+            @TagType(Error).ExpectedLBrace => |x| return x.token,
             @TagType(Error).ExpectedColonOrRParen => |x| return x.token,
             @TagType(Error).ExpectedLabelable => |x| return x.token,
             @TagType(Error).ExpectedInlinable => |x| return x.token,
@@ -182,25 +238,61 @@ pub const Error = union(enum) {
             @TagType(Error).ExtraConstQualifier => |x| return x.token,
             @TagType(Error).ExtraVolatileQualifier => |x| return x.token,
             @TagType(Error).ExtraAllowZeroQualifier => |x| return x.token,
+            @TagType(Error).ExpectedTypeExpr => |x| return x.token,
+            @TagType(Error).ExpectedPrimaryTypeExpr => |x| return x.token,
+            @TagType(Error).ExpectedParamType => |x| return x.token,
+            @TagType(Error).ExpectedExpr => |x| return x.token,
             @TagType(Error).ExpectedPrimaryExpr => |x| return x.token,
             @TagType(Error).ExpectedToken => |x| return x.token,
             @TagType(Error).ExpectedCommaOrEnd => |x| return x.token,
+            @TagType(Error).ExpectedParamList => |x| return x.token,
+            @TagType(Error).ExpectedPayload => |x| return x.token,
+            @TagType(Error).ExpectedBlockOrAssignment => |x| return x.token,
+            @TagType(Error).ExpectedBlockOrExpression => |x| return x.token,
+            @TagType(Error).ExpectedExprOrAssignment => |x| return x.token,
+            @TagType(Error).ExpectedPrefixExpr => |x| return x.token,
+            @TagType(Error).ExpectedLoopExpr => |x| return x.token,
+            @TagType(Error).ExpectedDerefOrUnwrap => |x| return x.token,
+            @TagType(Error).ExpectedSuffixOp => |x| return x.token,
         }
     }
 
     pub const InvalidToken = SingleTokenError("Invalid token {}");
+    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found {}");
+    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found {}");
+    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found {}");
+    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found {}");
+    pub const ExpectedStatement = SingleTokenError("Expected statement, found {}");
     pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found {}");
     pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found {}");
+    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found {}");
     pub const ExpectedAggregateKw = SingleTokenError("Expected " ++ @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++ @tagName(Token.Id.Keyword_enum) ++ ", found {}");
     pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found {}");
     pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found {}");
+    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found {}");
+    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found {}");
+    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found {}");
     pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found {}");
     pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found {}");
     pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found {}");
     pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or " ++ @tagName(Token.Id.Identifier) ++ ", found {}");
     pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found {}");
+    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found {}");
+    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found {}");
+    pub const ExpectedExpr = SingleTokenError("Expected expression, found {}");
     pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found {}");
+    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found {}");
+    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found {}");
+    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found {}");
+    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found {}");
+    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found {}");
+    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found {}");
+    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found {}");
+    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found {}");
+    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found {}");
 
+    pub const ExpectedParamType = SimpleError("Expected parameter type");
+    pub const ExpectedPubItem = SimpleError("Pub must be followed by fn decl, var decl, or container member");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
     pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
@@ -329,9 +421,7 @@ pub const Node = struct {
         Payload,
         PointerPayload,
         PointerIndexPayload,
-        StructField,
-        UnionTag,
-        EnumTag,
+        ContainerField,
         ErrorTag,
         AsmInput,
         AsmOutput,
@@ -395,9 +485,7 @@ pub const Node = struct {
         while (true) {
             switch (n.id) {
                 Id.Root,
-                Id.StructField,
-                Id.UnionTag,
-                Id.EnumTag,
+                Id.ContainerField,
                 Id.ParamDecl,
                 Id.Block,
                 Id.Payload,
@@ -658,40 +746,15 @@ pub const Node = struct {
         }
     };
 
-    pub const StructField = struct {
+    pub const ContainerField = struct {
         base: Node,
         doc_comments: ?*DocComment,
         visib_token: ?TokenIndex,
         name_token: TokenIndex,
-        type_expr: *Node,
-
-        pub fn iterate(self: *StructField, index: usize) ?*Node {
-            var i = index;
-
-            if (i < 1) return self.type_expr;
-            i -= 1;
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const StructField) TokenIndex {
-            if (self.visib_token) |visib_token| return visib_token;
-            return self.name_token;
-        }
-
-        pub fn lastToken(self: *const StructField) TokenIndex {
-            return self.type_expr.lastToken();
-        }
-    };
-
-    pub const UnionTag = struct {
-        base: Node,
-        doc_comments: ?*DocComment,
-        name_token: TokenIndex,
         type_expr: ?*Node,
         value_expr: ?*Node,
 
-        pub fn iterate(self: *UnionTag, index: usize) ?*Node {
+        pub fn iterate(self: *ContainerField, index: usize) ?*Node {
             var i = index;
 
             if (self.type_expr) |type_expr| {
@@ -707,46 +770,17 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *const UnionTag) TokenIndex {
+        pub fn firstToken(self: *const ContainerField) TokenIndex {
+            if (self.visib_token) |visib_token| return visib_token;
             return self.name_token;
         }
 
-        pub fn lastToken(self: *const UnionTag) TokenIndex {
+        pub fn lastToken(self: *const ContainerField) TokenIndex {
             if (self.value_expr) |value_expr| {
                 return value_expr.lastToken();
             }
             if (self.type_expr) |type_expr| {
                 return type_expr.lastToken();
-            }
-
-            return self.name_token;
-        }
-    };
-
-    pub const EnumTag = struct {
-        base: Node,
-        doc_comments: ?*DocComment,
-        name_token: TokenIndex,
-        value: ?*Node,
-
-        pub fn iterate(self: *EnumTag, index: usize) ?*Node {
-            var i = index;
-
-            if (self.value) |value| {
-                if (i < 1) return value;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const EnumTag) TokenIndex {
-            return self.name_token;
-        }
-
-        pub fn lastToken(self: *const EnumTag) TokenIndex {
-            if (self.value) |value| {
-                return value.lastToken();
             }
 
             return self.name_token;
@@ -1307,7 +1341,7 @@ pub const Node = struct {
         inline_token: ?TokenIndex,
         for_token: TokenIndex,
         array_expr: *Node,
-        payload: ?*Node,
+        payload: *Node,
         body: *Node,
         @"else": ?*Else,
 
@@ -1317,10 +1351,8 @@ pub const Node = struct {
             if (i < 1) return self.array_expr;
             i -= 1;
 
-            if (self.payload) |payload| {
-                if (i < 1) return payload;
-                i -= 1;
-            }
+            if (i < 1) return self.payload;
+            i -= 1;
 
             if (i < 1) return self.body;
             i -= 1;
@@ -2112,7 +2144,7 @@ pub const Node = struct {
 
         pub const OutputList = SegmentedList(*AsmOutput, 2);
         pub const InputList = SegmentedList(*AsmInput, 2);
-        pub const ClobberList = SegmentedList(TokenIndex, 2);
+        pub const ClobberList = SegmentedList(*Node, 2);
 
         pub fn iterate(self: *Asm, index: usize) ?*Node {
             var i = index;
