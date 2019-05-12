@@ -4,6 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
+/// Returns the arc-cosine of z.
 pub fn acos(z: var) Complex(@typeOf(z.re)) {
     const T = @typeOf(z.re);
     const q = cmath.asin(z);

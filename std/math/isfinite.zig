@@ -3,6 +3,7 @@ const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns whether x is a finite value.
 pub fn isFinite(x: var) bool {
     const T = @typeOf(x);
     switch (T) {

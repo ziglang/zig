@@ -121,13 +121,13 @@ Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_file_overwrite(OsFile file, Buf *contents);
-void os_file_close(OsFile file);
+void os_file_close(OsFile *file);
 
 Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
 
-Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
-Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
+Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents);
+Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);
 
 Error ATTRIBUTE_MUST_USE os_get_cwd(Buf *out_cwd);
 

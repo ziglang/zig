@@ -265,6 +265,7 @@ const SeeAlsoItem = struct {
 const ExpectedOutcome = enum {
     Succeed,
     Fail,
+    BuildFail,
 };
 
 const Code = struct {
@@ -468,6 +469,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Succeed };
                     } else if (mem.eql(u8, code_kind_str, "exe_err")) {
                         code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Fail };
+                    } else if (mem.eql(u8, code_kind_str, "exe_build_err")) {
+                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.BuildFail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
                         code_kind_id = Code.Id.Test;
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
@@ -509,6 +512,10 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             target_str = "x86_64-windows";
                         } else if (mem.eql(u8, end_tag_name, "target_linux_x86_64")) {
                             target_str = "x86_64-linux";
+                        } else if (mem.eql(u8, end_tag_name, "target_wasm")) {
+                            target_str = "wasm32-freestanding";
+                        } else if (mem.eql(u8, end_tag_name, "target_wasi")) {
+                            target_str = "wasm32-wasi";
                         } else if (mem.eql(u8, end_tag_name, "link_libc")) {
                             link_libc = true;
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
@@ -1025,6 +1032,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             tmp_dir_name,
                             "--name",
                             code.name,
+                            "--color",
+                            "on",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
                         switch (code.mode) {
@@ -1059,14 +1068,52 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         if (code.target_str) |triple| {
                             try build_args.appendSlice([][]const u8{ "-target", triple });
+                            if (!code.is_inline) {
+                                try out.print(" -target {}", triple);
+                            }
+                        }
+                        if (expected_outcome == .BuildFail) {
+                            const result = try os.ChildProcess.exec(
+                                allocator,
+                                build_args.toSliceConst(),
+                                null,
+                                &env_map,
+                                max_doc_file_size,
+                            );
+                            switch (result.term) {
+                                os.ChildProcess.Term.Exited => |exit_code| {
+                                    if (exit_code == 0) {
+                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        for (build_args.toSliceConst()) |arg|
+                                            warn("{} ", arg)
+                                        else
+                                            warn("\n");
+                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                    }
+                                },
+                                else => {
+                                    warn("{}\nThe following command crashed:\n", result.stderr);
+                                    for (build_args.toSliceConst()) |arg|
+                                        warn("{} ", arg)
+                                    else
+                                        warn("\n");
+                                    return parseError(tokenizer, code.source_token, "example compile crashed");
+                                },
+                            }
+                            const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                            const colored_stderr = try termColor(allocator, escaped_stderr);
+                            try out.print("\n{}</code></pre>\n", colored_stderr);
+                            break :code_block;
                         }
                         _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
                         if (code.target_str) |triple| {
-                            if (mem.startsWith(u8, triple, "x86_64-linux") and
+                            if (mem.startsWith(u8, triple, "wasm32") or
+                                mem.startsWith(u8, triple, "x86_64-linux") and
                                 (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64))
                             {
                                 // skip execution
+                                try out.print("</code></pre>\n");
                                 break :code_block;
                             }
                         }
@@ -1130,6 +1177,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice([][]const u8{ "-target", triple });
+                            try out.print(" -target {}", triple);
                         }
                         const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1308,6 +1356,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                     try out.print(" --release-small");
                                 }
                             },
+                        }
+
+                        if (code.target_str) |triple| {
+                            try build_args.appendSlice([][]const u8{ "-target", triple });
+                            try out.print(" -target {}", triple);
                         }
 
                         if (maybe_error_match) |error_match| {

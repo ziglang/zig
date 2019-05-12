@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>Documentation - The Zig Programming Language</title>
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNSAxMCIgZmlsbD0iI2Y3YTQxZCI+PHBhdGggZD0iTTAsMSBIMy41IFYzIEgyIFY3IEgzLjY4MiBMMS44ODEsOSBIMCBaIE0xNSw5IEgxMS41IFY3IEgxMyBWMyBIMTEuMzE4IEwxMy4xMTksMSBIMTUgWiBNNCwxIEg5LjkxMiBMMTMuMzI4LDAuMDIxIEw3LjA0NSw3IEgxMSBWOSBINS4wODggTDEuNjcyLDkuOTc5IEw3Ljk1NSwzIEg0IFoiLz48L3N2Zz4="/>
     <style type="text/css">
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
-      a {
+      a:not(:hover) {
         text-decoration: none;
       }
       table, th, td {
@@ -158,13 +159,15 @@
     <div id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is an open-source programming language designed for <strong>robustness</strong>,
-      <strong>optimality</strong>, and <strong>clarity</strong>.
+      Zig is a general-purpose programming language designed for <strong>robustness</strong>,
+      <strong>optimality</strong>, and <strong>maintainability</strong>.
       </p>
       <ul>
         <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
         <li><strong>Optimal</strong> - write programs the best way they can behave and perform.</li>
-        <li><strong>Clear</strong> - precisely communicate your intent to the compiler and other programmers. The language imposes a low overhead to reading code.</li>
+        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and other programmers.
+            The language imposes a low overhead to reading code and is resilient to changing requirements
+            and environments.</li>
       </ul>
       <p>
       Often the most efficient way to learn something new is to see examples, so
@@ -3125,7 +3128,7 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
-        assert(sum1 == 3);
+        assert(sum2 == 3);
     }
 }
 
@@ -7180,14 +7183,6 @@ pub const FloatMode = enum {
       {#see_also|Floating Point Operations#}
       {#header_close#}
 
-      {#header_open|@setGlobalLinkage#}
-      <pre>{#syntax#}@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage){#endsyntax#}</pre>
-      <p>
-      {#syntax#}GlobalLinkage{#endsyntax#} can be found with {#syntax#}@import("builtin").GlobalLinkage{#endsyntax#}.
-      </p>
-      {#see_also|Compile Variables#}
-      {#header_close#}
-
       {#header_open|@setRuntimeSafety#}
       <pre>{#syntax#}@setRuntimeSafety(safety_on: bool){#endsyntax#}</pre>
       <p>
@@ -7217,6 +7212,8 @@ test "@setRuntimeSafety" {
     }
 }
       {#code_end#}
+      <p>Note: it is <a href="https://github.com/ziglang/zig/issues/978">planned</a> to replace
+      {#syntax#}@setRuntimeSafety{#endsyntax#} with <code>@optimizeFor</code></p>
 
       {#header_close#}
 
@@ -7271,6 +7268,10 @@ test "@setRuntimeSafety" {
       in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
       {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
+      </p>
+      <p>
+      This function measures the size at runtime. For types that are disallowed at runtime, such as
+      {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
       </p>
       {#see_also|@typeInfo#}
       {#header_close#}
@@ -7360,20 +7361,30 @@ fn List(comptime T: type) type {
       <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
       <p>
       This function truncates bits from an integer type, resulting in a smaller
-      integer type.
+      or same-sized integer type.
       </p>
       <p>
-      The following produces a crash in {#link|Debug#} mode and {#link|Undefined Behavior#} in
-      {#link|ReleaseFast#} mode:
+      The following produces safety-checked {#link|Undefined Behavior#}:
       </p>
-      <pre>{#syntax#}const a: u16 = 0xabcd;
-const b: u8 = u8(a);{#endsyntax#}</pre>
+      {#code_begin|test_err|cast truncated bits#}
+test "integer cast panic" {
+    var a: u16 = 0xabcd;
+    var b: u8 = @intCast(u8, a);
+}
+      {#code_end#}
       <p>
       However this is well defined and working code:
       </p>
-      <pre>{#syntax#}const a: u16 = 0xabcd;
-const b: u8 = @truncate(u8, a);
-// b is now 0xcd{#endsyntax#}</pre>
+      {#code_begin|test|truncate#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "integer truncation" {
+    var a: u16 = 0xabcd;
+    var b: u8 = @truncate(u8, a);
+    assert(b == 0xcd);
+}
+      {#code_end#}
       <p>
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
@@ -8840,20 +8851,21 @@ export fn add(a: i32, b: i32) i32 {
     return a + b;
 }
       {#code_end#}
-      <p>To make a shared library:</p>
+      <p>To make a static library:</p>
       <pre><code class="shell">$ zig build-lib mathtest.zig
 </code></pre>
-      <p>To make a static library:</p>
-      <pre><code class="shell">$ zig build-lib mathtest.zig --static
+      <p>To make a shared library:</p>
+      <pre><code class="shell">$ zig build-lib mathtest.zig -dynamic
 </code></pre>
       <p>Here is an example with the {#link|Zig Build System#}:</p>
       <p class="file">test.c</p>
       <pre><code class="cpp">// This header is generated by zig from mathtest.zig
 #include "mathtest.h"
-#include &lt;assert.h&gt;
+#include &lt;stdio.h&gt;
 
 int main(int argc, char **argv) {
-    assert(add(42, 1337) == 1379);
+    int32_t result = add(42, 1337);
+    printf("%d\n", result);
     return 0;
 }</code></pre>
       <p class="file">build.zig</p>
@@ -8863,10 +8875,10 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
-    const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8{"-std=c99"});
-    exe.addSourceFile("test.c");
+    const exe = b.addExecutable("test", null);
+    exe.addCSourceFile("test.c", [][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
+    exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
 
@@ -8877,10 +8889,9 @@ pub fn build(b: *Builder) void {
 }
       {#code_end#}
       <p class="file">terminal</p>
-      <pre><code class="shell">$ zig build
-$ ./test
-$ echo $?
-0</code></pre>
+      <pre><code class="shell">$ zig build test
+1379
+</code></pre>
       {#see_also|export#}
       {#header_close#}
       {#header_open|Mixing Object Files#}
@@ -8945,6 +8956,33 @@ pub fn build(b: *Builder) void {
 $ ./test
 all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
+      {#header_close#}
+      {#header_close#}
+      {#header_open|WebAssembly#}
+      {#header_open|Freestanding#}
+      {#code_begin|exe|wasm#}
+      {#target_wasm#}
+extern fn print(i32) void;
+
+export fn add(a: i32, b: i32) void {
+    print(a + b);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|WASI#}
+      {#code_begin|exe|wasi#}
+      {#target_wasi#}
+const std = @import("std");
+
+pub fn main() !void {
+    const args = try std.os.argsAlloc(std.heap.wasm_allocator);
+    defer std.os.argsFree(std.heap.wasm_allocator, args);
+
+    for (args) |arg, i| {
+        std.debug.warn("{}: {}\n", i, arg);
+    }
+}
+      {#code_end#}
       {#header_close#}
       {#header_close#}
       {#header_open|Targets#}
@@ -9430,8 +9468,6 @@ PrimaryExpr
 
 IfExpr &lt;- IfPrefix Expr (KEYWORD_else Payload? Expr)?
 
-LabeledExpr &lt;- BlockLabel? (Block / LoopExpr)
-
 Block &lt;- LBRACE Statement* RBRACE
 
 LoopExpr &lt;- KEYWORD_inline? (ForExpr / WhileExpr)
@@ -9439,6 +9475,8 @@ LoopExpr &lt;- KEYWORD_inline? (ForExpr / WhileExpr)
 ForExpr &lt;- ForPrefix Expr (KEYWORD_else Expr)?
 
 WhileExpr &lt;- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
+
+CurlySuffixExpr &lt;- TypeExpr InitList?
 
 InitList
     &lt;- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
@@ -9457,6 +9495,7 @@ PrimaryTypeExpr
     &lt;- BUILTINIDENTIFIER FnCallArguments
      / CHAR_LITERAL
      / ContainerDecl
+     / DOT IDENTIFIER
      / ErrorSetDecl
      / FLOAT
      / FnProto

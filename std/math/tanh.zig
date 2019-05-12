@@ -1,8 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - sinh(+-0)   = +-0
-// - sinh(+-inf) = +-1
-// - sinh(nan)   = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/tanhf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/tanh.c
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
@@ -11,6 +11,12 @@ const expect = std.testing.expect;
 const expo2 = @import("expo2.zig").expo2;
 const maxInt = std.math.maxInt;
 
+/// Returns the hyperbolic tangent of x.
+///
+/// Special Cases:
+///  - sinh(+-0)   = +-0
+///  - sinh(+-inf) = +-1
+///  - sinh(nan)   = nan
 pub fn tanh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

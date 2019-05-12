@@ -2,8 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt;
-
+const maxInt = std.math.maxInt; 
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
         return a + b;
@@ -504,4 +503,23 @@ test "packed struct with u0 field access" {
     };
     var s = S{ .f0 = 0 };
     comptime expect(s.f0 == 0);
+}
+
+const S0 = struct{
+    bar: S1,
+
+    pub const S1 = struct{
+        value: u8,
+    };
+
+    fn init() @This() {
+        return S0{ .bar = S1{ .value = 123 } };
+    }
+};
+
+var g_foo: S0 = S0.init();
+
+test "access to global struct fields" {
+    g_foo.bar.value = 42;
+    expect(g_foo.bar.value == 42);
 }

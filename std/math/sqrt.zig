@@ -1,10 +1,3 @@
-// Special Cases:
-//
-// - sqrt(+inf)  = +inf
-// - sqrt(+-0)   = +-0
-// - sqrt(x)     = nan if x < 0
-// - sqrt(nan)   = nan
-
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
@@ -12,6 +5,13 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
+/// Returns the square root of x.
+///
+/// Special Cases:
+///  - sqrt(+inf)  = +inf
+///  - sqrt(+-0)   = +-0
+///  - sqrt(x)     = nan if x < 0
+///  - sqrt(nan)   = nan
 pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
     switch (@typeId(T)) {

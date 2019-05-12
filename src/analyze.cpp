@@ -969,8 +969,9 @@ static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *no
         Buf *type_name)
 {
     size_t backward_branch_count = 0;
+    size_t backward_branch_quota = default_backward_branch_quota;
     return ir_eval_const_value(g, scope, node, type_entry,
-            &backward_branch_count, default_backward_branch_quota,
+            &backward_branch_count, &backward_branch_quota,
             nullptr, nullptr, node, type_name, nullptr, nullptr);
 }
 
@@ -1907,6 +1908,18 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
+static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
+    // Only integer types are allowed by the C ABI
+    if(ty->id != ZigTypeIdInt)
+        return false;
+
+    // According to the ANSI C standard the enumeration type should be either a
+    // signed char, a signed integer or an unsigned one. But GCC/Clang allow
+    // other integral types as a compiler extension so let's accomodate them
+    // aswell.
+    return type_allowed_in_extern(g, ty);
+}
+
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->id == ZigTypeIdEnum);
 
@@ -1964,7 +1977,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
 
-    // TODO: Are extern enums allowed to have an init_arg_expr?
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
@@ -1973,23 +1985,28 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.is_signed) {
+        } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
+                   !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
             enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
-                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
+            ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("'%s' is not a valid tag type for an extern enum",
+                            buf_ptr(&wanted_tag_int_type->name)));
+            add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
         } else {
             tag_int_type = wanted_tag_int_type;
         }
     }
+
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
+
+    BigInt bi_one;
+    bigint_init_unsigned(&bi_one, 1);
+
+    TypeEnumField *last_enum_field = nullptr;
 
     for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
@@ -2016,60 +2033,58 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         AstNode *tag_value = field_node->data.struct_field.value;
 
-        // In this first pass we resolve explicit tag values.
-        // In a second pass we will fill in the unspecified ones.
         if (tag_value != nullptr) {
+            // A user-specified value is available
             ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.is_invalid = true;
                 continue;
             }
+
             assert(result->special != ConstValSpecialRuntime);
-            assert(result->type->id == ZigTypeIdInt ||
-                   result->type->id == ZigTypeIdComptimeInt);
-            auto entry = occupied_tag_values.put_unique(result->data.x_bigint, tag_value);
-            if (entry == nullptr) {
-                bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
-            } else {
-                Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &result->data.x_bigint, 10);
+            assert(result->type->id == ZigTypeIdInt || result->type->id == ZigTypeIdComptimeInt);
 
-                ErrorMsg *msg = add_node_error(g, tag_value,
-                        buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
-                add_error_note(g, msg, entry->value,
-                        buf_sprintf("other occurrence here"));
+            bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
+        } else {
+            // No value was explicitly specified: allocate the last value + 1
+            // or, if this is the first element, zero
+            if (last_enum_field != nullptr) {
+                bigint_add(&type_enum_field->value, &last_enum_field->value, &bi_one);
+            } else {
+                bigint_init_unsigned(&type_enum_field->value, 0);
+            }
+
+            // Make sure we can represent this number with tag_int_type
+            if (!bigint_fits_in_bits(&type_enum_field->value,
+                                     tag_int_type->size_in_bits,
+                                     tag_int_type->data.integral.is_signed)) {
                 enum_type->data.enumeration.is_invalid = true;
-                continue;
+
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &type_enum_field->value, 10);
+                add_node_error(g, field_node,
+                    buf_sprintf("enumeration value %s too large for type '%s'",
+                        buf_ptr(val_buf), buf_ptr(&tag_int_type->name)));
+
+                break;
             }
         }
-    }
 
-    // Now iterate again and populate the unspecified tag values
-    uint32_t next_maybe_unoccupied_index = 0;
+        // Make sure the value is unique
+        auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
+        if (entry != nullptr) {
+            enum_type->data.enumeration.is_invalid = true;
 
-    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
-        AstNode *tag_value = field_node->data.struct_field.value;
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &type_enum_field->value, 10);
 
-        if (tag_value == nullptr) {
-            if (occupied_tag_values.size() == 0) {
-                bigint_init_unsigned(&type_enum_field->value, next_maybe_unoccupied_index);
-                next_maybe_unoccupied_index += 1;
-            } else {
-                BigInt proposed_value;
-                for (;;) {
-                    bigint_init_unsigned(&proposed_value, next_maybe_unoccupied_index);
-                    next_maybe_unoccupied_index += 1;
-                    auto entry = occupied_tag_values.put_unique(proposed_value, field_node);
-                    if (entry != nullptr) {
-                        continue;
-                    }
-                    break;
-                }
-                bigint_init_bigint(&type_enum_field->value, &proposed_value);
-            }
+            ErrorMsg *msg = add_node_error(g, field_node,
+                    buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+            add_error_note(g, msg, entry->value,
+                    buf_sprintf("other occurrence here"));
         }
+
+        last_enum_field = type_enum_field;
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = false;
@@ -2607,7 +2622,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
+static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, bool is_test) {
     buf_resize(buf, 0);
 
     Scope *scope = tld->parent_scope;
@@ -2617,15 +2632,23 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld) {
     ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
     buf_append_buf(buf, &decls_scope->container_type->name);
     if (buf_len(buf) != 0) buf_append_char(buf, NAMESPACE_SEP_CHAR);
-    buf_append_buf(buf, tld->name);
+    if (is_test) {
+        buf_append_str(buf, "test \"");
+        buf_append_buf(buf, tld->name);
+        buf_append_char(buf, '"');
+    } else {
+        buf_append_buf(buf, tld->name);
+    }
 }
 
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
     ZigFn *fn_entry = allocate<ZigFn>(1);
 
+    fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
+
     fn_entry->codegen = g;
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
-    fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable.fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
@@ -2726,7 +2749,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_proto->is_export || is_extern) {
             buf_init_from_buf(&fn_table_entry->symbol_name, tld_fn->base.name);
         } else {
-            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
         if (fn_proto->is_export) {
@@ -2787,7 +2810,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
-        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base);
+        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, true);
 
         tld_fn->fn_entry = fn_table_entry;
 
@@ -3722,7 +3745,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     }
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
-        ast_render(g, stderr, fn_table_entry->body_node, 4);
+        ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(g, stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");
@@ -5155,11 +5178,10 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
                 TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
                 assert(field != nullptr);
-                if (type_has_bits(field->type_entry)) {
-                    zig_panic("TODO const expr analyze union field value for equality");
-                } else {
+                if (!type_has_bits(field->type_entry))
                     return true;
-                }
+                assert(find_union_field_by_tag(a->type, &union2->tag) != nullptr);
+                return const_values_equal(g, union1->payload, union2->payload);
             }
             return false;
         }
@@ -6070,7 +6092,7 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents) {
     if (g->enable_cache) {
         return cache_add_file_fetch(&g->cache_hash, resolved_path, contents);
     } else {
-        return os_fetch_file_path(resolved_path, contents, false);
+        return os_fetch_file_path(resolved_path, contents);
     }
 }
 
@@ -7221,4 +7243,17 @@ LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {
 ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type) {
     assertNoError(type_resolve(g, type, ResolveStatusLLVMFull));
     return type->llvm_di_type;
+}
+
+void src_assert(bool ok, AstNode *source_node) {
+    if (ok) return;
+    if (source_node == nullptr) {
+        fprintf(stderr, "when analyzing (unknown source location): ");
+    } else {
+        fprintf(stderr, "when analyzing %s:%u:%u: ",
+            buf_ptr(source_node->owner->data.structure.root_struct->path),
+            (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
+    }
+    const char *msg = "assertion failed";
+    stage2_panic(msg, strlen(msg));
 }

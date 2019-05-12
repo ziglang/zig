@@ -23,13 +23,18 @@ pub const sqrt = @import("complex/sqrt.zig").sqrt;
 pub const tanh = @import("complex/tanh.zig").tanh;
 pub const tan = @import("complex/tan.zig").tan;
 
+/// A complex number consisting of a real an imaginary part. T must be a floating-point value.
 pub fn Complex(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        /// Real part.
         re: T,
+
+        /// Imaginary part.
         im: T,
 
+        /// Create a new Complex number from the given real and imaginary parts.
         pub fn new(re: T, im: T) Self {
             return Self{
                 .re = re,
@@ -37,6 +42,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the sum of two complex numbers.
         pub fn add(self: Self, other: Self) Self {
             return Self{
                 .re = self.re + other.re,
@@ -44,6 +50,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the subtraction of two complex numbers.
         pub fn sub(self: Self, other: Self) Self {
             return Self{
                 .re = self.re - other.re,
@@ -51,6 +58,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the product of two complex numbers.
         pub fn mul(self: Self, other: Self) Self {
             return Self{
                 .re = self.re * other.re - self.im * other.im,
@@ -58,6 +66,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the quotient of two complex numbers.
         pub fn div(self: Self, other: Self) Self {
             const re_num = self.re * other.re + self.im * other.im;
             const im_num = self.im * other.re - self.re * other.im;
@@ -69,6 +78,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the complex conjugate of a number.
         pub fn conjugate(self: Self) Self {
             return Self{
                 .re = self.re,
@@ -76,6 +86,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
             return Self{
@@ -84,6 +95,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Returns the magnitude of a complex number.
         pub fn magnitude(self: Self) T {
             return math.sqrt(self.re * self.re + self.im * self.im);
         }

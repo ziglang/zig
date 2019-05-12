@@ -36,6 +36,7 @@ pub fn getStdIn() GetStdIoErrs!File {
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -194,8 +195,8 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: *Self, num_bytes: usize) !void {
-            var i: usize = 0;
+        pub fn skipBytes(self: *Self, num_bytes: u64) !void {
+            var i: u64 = 0;
             while (i < num_bytes) : (i += 1) {
                 _ = try self.readByte();
             }
@@ -289,7 +290,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
     var file = try File.openRead(path);
     defer file.close();
 
-    const size = try file.getEndPos();
+    const size = try math.cast(usize, try file.getEndPos());
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
@@ -742,7 +743,7 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Error = OutStreamError;
 
         pub stream: Stream,
-        pub bytes_written: usize,
+        pub bytes_written: u64,
         child_stream: *Stream,
 
         pub fn init(child_stream: *Stream) Self {
@@ -1089,8 +1090,11 @@ test "io.readLineSliceFrom" {
 }
 
 pub const Packing = enum {
-    Byte,   /// Pack data to byte alignment
-    Bit,    /// Pack data to bit alignment
+    /// Pack data to byte alignment
+    Byte,
+
+    /// Pack data to bit alignment
+    Bit,
 };
 
 /// Creates a deserializer that deserializes types from any stream.
@@ -1111,10 +1115,12 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         pub const Stream = InStream(Error);
 
         pub fn init(in_stream: *Stream) Self {
-            return Self{ .in_stream = switch (packing) {
-                .Bit => BitInStream(endian, Stream.Error).init(in_stream),
-                .Byte => in_stream,
-            } };
+            return Self{
+                .in_stream = switch (packing) {
+                    .Bit => BitInStream(endian, Stream.Error).init(in_stream),
+                    .Byte => in_stream,
+                },
+            };
         }
 
         pub fn alignToByte(self: *Self) void {
@@ -1281,7 +1287,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         ptr.* = null;
                         return;
                     }
-                    
+
                     ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
@@ -1320,10 +1326,12 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         pub const Stream = OutStream(Error);
 
         pub fn init(out_stream: *Stream) Self {
-            return Self{ .out_stream = switch (packing) {
-                .Bit => BitOutStream(endian, Stream.Error).init(out_stream),
-                .Byte => out_stream,
-            } };
+            return Self{
+                .out_stream = switch (packing) {
+                    .Bit => BitOutStream(endian, Stream.Error).init(out_stream),
+                    .Byte => out_stream,
+                },
+            };
         }
 
         /// Flushes any unwritten bits to the stream
@@ -1447,7 +1455,6 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
 test "import io tests" {
     comptime {
-        _ = @import("io_test.zig");
+        _ = @import("io/test.zig");
     }
 }
-

@@ -1,8 +1,8 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - frexp(+-0)   = +-0, 0
-// - frexp(+-inf) = +-inf, 0
-// - frexp(nan)   = nan, undefined
+// https://git.musl-libc.org/cgit/musl/tree/src/math/frexpf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/frexp.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -17,6 +17,13 @@ fn frexp_result(comptime T: type) type {
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
+/// Breaks x into a normalized fraction and an integral power of two.
+/// f == frac * 2^exp, with |frac| in the interval [0.5, 1).
+///
+/// Special Cases:
+///  - frexp(+-0)   = +-0, 0
+///  - frexp(+-inf) = +-inf, 0
+///  - frexp(nan)   = nan, undefined
 pub fn frexp(x: var) frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {

@@ -25,6 +25,8 @@ enum CTokId {
     CTokIdAsterisk,
     CTokIdBang,
     CTokIdTilde,
+    CTokIdShl,
+    CTokIdLt,
 };
 
 enum CNumLitSuffix {
@@ -78,6 +80,7 @@ enum CTokState {
     CTokStateNumLitIntSuffixL,
     CTokStateNumLitIntSuffixLL,
     CTokStateNumLitIntSuffixUL,
+    CTokStateGotLt,
 };
 
 struct CTokenize {

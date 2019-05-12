@@ -15,7 +15,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 3)
+set(ZIG_VERSION_MINOR 4)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
 
@@ -50,10 +50,6 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
-if(MINGW)
-    find_package(z3)
-endif()
-
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
     find_library(ZLIB NAMES z zlib libz)
@@ -61,6 +57,16 @@ if(APPLE AND ZIG_STATIC)
 endif()
 
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
+
+# Handle multi-config builds and place each into a common lib. The VS generator
+# for example will append a Debug folder by default if not explicitly specified.
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
+foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+    string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
+endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
 
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
@@ -196,7 +202,7 @@ else()
     if(MSVC)
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
-      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
+      set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-comment")
       if(MINGW)
         set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
       endif()
@@ -257,7 +263,6 @@ else()
         embedded_lld_wasm
         embedded_lld_lib
     )
-    install(TARGETS embedded_lld_elf embedded_lld_coff embedded_lld_mingw embedded_lld_wasm embedded_lld_lib DESTINATION "${ZIG_CPP_LIB_DIR}")
 endif()
 
 # No patches have been applied to SoftFloat-3e
@@ -407,6 +412,12 @@ set(SOFTFLOAT_LIBRARIES embedded_softfloat)
 
 find_package(Threads)
 
+# CMake doesn't let us create an empty executable, so we hang on to this one separately.
+set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
+
+# This is our shim which will be replaced by libuserland written in Zig.
+set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
+
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
@@ -423,7 +434,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
@@ -477,6 +487,7 @@ set(ZIG_STD_FILES
     "crypto/x25519.zig"
     "cstr.zig"
     "debug.zig"
+    "debug/leb128.zig"
     "debug/failing_allocator.zig"
     "dwarf.zig"
     "dynamic_library.zig"
@@ -507,6 +518,7 @@ set(ZIG_STD_FILES
     "heap.zig"
     "io.zig"
     "io/seekable_stream.zig"
+    "io/c_out_stream.zig"
     "json.zig"
     "lazy_init.zig"
     "linked_list.zig"
@@ -521,6 +533,7 @@ set(ZIG_STD_FILES
     "math/atanh.zig"
     "math/big.zig"
     "math/big/int.zig"
+    "math/big/rational.zig"
     "math/cbrt.zig"
     "math/ceil.zig"
     "math/complex.zig"
@@ -599,6 +612,7 @@ set(ZIG_STD_FILES
     "os/linux.zig"
     "os/linux/arm64.zig"
     "os/linux/errno.zig"
+    "os/linux/tls.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
     "os/netbsd.zig"
@@ -606,6 +620,8 @@ set(ZIG_STD_FILES
     "os/path.zig"
     "os/time.zig"
     "os/uefi.zig"
+    "os/wasi.zig"
+    "os/wasi/core.zig"
     "os/windows.zig"
     "os/windows/advapi32.zig"
     "os/windows/error.zig"
@@ -615,6 +631,7 @@ set(ZIG_STD_FILES
     "os/windows/shell32.zig"
     "os/windows/util.zig"
     "os/zen.zig"
+    "packed_int_array.zig"
     "pdb.zig"
     "priority_queue.zig"
     "rand.zig"
@@ -628,10 +645,15 @@ set(ZIG_STD_FILES
     "special/build_runner.zig"
     "special/builtin.zig"
     "special/compiler_rt.zig"
+    "special/compiler_rt/stack_probe.zig"
+    "special/compiler_rt/arm/aeabi_fcmp.zig"
+    "special/compiler_rt/arm/aeabi_dcmp.zig"
     "special/compiler_rt/addXf3.zig"
     "special/compiler_rt/aulldiv.zig"
     "special/compiler_rt/aullrem.zig"
     "special/compiler_rt/comparetf2.zig"
+    "special/compiler_rt/comparedf2.zig"
+    "special/compiler_rt/comparesf2.zig"
     "special/compiler_rt/divsf3.zig"
     "special/compiler_rt/divdf3.zig"
     "special/compiler_rt/divti3.zig"
@@ -656,9 +678,13 @@ set(ZIG_STD_FILES
     "special/compiler_rt/fixunstfdi.zig"
     "special/compiler_rt/fixunstfsi.zig"
     "special/compiler_rt/fixunstfti.zig"
+    "special/compiler_rt/floatdidf.zig"
+    "special/compiler_rt/floatsiXf.zig"
+    "special/compiler_rt/floatunsidf.zig"
     "special/compiler_rt/floattidf.zig"
     "special/compiler_rt/floattisf.zig"
     "special/compiler_rt/floattitf.zig"
+    "special/compiler_rt/floatundidf.zig"
     "special/compiler_rt/floatunditf.zig"
     "special/compiler_rt/floatunsitf.zig"
     "special/compiler_rt/floatuntidf.zig"
@@ -667,7 +693,11 @@ set(ZIG_STD_FILES
     "special/compiler_rt/modti3.zig"
     "special/compiler_rt/mulXf3.zig"
     "special/compiler_rt/muloti4.zig"
+    "special/compiler_rt/mulodi4.zig"
     "special/compiler_rt/multi3.zig"
+    "special/compiler_rt/ashlti3.zig"
+    "special/compiler_rt/ashrti3.zig"
+    "special/compiler_rt/lshrti3.zig"
     "special/compiler_rt/negXf2.zig"
     "special/compiler_rt/popcountdi2.zig"
     "special/compiler_rt/truncXfYf2.zig"
@@ -676,7 +706,6 @@ set(ZIG_STD_FILES
     "special/compiler_rt/udivmodti4.zig"
     "special/compiler_rt/udivti3.zig"
     "special/compiler_rt/umodti3.zig"
-    "special/fmt_runner.zig"
     "special/init-exe/build.zig"
     "special/init-exe/src/main.zig"
     "special/init-lib/build.zig"
@@ -6604,7 +6633,7 @@ endif()
 if(MSVC)
   set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
-  set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+  set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
   if(MINGW)
       set(EXE_CFLAGS "${EXE_CFLAGS} -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
   endif()
@@ -6639,13 +6668,12 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_executable(zig ${ZIG_SOURCES})
-set_target_properties(zig PROPERTIES
+add_library(compiler STATIC ${ZIG_SOURCES})
+set_target_properties(compiler PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-
-target_link_libraries(zig LINK_PUBLIC
+target_link_libraries(compiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
@@ -6654,24 +6682,63 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
-
 if(NOT MSVC)
-    target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(compiler LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(MINGW)
-    target_link_libraries(zig LINK_PUBLIC ${Z3_LIBRARIES})
+    find_library(Z3_LIBRARIES NAMES z3 z3.dll)
+    target_link_libraries(compiler LINK_PUBLIC ${Z3_LIBRARIES})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(compiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(zig LINK_PUBLIC version)
+    target_link_libraries(compiler LINK_PUBLIC version)
 endif()
+
+add_executable(zig0 "${ZIG_MAIN_SRC}" "${ZIG0_SHIM_SRC}")
+set_target_properties(zig0 PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
+target_link_libraries(zig0 compiler)
+
+if(WIN32)
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
+elseif(APPLE)
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.o")
+else()
+    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
+endif()
+add_custom_command(
+    OUTPUT "${LIBUSERLAND}"
+    COMMAND zig0 ARGS build
+        --override-std-dir std
+        --override-lib-dir "${CMAKE_SOURCE_DIR}"
+        libuserland
+        "-Doutput-dir=${CMAKE_BINARY_DIR}"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
+        "${CMAKE_SOURCE_DIR}/build.zig"
+)
+add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
+add_executable(zig "${ZIG_MAIN_SRC}")
+if(MINGW)
+    set(EXE_LDFLAGS "${EXE_LDFLAGS} -fstack-protector")
+endif()
+set_target_properties(zig PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
+target_link_libraries(zig compiler "${LIBUSERLAND}")
+add_dependencies(zig userland_target)
 install(TARGETS zig DESTINATION bin)
-install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
+
 
 foreach(file ${ZIG_C_HEADER_FILES})
     get_filename_component(file_dir "${C_HEADERS_DEST}/${file}" DIRECTORY)
@@ -6697,7 +6764,3 @@ foreach(file ${ZIG_LIBCXX_FILES})
     get_filename_component(file_dir "${LIBCXX_FILES_DEST}/${file}" DIRECTORY)
     install(FILES "${CMAKE_SOURCE_DIR}/libcxx/${file}" DESTINATION "${file_dir}")
 endforeach()
-
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/arg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/main.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")
-install(FILES "${CMAKE_SOURCE_DIR}/src-self-hosted/errmsg.zig" DESTINATION "${ZIG_STD_DEST}/special/fmt/")

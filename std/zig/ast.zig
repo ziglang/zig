@@ -18,7 +18,11 @@ pub const Tree = struct {
     pub const ErrorList = SegmentedList(Error, 0);
 
     pub fn deinit(self: *Tree) void {
-        self.arena_allocator.deinit();
+        // Here we copy the arena allocator into stack memory, because
+        // otherwise it would destroy itself while it was still working.
+        var arena_allocator = self.arena_allocator;
+        arena_allocator.deinit();
+        // self is destroyed
     }
 
     pub fn renderError(self: *Tree, parse_error: *Error, stream: var) !void {
@@ -551,7 +555,6 @@ pub const Node = struct {
         doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
-        shebang: ?TokenIndex,
 
         pub const DeclList = SegmentedList(*Node, 4);
 
@@ -563,7 +566,6 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const Root) TokenIndex {
-            if (self.shebang) |shebang| return shebang;
             return if (self.decls.len == 0) self.eof_token else (self.decls.at(0).*).firstToken();
         }
 
@@ -2307,7 +2309,6 @@ test "iterate" {
         .doc_comments = null,
         .decls = Node.Root.DeclList.init(std.debug.global_allocator),
         .eof_token = 0,
-        .shebang = null,
     };
     var base = &root.base;
     testing.expect(base.iterate(0) == null);

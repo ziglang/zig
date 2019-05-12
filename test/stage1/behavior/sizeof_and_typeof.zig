@@ -67,3 +67,10 @@ test "@bitOffsetOf" {
     expect(@byteOffsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
     expect(@byteOffsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
 }
+
+test "@sizeOf on compile-time types" {
+    expect(@sizeOf(comptime_int) == 0);
+    expect(@sizeOf(comptime_float) == 0);
+    expect(@sizeOf(@typeOf(.hi)) == 0);
+    expect(@sizeOf(@typeOf(type)) == 0);
+}

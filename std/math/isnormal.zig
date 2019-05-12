@@ -3,6 +3,7 @@ const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+// Returns whether x has a normalized representation (i.e. integer part of mantissa is 1).
 pub fn isNormal(x: var) bool {
     const T = @typeOf(x);
     switch (T) {

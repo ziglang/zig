@@ -23,6 +23,7 @@ test "std.os" {
     _ = @import("os/time.zig");
     _ = @import("os/windows.zig");
     _ = @import("os/uefi.zig");
+    _ = @import("os/wasi.zig");
     _ = @import("os/get_app_data_dir.zig");
 }
 
@@ -33,6 +34,7 @@ pub const freebsd = @import("os/freebsd.zig");
 pub const netbsd = @import("os/netbsd.zig");
 pub const zen = @import("os/zen.zig");
 pub const uefi = @import("os/uefi.zig");
+pub const wasi = @import("os/wasi.zig");
 
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
@@ -40,6 +42,7 @@ pub const posix = switch (builtin.os) {
     Os.freebsd => freebsd,
     Os.netbsd => netbsd,
     Os.zen => zen,
+    Os.wasi => wasi,
     else => @compileError("Unsupported OS"),
 };
 
@@ -50,7 +53,11 @@ pub const path = @import("os/path.zig");
 pub const File = @import("os/file.zig").File;
 pub const time = @import("os/time.zig");
 
-pub const page_size = 4 * 1024;
+pub const page_size = switch (builtin.arch) {
+    .wasm32, .wasm64 => 64 * 1024,
+    else => 4 * 1024,
+};
+
 pub const MAX_PATH_BYTES = switch (builtin.os) {
     Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => posix.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
@@ -139,6 +146,12 @@ pub fn getRandomBytes(buf: []u8) !void {
                 };
             }
         },
+        Os.wasi => {
+            const random_get_result = os.wasi.random_get(buf.ptr, buf.len);
+            if (random_get_result != os.wasi.ESUCCESS) {
+                return error.Unknown;
+            }
+        },
         Os.zen => {
             const randomness = []u8{ 42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45 };
             var i: usize = 0;
@@ -198,6 +211,12 @@ pub fn abort() noreturn {
             }
             windows.ExitProcess(3);
         },
+        Os.wasi => {
+            _ = wasi.proc_raise(wasi.SIGABRT);
+            // TODO: Is SIGKILL even necessary?
+            _ = wasi.proc_raise(wasi.SIGKILL);
+            while (true) {}
+        },
         Os.uefi => {
             // TODO there's gotta be a better thing to do here than loop forever
             while (true) {}
@@ -225,6 +244,9 @@ pub fn exit(status: u8) noreturn {
         },
         Os.windows => {
             windows.ExitProcess(status);
+        },
+        Os.wasi => {
+            wasi.proc_exit(status);
         },
         else => @compileError("Unsupported OS"),
     }
@@ -749,6 +771,37 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
+    } else if (builtin.os == Os.wasi) {
+        var environ_count: usize = undefined;
+        var environ_buf_size: usize = undefined;
+
+        const environ_sizes_get_ret = std.os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
+        if (environ_sizes_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(environ_sizes_get_ret);
+        }
+
+        // TODO: Verify that the documentation is incorrect
+        // https://github.com/WebAssembly/WASI/issues/27
+        var environ = try allocator.alloc(?[*]u8, environ_count + 1);
+        defer allocator.free(environ);
+        var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
+        defer allocator.free(environ_buf);
+
+        const environ_get_ret = std.os.wasi.environ_get(environ.ptr, environ_buf.ptr);
+        if (environ_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(environ_get_ret);
+        }
+
+        for (environ) |env| {
+            if (env) |ptr| {
+                const pair = mem.toSlice(u8, ptr);
+                var parts = mem.separate(pair, "=");
+                const key = parts.next().?;
+                const value = parts.next().?;
+                try result.set(key, value);
+            }
+        }
+        return result;
     } else {
         for (posix_environ_raw) |ptr| {
             var line_i: usize = 0;
@@ -1083,13 +1136,14 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     defer in_file.close();
 
     const mode = try in_file.mode();
+    const in_stream = &in_file.inStream().stream;
 
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
     var buf: [page_size]u8 = undefined;
     while (true) {
-        const amt = try in_file.readFull(buf[0..]);
+        const amt = try in_stream.readFull(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);
         if (amt != buf.len) {
             return atomic_file.finish();
@@ -2127,6 +2181,11 @@ pub const ArgIterator = struct {
     inner: InnerType,
 
     pub fn init() ArgIterator {
+        if (builtin.os == Os.wasi) {
+            // TODO: Figure out a compatible interface accomodating WASI
+            @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
+        }
+
         return ArgIterator{ .inner = InnerType.init() };
     }
 
@@ -2159,6 +2218,34 @@ pub fn args() ArgIterator {
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
+    if (builtin.os == Os.wasi) {
+        var count: usize = undefined;
+        var buf_size: usize = undefined;
+
+        const args_sizes_get_ret = os.wasi.args_sizes_get(&count, &buf_size);
+        if (args_sizes_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(args_sizes_get_ret);
+        }
+
+        var argv = try allocator.alloc([*]u8, count);
+        defer allocator.free(argv);
+
+        var argv_buf = try allocator.alloc(u8, buf_size);
+        const args_get_ret = os.wasi.args_get(argv.ptr, argv_buf.ptr);
+        if (args_get_ret != os.wasi.ESUCCESS) {
+            return unexpectedErrorPosix(args_get_ret);
+        }
+
+        var result_slice = try allocator.alloc([]u8, count);
+
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            result_slice[i] = mem.toSlice(u8, argv[i]);
+        }
+
+        return result_slice;
+    }
+
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -2196,6 +2283,16 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
+    if (builtin.os == Os.wasi) {
+        const last_item = args_alloc[args_alloc.len - 1];
+        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const first_item_ptr = args_alloc[0].ptr;
+        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        allocator.free(first_item_ptr[0..len]);
+
+        return allocator.free(args_alloc);
+    }
+
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
@@ -3030,9 +3127,6 @@ pub const SpawnThreadError = error{
     Unexpected,
 };
 
-pub var linux_tls_phdr: ?*std.elf.Phdr = null;
-pub var linux_tls_img_src: [*]const u8 = undefined; // defined if linux_tls_phdr is
-
 /// caller must call wait on the returned thread
 /// fn startFn(@typeOf(context)) T
 /// where T is u8, noreturn, void, or !void
@@ -3142,12 +3236,10 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
         }
         // Finally, the Thread Local Storage, if any.
         if (!Thread.use_pthreads) {
-            if (linux_tls_phdr) |tls_phdr| {
-                l = mem.alignForward(l, tls_phdr.p_align);
+            if (linux.tls.tls_image) |tls_img| {
+                l = mem.alignForward(l, @alignOf(usize));
                 tls_start_offset = l;
-                l += tls_phdr.p_memsz;
-                // the fs register address
-                l += @sizeOf(usize);
+                l += tls_img.alloc_size;
             }
         }
         break :blk l;
@@ -3188,10 +3280,8 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
             posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
             posix.CLONE_DETACHED;
         var newtls: usize = undefined;
-        if (linux_tls_phdr) |tls_phdr| {
-            @memcpy(@intToPtr([*]u8, mmap_addr + tls_start_offset), linux_tls_img_src, tls_phdr.p_filesz);
-            newtls = mmap_addr + mmap_len - @sizeOf(usize);
-            @intToPtr(*usize, newtls).* = newtls;
+        if (linux.tls.tls_image) |tls_img| {
+            newtls = linux.tls.copyTLS(mmap_addr + tls_start_offset);
             flags |= posix.CLONE_SETTLS;
         }
         const rc = posix.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);

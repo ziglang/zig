@@ -1,5 +1,12 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/math/__expo2f.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/__expo2.c
+
 const math = @import("../math.zig");
 
+/// Returns exp(x) / 2 for x >= log(maxFloat(T)).
 pub fn expo2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

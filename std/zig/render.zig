@@ -73,11 +73,6 @@ fn renderRoot(
 ) (@typeOf(stream).Child.Error || Error)!void {
     var tok_it = tree.tokens.iterator(0);
 
-    // render the shebang line
-    if (tree.root_node.shebang) |shebang| {
-        try stream.write(tree.tokenSlice(shebang));
-    }
-
     // render all the line comments at the beginning of the file
     while (tok_it.next()) |token| {
         if (token.id != Token.Id.LineComment) break;
@@ -753,7 +748,7 @@ fn renderExpression(
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
                             try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
-                            const width = counting_stream.bytes_written;
+                            const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
                             expr_widths[i] = width;

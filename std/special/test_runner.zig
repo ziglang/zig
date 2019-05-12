@@ -8,7 +8,7 @@ pub fn main() !void {
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        warn("Test {}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
+        warn("{}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
 
         if (test_fn.func()) |_| {
             ok_count += 1;

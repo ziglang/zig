@@ -1,32 +1,36 @@
-// Special Cases:
+// Ported from go, which is licensed under a BSD-3 license.
+// https://golang.org/LICENSE
 //
-//  pow(x, +-0)    = 1 for any x
-//  pow(1, y)      = 1 for any y
-//  pow(x, 1)      = x for any x
-//  pow(nan, y)    = nan
-//  pow(x, nan)    = nan
-//  pow(+-0, y)    = +-inf for y an odd integer < 0
-//  pow(+-0, -inf) = +inf
-//  pow(+-0, +inf) = +0
-//  pow(+-0, y)    = +inf for finite y < 0 and not an odd integer
-//  pow(+-0, y)    = +-0 for y an odd integer > 0
-//  pow(+-0, y)    = +0 for finite y > 0 and not an odd integer
-//  pow(-1, +-inf) = 1
-//  pow(x, +inf)   = +inf for |x| > 1
-//  pow(x, -inf)   = +0 for |x| > 1
-//  pow(x, +inf)   = +0 for |x| < 1
-//  pow(x, -inf)   = +inf for |x| < 1
-//  pow(+inf, y)   = +inf for y > 0
-//  pow(+inf, y)   = +0 for y < 0
-//  pow(-inf, y)   = pow(-0, -y)
-//  pow(x, y)      = nan for finite x < 0 and finite non-integer y
+// https://golang.org/src/math/pow.go
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
-// This implementation is taken from the go stlib, musl is a bit more complex.
+/// Returns x raised to the power of y (x^y).
+///
+/// Special Cases:
+///  - pow(x, +-0)    = 1 for any x
+///  - pow(1, y)      = 1 for any y
+///  - pow(x, 1)      = x for any x
+///  - pow(nan, y)    = nan
+///  - pow(x, nan)    = nan
+///  - pow(+-0, y)    = +-inf for y an odd integer < 0
+///  - pow(+-0, -inf) = +inf
+///  - pow(+-0, +inf) = +0
+///  - pow(+-0, y)    = +inf for finite y < 0 and not an odd integer
+///  - pow(+-0, y)    = +-0 for y an odd integer > 0
+///  - pow(+-0, y)    = +0 for finite y > 0 and not an odd integer
+///  - pow(-1, +-inf) = 1
+///  - pow(x, +inf)   = +inf for |x| > 1
+///  - pow(x, -inf)   = +0 for |x| > 1
+///  - pow(x, +inf)   = +0 for |x| < 1
+///  - pow(x, -inf)   = +inf for |x| < 1
+///  - pow(+inf, y)   = +inf for y > 0
+///  - pow(+inf, y)   = +0 for y < 0
+///  - pow(-inf, y)   = pow(-0, -y)
+///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
 pub fn pow(comptime T: type, x: T, y: T) T {
     if (@typeInfo(T) == builtin.TypeId.Int) {
         return math.powi(T, x, y) catch unreachable;
@@ -51,15 +55,6 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     // pow(x, 1) = x        for all x
     if (y == 1) {
         return x;
-    }
-
-    // special case sqrt
-    if (y == 0.5) {
-        return math.sqrt(x);
-    }
-
-    if (y == -0.5) {
-        return 1 / math.sqrt(x);
     }
 
     if (x == 0) {
@@ -112,14 +107,16 @@ pub fn pow(comptime T: type, x: T, y: T) T {
         }
     }
 
-    var ay = y;
-    var flip = false;
-    if (ay < 0) {
-        ay = -ay;
-        flip = true;
+    // special case sqrt
+    if (y == 0.5) {
+        return math.sqrt(x);
     }
 
-    const r1 = math.modf(ay);
+    if (y == -0.5) {
+        return 1 / math.sqrt(x);
+    }
+
+    const r1 = math.modf(math.fabs(y));
     var yi = r1.ipart;
     var yf = r1.fpart;
 
@@ -148,8 +145,18 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @floatToInt(i32, yi);
+    var i = @floatToInt(@IntType(true, T.bit_count), yi);
     while (i != 0) : (i >>= 1) {
+        const overflow_shift = math.floatExponentBits(T) + 1;
+        if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
+            // catch xe before it overflows the left shift below
+            // Since i != 0 it has at least one bit still set, so ae will accumulate xe
+            // on at least one more iteration, ae += xe is a lower bound on ae
+            // the lower bound on ae exceeds the size of a float exp
+            // so the final call to Ldexp will produce under/overflow (0/Inf)
+            ae += xe;
+            break;
+        }
         if (i & 1 == 1) {
             a1 *= x1;
             ae += xe;
@@ -163,7 +170,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     }
 
     // a *= a1 * 2^ae
-    if (flip) {
+    if (y < 0) {
         a1 = 1 / a1;
         ae = -ae;
     }
@@ -202,6 +209,9 @@ test "math.pow.special" {
     expect(pow(f32, 45, 1.0) == 45);
     expect(pow(f32, -45, 1.0) == -45);
     expect(math.isNan(pow(f32, math.nan(f32), 5.0)));
+    expect(math.isPositiveInf(pow(f32, -math.inf(f32), 0.5)));
+    expect(math.isPositiveInf(pow(f32, -0, -0.5)));
+    expect(pow(f32, -0, 0.5) == 0);
     expect(math.isNan(pow(f32, 5.0, math.nan(f32))));
     expect(math.isPositiveInf(pow(f32, 0.0, -1.0)));
     //expect(math.isNegativeInf(pow(f32, -0.0, -3.0))); TODO is this required?
@@ -231,4 +241,12 @@ test "math.pow.special" {
     expect(pow(f32, -math.inf(f32), -5.2) == pow(f32, -0.0, 5.2));
     expect(math.isNan(pow(f32, -1.0, 1.2)));
     expect(math.isNan(pow(f32, -12.4, 78.5)));
+}
+
+test "math.pow.overflow" {
+    expect(math.isPositiveInf(pow(f64, 2, 1 << 32)));
+    expect(pow(f64, 2, -(1 << 32)) == 0);
+    expect(math.isNegativeInf(pow(f64, -2, (1 << 32) + 1)));
+    expect(pow(f64, 0.5, 1 << 45) == 0);
+    expect(math.isPositiveInf(pow(f64, 0.5, -(1 << 45))));
 }

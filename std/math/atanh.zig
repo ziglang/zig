@@ -1,14 +1,20 @@
-// Special Cases:
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 //
-// - atanh(+-1) = +-inf with signal
-// - atanh(x)   = nan if |x| > 1 with signal
-// - atanh(nan) = nan
+// https://git.musl-libc.org/cgit/musl/tree/src/math/atanhf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/atanh.c
 
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
+/// Returns the hyperbolic arc-tangent of x.
+///
+/// Special Cases:
+///  - atanh(+-1) = +-inf with signal
+///  - atanh(x)   = nan if |x| > 1 with signal
+///  - atanh(nan) = nan
 pub fn atanh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

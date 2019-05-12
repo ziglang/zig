@@ -2,7 +2,10 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const elf = std.elf;
+pub const tls = @import("linux/tls.zig");
 const vdso = @import("linux/vdso.zig");
+const dl = @import("../dynamic_library.zig");
 pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("linux/x86_64.zig"),
     builtin.Arch.i386 => @import("linux/i386.zig"),
@@ -12,6 +15,7 @@ pub use switch (builtin.arch) {
 pub use @import("linux/errno.zig");
 
 pub const PATH_MAX = 4096;
+pub const IOV_MAX = 1024;
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -955,10 +959,13 @@ pub fn waitpid(pid: i32, status: *i32, options: i32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
 }
 
+var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
+
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (VDSO_CGT_SYM.len != 0) {
-        const f = @atomicLoad(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, builtin.AtomicOrder.Unordered);
-        if (@ptrToInt(f) != 0) {
+        const ptr = @atomicLoad(?*const c_void, &vdso_clock_gettime, .Unordered);
+        if (ptr) |fn_ptr| {
+            const f = @ptrCast(@typeOf(clock_gettime), fn_ptr);
             const rc = f(clk_id, tp);
             switch (rc) {
                 0, @bitCast(usize, isize(-EINVAL)) => return rc,
@@ -968,13 +975,18 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     }
     return syscall2(SYS_clock_gettime, @bitCast(usize, isize(clk_id)), @ptrToInt(tp));
 }
-var vdso_clock_gettime = init_vdso_clock_gettime;
+
 extern fn init_vdso_clock_gettime(clk: i32, ts: *timespec) usize {
-    const addr = vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM);
-    var f = @intToPtr(@typeOf(init_vdso_clock_gettime), addr);
-    _ = @cmpxchgStrong(@typeOf(init_vdso_clock_gettime), &vdso_clock_gettime, init_vdso_clock_gettime, f, builtin.AtomicOrder.Monotonic, builtin.AtomicOrder.Monotonic);
-    if (@ptrToInt(f) == 0) return @bitCast(usize, isize(-ENOSYS));
-    return f(clk, ts);
+    const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM));
+    // Note that we may not have a VDSO at all, update the stub address anyway
+    // so that clock_gettime will fall back on the good old (and slow) syscall
+    _ = @cmpxchgStrong(?*const c_void, &vdso_clock_gettime, &init_vdso_clock_gettime, ptr, .Monotonic, .Monotonic);
+    // Call into the VDSO if available
+    if (ptr) |fn_ptr| {
+        const f = @ptrCast(@typeOf(clock_gettime), fn_ptr);
+        return f(clk, ts);
+    }
+    return @bitCast(usize, isize(-ENOSYS));
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
@@ -1100,8 +1112,8 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
 
 const NSIG = 65;
 const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []usize{maxInt(usize)};
-const app_mask = []usize{0xfffffffc7fffffff};
+const all_mask = []u32{ 0xffffffff, 0xffffffff };
+const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
 
 const k_sigaction = extern struct {
     handler: extern fn (i32) void,
@@ -1193,6 +1205,16 @@ pub const iovec_const = extern struct {
     iov_len: usize,
 };
 
+pub const mmsghdr = extern struct {
+    msg_hdr: msghdr,
+    msg_len: u32,
+};
+
+pub const mmsghdr_const = extern struct {
+    msg_hdr: msghdr_const,
+    msg_len: u32,
+};
+
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
     return syscall3(SYS_getsockname, @bitCast(usize, isize(fd)), @ptrToInt(addr), @ptrToInt(len));
 }
@@ -1213,8 +1235,48 @@ pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noal
     return syscall5(SYS_getsockopt, @bitCast(usize, isize(fd)), level, optname, @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: *const msghdr, flags: u32) usize {
+pub fn sendmsg(fd: i32, msg: *msghdr_const, flags: u32) usize {
     return syscall3(SYS_sendmsg, @bitCast(usize, isize(fd)), @ptrToInt(msg), flags);
+}
+
+pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
+    if (@typeInfo(usize).Int.bits > @typeInfo(@typeOf(mmsghdr(undefined).msg_len)).Int.bits) {
+        // workaround kernel brokenness:
+        // if adding up all iov_len overflows a i32 then split into multiple calls
+        // see https://www.openwall.com/lists/musl/2014/06/07/5
+        const kvlen = if (vlen > IOV_MAX) IOV_MAX else vlen; // matches kernel
+        var next_unsent: usize = 0;
+        for (msgvec[0..kvlen]) |*msg, i| {
+            var size: i32 = 0;
+            const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
+            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov, j| {
+                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(i32, size, @intCast(i32, iov.iov_len), &size)) {
+                    // batch-send all messages up to the current message
+                    if (next_unsent < i) {
+                        const batch_size = i - next_unsent;
+                        const r = syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
+                        if (getErrno(r) != 0) return next_unsent;
+                        if (r < batch_size) return next_unsent + r;
+                    }
+                    // send current message as own packet
+                    const r = sendmsg(fd, &msg.msg_hdr, flags);
+                    if (getErrno(r) != 0) return r;
+                    // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
+                    msg.msg_len = @intCast(u32, r);
+                    next_unsent = i + 1;
+                    break;
+                }
+            }
+        }
+        if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG_EOR)
+            const batch_size = kvlen - next_unsent;
+            const r = syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
+            if (getErrno(r) != 0) return r;
+            return next_unsent + r;
+        }
+        return kvlen;
+    }
+    return syscall4(SYS_sendmmsg, @bitCast(usize, isize(fd)), @ptrToInt(msgvec), vlen, flags);
 }
 
 pub fn connect(fd: i32, addr: *const c_void, len: socklen_t) usize {
@@ -1339,17 +1401,25 @@ pub fn sched_getaffinity(pid: i32, set: []usize) usize {
     return syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), set.len * @sizeOf(usize), @ptrToInt(set.ptr));
 }
 
-pub const epoll_data = packed union {
+pub const epoll_data = extern union {
     ptr: usize,
     fd: i32,
     @"u32": u32,
     @"u64": u64,
 };
 
-pub const epoll_event = packed struct {
-    events: u32,
-    data: epoll_data,
-};
+// On x86_64 the structure is packed so that it matches the definition of its
+// 32bit counterpart
+pub const epoll_event = if (builtin.arch != .x86_64)
+    extern struct {
+        events: u32,
+        data: epoll_data,
+    }
+else
+    packed struct {
+        events: u32,
+        data: epoll_data,
+    };
 
 pub fn epoll_create() usize {
     return epoll_create1(0);
@@ -1533,6 +1603,70 @@ pub const dirent64 = extern struct {
     d_type: u8,
     d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 };
+
+pub const dl_phdr_info = extern struct {
+    dlpi_addr: usize,
+    dlpi_name: ?[*]const u8,
+    dlpi_phdr: [*]elf.Phdr,
+    dlpi_phnum: u16,
+};
+
+// XXX: This should be weak
+extern const __ehdr_start: elf.Ehdr = undefined;
+
+pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*T) i32, data: ?*T) isize {
+    if (builtin.link_libc) {
+        return std.c.dl_iterate_phdr(@ptrCast(std.c.dl_iterate_phdr_callback, callback), @ptrCast(?*c_void, data));
+    }
+
+    const elf_base = @ptrToInt(&__ehdr_start);
+    const n_phdr = __ehdr_start.e_phnum;
+    const phdrs = (@intToPtr([*]elf.Phdr, elf_base + __ehdr_start.e_phoff))[0..n_phdr];
+
+    var it = dl.linkmap_iterator(phdrs) catch return 0;
+
+    // The executable has no dynamic link segment, create a single entry for
+    // the whole ELF image
+    if (it.end()) {
+        var info = dl_phdr_info{
+            .dlpi_addr = elf_base,
+            .dlpi_name = c"/proc/self/exe",
+            .dlpi_phdr = @intToPtr([*]elf.Phdr, elf_base + __ehdr_start.e_phoff),
+            .dlpi_phnum = __ehdr_start.e_phnum,
+        };
+
+        return callback(&info, @sizeOf(dl_phdr_info), data);
+    }
+
+    // Last return value from the callback function
+    var last_r: isize = 0;
+    while (it.next()) |entry| {
+        var dlpi_phdr: usize = undefined;
+        var dlpi_phnum: u16 = undefined;
+
+        if (entry.l_addr != 0) {
+            const elf_header = @intToPtr(*elf.Ehdr, entry.l_addr);
+            dlpi_phdr = entry.l_addr + elf_header.e_phoff;
+            dlpi_phnum = elf_header.e_phnum;
+        } else {
+            // This is the running ELF image
+            dlpi_phdr = elf_base + __ehdr_start.e_phoff;
+            dlpi_phnum = __ehdr_start.e_phnum;
+        }
+
+        var info = dl_phdr_info{
+            .dlpi_addr = entry.l_addr,
+            .dlpi_name = entry.l_name,
+            .dlpi_phdr = @intToPtr([*]elf.Phdr, dlpi_phdr),
+            .dlpi_phnum = dlpi_phnum,
+        };
+
+        last_r = callback(&info, @sizeOf(dl_phdr_info), data);
+        if (last_r != 0) break;
+    }
+
+    return last_r;
+}
 
 test "import" {
     if (builtin.os == builtin.Os.linux) {

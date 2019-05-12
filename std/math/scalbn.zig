@@ -1,7 +1,14 @@
+// Ported from musl, which is licensed under the MIT license:
+// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//
+// https://git.musl-libc.org/cgit/musl/tree/src/math/scalbnf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/scalbn.c
+
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
+/// Returns x * 2^n.
 pub fn scalbn(x: var, n: i32) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {

@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("../std.zig");
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
@@ -588,4 +588,15 @@ test "Deserializer bad data" {
     try testBadData(.Little, .Byte);
     try testBadData(.Big, .Bit);
     try testBadData(.Little, .Bit);
+}
+
+test "c out stream" {
+    if (!builtin.link_libc) return error.SkipZigTest;
+
+    const filename = c"tmp_io_test_file.txt";
+    const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
+    defer std.os.deleteFileC(filename) catch {};
+
+    const out_stream = &io.COutStream.init(out_file).stream;
+    try out_stream.print("hi: {}\n", i32(123));
 }

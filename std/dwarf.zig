@@ -13,6 +13,7 @@ pub const TAG_reference_type = 0x10;
 pub const TAG_compile_unit = 0x11;
 pub const TAG_string_type = 0x12;
 pub const TAG_structure_type = 0x13;
+pub const TAG_subroutine = 0x14;
 pub const TAG_subroutine_type = 0x15;
 pub const TAG_typedef = 0x16;
 pub const TAG_union_type = 0x17;
@@ -240,6 +241,9 @@ pub const AT_data_bit_offset = 0x6b;
 pub const AT_const_expr = 0x6c;
 pub const AT_enum_class = 0x6d;
 pub const AT_linkage_name = 0x6e;
+
+// DWARF 5
+pub const AT_alignment = 0x88;
 
 pub const AT_lo_user = 0x2000; // Implementation-defined range start.
 pub const AT_hi_user = 0x3fff; // Implementation-defined range end.

@@ -1395,7 +1395,7 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     uint64_t shift_amt = bigint_as_unsigned(op2);
 
     if (op1->digit_count == 1) {
-        dest->data.digit = op1_digits[0] >> shift_amt;
+        dest->data.digit = (shift_amt < 64) ? op1_digits[0] >> shift_amt : 0;
         dest->digit_count = 1;
         dest->is_negative = op1->is_negative;
         bigint_normalize(dest);
@@ -1410,12 +1410,19 @@ void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     }
 
     dest->digit_count = op1->digit_count - digit_shift_count;
-    dest->data.digits = allocate<uint64_t>(dest->digit_count);
+    uint64_t *digits;
+    if (dest->digit_count == 1) {
+        digits = &dest->data.digit;
+    } else {
+        digits = allocate<uint64_t>(dest->digit_count);
+        dest->data.digits = digits;
+    }
+
     uint64_t carry = 0;
     for (size_t op_digit_index = op1->digit_count - 1;;) {
         uint64_t digit = op1_digits[op_digit_index];
         size_t dest_digit_index = op_digit_index - digit_shift_count;
-        dest->data.digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
+        digits[dest_digit_index] = carry | (digit >> leftover_shift_count);
         carry = digit << (64 - leftover_shift_count);
 
         if (dest_digit_index == 0) { break; }

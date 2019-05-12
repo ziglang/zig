@@ -116,6 +116,9 @@ pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem
 
 pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) BOOL;
 
+pub extern "kernel32" stdcallcc fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) ?LPVOID;
+pub extern "kernel32" stdcallcc fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) BOOL;
+
 pub extern "kernel32" stdcallcc fn MoveFileExW(
     lpExistingFileName: [*]const u16,
     lpNewFileName: [*]const u16,

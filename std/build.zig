@@ -50,6 +50,8 @@ pub const Builder = struct {
     build_root: []const u8,
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
+    override_std_dir: ?[]const u8,
+    override_lib_dir: ?[]const u8,
 
     pub const CStd = enum {
         C89,
@@ -133,6 +135,8 @@ pub const Builder = struct {
             },
             .have_install_step = false,
             .release_mode = null,
+            .override_std_dir = null,
+            .override_lib_dir = null,
         };
         self.detectNativeSystemPaths();
         self.default_step = self.step("default", "Build the project");
@@ -937,8 +941,11 @@ pub const LibExeObjStep = struct {
     verbose_link: bool,
     verbose_cc: bool,
     disable_gen_h: bool,
+    bundle_compiler_rt: bool,
+    disable_stack_probing: bool,
     c_std: Builder.CStd,
     override_std_dir: ?[]const u8,
+    override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
     exec_cmd_args: ?[]const ?[]const u8,
     name_prefix: []const u8,
@@ -1039,11 +1046,14 @@ pub const LibExeObjStep = struct {
             .c_std = Builder.CStd.C99,
             .system_linker_hack = false,
             .override_std_dir = null,
+            .override_lib_dir = null,
             .main_pkg_path = null,
             .exec_cmd_args = null,
             .name_prefix = "",
             .filter = null,
             .disable_gen_h = false,
+            .bundle_compiler_rt = false,
+            .disable_stack_probing = false,
             .output_dir = null,
             .need_system_paths = false,
             .single_threaded = false,
@@ -1446,6 +1456,12 @@ pub const LibExeObjStep = struct {
         if (self.disable_gen_h) {
             try zig_args.append("--disable-gen-h");
         }
+        if (self.bundle_compiler_rt) {
+            try zig_args.append("--bundle-compiler-rt");
+        }
+        if (self.disable_stack_probing) {
+            try zig_args.append("--disable-stack-probing");
+        }
 
         switch (self.target) {
             Target.Native => {},
@@ -1527,6 +1543,17 @@ pub const LibExeObjStep = struct {
 
         if (self.override_std_dir) |dir| {
             try zig_args.append("--override-std-dir");
+            try zig_args.append(builder.pathFromRoot(dir));
+        } else if (self.builder.override_std_dir) |dir| {
+            try zig_args.append("--override-std-dir");
+            try zig_args.append(builder.pathFromRoot(dir));
+        }
+
+        if (self.override_lib_dir) |dir| {
+            try zig_args.append("--override-lib-dir");
+            try zig_args.append(builder.pathFromRoot(dir));
+        } else if (self.builder.override_lib_dir) |dir| {
+            try zig_args.append("--override-lib-dir");
             try zig_args.append(builder.pathFromRoot(dir));
         }
 

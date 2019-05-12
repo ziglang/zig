@@ -632,3 +632,10 @@ fn testNanEqNan(comptime F: type) void {
     expect(!(nan1 < nan2));
     expect(!(nan1 <= nan2));
 }
+
+test "128-bit multiplication" {
+    var a: i128 = 3;
+    var b: i128 = 2;
+    var c = a * b;
+    expect(c == 6);
+}

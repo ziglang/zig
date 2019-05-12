@@ -894,10 +894,25 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+        case OsIOS:
+            switch (id) {
+                case CIntTypeShort:
+                case CIntTypeUShort:
+                    return 16;
+                case CIntTypeInt:
+                case CIntTypeUInt:
+                    return 32;
+                case CIntTypeLong:
+                case CIntTypeULong:
+                case CIntTypeLongLong:
+                case CIntTypeULongLong:
+                    return 64;
+                case CIntTypeCount:
+                    zig_unreachable();
+            }
         case OsAnanas:
         case OsCloudABI:
         case OsDragonFly:
-        case OsIOS:
         case OsKFreeBSD:
         case OsLv2:
         case OsSolaris:
@@ -950,6 +965,8 @@ const char *target_exe_file_ext(const ZigTarget *target) {
         return ".exe";
     } else if (target->os == OsUefi) {
         return ".efi";
+    } else if (target_is_wasm(target)) {
+        return ".wasm";
     } else {
         return "";
     }
@@ -1348,6 +1365,14 @@ bool target_is_glibc(const ZigTarget *target) {
 
 bool target_is_musl(const ZigTarget *target) {
     return target->os == OsLinux && target_abi_is_musl(target->abi);
+}
+
+bool target_is_wasm(const ZigTarget *target) {
+    return target->arch == ZigLLVM_wasm32 || target->arch == ZigLLVM_wasm64;
+}
+
+bool target_is_single_threaded(const ZigTarget *target) {
+    return target_is_wasm(target);
 }
 
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {

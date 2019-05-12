@@ -179,24 +179,24 @@ Buf *get_zig_lib_dir(void) {
     return &saved_lib_dir;
 }
 
-Buf *get_zig_std_dir() {
+Buf *get_zig_std_dir(Buf *zig_lib_dir) {
     if (saved_std_dir.list.length != 0) {
         return &saved_std_dir;
     }
     buf_resize(&saved_std_dir, 0);
 
-    os_path_join(get_zig_lib_dir(), buf_create_from_str("std"), &saved_std_dir);
+    os_path_join(zig_lib_dir, buf_create_from_str("std"), &saved_std_dir);
 
     return &saved_std_dir;
 }
 
-Buf *get_zig_special_dir() {
+Buf *get_zig_special_dir(Buf *zig_lib_dir) {
     if (saved_special_dir.list.length != 0) {
         return &saved_special_dir;
     }
     buf_resize(&saved_special_dir, 0);
 
-    os_path_join(get_zig_std_dir(), buf_sprintf("special"), &saved_special_dir);
+    os_path_join(get_zig_std_dir(zig_lib_dir), buf_sprintf("special"), &saved_special_dir);
 
     return &saved_special_dir;
 }

@@ -3,6 +3,64 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "peer cast then implicit cast const pointer to mutable C pointer",
+        \\export fn func() void {
+        \\    var strValue: [*c]u8 = undefined;
+        \\    strValue = strValue orelse c"";
+        \\}
+    ,
+        "tmp.zig:3:32: error: cast discards const qualifier",
+    );
+
+    cases.add(
+        "overflow in enum value allocation",
+        \\const Moo = enum(u8) {
+        \\    Last = 255,
+        \\    Over,
+        \\};
+        \\pub fn main() void {
+        \\  var y = Moo.Last;
+        \\}
+    ,
+        "tmp.zig:3:5: error: enumeration value 256 too large for type 'u8'",
+    );
+
+    cases.add(
+        "attempt to cast enum literal to error",
+        \\export fn entry() void {
+        \\    switch (error.Hi) {
+        \\        .Hi => {},
+        \\    }
+        \\}
+    ,
+        "tmp.zig:3:9: error: expected type 'error{Hi}', found '(enum literal)'",
+    );
+
+    cases.add(
+        "@sizeOf bad type",
+        \\export fn entry() void {
+        \\    _ = @sizeOf(@typeOf(null));
+        \\}
+    ,
+        "tmp.zig:2:17: error: no size available for type '(null)'",
+    );
+
+    cases.add(
+        "Generic function where return type is self-referenced",
+        \\fn Foo(comptime T: type) Foo(T) {
+        \\    return struct{ x: T };
+        \\}
+        \\export fn entry() void {
+        \\    const t = Foo(u32) {
+        \\      .x = 1
+        \\    };
+        \\}
+    ,
+        "tmp.zig:1:29: error: evaluation exceeded 1000 backwards branches",
+        "tmp.zig:1:29: note: called from here",
+    );
+
+    cases.add(
         "@ptrToInt 0 to non optional pointer",
         \\export fn entry() void {
         \\    var b = @intToPtr(*i32, 0);
@@ -553,15 +611,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "threadlocal qualifier on local variable",
-        \\export fn entry() void {
-        \\    threadlocal var x: i32 = 1234;
-        \\}
-    ,
-        "tmp.zig:2:5: error: function-local variable 'x' cannot be threadlocal",
-    );
-
-    cases.add(
         "@bitCast same size but bit count mismatch",
         \\export fn entry(byte: u8) void {
         \\    var oops = @bitCast(u7, byte);
@@ -839,7 +888,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = &x == null;
         \\}
     ,
-        "tmp.zig:3:12: error: only optionals (not '*i32') can compare to null",
+        "tmp.zig:3:12: error: comparison of '*i32' with null",
     );
 
     cases.add(
@@ -5347,8 +5396,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:12:20: note: referenced here",
     );
 
-    cases.add(
-        "specify enum tag type that is too small",
+    cases.add("specify enum tag type that is too small",
         \\const Small = enum (u2) {
         \\    One,
         \\    Two,
@@ -5360,9 +5408,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var x = Small.One;
         \\}
-    ,
-        "tmp.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
-    );
+    , "tmp.zig:6:5: error: enumeration value 4 too large for type 'u2'");
 
     cases.add(
         "specify non-integer enum tag type",
@@ -5410,22 +5456,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
-    );
-
-    cases.add(
-        "non unsigned integer enum tag type",
-        \\const Small = enum(i2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var y = Small.Two;
-        \\}
-    ,
-        "tmp.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(
@@ -5486,8 +5516,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = MultipleChoice.C;
         \\}
     ,
-        "tmp.zig:6:9: error: enum tag value 60 already taken",
-        "tmp.zig:4:9: note: other occurrence here",
+        "tmp.zig:6:5: error: enum tag value 60 already taken",
+        "tmp.zig:4:5: note: other occurrence here",
     );
 
     cases.add(
@@ -5891,5 +5921,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:3:23: error: expected type '[]u32', found '*const u32'",
+    );
+
+    cases.add(
+        "for loop body expression ignored",
+        \\fn returns() usize {
+        \\    return 2;
+        \\}
+        \\export fn f1() void {
+        \\    for ("hello") |_| returns();
+        \\}
+        \\export fn f2() void {
+        \\    var x: anyerror!i32 = error.Bad;
+        \\    for ("hello") |_| returns() else unreachable;
+        \\}
+    ,
+        "tmp.zig:5:30: error: expression value is ignored",
+        "tmp.zig:9:30: error: expression value is ignored",
     );
 }

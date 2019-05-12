@@ -1,10 +1,3 @@
-test "temporary trivial example" {
-    try testCanonical(
-        \\const x = true;
-        \\
-    );
-}
-
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
@@ -53,14 +46,6 @@ test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
         \\export nakedcc fn _start() linksection(".text.boot") noreturn {}
-        \\
-    );
-}
-
-test "zig fmt: shebang line" {
-    try testCanonical(
-        \\#!/usr/bin/env zig
-        \\pub fn main() void {}
         \\
     );
 }
@@ -2125,6 +2110,21 @@ test "zig fmt: error return" {
     );
 }
 
+test "zig fmt: comptime block in container" {
+    try testCanonical(
+        \\pub fn container() type {
+        \\    return struct {
+        \\        comptime {
+        \\            if (false) {
+        \\                unreachable;
+        \\            }
+        \\        }
+        \\    };
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -2137,7 +2137,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     var stderr_file = try io.getStdErr();
     var stderr = &stderr_file.outStream().stream;
 
-    var tree = try std.zig.parse2(allocator, source);
+    const tree = try std.zig.parse(allocator, source);
     defer tree.deinit();
 
     var error_it = tree.errors.iterator(0);
@@ -2170,7 +2170,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     errdefer buffer.deinit();
 
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, &tree);
+    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, tree);
     return buffer.toOwnedSlice();
 }
 
@@ -2215,7 +2215,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                         needed_alloc_count,
                         failing_allocator.allocated_bytes,
                         failing_allocator.freed_bytes,
-                        failing_allocator.index,
+                        failing_allocator.allocations,
                         failing_allocator.deallocations,
                     );
                     return error.MemoryLeakDetected;

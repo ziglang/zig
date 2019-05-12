@@ -10,6 +10,7 @@ pub const FailingAllocator = struct {
     internal_allocator: *mem.Allocator,
     allocated_bytes: usize,
     freed_bytes: usize,
+    allocations: usize,
     deallocations: usize,
 
     pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
@@ -19,6 +20,7 @@ pub const FailingAllocator = struct {
             .index = 0,
             .allocated_bytes = 0,
             .freed_bytes = 0,
+            .allocations = 0,
             .deallocations = 0,
             .allocator = mem.Allocator{
                 .reallocFn = realloc,
@@ -39,19 +41,25 @@ pub const FailingAllocator = struct {
             new_size,
             new_align,
         );
-        if (new_size <= old_mem.len) {
+        if (new_size < old_mem.len) {
             self.freed_bytes += old_mem.len - new_size;
-        } else {
+            if (new_size == 0)
+                self.deallocations += 1;
+        } else if (new_size > old_mem.len) {
             self.allocated_bytes += new_size - old_mem.len;
+            if (old_mem.len == 0)
+                self.allocations += 1;
         }
-        self.deallocations += 1;
         self.index += 1;
         return result;
     }
 
     fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        self.freed_bytes += old_mem.len - new_size;
-        return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        const r = self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        self.freed_bytes += old_mem.len - r.len;
+        if (new_size == 0)
+            self.deallocations += 1;
+        return r;
     }
 };

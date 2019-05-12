@@ -1,6 +1,26 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety(".? operator on null pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var ptr: ?*i32 = null;
+        \\    var b = ptr.?;
+        \\}
+    );
+
+    cases.addRuntimeSafety(".? operator on C pointer",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var ptr: [*c]i32 = null;
+        \\    var b = ptr.?;
+        \\}
+    );
+
     cases.addRuntimeSafety("@ptrToInt address zero to non-optional pointer",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

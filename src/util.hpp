@@ -48,6 +48,10 @@ void zig_panic(const char *format, ...);
 
 #define zig_unreachable() zig_panic("unreachable: %s:%s:%d", __FILE__, __func__, __LINE__)
 
+// Assertions in stage1 are always on, and they call zig @panic.
+#undef assert
+void assert(bool ok);
+
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {
     unsigned long lz;
