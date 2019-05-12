@@ -359,7 +359,7 @@ pub fn posix_preadv(fd: i32, iov: [*]const posix.iovec, count: usize, offset: u6
             }
         },
         builtin.Os.linux, builtin.Os.freebsd, Os.netbsd => while (true) {
-            const rc = posix.preadv(fd, iov, count, offset);
+            const rc = if (@sizeOf(usize) != 8) posix.preadv(fd, iov, count, @truncate(u32, offset >> 32), @truncate(u32, offset)) else posix.preadv(fd, iov, count, offset);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return rc,
@@ -466,7 +466,7 @@ pub fn posix_pwritev(fd: i32, iov: [*]const posix.iovec_const, count: usize, off
             }
         },
         builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => while (true) {
-            const rc = posix.pwritev(fd, iov, count, offset);
+            const rc = if (@sizeOf(usize) != 8) posix.pwritev(fd, iov, count, @truncate(u32, offset >> 32), @truncate(u32, offset)) else posix.pwritev(fd, iov, count, offset);
             const err = posix.getErrno(rc);
             switch (err) {
                 0 => return,

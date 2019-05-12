@@ -615,6 +615,7 @@ set(ZIG_STD_FILES
     "os/linux/tls.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"
+    "os/linux/syscalls_x86_64.zig"
     "os/netbsd.zig"
     "os/netbsd/errno.zig"
     "os/path.zig"

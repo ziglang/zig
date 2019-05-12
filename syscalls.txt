@@ -1,0 +1,83 @@
+# <stub name> <architecture> <syscall name> <parameters> <return type> <flags>
+
+# memory management
+mmap2	any32	mmap2	(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: usize)	usize
+mmap	any64	mmap	(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: usize)	usize
+mprotect	any	mprotect	(address: usize, length: usize, protection: usize)	usize
+munmap	any	munmap	(address: usize, length: usize)	usize
+
+# file io
+openat	any	openat	(dirfd: i32, path: [*]const u8, flags: u32, mode: usize)	usize
+creat	any	creat	(path: [*]const u8, perm: usize)	usize
+read	any	read	(fd: i32, buf: [*]u8, count: usize)	usize
+write	any	write	(fd: i32, buf: [*]const u8, count: usize)	usize
+close	any	close	(fd: i32)	usize
+ioctl	any	ioctl	(fd: i32, ctl: i32, arg: usize)	usize
+
+readlinkat	any	readlinkat	(dirfd: i32, path: [*]const u8, buf_ptr: [*]u8, buf_len: usize)	usize
+mkdirat	any	mkdirat	(dirfd: i32, path: [*]const u8, mode: u32)	usize
+symlinkat	any	symlinkat	(existing: [*]const u8, newfd: i32, newpath: [*]const u8)	usize
+faccessat	any	faccessat	(dirfd: i32, path: [*]const u8, mode: u32)	usize
+renameat	any	renameat	(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const u8)	usize
+unlinkat	any	unlinkat	(dirfd: i32, path: [*]const u8, flags: u32)	usize
+
+fstatat	any64	fstatat	(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32)	usize
+fstatat64	any32	fstatat64	(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32)	usize
+
+llseek	any32	_llseek	(fd: i32, offset_high: u32, offset_low: u32, result: *i64, whence: usize)	usize
+lseek	any32	lseek	(fd: i32, offset: i32, whence: usize)	usize
+lseek	any64	lseek	(fd: i32, offset: i64, whence: usize)	usize
+
+pread64	any32	pread64	(fd: i32, buf: [*]u8, count: usize, offset: i64)	usize
+pread	any64	pread	(fd: i32, buf: [*]u8, count: usize, offset: i64)	usize
+
+readv	any	readv	(fd: i32, iov: [*]const iovec, count: usize)	usize
+writev	any	writev	(fd: i32, iov: [*]const iovec_const, count: usize)	usize
+
+preadv	any32	preadv	(fd: i32, iov: [*]const iovec, count: usize, offset_low: u32, offset_hi: u32)	usize
+preadv	any64	preadv	(fd: i32, iov: [*]const iovec, count: usize, offset: u64)	usize
+
+pwritev	any32	pwritev	(fd: i32, iov: [*]const iovec_const, count: usize, offset_low: u32, offset_hi: u32)	usize
+pwritev	any64	pwritev	(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64)	usize
+
+chdir	any	chdir	(path: [*]const u8)	usize
+chroot	any	chroot	(path: [*]const u8)	usize
+getcwd	any	getcwd	(path: [*]const u8, size: usize)	usize
+getdents64	any	getdents64	(fd: i32, dirp: [*]u8, count: usize)	usize
+
+futex4	any	futex	(uaddr: *const i32, futex_op: i32, val: i32, timeout: ?*timespec)	usize
+
+getrandom	any	getrandom	(buf: [*]u8, count: usize, flags: u32)	usize
+
+clock_getres	any	clock_getres	(clk_id: i32, tp: *timespec)	usize
+clock_settime	any	clock_settime	(clk_id: i32, tp: *const timespec)	usize
+
+gettimeofday	any	gettimeofday	(tv: *timeval, tz: *timezone)	usize
+settimeofday	any	settimeofday	(tv: *const timeval, tz: *const timezone)	usize
+
+nanosleep	any	nanosleep	(req: *const timespec, rem: ?*timespec)	usize
+
+rt_sigprocmask	any	rt_sigprocmask	(how: i32, set: *const sigset_t, oldset: ?*sigset_t, sigsetsize: usize)	usize
+
+getgid	any32	getgid32	()	u32
+getgid	any64	getgid	()	u32
+
+getpid	any	getpid	()	i32
+
+dup3	any	dup3	(oldfd: i32, newfd: i32, flags: i32)	usize
+pipe2	any	pipe2	(fd: *[2]i32, flags: u32)	usize
+clone5	any	clone	(flags: u32, child_stack_ptr: usize, parent_tid: *i32, child_tid: *i32, newtls: usize)	usize
+clone2	any	clone	(flags: u32, child_stack_ptr: usize)	usize
+execve	any	execve	(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8)	usize
+kill	any	kill	(pid: i32, sig: i32)	usize
+wait4	any	wait4	(pid: i32, status: *i32, options: i32, rusage: usize)	usize
+exit	any	exit	(status: i32)	noreturn
+exit_group	any	exit_group	(status: i32)	noreturn
+
+# inotify
+inotify_init1	any	inotify_init1	(flags: u32)	usize
+inotify_add_watch	any	inotify_add_watch	(fd: i32, pathname: [*]const u8, mask: u32)	usize
+inotify_rm_watch	any	inotify_rm_watch	(fd: i32, wd: i32)	usize
+
+# x86_64 specific
+arch_prctl	x86_64	arch_prctl	(code: i32, addr: usize)	usize

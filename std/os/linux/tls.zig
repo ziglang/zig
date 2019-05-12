@@ -108,13 +108,13 @@ pub var tls_image: ?TLSImage = null;
 pub fn setThreadPointer(addr: usize) void {
     switch (builtin.arch) {
         .x86_64 => {
-            const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, std.os.linux.ARCH_SET_FS, addr);
+            const rc = std.os.linux.syscalls.arch_prctl(std.os.linux.ARCH_SET_FS, addr);
             assert(rc == 0);
         },
         .aarch64 => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
-                            :
+                :
                 : [addr] "r" (addr)
             );
         },
