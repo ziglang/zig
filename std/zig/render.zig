@@ -189,61 +189,31 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             try renderExpression(allocator, stream, tree, indent, start_col, test_decl.body_node, Space.Newline);
         },
 
-        ast.Node.Id.StructField => {
-            const field = @fieldParentPtr(ast.Node.StructField, "base", decl);
+        ast.Node.Id.ContainerField => {
+            const field = @fieldParentPtr(ast.Node.ContainerField, "base", decl);
 
             try renderDocComments(tree, stream, field, indent, start_col);
+
             if (field.visib_token) |visib_token| {
                 try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
             }
-            try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
-            try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
-            try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr, Space.Comma); // type,
-        },
 
-        ast.Node.Id.UnionTag => {
-            const tag = @fieldParentPtr(ast.Node.UnionTag, "base", decl);
-
-            try renderDocComments(tree, stream, tag, indent, start_col);
-
-            if (tag.type_expr == null and tag.value_expr == null) {
-                return renderToken(tree, stream, tag.name_token, indent, start_col, Space.Comma); // name,
-            }
-
-            if (tag.type_expr == null) {
-                try renderToken(tree, stream, tag.name_token, indent, start_col, Space.Space); // name
+            if (field.type_expr == null and field.value_expr == null) {
+                return renderToken(tree, stream, field.name_token, indent, start_col, Space.Comma); // name,
+            } else if (field.type_expr != null and field.value_expr == null) {
+                try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
+                try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
+                return renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
+            } else if (field.type_expr == null and field.value_expr != null) {
+                try renderToken(tree, stream, field.name_token, indent, start_col, Space.Space); // name
+                try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
+                return renderExpression(allocator, stream, tree, indent, start_col, field.value_expr.?, Space.Comma); // value
             } else {
-                try renderToken(tree, stream, tag.name_token, indent, start_col, Space.None); // name
-            }
-
-            if (tag.type_expr) |type_expr| {
-                try renderToken(tree, stream, tree.nextToken(tag.name_token), indent, start_col, Space.Space); // :
-
-                if (tag.value_expr == null) {
-                    try renderExpression(allocator, stream, tree, indent, start_col, type_expr, Space.Comma); // type,
-                    return;
-                } else {
-                    try renderExpression(allocator, stream, tree, indent, start_col, type_expr, Space.Space); // type
-                }
-            }
-
-            const value_expr = tag.value_expr.?;
-            try renderToken(tree, stream, tree.prevToken(value_expr.firstToken()), indent, start_col, Space.Space); // =
-            try renderExpression(allocator, stream, tree, indent, start_col, value_expr, Space.Comma); // value,
-        },
-
-        ast.Node.Id.EnumTag => {
-            const tag = @fieldParentPtr(ast.Node.EnumTag, "base", decl);
-
-            try renderDocComments(tree, stream, tag, indent, start_col);
-
-            if (tag.value) |value| {
-                try renderToken(tree, stream, tag.name_token, indent, start_col, Space.Space); // name
-
-                try renderToken(tree, stream, tree.nextToken(tag.name_token), indent, start_col, Space.Space); // =
-                try renderExpression(allocator, stream, tree, indent, start_col, value, Space.Comma);
-            } else {
-                try renderToken(tree, stream, tag.name_token, indent, start_col, Space.Comma); // name
+                try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
+                try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
+                try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
+                try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
+                return renderExpression(allocator, stream, tree, indent, start_col, field.value_expr.?, Space.Comma); // value,
             }
         },
 
@@ -1436,18 +1406,14 @@ fn renderExpression(
 
             const rparen = tree.nextToken(for_node.array_expr.lastToken());
 
-            const has_payload = for_node.payload != null;
             const body_is_block = for_node.body.id == ast.Node.Id.Block;
             const src_one_line_to_body = !body_is_block and tree.tokensOnSameLine(rparen, for_node.body.firstToken());
             const body_on_same_line = body_is_block or src_one_line_to_body;
 
-            const space_after_rparen = if (has_payload or body_on_same_line) Space.Space else Space.Newline;
-            try renderToken(tree, stream, rparen, indent, start_col, space_after_rparen); // )
+            try renderToken(tree, stream, rparen, indent, start_col, Space.Space); // )
 
-            if (for_node.payload) |payload| {
-                const space_after_payload = if (body_on_same_line) Space.Space else Space.Newline;
-                try renderExpression(allocator, stream, tree, indent, start_col, payload, space_after_payload); // |x|
-            }
+            const space_after_payload = if (body_on_same_line) Space.Space else Space.Newline;
+            try renderExpression(allocator, stream, tree, indent, start_col, for_node.payload, space_after_payload); // |x|
 
             const space_after_body = blk: {
                 if (for_node.@"else") |@"else"| {
@@ -1668,15 +1634,15 @@ fn renderExpression(
 
             var it = asm_node.clobbers.iterator(0);
             while (true) {
-                const clobber_token = it.next().?;
+                const clobber_node = it.next().?.*;
 
                 if (it.peek() == null) {
-                    try renderToken(tree, stream, clobber_token.*, indent_once, start_col, Space.Newline);
+                    try renderExpression(allocator, stream, tree, indent_extra, start_col, clobber_node, Space.Newline);
                     try stream.writeByteNTimes(' ', indent);
                     return renderToken(tree, stream, asm_node.rparen, indent, start_col, space);
                 } else {
-                    try renderToken(tree, stream, clobber_token.*, indent_once, start_col, Space.None);
-                    const comma = tree.nextToken(clobber_token.*);
+                    try renderExpression(allocator, stream, tree, indent_extra, start_col, clobber_node, Space.None);
+                    const comma = tree.nextToken(clobber_node.lastToken());
                     try renderToken(tree, stream, comma, indent_once, start_col, Space.Space); // ,
                 }
             }
@@ -1723,9 +1689,7 @@ fn renderExpression(
             return renderToken(tree, stream, enum_literal.name, indent, start_col, space); // name
         },
 
-        ast.Node.Id.StructField,
-        ast.Node.Id.UnionTag,
-        ast.Node.Id.EnumTag,
+        ast.Node.Id.ContainerField,
         ast.Node.Id.Root,
         ast.Node.Id.VarDecl,
         ast.Node.Id.Use,
