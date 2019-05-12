@@ -961,19 +961,11 @@ pub const Int = struct {
         var tmp = try Int.init(allocator);
         defer tmp.deinit();
 
-<<<<<<< HEAD
         // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
         const norm_shift = @clz(Limb, y.limbs[y.len - 1]);
-||||||| merged common ancestors
-        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set)
-        const norm_shift = @clz(y.limbs[y.len - 1]);
-=======
-        // Normalize so y > Limb.bit_count / 2 (i.e. leading bit is set) and even
-        var norm_shift = @clz(y.limbs[y.len() - 1]);
         if (norm_shift == 0 and y.isOdd()) {
             norm_shift = Limb.bit_count;
         }
->>>>>>> master
         try x.shiftLeft(x.*, norm_shift);
         try y.shiftLeft(y.*, norm_shift);
 
