@@ -938,3 +938,27 @@ test "enum literal in array literal" {
     expect(array[0] == .one);
     expect(array[1] == .two);
 }
+
+test "signed integer as enum tag" {
+    const SignedEnum = enum(i2) {
+        A0 = -1,
+        A1 = 0,
+        A2 = 1,
+    };
+
+    expect(@enumToInt(SignedEnum.A0) == -1);
+    expect(@enumToInt(SignedEnum.A1) == 0);
+    expect(@enumToInt(SignedEnum.A2) == 1);
+}
+
+test "enum value allocation" {
+    const LargeEnum = enum(u32) {
+        A0 = 0x80000000,
+        A1,
+        A2,
+    };
+
+    expect(@enumToInt(LargeEnum.A0) == 0x80000000);
+    expect(@enumToInt(LargeEnum.A1) == 0x80000001);
+    expect(@enumToInt(LargeEnum.A2) == 0x80000002);
+}

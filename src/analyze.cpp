@@ -1908,6 +1908,18 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
+static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
+    // Only integer types are allowed by the C ABI
+    if(ty->id != ZigTypeIdInt)
+        return false;
+
+    // According to the ANSI C standard the enumeration type should be either a
+    // signed char, a signed integer or an unsigned one. But GCC/Clang allow
+    // other integral types as a compiler extension so let's accomodate them
+    // aswell.
+    return type_allowed_in_extern(g, ty);
+}
+
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->id == ZigTypeIdEnum);
 
@@ -1965,7 +1977,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
 
-    // TODO: Are extern enums allowed to have an init_arg_expr?
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
@@ -1974,23 +1985,28 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.is_signed) {
+        } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
+                   !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
             enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
-                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
+            ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("'%s' is not a valid tag type for an extern enum",
+                            buf_ptr(&wanted_tag_int_type->name)));
+            add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
         } else {
             tag_int_type = wanted_tag_int_type;
         }
     }
+
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
     enum_type->abi_align = tag_int_type->abi_align;
+
+    BigInt bi_one;
+    bigint_init_unsigned(&bi_one, 1);
+
+    TypeEnumField *last_enum_field = nullptr;
 
     for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
@@ -2017,60 +2033,58 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         AstNode *tag_value = field_node->data.struct_field.value;
 
-        // In this first pass we resolve explicit tag values.
-        // In a second pass we will fill in the unspecified ones.
         if (tag_value != nullptr) {
+            // A user-specified value is available
             ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.is_invalid = true;
                 continue;
             }
+
             assert(result->special != ConstValSpecialRuntime);
-            assert(result->type->id == ZigTypeIdInt ||
-                   result->type->id == ZigTypeIdComptimeInt);
-            auto entry = occupied_tag_values.put_unique(result->data.x_bigint, tag_value);
-            if (entry == nullptr) {
-                bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
-            } else {
-                Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &result->data.x_bigint, 10);
+            assert(result->type->id == ZigTypeIdInt || result->type->id == ZigTypeIdComptimeInt);
 
-                ErrorMsg *msg = add_node_error(g, tag_value,
-                        buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
-                add_error_note(g, msg, entry->value,
-                        buf_sprintf("other occurrence here"));
+            bigint_init_bigint(&type_enum_field->value, &result->data.x_bigint);
+        } else {
+            // No value was explicitly specified: allocate the last value + 1
+            // or, if this is the first element, zero
+            if (last_enum_field != nullptr) {
+                bigint_add(&type_enum_field->value, &last_enum_field->value, &bi_one);
+            } else {
+                bigint_init_unsigned(&type_enum_field->value, 0);
+            }
+
+            // Make sure we can represent this number with tag_int_type
+            if (!bigint_fits_in_bits(&type_enum_field->value,
+                                     tag_int_type->size_in_bits,
+                                     tag_int_type->data.integral.is_signed)) {
                 enum_type->data.enumeration.is_invalid = true;
-                continue;
+
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &type_enum_field->value, 10);
+                add_node_error(g, field_node,
+                    buf_sprintf("enumeration value %s too large for type '%s'",
+                        buf_ptr(val_buf), buf_ptr(&tag_int_type->name)));
+
+                break;
             }
         }
-    }
 
-    // Now iterate again and populate the unspecified tag values
-    uint32_t next_maybe_unoccupied_index = 0;
+        // Make sure the value is unique
+        auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
+        if (entry != nullptr) {
+            enum_type->data.enumeration.is_invalid = true;
 
-    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
-        AstNode *tag_value = field_node->data.struct_field.value;
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &type_enum_field->value, 10);
 
-        if (tag_value == nullptr) {
-            if (occupied_tag_values.size() == 0) {
-                bigint_init_unsigned(&type_enum_field->value, next_maybe_unoccupied_index);
-                next_maybe_unoccupied_index += 1;
-            } else {
-                BigInt proposed_value;
-                for (;;) {
-                    bigint_init_unsigned(&proposed_value, next_maybe_unoccupied_index);
-                    next_maybe_unoccupied_index += 1;
-                    auto entry = occupied_tag_values.put_unique(proposed_value, field_node);
-                    if (entry != nullptr) {
-                        continue;
-                    }
-                    break;
-                }
-                bigint_init_bigint(&type_enum_field->value, &proposed_value);
-            }
+            ErrorMsg *msg = add_node_error(g, field_node,
+                    buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+            add_error_note(g, msg, entry->value,
+                    buf_sprintf("other occurrence here"));
         }
+
+        last_enum_field = type_enum_field;
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = false;

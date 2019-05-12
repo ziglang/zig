@@ -13,6 +13,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "overflow in enum value allocation",
+        \\const Moo = enum(u8) {
+        \\    Last = 255,
+        \\    Over,
+        \\};
+        \\pub fn main() void {
+        \\  var y = Moo.Last;
+        \\}
+    ,
+        "tmp.zig:3:5: error: enumeration value 256 too large for type 'u8'",
+    );
+
+    cases.add(
         "attempt to cast enum literal to error",
         \\export fn entry() void {
         \\    switch (error.Hi) {
@@ -5383,8 +5396,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:12:20: note: referenced here",
     );
 
-    cases.add(
-        "specify enum tag type that is too small",
+    cases.add("specify enum tag type that is too small",
         \\const Small = enum (u2) {
         \\    One,
         \\    Two,
@@ -5396,9 +5408,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var x = Small.One;
         \\}
-    ,
-        "tmp.zig:1:21: error: 'u2' too small to hold all bits; must be at least 'u3'",
-    );
+    , "tmp.zig:6:5: error: enumeration value 4 too large for type 'u2'");
 
     cases.add(
         "specify non-integer enum tag type",
@@ -5446,22 +5456,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
-    );
-
-    cases.add(
-        "non unsigned integer enum tag type",
-        \\const Small = enum(i2) {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\
-        \\export fn entry() void {
-        \\    var y = Small.Two;
-        \\}
-    ,
-        "tmp.zig:1:20: error: expected unsigned integer, found 'i2'",
     );
 
     cases.add(
@@ -5522,8 +5516,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x = MultipleChoice.C;
         \\}
     ,
-        "tmp.zig:6:9: error: enum tag value 60 already taken",
-        "tmp.zig:4:9: note: other occurrence here",
+        "tmp.zig:6:5: error: enum tag value 60 already taken",
+        "tmp.zig:4:5: note: other occurrence here",
     );
 
     cases.add(
