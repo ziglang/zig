@@ -338,7 +338,10 @@ extern fn __umoddi3(a: u64, b: u64) u64 {
     return r;
 }
 
-extern fn __aeabi_uidivmod(n: u32, d: u32) extern struct{q: u32, r: u32} {
+extern fn __aeabi_uidivmod(n: u32, d: u32) extern struct {
+    q: u32,
+    r: u32,
+} {
     @setRuntimeSafety(is_test);
 
     var result: @typeOf(__aeabi_uidivmod).ReturnType = undefined;
@@ -346,7 +349,10 @@ extern fn __aeabi_uidivmod(n: u32, d: u32) extern struct{q: u32, r: u32} {
     return result;
 }
 
-extern fn __aeabi_uldivmod(n: u64, d: u64) extern struct{q: u64, r: u64} {
+extern fn __aeabi_uldivmod(n: u64, d: u64) extern struct {
+    q: u64,
+    r: u64,
+} {
     @setRuntimeSafety(is_test);
 
     var result: @typeOf(__aeabi_uldivmod).ReturnType = undefined;
@@ -354,7 +360,10 @@ extern fn __aeabi_uldivmod(n: u64, d: u64) extern struct{q: u64, r: u64} {
     return result;
 }
 
-extern fn __aeabi_idivmod(n: i32, d: i32) extern struct{q: i32, r: i32} {
+extern fn __aeabi_idivmod(n: i32, d: i32) extern struct {
+    q: i32,
+    r: i32,
+} {
     @setRuntimeSafety(is_test);
 
     var result: @typeOf(__aeabi_idivmod).ReturnType = undefined;
@@ -362,7 +371,10 @@ extern fn __aeabi_idivmod(n: i32, d: i32) extern struct{q: i32, r: i32} {
     return result;
 }
 
-extern fn __aeabi_ldivmod(n: i64, d: i64) extern struct{q: i64, r:i64} {
+extern fn __aeabi_ldivmod(n: i64, d: i64) extern struct {
+    q: i64,
+    r: i64,
+} {
     @setRuntimeSafety(is_test);
 
     var result: @typeOf(__aeabi_ldivmod).ReturnType = undefined;

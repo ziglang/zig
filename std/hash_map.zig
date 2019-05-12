@@ -155,7 +155,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// capacity is greater than the current capacity.
         /// New capacity must be a power of two.
         fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
-            const is_power_of_two = new_capacity & (new_capacity-1) == 0;
+            const is_power_of_two = new_capacity & (new_capacity - 1) == 0;
             assert(is_power_of_two);
 
             if (new_capacity <= self.entries.len) {
@@ -474,9 +474,9 @@ test "ensure capacity" {
     try map.ensureCapacity(20);
     const initialCapacity = map.entries.len;
     testing.expect(initialCapacity >= 20);
-    var i : i32 = 0;
+    var i: i32 = 0;
     while (i < 20) : (i += 1) {
-        testing.expect(map.putAssumeCapacity(i, i+10) == null);
+        testing.expect(map.putAssumeCapacity(i, i + 10) == null);
     }
     // shouldn't resize from putAssumeCapacity
     testing.expect(initialCapacity == map.entries.len);

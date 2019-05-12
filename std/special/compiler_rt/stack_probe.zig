@@ -51,7 +51,7 @@ pub nakedcc fn zig_probe_stack() void {
                 \\        ret
             );
         },
-        else => { }
+        else => {},
     }
 
     unreachable;
@@ -103,7 +103,7 @@ fn win_probe_stack_only() void {
                 \\         ret
             );
         },
-        else => { }
+        else => {},
     }
 
     unreachable;
@@ -159,9 +159,9 @@ fn win_probe_stack_adjust_sp() void {
                 \\         push   (%%eax)
                 \\         sub    %%esp,%%eax
                 \\         ret
-                );
+            );
         },
-        else => { },
+        else => {},
     }
 
     unreachable;
@@ -189,7 +189,7 @@ pub nakedcc fn __chkstk() void {
     switch (builtin.arch) {
         .i386 => @inlineCall(win_probe_stack_adjust_sp),
         .x86_64 => @inlineCall(win_probe_stack_only),
-        else => unreachable
+        else => unreachable,
     }
 }
 pub nakedcc fn ___chkstk() void {

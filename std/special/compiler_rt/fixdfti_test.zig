@@ -12,7 +12,6 @@ fn test__fixdfti(a: f64, expected: i128) void {
 
 test "fixdfti" {
     //warn("\n");
-
     test__fixdfti(-math.f64_max, math.minInt(i128));
 
     test__fixdfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));

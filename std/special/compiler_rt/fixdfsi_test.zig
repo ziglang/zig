@@ -12,7 +12,6 @@ fn test__fixdfsi(a: f64, expected: i32) void {
 
 test "fixdfsi" {
     //warn("\n");
-
     test__fixdfsi(-math.f64_max, math.minInt(i32));
 
     test__fixdfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
@@ -22,10 +21,10 @@ test "fixdfsi" {
     test__fixdfsi(-0x1.FFFFFFFFFFFFFp+126, -0x80000000);
     test__fixdfsi(-0x1.FFFFFFFFFFFFEp+126, -0x80000000);
 
-    test__fixdfsi(-0x1.0000000000001p+63,  -0x80000000);
-    test__fixdfsi(-0x1.0000000000000p+63,  -0x80000000);
-    test__fixdfsi(-0x1.FFFFFFFFFFFFFp+62,  -0x80000000);
-    test__fixdfsi(-0x1.FFFFFFFFFFFFEp+62,  -0x80000000);
+    test__fixdfsi(-0x1.0000000000001p+63, -0x80000000);
+    test__fixdfsi(-0x1.0000000000000p+63, -0x80000000);
+    test__fixdfsi(-0x1.FFFFFFFFFFFFFp+62, -0x80000000);
+    test__fixdfsi(-0x1.FFFFFFFFFFFFEp+62, -0x80000000);
 
     test__fixdfsi(-0x1.FFFFFEp+62, -0x80000000);
     test__fixdfsi(-0x1.FFFFFCp+62, -0x80000000);

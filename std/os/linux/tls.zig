@@ -86,8 +86,7 @@ const tls_dtv_offset = switch (builtin.arch) {
 };
 
 // Per-thread storage for Zig's use
-const CustomData = packed struct {
-};
+const CustomData = packed struct {};
 
 // Dynamic Thread Vector
 const DTV = packed struct {
@@ -109,14 +108,14 @@ pub var tls_image: ?TLSImage = null;
 pub fn setThreadPointer(addr: usize) void {
     switch (builtin.arch) {
         .x86_64 => {
-            const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl,
-                                             std.os.linux.ARCH_SET_FS, addr);
+            const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, std.os.linux.ARCH_SET_FS, addr);
             assert(rc == 0);
         },
         .aarch64 => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
-                : : [addr] "r" (addr)
+                            :
+                : [addr] "r" (addr)
             );
         },
         else => @compileError("Unsupported architecture"),
@@ -137,7 +136,7 @@ pub fn initTLS() void {
         switch (auxv[i].a_type) {
             elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
             elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-            elf.AT_PHDR  => at_phdr  = auxv[i].a_un.a_val,
+            elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
             else => continue,
         }
     }
@@ -151,7 +150,7 @@ pub fn initTLS() void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
-            elf.PT_TLS  => tls_phdr = phdr,
+            elf.PT_TLS => tls_phdr = phdr,
             else => continue,
         }
     }
@@ -194,7 +193,7 @@ pub fn initTLS() void {
                 dtv_offset = l;
                 l += @sizeOf(DTV);
                 break :blk l;
-            }
+            },
         };
 
         tls_image = TLSImage{
@@ -238,8 +237,7 @@ pub fn allocateTLS(size: usize) usize {
         return @ptrToInt(&main_thread_tls_buffer);
     }
 
-    const addr = posix.mmap(null, size, posix.PROT_READ | posix.PROT_WRITE,
-                            posix.MAP_PRIVATE | posix.MAP_ANONYMOUS, -1, 0);
+    const addr = posix.mmap(null, size, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS, -1, 0);
 
     if (posix.getErrno(addr) != 0) @panic("out of memory");
 

@@ -71,12 +71,12 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
         for (phdrs) |*phdr| {
             if (phdr.p_type == elf.PT_DYNAMIC) {
                 const ptr = @intToPtr([*]elf.Dyn, va_offset + phdr.p_vaddr);
-                break :init ptr[0..phdr.p_memsz / @sizeOf(elf.Dyn)];
+                break :init ptr[0 .. phdr.p_memsz / @sizeOf(elf.Dyn)];
             }
         }
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted one
-        return LinkMap.Iterator{.current = null};
+        return LinkMap.Iterator{ .current = null };
     };
 
     const link_map_ptr = init: {
@@ -93,13 +93,13 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
                     // second slot
                     break :init @intToPtr(?*LinkMap, got_table[1]);
                 },
-                else => { }
+                else => {},
             }
         }
         return error.InvalidExe;
     };
 
-    return LinkMap.Iterator{.current = link_map_ptr};
+    return LinkMap.Iterator{ .current = link_map_ptr };
 }
 
 pub const LinuxDynLib = struct {

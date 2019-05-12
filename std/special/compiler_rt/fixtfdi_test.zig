@@ -12,7 +12,6 @@ fn test__fixtfdi(a: f128, expected: i64) void {
 
 test "fixtfdi" {
     //warn("\n");
-
     test__fixtfdi(-math.f128_max, math.minInt(i64));
 
     test__fixtfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));
@@ -22,10 +21,10 @@ test "fixtfdi" {
     test__fixtfdi(-0x1.FFFFFFFFFFFFFp+126, -0x8000000000000000);
     test__fixtfdi(-0x1.FFFFFFFFFFFFEp+126, -0x8000000000000000);
 
-    test__fixtfdi(-0x1.0000000000001p+63,  -0x8000000000000000);
-    test__fixtfdi(-0x1.0000000000000p+63,  -0x8000000000000000);
-    test__fixtfdi(-0x1.FFFFFFFFFFFFFp+62,  -0x7FFFFFFFFFFFFC00);
-    test__fixtfdi(-0x1.FFFFFFFFFFFFEp+62,  -0x7FFFFFFFFFFFF800);
+    test__fixtfdi(-0x1.0000000000001p+63, -0x8000000000000000);
+    test__fixtfdi(-0x1.0000000000000p+63, -0x8000000000000000);
+    test__fixtfdi(-0x1.FFFFFFFFFFFFFp+62, -0x7FFFFFFFFFFFFC00);
+    test__fixtfdi(-0x1.FFFFFFFFFFFFEp+62, -0x7FFFFFFFFFFFF800);
 
     test__fixtfdi(-0x1.FFFFFEp+62, -0x7FFFFF8000000000);
     test__fixtfdi(-0x1.FFFFFCp+62, -0x7FFFFF0000000000);

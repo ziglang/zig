@@ -34,7 +34,7 @@ pub fn Locked(comptime T: type) type {
 
         pub async fn acquire(self: *Self) HeldLock {
             return HeldLock{
-            // TODO guaranteed allocation elision
+                // TODO guaranteed allocation elision
                 .held = await (async self.lock.acquire() catch unreachable),
                 .value = &self.private_data,
             };
