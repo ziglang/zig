@@ -1,3 +1,10 @@
+test "temporary trivial example" {
+    try testCanonical(
+        \\const x = true;
+        \\
+    );
+}
+
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
@@ -2130,7 +2137,7 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     var stderr_file = try io.getStdErr();
     var stderr = &stderr_file.outStream().stream;
 
-    var tree = try std.zig.parse(allocator, source);
+    var tree = try std.zig.parse2(allocator, source);
     defer tree.deinit();
 
     var error_it = tree.errors.iterator(0);
