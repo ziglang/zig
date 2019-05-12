@@ -254,11 +254,20 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const fn_qt = ZigClangFunctionDecl_getType(fn_decl);
     const fn_type = ZigClangQualType_getTypePtr(fn_qt);
     var scope = &c.global_scope.base;
+    const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
+    const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
     const decl_ctx = FnDeclContext{
         .fn_name = fn_name,
-        .has_body = ZigClangFunctionDecl_hasBody(fn_decl),
-        .storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl),
+        .has_body = has_body,
+        .storage_class = storage_class,
         .scope = &scope,
+        .is_export = switch (storage_class) {
+            .None => has_body,
+            .Extern, .Static => false,
+            .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern"),
+            .Auto => unreachable, // Not legal on functions
+            .Register => unreachable, // Not legal on functions
+        },
     };
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => blk: {
@@ -270,7 +279,15 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
                 error.OutOfMemory => return error.OutOfMemory,
             };
         },
-        .FunctionNoProto => return failDecl(c, fn_decl_loc, fn_name, "TODO support functions with no prototype"),
+        .FunctionNoProto => blk: {
+            const fn_no_proto_type = @ptrCast(*const ZigClangFunctionType, fn_type);
+            break :blk transFnNoProto(rp, fn_no_proto_type, fn_decl_loc, decl_ctx) catch |err| switch (err) {
+                error.UnsupportedType => {
+                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+        },
         else => unreachable,
     };
 
@@ -432,7 +449,21 @@ const FnDeclContext = struct {
     has_body: bool,
     storage_class: ZigClangStorageClass,
     scope: **Scope,
+    is_export: bool,
 };
+
+fn transCC(
+    rp: RestorePoint,
+    fn_ty: *const ZigClangFunctionType,
+    source_loc: ZigClangSourceLocation,
+) !CallingConvention {
+    const clang_cc = ZigClangFunctionType_getCallConv(fn_ty);
+    switch (clang_cc) {
+        .C => return CallingConvention.C,
+        .X86StdCall => return CallingConvention.Stdcall,
+        else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: {}", @tagName(clang_cc)),
+    }
+}
 
 fn transFnProto(
     rp: RestorePoint,
@@ -441,52 +472,44 @@ fn transFnProto(
     fn_decl_context: ?FnDeclContext,
 ) !*ast.Node.FnProto {
     const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
-    const cc = switch (ZigClangFunctionType_getCallConv(fn_ty)) {
-        .C => CallingConvention.C,
-        .X86StdCall => CallingConvention.Stdcall,
-        .X86FastCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 fastcall"),
-        .X86ThisCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 thiscall"),
-        .X86VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 vectorcall"),
-        .X86Pascal => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 pascal"),
-        .Win64 => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: win64"),
-        .X86_64SysV => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 64sysv"),
-        .X86RegCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: x86 reg"),
-        .AAPCS => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs"),
-        .AAPCS_VFP => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: aapcs-vfp"),
-        .IntelOclBicc => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: intel_ocl_bicc"),
-        .SpirFunction => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: SPIR function"),
-        .OpenCLKernel => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: OpenCLKernel"),
-        .Swift => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: Swift"),
-        .PreserveMost => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveMost"),
-        .PreserveAll => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: PreserveAll"),
-        .AArch64VectorCall => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: AArch64VectorCall"),
-    };
-
+    const cc = try transCC(rp, fn_ty, source_loc);
     const is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
     const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
     var i: usize = 0;
     while (i < param_count) : (i += 1) {
         return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
     }
+
+    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc);
+}
+
+fn transFnNoProto(
+    rp: RestorePoint,
+    fn_ty: *const ZigClangFunctionType,
+    source_loc: ZigClangSourceLocation,
+    fn_decl_context: ?FnDeclContext,
+) !*ast.Node.FnProto {
+    const cc = try transCC(rp, fn_ty, source_loc);
+    const is_var_args = if (fn_decl_context) |ctx| !ctx.is_export else true;
+    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc);
+}
+
+fn finishTransFnProto(
+    rp: RestorePoint,
+    fn_ty: *const ZigClangFunctionType,
+    source_loc: ZigClangSourceLocation,
+    fn_decl_context: ?FnDeclContext,
+    is_var_args: bool,
+    cc: CallingConvention,
+) !*ast.Node.FnProto {
+    const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
+
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
     // pub extern fn name(...) T
     const pub_tok = try appendToken(rp.c, .Keyword_pub, "pub");
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
-    const is_export = exp: {
-        const decl_ctx = fn_decl_context orelse break :exp false;
-        break :exp switch (decl_ctx.storage_class) {
-            .None => switch (rp.c.mode) {
-                .import => false,
-                .translate => decl_ctx.has_body,
-            },
-            .Extern, .Static => false,
-            .PrivateExtern => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported storage class: private extern"),
-            .Auto => unreachable, // Not legal on functions
-            .Register => unreachable, // Not legal on functions
-        };
-    };
     const extern_export_inline_tok = if (is_export)
         try appendToken(rp.c, .Keyword_export, "export")
     else if (cc == .C)
@@ -527,7 +550,7 @@ fn transFnProto(
         .name_token = name_tok,
         .params = ast.Node.FnProto.ParamList.init(rp.c.a()),
         .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
-        .var_args_token = var_args_tok,
+        .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
         .cc_token = cc_tok,
         .async_attr = null,
@@ -536,6 +559,19 @@ fn transFnProto(
         .align_expr = null,
         .section_expr = null,
     };
+    if (is_var_args) {
+        const var_arg_node = try rp.c.a().create(ast.Node.ParamDecl);
+        var_arg_node.* = ast.Node.ParamDecl{
+            .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
+            .doc_comments = null,
+            .comptime_token = null,
+            .noalias_token = null,
+            .name_token = null,
+            .type_node = undefined,
+            .var_args_token = var_args_tok,
+        };
+        try fn_proto.params.push(&var_arg_node.base);
+    }
     return fn_proto;
 }
 

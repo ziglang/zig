@@ -1,6 +1,13 @@
 const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
+// add_both - test for stage1 and stage2, in #include mode
+// add - test stage1 only, in #include mode
+// add_2 - test stage2 only, in #include mode
+// addC_both - test for stage1 and stage2, in -c mode
+// addC - test stage1 only, in -c mode
+// addC_2 - test stage2 only, in -c mode
+
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
     cases.add_both("simple function prototypes",
@@ -11,24 +18,28 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     );
 
-    cases.add_both("simple function definition",
-        \\void foo(void) {};
-    ,
-        \\pub export fn foo() void {}
-    );
-
     /////////////// Cases that pass for only stage2 ////////////////
-    // (none)
+    cases.add_2("Parameterless function prototypes",
+        \\void a() {}
+        \\void b(void) {}
+        \\void c();
+        \\void d(void);
+    ,
+        \\pub export fn a() void {}
+        \\pub export fn b() void {}
+        \\pub extern fn c(...) void;
+        \\pub extern fn d() void;
+    );
 
-    /////////////// Cases that pass for only stage1 ////////////////
-
-    cases.addC("Parameterless function prototypes",
-        \\void foo() {}
-        \\void bar(void) {}
+    cases.add_2("simple function definition",
+        \\void foo(void) {}
+        \\static void bar(void) {}
     ,
         \\pub export fn foo() void {}
-        \\pub export fn bar() void {}
+        \\pub extern fn bar() void {}
     );
+
+    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
@@ -1680,5 +1691,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
         \\    }
         \\}
+    );
+
+    /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
+    cases.addC("Parameterless function prototypes",
+        \\void foo() {}
+        \\void bar(void) {}
+    ,
+        \\pub export fn foo() void {}
+        \\pub export fn bar() void {}
     );
 }

@@ -1077,6 +1077,14 @@ pub const TranslateCContext = struct {
 
     pub fn add_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
         for ([]bool{ false, true }) |stage2| {
+            const tc = self.create(false, "source.h", name, source, expected_lines);
+            tc.stage2 = stage2;
+            self.addCase(tc);
+        }
+    }
+
+    pub fn addC_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        for ([]bool{ false, true }) |stage2| {
             const tc = self.create(false, "source.c", name, source, expected_lines);
             tc.stage2 = stage2;
             self.addCase(tc);
@@ -1084,7 +1092,7 @@ pub const TranslateCContext = struct {
     }
 
     pub fn add_2(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
-        const tc = self.create(false, "source.c", name, source, expected_lines);
+        const tc = self.create(false, "source.h", name, source, expected_lines);
         tc.stage2 = true;
         self.addCase(tc);
     }

@@ -239,6 +239,37 @@ pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
 pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
 pub const HEAP_NO_SERIALIZE = 0x00000001;
 
+// AllocationType values
+pub const MEM_COMMIT = 0x1000;
+pub const MEM_RESERVE = 0x2000;
+pub const MEM_RESET = 0x80000;
+pub const MEM_RESET_UNDO = 0x1000000;
+pub const MEM_LARGE_PAGES = 0x20000000;
+pub const MEM_PHYSICAL = 0x400000;
+pub const MEM_TOP_DOWN = 0x100000;
+pub const MEM_WRITE_WATCH = 0x200000;
+
+// Protect values
+pub const PAGE_EXECUTE = 0x10;
+pub const PAGE_EXECUTE_READ = 0x20;
+pub const PAGE_EXECUTE_READWRITE = 0x40;
+pub const PAGE_EXECUTE_WRITECOPY = 0x80;
+pub const PAGE_NOACCESS = 0x01;
+pub const PAGE_READONLY = 0x02;
+pub const PAGE_READWRITE = 0x04;
+pub const PAGE_WRITECOPY = 0x08;
+pub const PAGE_TARGETS_INVALID = 0x40000000;
+pub const PAGE_TARGETS_NO_UPDATE = 0x40000000; // Same as PAGE_TARGETS_INVALID
+pub const PAGE_GUARD = 0x100;
+pub const PAGE_NOCACHE = 0x200;
+pub const PAGE_WRITECOMBINE = 0x400;
+
+// FreeType values
+pub const MEM_COALESCE_PLACEHOLDERS = 0x1;
+pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
+pub const MEM_DECOMMIT = 0x4000;
+pub const MEM_RELEASE = 0x8000;
+
 pub const PTHREAD_START_ROUTINE = extern fn (LPVOID) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 

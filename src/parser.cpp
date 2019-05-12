@@ -591,17 +591,22 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
             lib_name = eat_token_if(pc, TokenIdStringLiteral);
 
         if (first->id != TokenIdKeywordInline) {
+            Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
                 assert(var_decl->type == NodeTypeVariableDeclaration);
                 var_decl->line = first->start_line;
                 var_decl->column = first->start_column;
+                var_decl->data.variable_declaration.threadlocal_tok = thread_local_kw;
                 var_decl->data.variable_declaration.visib_mod = visib_mod;
                 var_decl->data.variable_declaration.is_extern = first->id == TokenIdKeywordExtern;
                 var_decl->data.variable_declaration.is_export = first->id == TokenIdKeywordExport;
                 var_decl->data.variable_declaration.lib_name = token_buf(lib_name);
                 return var_decl;
             }
+
+            if (thread_local_kw != nullptr)
+                put_back_token(pc);
         }
 
         AstNode *fn_proto = ast_parse_fn_proto(pc);
@@ -1153,10 +1158,6 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //      / Block
 //      / CurlySuffixExpr
 static AstNode *ast_parse_primary_expr(ParseContext *pc) {
-    AstNode *enum_lit = ast_parse_enum_lit(pc);
-    if (enum_lit != nullptr)
-        return enum_lit;
-
     AstNode *asm_expr = ast_parse_asm_expr(pc);
     if (asm_expr != nullptr)
         return asm_expr;
@@ -1491,6 +1492,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //     <- BUILTINIDENTIFIER FnCallArguments
 //      / CHAR_LITERAL
 //      / ContainerDecl
+//     / DOT IDENTIFIER
 //      / ErrorSetDecl
 //      / FLOAT
 //      / FnProto
@@ -1550,6 +1552,10 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     AstNode *container_decl = ast_parse_container_decl(pc);
     if (container_decl != nullptr)
         return container_decl;
+
+    AstNode *enum_lit = ast_parse_enum_lit(pc);
+    if (enum_lit != nullptr)
+        return enum_lit;
 
     AstNode *error_set_decl = ast_parse_error_set_decl(pc);
     if (error_set_decl != nullptr)
@@ -1953,7 +1959,14 @@ static AstNode *ast_parse_field_init(ParseContext *pc) {
         return nullptr;
 
     Token *name = expect_token(pc, TokenIdSymbol);
-    expect_token(pc, TokenIdEq);
+    if (eat_token_if(pc, TokenIdEq) == nullptr) {
+        // Because ".Name" can also be intepreted as an enum literal, we should put back
+        // those two tokens again so that the parser can try to parse them as the enum
+        // literal later.
+        put_back_token(pc);
+        put_back_token(pc);
+        return nullptr;
+    }
     AstNode *expr = ast_expect(pc, ast_parse_expr);
 
     AstNode *res = ast_create_node(pc, NodeTypeStructValueField, first);
