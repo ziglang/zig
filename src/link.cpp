@@ -59,14 +59,6 @@ static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFil
     return buf_ptr(&child_gen->output_file_path);
 }
 
-static const char *build_asm_object(CodeGen *parent_gen, const char *name, Buf *file) {
-    CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str(name));
-    codegen_add_assembly(child_gen, file);
-    codegen_build_and_link(child_gen);
-    return buf_ptr(&child_gen->output_file_path);
-}
-
 static const char *path_from_zig_lib(CodeGen *g, const char *dir, const char *subpath) {
     Buf *dir1 = buf_alloc();
     os_path_join(g->zig_lib_dir, buf_create_from_str(dir), dir1);
@@ -140,6 +132,7 @@ static const char *build_libunwind(CodeGen *parent) {
         c_file->args.append(path_from_libunwind(parent, "include"));
         c_file->args.append("-fPIC");
         c_file->args.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
+        c_file->args.append("-Wa,--noexecstack");
         if (parent->zig_target->is_native) {
             c_file->args.append("-D_LIBUNWIND_IS_NATIVE_ONLY");
         }
@@ -406,12 +399,13 @@ static const char *musl_arch_name(const ZigTarget *target) {
     }
 }
 
-static Buf *musl_start_asm_path(CodeGen *parent, const char *file) {
-    return buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "crt" OS_SEP "%s" OS_SEP "%s",
-        buf_ptr(parent->zig_lib_dir), musl_arch_name(parent->zig_target), file);
+static const char *musl_start_asm_path(CodeGen *parent, const char *file) {
+    Buf *result = buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "crt" OS_SEP "%s" OS_SEP "%s",
+                   buf_ptr(parent->zig_lib_dir), musl_arch_name(parent->zig_target), file);
+    return buf_ptr(result);
 }
 
-static void musl_add_cc_args(CodeGen *parent, CFile *c_file) {
+static void musl_add_cc_args(CodeGen *parent, CFile *c_file, bool want_O3) {
     c_file->args.append("-std=c99");
     c_file->args.append("-ffreestanding");
     // Musl adds these args to builds with gcc but clang does not support them. 
@@ -448,7 +442,11 @@ static void musl_add_cc_args(CodeGen *parent, CFile *c_file) {
     c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-musl",
             buf_ptr(parent->zig_lib_dir))));
 
-    c_file->args.append("-Os");
+    if (want_O3)
+        c_file->args.append("-O3");
+    else
+        c_file->args.append("-Os");
+
     c_file->args.append("-fomit-frame-pointer");
     c_file->args.append("-fno-unwind-tables");
     c_file->args.append("-fno-asynchronous-unwind-tables");
@@ -574,19 +572,14 @@ static const char *build_musl(CodeGen *parent) {
         Buf *full_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s",
                 buf_ptr(parent->zig_lib_dir), buf_ptr(src_file));
 
-        if (src_kind == MuslSrcAsm) {
-            codegen_add_assembly(child_gen, full_path);
-        } else {
-            CFile *c_file = allocate<CFile>(1);
-            c_file->source_path = buf_ptr(full_path);
-            musl_add_cc_args(parent, c_file);
-            c_file->args.append("-Qunused-arguments");
-            c_file->args.append("-w"); // disable all warnings
-            if (src_kind == MuslSrcO3) {
-                c_file->args.append("-O3");
-            }
-            c_source_files.append(c_file);
-        }
+        CFile *c_file = allocate<CFile>(1);
+        c_file->source_path = buf_ptr(full_path);
+
+        musl_add_cc_args(parent, c_file, src_kind == MuslSrcO3);
+        c_file->args.append("-Qunused-arguments");
+        c_file->args.append("-w"); // disable all warnings
+
+        c_source_files.append(c_file);
     }
 
     child_gen->c_source_files = c_source_files;
@@ -744,20 +737,28 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
         }
     } else if (parent->libc == nullptr && target_is_musl(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
-            return build_asm_object(parent, "crti", musl_start_asm_path(parent, "crti.s"));
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = musl_start_asm_path(parent, "crti.s");
+            musl_add_cc_args(parent, c_file, false);
+            c_file->args.append("-Qunused-arguments");
+            return build_libc_object(parent, "crti", c_file);
         } else if (strcmp(file, "crtn.o") == 0) {
-            return build_asm_object(parent, "crtn", musl_start_asm_path(parent, "crtn.s"));
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = musl_start_asm_path(parent, "crtn.s");
+            c_file->args.append("-Qunused-arguments");
+            musl_add_cc_args(parent, c_file, false);
+            return build_libc_object(parent, "crtn", c_file);
         } else if (strcmp(file, "crt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "crt1.c");
-            musl_add_cc_args(parent, c_file);
+            musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");
             return build_libc_object(parent, "crt1", c_file);
         } else if (strcmp(file, "Scrt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
-            musl_add_cc_args(parent, c_file);
+            musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-fPIC");
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");

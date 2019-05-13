@@ -48,7 +48,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  zen                          print zen of zig and exit\n"
         "\n"
         "Compile Options:\n"
-        "  --assembly [source]          add assembly file to build\n"
         "  --c-source [options] [file]  compile C source code\n"
         "  --cache-dir [path]           override the local cache directory\n"
         "  --cache [auto|off|on]        build in cache, print output path to stdout\n"
@@ -428,7 +427,6 @@ int main(int argc, char **argv) {
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
     ZigList<CFile *> c_source_files = {0};
-    ZigList<const char *> asm_files = {0};
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
     size_t ver_major = 0;
@@ -774,8 +772,6 @@ int main(int argc, char **argv) {
                             break;
                         }
                     }
-                } else if (strcmp(arg, "--assembly") == 0) {
-                    asm_files.append(argv[i]);
                 } else if (strcmp(arg, "--cache-dir") == 0) {
                     cache_dir = argv[i];
                 } else if (strcmp(arg, "-target") == 0) {
@@ -971,14 +967,13 @@ int main(int argc, char **argv) {
     case CmdTranslateCUserland:
     case CmdTest:
         {
-            if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0 &&
+            if (cmd == CmdBuild && !in_file && objects.length == 0 &&
                     c_source_files.length == 0)
             {
                 fprintf(stderr,
                     "Expected at least one of these things:\n"
                     " * Zig root source file argument\n"
                     " * --object argument\n"
-                    " * --assembly argument\n"
                     " * --c-source argument\n");
                 return print_error_usage(arg0);
             } else if ((cmd == CmdTranslateC || cmd == CmdTranslateCUserland ||
@@ -1129,9 +1124,6 @@ int main(int argc, char **argv) {
                 g->c_source_files = c_source_files;
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
-                }
-                for (size_t i = 0; i < asm_files.length; i += 1) {
-                    codegen_add_assembly(g, buf_create_from_str(asm_files.at(i)));
                 }
             }
 

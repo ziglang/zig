@@ -8334,8 +8334,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         args.append(g->clang_argv[arg_i]);
     }
-
-
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {
@@ -8582,24 +8580,6 @@ static void gen_root_source(CodeGen *g) {
 
 }
 
-void codegen_add_assembly(CodeGen *g, Buf *path) {
-    g->assembly_files.append(path);
-}
-
-static void gen_global_asm(CodeGen *g) {
-    Buf contents = BUF_INIT;
-    Error err;
-    for (size_t i = 0; i < g->assembly_files.length; i += 1) {
-        Buf *asm_file = g->assembly_files.at(i);
-        // No need to use the caching system for these fetches because they
-        // are handled separately.
-        if ((err = os_fetch_file_path(asm_file, &contents))) {
-            zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
-        }
-        buf_append_buf(&g->global_asm, &contents);
-    }
-}
-
 static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
     fprintf(stderr, "%s", zig_exe);
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
@@ -8750,10 +8730,16 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
         // add the files depended on to the cache system
         if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
-            fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
-            exit(1);
+            // Don't treat the absence of the .d file as a fatal error, the
+            // compiler may not produce one eg. when compiling .s files
+            if (err != ErrorFileNotFound) {
+                fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+                exit(1);
+            }
         }
-        os_delete_file(out_dep_path);
+        if (err != ErrorFileNotFound) {
+            os_delete_file(out_dep_path);
+        }
 
         if ((err = cache_final(cache_hash, &digest))) {
             fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
@@ -9330,8 +9316,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
     cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
-    cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
-    cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
     cache_bool(ch, g->zig_target->is_native);
@@ -9392,7 +9376,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
 }
 
 static bool need_llvm_module(CodeGen *g) {
-    return g->assembly_files.length != 0 || buf_len(&g->root_package->root_src_path) != 0;
+    return buf_len(&g->root_package->root_src_path) != 0;
 }
 
 static void resolve_out_paths(CodeGen *g) {
@@ -9499,7 +9483,6 @@ void codegen_build_and_link(CodeGen *g) {
 
             codegen_add_time_event(g, "Semantic Analysis");
 
-            gen_global_asm(g);
             gen_root_source(g);
 
         }

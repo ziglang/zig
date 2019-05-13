@@ -1376,7 +1376,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append(name);
                 },
                 LinkObject.AssemblyFile => |asm_file| {
-                    try zig_args.append("--assembly");
+                    try zig_args.append("--c-source");
                     try zig_args.append(builder.pathFromRoot(asm_file));
                 },
                 LinkObject.CSourceFile => |c_source_file| {
