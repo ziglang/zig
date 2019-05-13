@@ -8732,12 +8732,14 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
             // Don't treat the absence of the .d file as a fatal error, the
             // compiler may not produce one eg. when compiling .s files
-            if (err != ErrorReadingDepFile) {
+            if (err != ErrorFileNotFound) {
                 fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
                 exit(1);
             }
         }
-        os_delete_file(out_dep_path);
+        if (err != ErrorFileNotFound) {
+            os_delete_file(out_dep_path);
+        }
 
         if ((err = cache_final(cache_hash, &digest))) {
             fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
