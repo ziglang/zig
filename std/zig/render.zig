@@ -1549,7 +1549,14 @@ fn renderExpression(
             try renderExpression(allocator, stream, tree, indent, start_col, asm_node.template, Space.Newline);
 
             const indent_once = indent + indent_delta;
-            try stream.writeByteNTimes(' ', indent_once);
+
+            if (asm_node.template.id == ast.Node.Id.MultilineStringLiteral) {
+                // After rendering a multiline string literal the cursor is
+                // already offset by indent
+                try stream.writeByteNTimes(' ', indent_delta);
+            } else {
+                try stream.writeByteNTimes(' ', indent_once);
+            }
 
             const colon1 = tree.nextToken(asm_node.template.lastToken());
             const indent_extra = indent_once + 2;

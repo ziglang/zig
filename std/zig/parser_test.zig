@@ -2129,6 +2129,47 @@ test "zig fmt: comptime block in container" {
     );
 }
 
+test "zig fmt: inline asm parameter alignment" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        :
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        :
+        \\        :
+        \\        : "", ""
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\        : "", ""
+        \\    );
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
