@@ -1004,21 +1004,33 @@ pub fn openElfDebugInfo(
 fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
     const S = struct {
         var self_exe_file: os.File = undefined;
-        var self_exe_seekable_stream: os.File.SeekableStream = undefined;
-        var self_exe_in_stream: os.File.InStream = undefined;
+        var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
     };
+
     S.self_exe_file = try os.openSelfExe();
     errdefer S.self_exe_file.close();
 
-    S.self_exe_seekable_stream = S.self_exe_file.seekableStream();
-    S.self_exe_in_stream = S.self_exe_file.inStream();
+    const self_exe_mmap_len = try S.self_exe_file.getEndPos();
+    const self_exe_mmap = os.posix.mmap(
+        null,
+        self_exe_mmap_len,
+        os.posix.PROT_READ,
+        os.posix.MAP_SHARED,
+        S.self_exe_file.handle,
+        0,
+    );
+    if (self_exe_mmap == os.posix.MAP_FAILED) return error.OutOfMemory;
+    errdefer assert(os.posix.munmap(self_exe_mmap, self_exe_mmap_len) == 0);
+
+    const file_mmap_slice = @intToPtr([*]const u8, self_exe_mmap)[0..self_exe_mmap_len];
+    S.self_exe_mmap_seekable = io.SliceSeekableInStream.init(file_mmap_slice);
 
     return openElfDebugInfo(
         allocator,
         // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfSeekableStream, &S.self_exe_seekable_stream.stream),
+        @ptrCast(*DwarfSeekableStream, &S.self_exe_mmap_seekable.seekable_stream),
         // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfInStream, &S.self_exe_in_stream.stream),
+        @ptrCast(*DwarfInStream, &S.self_exe_mmap_seekable.stream),
     );
 }
 
@@ -1478,16 +1490,14 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
 }
 
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
-    return FormValue{
-        .Ref = switch (size) {
-            1 => try in_stream.readIntLittle(u8),
-            2 => try in_stream.readIntLittle(u16),
-            4 => try in_stream.readIntLittle(u32),
-            8 => try in_stream.readIntLittle(u64),
-            -1 => try leb.readULEB128(u64, in_stream),
-            else => unreachable,
-        },
-    };
+    return FormValue{ .Ref = switch (size) {
+        1 => try in_stream.readIntLittle(u8),
+        2 => try in_stream.readIntLittle(u16),
+        4 => try in_stream.readIntLittle(u32),
+        8 => try in_stream.readIntLittle(u64),
+        -1 => try leb.readULEB128(u64, in_stream),
+        else => unreachable,
+    } };
 }
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
