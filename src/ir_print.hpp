@@ -13,5 +13,6 @@
 #include <stdio.h>
 
 void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size);
+void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size);
 
 #endif

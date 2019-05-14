@@ -21126,17 +21126,19 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira, IrI
         ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!ptr_val)
             return ira->codegen->invalid_instruction;
-        ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.source_node);
-        if (err_union_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        if (err_union_val->special != ConstValSpecialRuntime) {
-            ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
-            assert(err);
+        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+            ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.source_node);
+            if (err_union_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (err_union_val->special != ConstValSpecialRuntime) {
+                ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
+                assert(err);
 
-            IrInstruction *result = ir_const(ira, &instruction->base,
-                    type_entry->data.error_union.err_set_type);
-            result->value.data.x_err_set = err;
-            return result;
+                IrInstruction *result = ir_const(ira, &instruction->base,
+                                                 type_entry->data.error_union.err_set_type);
+                result->value.data.x_err_set = err;
+                return result;
+            }
         }
     }
 
@@ -21179,21 +21181,23 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
         ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
         if (!ptr_val)
             return ira->codegen->invalid_instruction;
-        ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.source_node);
-        if (err_union_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        if (err_union_val->special != ConstValSpecialRuntime) {
-            ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
-            if (err != nullptr) {
-                ir_add_error(ira, &instruction->base,
-                    buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
+        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+            ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.source_node);
+            if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
-            }
+            if (err_union_val->special != ConstValSpecialRuntime) {
+                ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
+                if (err != nullptr) {
+                    ir_add_error(ira, &instruction->base,
+                                 buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
+                    return ira->codegen->invalid_instruction;
+                }
 
-            IrInstruction *result = ir_const(ira, &instruction->base, result_type);
-            result->value.data.x_ptr.special = ConstPtrSpecialRef;
-            result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
-            return result;
+                IrInstruction *result = ir_const(ira, &instruction->base, result_type);
+                result->value.data.x_ptr.special = ConstPtrSpecialRef;
+                result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
+                return result;
+            }
         }
     }
 

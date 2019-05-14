@@ -1941,3 +1941,14 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
         }
     }
 }
+
+void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->codegen = codegen;
+    irp->f = f;
+    irp->indent = indent_size;
+    irp->indent_size = indent_size;
+
+    ir_print_instruction(irp, instruction);
+}
