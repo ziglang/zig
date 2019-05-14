@@ -704,7 +704,6 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             return scope->di_scope;
         case ScopeIdBlock:
         case ScopeIdDefer:
-        case ScopeIdVarDecl:
         {
             assert(scope->parent);
             ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
@@ -715,6 +714,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
             return scope->di_scope;
         }
+        case ScopeIdVarDecl:
         case ScopeIdDeferExpr:
         case ScopeIdLoop:
         case ScopeIdSuspend:
