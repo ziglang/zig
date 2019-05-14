@@ -6329,17 +6329,20 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         ZigVar *var = ir_create_var(irb, var_symbol_node, scope,
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
-        IrInstruction *var_ptr_value;
-        if (prong_value != nullptr) {
-            var_ptr_value = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr, prong_value);
-        } else {
+        IrInstruction *var_value;
+        if (out_switch_else_var != nullptr) {
             IrInstructionSwitchElseVar *switch_else_var = ir_build_switch_else_var(irb, scope, var_symbol_node,
                     target_value_ptr);
             *out_switch_else_var = switch_else_var;
-            var_ptr_value = &switch_else_var->base;
+            IrInstruction *var_ptr_value = &switch_else_var->base;
+            var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, var_symbol_node, var_ptr_value);
+        } else if (prong_value != nullptr) {
+            IrInstruction *var_ptr_value = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr, prong_value);
+            var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, var_symbol_node, var_ptr_value);
+        } else {
+            var_value = var_is_ptr ? target_value_ptr : ir_build_load_ptr(irb, scope, var_symbol_node, 
+target_value_ptr);
         }
-        IrInstruction *var_value = var_is_ptr ?
-            var_ptr_value : ir_build_load_ptr(irb, scope, var_symbol_node, var_ptr_value);
         IrInstruction *var_type = nullptr; // infer the type
         ir_build_var_decl_src(irb, scope, var_symbol_node, var, var_type, nullptr, var_value);
     } else {
