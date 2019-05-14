@@ -18,14 +18,9 @@ const CallingConvention = builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 
-pub const Error = error{
-    OutOfMemory,
-    UnsupportedType,
-};
-pub const TransError = error{
-    OutOfMemory,
-    UnsupportedTranslation,
-};
+pub const Error = error{OutOfMemory};
+const TypeError = Error || error{UnsupportedType};
+const TransError = Error || error{UnsupportedTranslation};
 
 const DeclTable = std.HashMap(usize, void, addrHash, addrEql);
 
@@ -276,7 +271,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
                 },
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
         },
         .FunctionNoProto => blk: {
@@ -285,7 +280,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
                 },
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
         },
         else => unreachable,
@@ -299,7 +294,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     // actual function definition with body
     const body_stmt = ZigClangFunctionDecl_getBody(fn_decl);
     const result = transStmt(rp, scope, body_stmt, .unused, .r_value) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function"),
     };
     assert(result.node.id == ast.Node.Id.Block);
@@ -377,7 +372,7 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
     try c.tree.root_node.decls.push(decl_node);
 }
 
-fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) Error!*ast.Node {
+fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) TypeError!*ast.Node {
     return transType(rp, ZigClangQualType_getTypePtr(qt), source_loc);
 }
 
@@ -405,7 +400,7 @@ fn makeRestorePoint(c: *Context) RestorePoint {
     };
 }
 
-fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) Error!*ast.Node {
+fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSourceLocation) TypeError!*ast.Node {
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
@@ -535,7 +530,7 @@ fn finishTransFnProto(
                         try emitWarning(rp.c, source_loc, "unsupported function proto return type");
                         return err;
                     },
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                 };
             }
         }

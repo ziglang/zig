@@ -961,12 +961,7 @@ pub fn Watch(comptime V: type) type {
                 } else |err| switch (err) {
                     error.EventNotFound => unreachable,
                     error.ProcessNotFound => unreachable,
-                    error.AccessDenied, error.SystemResources => {
-                        // TODO https://github.com/ziglang/zig/issues/769
-                        const casted_err = @errSetCast(error{
-                            AccessDenied,
-                            SystemResources,
-                        }, err);
+                    error.AccessDenied, error.SystemResources => |casted_err| {
                         await (async self.channel.put(casted_err) catch unreachable);
                     },
                 }
