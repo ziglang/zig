@@ -2370,7 +2370,8 @@ struct IrInstructionSwitchVar {
     IrInstruction base;
 
     IrInstruction *target_value_ptr;
-    IrInstruction *prong_value;
+    IrInstruction **prongs_ptr;
+    size_t prongs_len;
 };
 
 struct IrInstructionSwitchElseVar {

@@ -542,8 +542,10 @@ static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction)
 static void ir_print_switch_var(IrPrint *irp, IrInstructionSwitchVar *instruction) {
     fprintf(irp->f, "switchvar ");
     ir_print_other_instruction(irp, instruction->target_value_ptr);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->prong_value);
+    for (size_t i = 0; i < instruction->prongs_len; i += 1) {
+        fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, instruction->prongs_ptr[i]);
+    }
 }
 
 static void ir_print_switch_else_var(IrPrint *irp, IrInstructionSwitchElseVar *instruction) {

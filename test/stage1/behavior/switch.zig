@@ -328,3 +328,35 @@ test "else prong of switch on error set excludes other cases" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "switch prongs with error set cases make a new error set type for capture value" {
+    const S = struct {
+        fn doTheTest() void {
+            expectError(error.B, bar());
+        }
+        const E = E1 || E2;
+
+        const E1 = error{
+            A,
+            B,
+        };
+
+        const E2 = error{
+            C,
+            D,
+        };
+
+        fn foo() E!void {
+            return error.B;
+        }
+
+        fn bar() E1!void {
+            foo() catch |err| switch (err) {
+                error.A, error.B => |e| return e,
+                else => {},
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
