@@ -5572,6 +5572,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTypeName:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
+        case IrInstructionIdSwitchElseVar:
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:

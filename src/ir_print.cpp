@@ -546,6 +546,11 @@ static void ir_print_switch_var(IrPrint *irp, IrInstructionSwitchVar *instructio
     ir_print_other_instruction(irp, instruction->prong_value);
 }
 
+static void ir_print_switch_else_var(IrPrint *irp, IrInstructionSwitchElseVar *instruction) {
+    fprintf(irp->f, "switchelsevar ");
+    ir_print_other_instruction(irp, &instruction->switch_br->base);
+}
+
 static void ir_print_switch_target(IrPrint *irp, IrInstructionSwitchTarget *instruction) {
     fprintf(irp->f, "switchtarget ");
     ir_print_other_instruction(irp, instruction->target_value_ptr);
@@ -1558,6 +1563,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSwitchVar:
             ir_print_switch_var(irp, (IrInstructionSwitchVar *)instruction);
+            break;
+        case IrInstructionIdSwitchElseVar:
+            ir_print_switch_else_var(irp, (IrInstructionSwitchElseVar *)instruction);
             break;
         case IrInstructionIdSwitchTarget:
             ir_print_switch_target(irp, (IrInstructionSwitchTarget *)instruction);
