@@ -776,8 +776,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
 
 static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, OutType child_out_type) {
     // The Mach-O LLD code is not well maintained, and trips an assertion
-    // when we link compiler_rt and builtin as libraries rather than objects.
-    // Here we workaround this by having compiler_rt and builtin be objects.
+    // when we link compiler_rt and libc.zig as libraries rather than objects.
+    // Here we workaround this by having compiler_rt and libc.zig be objects.
     // TODO write our own linker. https://github.com/ziglang/zig/issues/1535
     if (parent_gen->zig_target->os == OsMacOSX) {
         child_out_type = OutTypeObj;
@@ -787,7 +787,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
             parent_gen->libc);
     codegen_set_out_name(child_gen, buf_create_from_str(aname));
 
-    // This is so that compiler_rt and builtin libraries know whether they
+    // This is so that compiler_rt and libc.zig libraries know whether they
     // will eventually be linked with libc. They make different decisions
     // about what to export depending on whether libc is linked.
     if (parent_gen->libc_link_lib != nullptr) {
@@ -1002,8 +1002,8 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
         if (g->libc_link_lib == nullptr) {
-            Buf *builtin_a_path = build_a(g, "builtin");
-            lj->args.append(buf_ptr(builtin_a_path));
+            Buf *libc_a_path = build_a(g, "c");
+            lj->args.append(buf_ptr(libc_a_path));
         }
 
         Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
@@ -1092,30 +1092,33 @@ static void construct_linker_job_wasm(LinkJob *lj) {
 
     lj->args.append("-error-limit=0");
 
-    if (g->zig_target->os != OsWASI) {
-	    lj->args.append("--no-entry");  // So lld doesn't look for _start.
+    if (g->out_type != OutTypeExe) {
+	    lj->args.append("--no-entry"); // So lld doesn't look for _start.
+
+        // If there are any C source files we cannot rely on individual exports.
+        if (g->c_source_files.length != 0) {
+            lj->args.append("--export-all");
+        } else {
+            auto export_it = g->exported_symbol_names.entry_iterator();
+            decltype(g->exported_symbol_names)::Entry *curr_entry = nullptr;
+            while ((curr_entry = export_it.next()) != nullptr) {
+                Buf *arg = buf_sprintf("--export=%s", buf_ptr(curr_entry->key));
+                lj->args.append(buf_ptr(arg));
+            }
+        }
     }
     lj->args.append("--allow-undefined");
     lj->args.append("-o");
     lj->args.append(buf_ptr(&g->output_file_path));
-
-    auto export_it = g->exported_symbol_names.entry_iterator();
-    decltype(g->exported_symbol_names)::Entry *curr_entry = nullptr;
-    while ((curr_entry = export_it.next()) != nullptr) {
-        Buf *arg = buf_sprintf("--export=%s", buf_ptr(curr_entry->key));
-        lj->args.append(buf_ptr(arg));
-    }
 
     // .o files
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->out_type == OutTypeExe) {
-        if (g->libc_link_lib == nullptr) {
-            Buf *builtin_a_path = build_a(g, "builtin");
-            lj->args.append(buf_ptr(builtin_a_path));
-        }
+    if (g->out_type != OutTypeObj) {
+        Buf *libc_a_path = build_a(g, "c");
+        lj->args.append(buf_ptr(libc_a_path));
 
         Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
         lj->args.append(buf_ptr(compiler_rt_o_path));
@@ -1356,8 +1359,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
         if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
-            Buf *builtin_a_path = build_a(g, "builtin");
-            lj->args.append(buf_ptr(builtin_a_path));
+            Buf *libc_a_path = build_a(g, "c");
+            lj->args.append(buf_ptr(libc_a_path));
         }
 
         // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage

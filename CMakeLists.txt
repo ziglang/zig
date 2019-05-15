@@ -643,7 +643,7 @@ set(ZIG_STD_FILES
     "special/bootstrap_lib.zig"
     "special/bootstrap_windows_tls.zig"
     "special/build_runner.zig"
-    "special/builtin.zig"
+    "special/c.zig"
     "special/compiler_rt.zig"
     "special/compiler_rt/stack_probe.zig"
     "special/compiler_rt/arm/aeabi_fcmp.zig"
