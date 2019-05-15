@@ -501,8 +501,8 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            comptime var rng = comptime std.rand.DefaultPrng.init(0);
-            return autoHash(key, &rng.random, u32);
+            comptime var rng = comptime &std.rand.DefaultPrng.init(0);
+            return autoHash(key, comptime rng.random(), u32);
         }
     }.hash;
 }
@@ -516,7 +516,7 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
 }
 
 // TODO improve these hash functions
-pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type) HashInt {
+pub fn autoHash(key: var, comptime rng: var, comptime HashInt: type) HashInt {
     switch (@typeInfo(@typeOf(key))) {
         builtin.TypeId.NoReturn,
         builtin.TypeId.Opaque,
@@ -527,7 +527,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Void,
         builtin.TypeId.Null,
         => return 0,
-
+        
         builtin.TypeId.Int => |info| {
             const unsigned_x = @bitCast(@IntType(false, info.bits), key);
             if (info.bits <= HashInt.bit_count) {
@@ -559,7 +559,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
             builtin.TypeInfo.Pointer.Size.Slice => {
                 const interval = std.math.max(1, key.len / 256);
                 var i: usize = 0;
-                var h = comptime rng.scalar(HashInt);
+                var h = comptime rng.random().scalar(HashInt);
                 while (i < key.len) : (i += interval) {
                     h ^= autoHash(key[i], rng, HashInt);
                 }

@@ -12,7 +12,7 @@ const std = @import("../std.zig");
 const math = std.math;
 const Random = std.rand.Random;
 
-pub fn next_f64(random: *Random, comptime tables: ZigTable) f64 {
+pub fn next_f64(random: var, comptime tables: ZigTable) f64 {
     while (true) {
         // We manually construct a float from parts as we can avoid an extra random lookup here by
         // using the unused exponent for the lookup table entry.
