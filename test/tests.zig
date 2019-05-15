@@ -165,10 +165,20 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     return cases.step;
 }
 
-pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, modes: []const Mode) *build.Step {
+pub fn addPkgTests(
+    b: *build.Builder,
+    test_filter: ?[]const u8,
+    root_src: []const u8,
+    name: []const u8,
+    desc: []const u8,
+    modes: []const Mode,
+    skip_non_native: bool,
+) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
+        if (skip_non_native and !is_native)
+            continue;
         for (modes) |mode| {
             for ([]bool{ false, true }) |link_libc| {
                 for ([]bool{ false, true }) |single_threaded| {

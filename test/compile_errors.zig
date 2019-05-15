@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "field access of slices",
+        \\export fn entry() void {
+        \\    var slice: []i32 = undefined;
+        \\    const info = @typeOf(slice).unknown;
+        \\}
+    ,
+        "tmp.zig:3:32: error: type '[]i32' does not support field access",
+    );
+
+    cases.add(
         "peer cast then implicit cast const pointer to mutable C pointer",
         \\export fn func() void {
         \\    var strValue: [*c]u8 = undefined;
