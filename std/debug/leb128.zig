@@ -46,7 +46,7 @@ pub fn readULEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
         result |= operand;
 
         if ((byte & 0x80) == 0) {
-            ptr.* += i;
+            ptr.* += i + 1;
             return result;
         }
 
@@ -114,7 +114,7 @@ pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
             if (shift < T.bit_count and (byte & 0x40) != 0) {
                 result |= @bitCast(UT, @intCast(T, -1)) << @intCast(ShiftT, shift);
             }
-            ptr.* += i;
+            ptr.* += i + 1;
             return @bitCast(T, result);
         }
     }
@@ -146,6 +146,28 @@ fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
     const v2 = readULEB128Mem(T, &in_ptr);
     testing.expectEqual(v1, v2);
     return v1;
+}
+
+fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) void {
+    var in_stream = std.io.SliceInStream.init(encoded);
+    var in_ptr = encoded.ptr;
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        const v1 = readILEB128(T, &in_stream.stream);
+        const v2 = readILEB128Mem(T, &in_ptr);
+        testing.expectEqual(v1, v2);
+    }
+}
+
+fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) void {
+    var in_stream = std.io.SliceInStream.init(encoded);
+    var in_ptr = encoded.ptr;
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        const v1 = readULEB128(T, &in_stream.stream);
+        const v2 = readULEB128Mem(T, &in_ptr);
+        testing.expectEqual(v1, v2);
+    }
 }
 
 test "deserialize signed LEB128" {
@@ -188,6 +210,9 @@ test "deserialize signed LEB128" {
     testing.expect((try test_read_ileb128(i64, "\xff\x80\x00")) == 0x7f);
     testing.expect((try test_read_ileb128(i64, "\x80\x81\x00")) == 0x80);
     testing.expect((try test_read_ileb128(i64, "\x80\x81\x80\x00")) == 0x80);
+
+    // Decode sequence of SLEB128 values
+    test_read_ileb128_seq(i64, 4, "\x81\x01\x3f\x80\x7f\x80\x80\x80\x00");
 }
 
 test "deserialize unsigned LEB128" {
@@ -225,4 +250,7 @@ test "deserialize unsigned LEB128" {
     testing.expect((try test_read_uleb128(u64, "\xff\x80\x00")) == 0x7f);
     testing.expect((try test_read_uleb128(u64, "\x80\x81\x00")) == 0x80);
     testing.expect((try test_read_uleb128(u64, "\x80\x81\x80\x00")) == 0x80);
+
+    // Decode sequence of ULEB128 values
+    test_read_uleb128_seq(u64, 4, "\x81\x01\x3f\x80\x7f\x80\x80\x80\x00");
 }
