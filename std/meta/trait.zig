@@ -186,6 +186,44 @@ test "std.meta.trait.isPtrTo" {
     testing.expect(!isPtrTo(builtin.TypeId.Struct)(**struct {}));
 }
 
+pub fn isErrorSubset(comptime Error: type) TraitFn {
+    if (!is(builtin.TypeId.ErrorSet)(Error)) @compileError("ErrorSet type required.");
+    const Closure = struct {
+        pub fn trait(comptime T: type) bool {
+            if (!comptime is(builtin.TypeId.ErrorSet)(T)) return false;
+            
+            if (@typeInfo(Error).ErrorSet == null) return true;
+            if (@typeInfo(T).ErrorSet == null) return false;
+                        
+            const super_errors = @typeInfo(Error).ErrorSet.?;
+            const sub_errors = @typeInfo(T).ErrorSet.?;
+            outer: inline for (sub_errors) |sub_err| {
+                inline for (super_errors) |super_err| {
+                    if (sub_err.value == super_err.value) continue :outer;
+                }
+                return false;
+            }
+            return true;
+        }
+    };
+    return Closure.trait;
+}
+
+test "std.meta.trait.isErrorSubset" {
+    const Outer = error{One, Two, Three, Four, Five};
+    const Inner = error{Two, Four};
+    const Nope = error{Three, Five, Nine};
+    
+    debug.assert(isErrorSubset(Outer)(Inner));
+    debug.assert(!isErrorSubset(Inner)(Outer));
+    debug.assert(!isErrorSubset(Outer)(Nope));
+    debug.assert(!isErrorSubset(Outer)(usize));
+    debug.assert(isErrorSubset(Outer)(error{}));
+    debug.assert(!isErrorSubset(error{})(Outer));
+    debug.assert(isErrorSubset(anyerror)(Inner));
+    debug.assert(!isErrorSubset(Outer)(anyerror));
+}
+
 ///////////Strait trait Fns
 
 //@TODO:
