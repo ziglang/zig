@@ -32,6 +32,7 @@ struct ZigClangAPValueLValueBase {
 
 struct ZigClangAPValue;
 struct ZigClangAPSInt;
+struct ZigClangAPFloat;
 struct ZigClangASTContext;
 struct ZigClangASTUnit;
 struct ZigClangArraySubscriptExpr;
@@ -713,6 +714,15 @@ enum ZigClangStorageClass {
     ZigClangStorageClass_Register,
 };
 
+/// IEEE-754R 4.3: Rounding-direction attributes.
+enum ZigClangAPFloat_roundingMode {
+    ZigClangAPFloat_roundingMode_NearestTiesToEven,
+    ZigClangAPFloat_roundingMode_TowardPositive,
+    ZigClangAPFloat_roundingMode_TowardNegative,
+    ZigClangAPFloat_roundingMode_TowardZero,
+    ZigClangAPFloat_roundingMode_NearestTiesToAway,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -826,5 +836,8 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionProtoType_getParamType(cons
 
 ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const struct ZigClangCompoundStmt *self);
 ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self);
+
+ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAPFloat *self, char *DST,
+        unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM);
 
 #endif

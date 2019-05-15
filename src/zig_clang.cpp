@@ -1255,6 +1255,22 @@ static_assert((clang::StorageClass)ZigClangStorageClass_PrivateExtern == clang::
 static_assert((clang::StorageClass)ZigClangStorageClass_Auto == clang::SC_Auto, "");
 static_assert((clang::StorageClass)ZigClangStorageClass_Register == clang::SC_Register, "");
 
+void ZigClang_detect_enum_RoundingMode(llvm::APFloat::roundingMode x) {
+    switch (x) {
+        case llvm::APFloat::rmNearestTiesToEven:
+        case llvm::APFloat::rmTowardPositive:
+        case llvm::APFloat::rmTowardNegative:
+        case llvm::APFloat::rmTowardZero:
+        case llvm::APFloat::rmNearestTiesToAway:
+            break;
+    }
+}
+static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_NearestTiesToEven == llvm::APFloat::rmNearestTiesToEven, "");
+static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_TowardPositive == llvm::APFloat::rmTowardPositive, "");
+static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_TowardNegative == llvm::APFloat::rmTowardNegative, "");
+static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_TowardZero == llvm::APFloat::rmTowardZero, "");
+static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_NearestTiesToAway == llvm::APFloat::rmNearestTiesToAway, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1828,4 +1844,11 @@ ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const s
 ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self) {
     auto casted = reinterpret_cast<const clang::CompoundStmt *>(self);
     return bitcast(casted->body_end());
+}
+
+unsigned ZigClangAPFloat_convertToHexString(const ZigClangAPFloat *self, char *DST,
+        unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM)
+{
+    auto casted = reinterpret_cast<const llvm::APFloat *>(self);
+    return casted->convertToHexString(DST, HexDigits, UpperCase, (llvm::APFloat::roundingMode)RM);
 }
