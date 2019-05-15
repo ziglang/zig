@@ -66,7 +66,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const value_ptr = @ptrCast(*align(1) const Container, &bytes[start_byte]);
             var value = value_ptr.*;
 
-            if (endian != builtin.endian) value = @bswap(Container, value);
+            if (endian != builtin.endian) value = @byteSwap(Container, value);
 
             switch (endian) {
                 .Big => {
@@ -114,7 +114,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             const target_ptr = @ptrCast(*align(1) Container, &bytes[start_byte]);
             var target = target_ptr.*;
 
-            if (endian != builtin.endian) target = @bswap(Container, target);
+            if (endian != builtin.endian) target = @byteSwap(Container, target);
 
             //zero the bits we want to replace in the existing bytes
             const inv_mask = @intCast(Container, std.math.maxInt(UnInt)) << keep_shift;
@@ -124,7 +124,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: builtin.Endian) type {
             //merge the new value
             target |= value;
 
-            if (endian != builtin.endian) target = @bswap(Container, target);
+            if (endian != builtin.endian) target = @byteSwap(Container, target);
 
             //save it back
             target_ptr.* = target;
