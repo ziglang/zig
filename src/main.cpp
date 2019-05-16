@@ -423,6 +423,7 @@ int main(int argc, char **argv) {
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
+    Buf *version_script = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
@@ -784,6 +785,8 @@ int main(int argc, char **argv) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
+                } else if (strcmp(arg, "--version-script") == 0) {
+                    version_script = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
                 } else if (strcmp(arg, "--test-filter") == 0) {
@@ -1056,6 +1059,7 @@ int main(int argc, char **argv) {
             codegen_set_is_test(g, cmd == CmdTest);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
+            g->version_script_path = version_script;
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 

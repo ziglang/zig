@@ -995,6 +995,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(soname));
     }
 
+    if (is_dyn_lib && g->version_script_path != nullptr) {
+        lj->args.append("-version-script");
+        lj->args.append(buf_ptr(g->version_script_path));
+    }
+
     // .o files
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));

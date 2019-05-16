@@ -1873,6 +1873,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
+    Buf *version_script_path;
 
     const char **llvm_argv;
     size_t llvm_argv_len;
