@@ -59,7 +59,7 @@ pub fn Random(comptime R: type, comptime FillFn: type) type {
             
             var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
             self.bytes(rand_bytes[0..]);
-
+            
             // use LE instead of native endian for better portability maybe?
             // TODO: endian portability is pointless if the underlying prng isn't endian portable.
             // TODO: document the endian portability of this library.
