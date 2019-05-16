@@ -17,8 +17,8 @@ comptime {
 }
 
 extern fn main(argc: c_int, argv: [*][*]u8) c_int;
-extern fn wasm_start() c_int {
-    return main(0, undefined);
+extern fn wasm_start() void {
+    _ = main(0, undefined);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

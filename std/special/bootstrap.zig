@@ -8,15 +8,22 @@ const assert = std.debug.assert;
 
 var argc_ptr: [*]usize = undefined;
 
+const is_wasm = switch (builtin.arch) { .wasm32, .wasm64 => true, else => false};
+
 comptime {
-    const strong_linkage = builtin.GlobalLinkage.Strong;
     if (builtin.link_libc) {
-        @export("main", main, strong_linkage);
-    } else if (builtin.os == builtin.Os.windows) {
-        @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
+        @export("main", main, .Strong);
+    } else if (builtin.os == .windows) {
+        @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
+    } else if (is_wasm and builtin.os == .freestanding) {
+        @export("_start", wasm_freestanding_start, .Strong);
     } else {
-        @export("_start", _start, strong_linkage);
+        @export("_start", _start, .Strong);
     }
+}
+
+extern fn wasm_freestanding_start() void {
+    _ = callMain();
 }
 
 nakedcc fn _start() noreturn {
@@ -39,10 +46,6 @@ nakedcc fn _start() noreturn {
             argc_ptr = asm ("mov %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );
-        },
-        .wasm32, .wasm64 => {
-            _ = callMain();
-            while (true) {}
         },
         else => @compileError("unsupported arch"),
     }
