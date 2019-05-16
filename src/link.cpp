@@ -75,14 +75,21 @@ static const char *path_from_libunwind(CodeGen *g, const char *subpath) {
     return path_from_zig_lib(g, "libunwind", subpath);
 }
 
+static const char *musl_arch_name(const ZigTarget *target);
+
 static const char *build_dummy_so(CodeGen *parent, const char *name, size_t major_version) {
-    Buf *glibc_dummy_root_src = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s.zig",
-            buf_ptr(parent->zig_lib_dir), name);
+    // XXX musl and glibc seem to share the same set of arch names ?
+    const char *target_arch_name = musl_arch_name(parent->zig_target);
+    Buf *glibc_dummy_root_src = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s" OS_SEP "%s.zig",
+            buf_ptr(parent->zig_lib_dir), target_arch_name, name);
+    Buf *glibc_dummy_map = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s" OS_SEP "%s.map",
+            buf_ptr(parent->zig_lib_dir), target_arch_name, name);
     CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
     codegen_set_out_name(child_gen, buf_create_from_str(name));
     codegen_set_lib_version(child_gen, major_version, 0, 0);
     child_gen->is_dynamic = true;
     child_gen->is_dummy_so = true;
+    child_gen->version_script_path = glibc_dummy_map;
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
 }
