@@ -3377,7 +3377,7 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
                             const result = set[0 .. rc / @sizeOf(usize)];
                             var sum: usize = 0;
                             for (result) |x| {
-                                sum += @popCount(x);
+                                sum += @popCount(usize, x);
                             }
                             return sum;
                         } else {

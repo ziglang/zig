@@ -75,7 +75,8 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
-        const scale: u32 = @clz(aAbs) - @clz(src_rep_t(srcMinNormal));
+        const scale: u32 = @clz(src_rep_t, aAbs) -
+                           @clz(src_rep_t, src_rep_t(srcMinNormal));
         absResult = dst_rep_t(aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;

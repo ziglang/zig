@@ -14,7 +14,7 @@ pub extern fn __floatunditf(a: u128) f128 {
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
     const implicit_bit = 1 << mantissa_bits;
 
-    const exp = (u128.bit_count - 1) - @clz(a);
+    const exp = (u128.bit_count - 1) - @clz(u128, a);
     const shift = mantissa_bits - @intCast(u7, exp);
 
     var result: u128 align(16) = (a << shift) ^ implicit_bit;

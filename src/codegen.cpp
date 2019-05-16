@@ -4140,9 +4140,9 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
 }
 
 static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4152,9 +4152,9 @@ static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4164,9 +4164,9 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
@@ -5650,6 +5650,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_pop_count(g, executable, (IrInstructionPopCount *)instruction);
         case IrInstructionIdSwitchBr:
             return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
+        case IrInstructionIdBswap:
+            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
+        case IrInstructionIdBitReverse:
+            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdPhi:
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
         case IrInstructionIdRef:
@@ -5766,10 +5770,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
-        case IrInstructionIdBswap:
-            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
-        case IrInstructionIdBitReverse:
-            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdArrayToVector:
             return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
         case IrInstructionIdVectorToArray:
@@ -7332,9 +7332,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
-    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
-    create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
-    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 1);
+    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 2);
+    create_builtin_fn(g, BuiltinFnIdClz, "clz", 2);
+    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 2);
+    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 2);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
@@ -7395,8 +7397,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
-    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
-    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitreverse", 2);
 }
 
 static const char *bool_to_str(bool b) {

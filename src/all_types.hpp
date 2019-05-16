@@ -1407,6 +1407,8 @@ enum BuiltinFnId {
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
     BuiltinFnIdPopCount,
+    BuiltinFnIdBswap,
+    BuiltinFnIdBitReverse,
     BuiltinFnIdImport,
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
@@ -1469,8 +1471,6 @@ enum BuiltinFnId {
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
-    BuiltinFnIdBswap,
-    BuiltinFnIdBitReverse,
 };
 
 struct BuiltinFnEntry {
@@ -2191,6 +2191,8 @@ enum IrInstructionId {
     IrInstructionIdClz,
     IrInstructionIdCtz,
     IrInstructionIdPopCount,
+    IrInstructionIdBswap,
+    IrInstructionIdBitReverse,
     IrInstructionIdImport,
     IrInstructionIdCImport,
     IrInstructionIdCInclude,
@@ -2287,8 +2289,6 @@ enum IrInstructionId {
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdSqrt,
-    IrInstructionIdBswap,
-    IrInstructionIdBitReverse,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
@@ -2744,19 +2744,22 @@ struct IrInstructionOptionalUnwrapPtr {
 struct IrInstructionCtz {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionClz {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionPopCount {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *type;
+    IrInstruction *op;
 };
 
 struct IrInstructionUnionTag {
