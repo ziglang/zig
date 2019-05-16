@@ -8121,7 +8121,7 @@ static void detect_dynamic_linker(CodeGen *g) {
             for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
                 const char *lib_name = possible_ld_names[i];
                 if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
-                    if (err != ErrorCCompilerCannotFindFile) {
+                    if (err != ErrorCCompilerCannotFindFile && err != ErrorNoCCompilerInstalled) {
                         fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
                         exit(1);
                     }

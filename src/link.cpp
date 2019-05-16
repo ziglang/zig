@@ -34,6 +34,7 @@ static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, Ou
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
     child_gen->verbose_cc = parent_gen->verbose_cc;
     child_gen->llvm_argv = parent_gen->llvm_argv;
+    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
