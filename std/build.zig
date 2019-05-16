@@ -877,6 +877,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn getArch(self: Target) builtin.Arch {
+        switch (self) {
+            Target.Native => return builtin.arch,
+            Target.Cross => |t| return t.arch,
+        }
+    }
+
     pub fn isDarwin(self: *const Target) bool {
         return switch (self.getOs()) {
             builtin.Os.ios, builtin.Os.macosx => true,
@@ -887,6 +894,13 @@ pub const Target = union(enum) {
     pub fn isWindows(self: *const Target) bool {
         return switch (self.getOs()) {
             builtin.Os.windows => true,
+            else => false,
+        };
+    }
+
+    pub fn isWasm(self: Target) bool {
+        return switch (self.getArch()) {
+            .wasm32, .wasm64 => true,
             else => false,
         };
     }
@@ -1076,11 +1090,15 @@ pub const LibExeObjStep = struct {
             Kind.Lib => {
                 if (!self.is_dynamic) {
                     switch (self.target.getOs()) {
-                        builtin.Os.windows => {
+                        .windows => {
                             self.out_filename = self.builder.fmt("{}.lib", self.name);
                         },
                         else => {
-                            self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                            if (self.target.isWasm()) {
+                                self.out_filename = self.builder.fmt("{}.wasm", self.name);
+                            } else {
+                                self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                            }
                         },
                     }
                     self.out_lib_filename = self.out_filename;

@@ -6059,6 +6059,8 @@ set(ZIG_LIBC_FILES
     "include/x86_64-linux-musl/bits/stat.h"
     "include/x86_64-linux-musl/bits/syscall.h"
     "include/x86_64-linux-musl/bits/user.h"
+    "include/wasm32-freestanding-musl/bits/alltypes.h"
+    "include/wasm32-freestanding-musl/errno.h"
     "musl/arch/aarch64/atomic_arch.h"
     "musl/arch/aarch64/bits/alltypes.h.in"
     "musl/arch/aarch64/bits/endian.h"
