@@ -1271,6 +1271,22 @@ static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_TowardNe
 static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_TowardZero == llvm::APFloat::rmTowardZero, "");
 static_assert((llvm::APFloat::roundingMode)ZigClangAPFloat_roundingMode_NearestTiesToAway == llvm::APFloat::rmNearestTiesToAway, "");
 
+void ZigClang_detect_enum_StringKind(clang::StringLiteral::StringKind x) {
+    switch (x) {
+        case clang::StringLiteral::Ascii:
+        case clang::StringLiteral::Wide:
+        case clang::StringLiteral::UTF8:
+        case clang::StringLiteral::UTF16:
+        case clang::StringLiteral::UTF32:
+            break;
+    }
+}
+static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_Ascii == clang::StringLiteral::Ascii, "");
+static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_Wide == clang::StringLiteral::Wide, "");
+static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF8 == clang::StringLiteral::UTF8, "");
+static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF16 == clang::StringLiteral::UTF16, "");
+static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF32 == clang::StringLiteral::UTF32, "");
+
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1851,4 +1867,24 @@ unsigned ZigClangAPFloat_convertToHexString(const ZigClangAPFloat *self, char *D
 {
     auto casted = reinterpret_cast<const llvm::APFloat *>(self);
     return casted->convertToHexString(DST, HexDigits, UpperCase, (llvm::APFloat::roundingMode)RM);
+}
+
+enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self) {
+    auto casted = reinterpret_cast<const clang::StringLiteral *>(self);
+    return (ZigClangStringLiteral_StringKind)casted->getKind();
+}
+
+const char *ZigClangStringLiteral_getString_bytes_begin_size(const struct ZigClangStringLiteral *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::StringLiteral *>(self);
+    llvm::StringRef str_ref = casted->getString();
+    *len = str_ref.size();
+    return (const char *)str_ref.bytes_begin();
+}
+
+const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
+        const struct ZigClangPredefinedExpr *self)
+{
+    auto casted = reinterpret_cast<const clang::PredefinedExpr *>(self);
+    const clang::StringLiteral *result = casted->getFunctionName();
+    return reinterpret_cast<const struct ZigClangStringLiteral *>(result);
 }
