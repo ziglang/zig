@@ -9,17 +9,17 @@ test "@bitReverse" {
 
 fn testBitReverse() void {
     // using comptime_ints, unsigned
-    expect(@bitReverse(u0, u0(0)) == 0);
-    expect(@bitReverse(u5, u5(0x12)) == 0x9);
-    expect(@bitReverse(u8, u8(0x12)) == 0x48);
-    expect(@bitReverse(u16, u16(0x1234)) == 0x2c48);
-    expect(@bitReverse(u24, u24(0x123456)) == 0x6a2c48);
-    expect(@bitReverse(u32, u32(0x12345678)) == 0x1e6a2c48);
-    expect(@bitReverse(u40, u40(0x123456789a)) == 0x591e6a2c48);
-    expect(@bitReverse(u48, u48(0x123456789abc)) == 0x3d591e6a2c48);
-    expect(@bitReverse(u56, u56(0x123456789abcde)) == 0x7b3d591e6a2c48);
-    expect(@bitReverse(u64, u64(0x123456789abcdef1)) == 0x8f7b3d591e6a2c48);
-    expect(@bitReverse(u128, u128(0x123456789abcdef11121314151617181)) == 0x818e868a828c84888f7b3d591e6a2c48);
+    expect(@bitReverse(u0, 0) == 0);
+    expect(@bitReverse(u5, 0x12) == 0x9);
+    expect(@bitReverse(u8, 0x12) == 0x48);
+    expect(@bitReverse(u16, 0x1234) == 0x2c48);
+    expect(@bitReverse(u24, 0x123456) == 0x6a2c48);
+    expect(@bitReverse(u32, 0x12345678) == 0x1e6a2c48);
+    expect(@bitReverse(u40, 0x123456789a) == 0x591e6a2c48);
+    expect(@bitReverse(u48, 0x123456789abc) == 0x3d591e6a2c48);
+    expect(@bitReverse(u56, 0x123456789abcde) == 0x7b3d591e6a2c48);
+    expect(@bitReverse(u64, 0x123456789abcdef1) == 0x8f7b3d591e6a2c48);
+    expect(@bitReverse(u128, 0x123456789abcdef11121314151617181) == 0x818e868a828c84888f7b3d591e6a2c48);
 
     // using runtime uints, unsigned
     var num0: u0 = 0;

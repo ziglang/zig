@@ -34,7 +34,6 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
-ZigType *get_smallest_popcount_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);

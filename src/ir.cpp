@@ -10472,6 +10472,20 @@ static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
     return const_val->data.x_type;
 }
 
+static ZigType *ir_resolve_int_type(IrAnalyze *ira, IrInstruction *type_value) {
+    ZigType *ty = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(ty))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (ty->id != ZigTypeIdInt) {
+        ir_add_error(ira, type_value,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&ty->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    return ty;
+}
+
 static ZigType *ir_resolve_error_set_type(IrAnalyze *ira, IrInstruction *op_source, IrInstruction *type_value) {
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -17025,123 +17039,93 @@ static IrInstruction *ir_analyze_instruction_optional_unwrap_ptr(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCtz *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = instruction->op->child;
-
-    if (int_type->id != ZigTypeIdInt) {
-        ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
+    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    if (int_type->data.integral.bit_count == 0)
+        return ir_const_unsigned(ira, &instruction->base, 0);
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
+    if (instr_is_comptime(op)) {
+        ConstExprValue *val = ir_resolve_const(ira, op, UndefOk);
+        if (val == nullptr)
+            return ira->codegen->invalid_instruction;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
+        size_t result_usize = bigint_ctz(&op->value.data.x_bigint, int_type->data.integral.bit_count);
+        return ir_const_unsigned(ira, &instruction->base, result_usize);
     }
 
-    if (instr_is_comptime(casted_op)) {
-        size_t result_usize = bigint_ctz(&op->value.data.x_bigint,
-                op->value.type->data.integral.bit_count);
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, result_usize);
-        return result;
-    }
-
+    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
     IrInstruction *result = ir_build_ctz(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op);
+            instruction->base.source_node, nullptr, op);
     result->value.type = return_type;
     return result;
 }
 
 static IrInstruction *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionClz *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = instruction->op->child;
-
-    if (int_type->id != ZigTypeIdInt) {
-        ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
+    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    if (int_type->data.integral.bit_count == 0)
+        return ir_const_unsigned(ira, &instruction->base, 0);
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
+    if (instr_is_comptime(op)) {
+        ConstExprValue *val = ir_resolve_const(ira, op, UndefOk);
+        if (val == nullptr)
+            return ira->codegen->invalid_instruction;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
+        size_t result_usize = bigint_clz(&op->value.data.x_bigint, int_type->data.integral.bit_count);
+        return ir_const_unsigned(ira, &instruction->base, result_usize);
     }
 
-    if (instr_is_comptime(casted_op)) {
-        size_t result_usize = bigint_clz(&op->value.data.x_bigint,
-                op->value.type->data.integral.bit_count);
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, result_usize);
-        return result;
-    }
-
+    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
     IrInstruction *result = ir_build_clz(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op);
+            instruction->base.source_node, nullptr, op);
     result->value.type = return_type;
     return result;
 }
 
 static IrInstruction *ir_analyze_instruction_pop_count(IrAnalyze *ira, IrInstructionPopCount *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = instruction->op->child;
-
-    if (int_type->id != ZigTypeIdInt) {
-        ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
+    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *return_type = get_smallest_popcount_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
+    if (int_type->data.integral.bit_count == 0)
+        return ir_const_unsigned(ira, &instruction->base, 0);
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
-    }
-
-    if (instr_is_comptime(casted_op)) {
-        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
-        if (!val)
+    if (instr_is_comptime(op)) {
+        ConstExprValue *val = ir_resolve_const(ira, op, UndefOk);
+        if (val == nullptr)
             return ira->codegen->invalid_instruction;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
 
         if (bigint_cmp_zero(&val->data.x_bigint) != CmpLT) {
             size_t result = bigint_popcount_unsigned(&val->data.x_bigint);
             return ir_const_unsigned(ira, &instruction->base, result);
         }
-        size_t result = bigint_popcount_signed(&val->data.x_bigint, op->value.type->data.integral.bit_count);
+        size_t result = bigint_popcount_signed(&val->data.x_bigint, int_type->data.integral.bit_count);
         return ir_const_unsigned(ira, &instruction->base, result);
     }
 
+    ZigType *return_type = get_smallest_unsigned_int_type(ira->codegen, int_type->data.integral.bit_count);
     IrInstruction *result = ir_build_pop_count(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op);
+            instruction->base.source_node, nullptr, op);
     result->value.type = return_type;
     return result;
 }
@@ -23002,21 +22986,22 @@ static IrInstruction *ir_analyze_instruction_sqrt(IrAnalyze *ira, IrInstructionS
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = instruction->op->child;
-
-    if (int_type->id != ZigTypeIdInt) {
-        ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
+    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
+
+    if (int_type->data.integral.bit_count == 0) {
+        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        return result;
     }
 
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
-        return ira->codegen->invalid_instruction;
+    if (int_type->data.integral.bit_count == 8)
+        return op;
 
     if (int_type->data.integral.bit_count % 8 != 0) {
         ir_add_error(ira, instruction->op,
@@ -23025,20 +23010,12 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
         return ira->codegen->invalid_instruction;
     }
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
-    }
-
-    if (int_type->data.integral.bit_count == 8) {
-        return op;
-    }
-
-    if (instr_is_comptime(casted_op)) {
-        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
-        if (!val)
+    if (instr_is_comptime(op)) {
+        ConstExprValue *val = ir_resolve_const(ira, op, UndefOk);
+        if (val == nullptr)
             return ira->codegen->invalid_instruction;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, int_type);
 
         IrInstruction *result = ir_const(ira, &instruction->base, int_type);
         size_t buf_size = int_type->data.integral.bit_count / 8;
@@ -23050,26 +23027,18 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
     }
 
     IrInstruction *result = ir_build_bswap(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op);
+            instruction->base.source_node, nullptr, op);
     result->value.type = int_type;
     return result;
 }
 
 static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstructionBitReverse *instruction) {
-    ZigType *int_type = ir_resolve_type(ira, instruction->type->child);
+    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = instruction->op->child;
-
-    if (int_type->id != ZigTypeIdInt) {
-        ir_add_error(ira, instruction->type,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    IrInstruction *casted_op = ir_implicit_cast(ira, op, int_type);
-    if (type_is_invalid(casted_op->value.type))
+    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
     if (int_type->data.integral.bit_count == 0) {
@@ -23078,10 +23047,12 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
         return result;
     }
 
-    if (instr_is_comptime(casted_op)) {
-        ConstExprValue *val = ir_resolve_const(ira, casted_op, UndefBad);
-        if (!val)
+    if (instr_is_comptime(op)) {
+        ConstExprValue *val = ir_resolve_const(ira, op, UndefOk);
+        if (val == nullptr)
             return ira->codegen->invalid_instruction;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, int_type);
 
         IrInstruction *result = ir_const(ira, &instruction->base, int_type);
         size_t num_bits = int_type->data.integral.bit_count;
@@ -23111,7 +23082,7 @@ static IrInstruction *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstr
     }
 
     IrInstruction *result = ir_build_bit_reverse(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op);
+            instruction->base.source_node, nullptr, op);
     result->value.type = int_type;
     return result;
 }

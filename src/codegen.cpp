@@ -4126,19 +4126,11 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
 
     char llvm_name[64];
     sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
-    LLVMTypeRef param_types[3];
-    switch (n_args) {
-    case 1:
-        param_types[0] = get_llvm_type(g, int_type);
-        break;
-    case 2: // clz and ctz
-        param_types[0] = get_llvm_type(g, int_type);
-        param_types[1] = LLVMInt1Type();
-        break;
-    default:
-        zig_unreachable();
-    }
-    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), &param_types[0], n_args, false);
+    LLVMTypeRef param_types[] = {
+        get_llvm_type(g, int_type),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, n_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 
