@@ -1082,12 +1082,15 @@ pub const Type = struct {
 fn hashAny(x: var, comptime seed: u64) u32 {
     switch (@typeInfo(@typeOf(x))) {
         builtin.TypeId.Int => |info| {
-            comptime var rng = comptime std.rand.DefaultPrng.init(seed);
+            //comptime var rng = comptime std.rand.DefaultPrng.init(seed);
+            var rng = std.rand.DefaultPrng.init(seed).random();
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
-                return u32(unsigned_x) *% comptime rng.random.scalar(u32);
+                //return u32(unsigned_x) *% comptime rng.scalar(u32);
+                return u32(unsigned_x) *% rng.scalar(u32);
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                //return @truncate(u32, unsigned_x *% comptime rng.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% rng.scalar(@typeOf(unsigned_x)));
             }
         },
         builtin.TypeId.Pointer => |info| {
@@ -1100,8 +1103,10 @@ fn hashAny(x: var, comptime seed: u64) u32 {
         },
         builtin.TypeId.Enum => return hashAny(@enumToInt(x), seed),
         builtin.TypeId.Bool => {
-            comptime var rng = comptime std.rand.DefaultPrng.init(seed);
-            const vals = comptime [2]u32{ rng.random.scalar(u32), rng.random.scalar(u32) };
+            //comptime var rng = comptime std.rand.DefaultPrng.init(seed);
+            var rng = std.rand.DefaultPrng.init(seed).random();
+            //const vals = comptime [2]u32{ rng.scalar(u32), rng.scalar(u32) };
+            const vals = [2]u32{ rng.scalar(u32), rng.scalar(u32) };
             return vals[@boolToInt(x)];
         },
         builtin.TypeId.Optional => {

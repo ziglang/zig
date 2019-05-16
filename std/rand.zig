@@ -22,6 +22,7 @@ const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
+const interface = std.interface;
 
 // When you need fast unbiased random numbers
 pub const DefaultPrng = Xoroshiro128;
@@ -29,7 +30,8 @@ pub const DefaultPrng = Xoroshiro128;
 // When you need cryptographically secure random numbers
 pub const DefaultCsprng = Isaac64;
 
-pub const AnyRandom = Random(interface.Any, Random.AnyFillFn);
+pub const AnyFillFn = fn(interface.Any,[]u8)void;
+pub const AnyRandom = Random(interface.Any, AnyFillFn);
 
 /// Implements the Random interface for a type R
 pub fn Random(comptime R: type, comptime FillFn: type) type {
@@ -39,7 +41,7 @@ pub fn Random(comptime R: type, comptime FillFn: type) type {
         impl: R,
         fillFn: FillFn,
         
-        pub const AnyFillFn = fn(interface.Any,[]u8)void;
+        
         
         /// Read random bytes into the specified buffer until full.
         pub fn bytes(self: Self, buf: []u8) void {
@@ -1027,6 +1029,14 @@ test "Random range" {
 fn testRange(r: var, start: i8, end: i8) void {
     testRangeBias(r, start, end, true);
     testRangeBias(r, start, end, false);
+    testRangeBias(r.toAny(), start, end, true);
+    testRangeBias(r.toAny(), start, end, false);
+    
+    //Test that pointers to the interface work too
+    testRangeBias(&r, start, end, true);
+    testRangeBias(&r, start, end, false);
+    testRangeBias(&r.toAny(), start, end, true);
+    testRangeBias(&r.toAny(), start, end, false);
 }
 fn testRangeBias(r: var, start: i8, end: i8, biased: bool) void {
     const count = @intCast(usize, i32(end) - i32(start));

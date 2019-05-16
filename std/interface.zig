@@ -1,3 +1,5 @@
+//@TODO: Fix std/hash_map.zig and src-self-hosted.zig to use comptime rng again when that is fixed!
+
 const std = @import("std");
 const debug = std.debug;
 const testing = std.testing;
@@ -66,14 +68,14 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
         //If arg is Any or ConstAny, ensure it is a pointer or optional pointer.
         // In the latter case, additionally ensure that it is const.
         switch(abs_arg.arg_type.?) {
-            Any, ConstAny => |abs_arg_type| {
+            Any, ConstAny => {
                 //This will handle asserting that it is a pointer or optional pointer
                 const impl_arg_ptr = switch(@typeInfo(impl_arg.arg_type.?)) {
                     .Optional => |o| @typeInfo(o.child).Pointer,
                     .Pointer => |p| p,
                     else => unreachable,
                 };
-                if(abs_arg_type == ConstAny) debug.assert(impl_arg_ptr.is_const);
+                if(abs_arg.arg_type.? == ConstAny) debug.assert(impl_arg_ptr.is_const);
             },
             else => debug.assert(abs_arg.arg_type.? == impl_arg.arg_type.?),
         }
@@ -82,6 +84,8 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
     return @ptrCast(AbstractFunc, func);
 }
 
+const AnyNameFn = fn(Any)anyerror![]const u8;
+const AnyTestInterface = TestInterface(Any, AnyNameFn);
 fn TestInterface(comptime T: type, comptime NameFn: type) type
 {
     return struct
@@ -89,19 +93,17 @@ fn TestInterface(comptime T: type, comptime NameFn: type) type
         impl: T,
         nameFn: NameFn,
         
-        const AnyNameFn = fn(Any)anyerror![]const u8;
-        
         pub fn name(self: *@This()) ![]const u8
         {
             return self.nameFn(self.impl);
         }
         
-        pub const Abstract = TestInterface(Any, AnyNameFn);
-        pub fn abstract(self: *@This()) Abstract
+        pub fn toAny(self: *@This()) AnyTestInterface
         {
-            return Abstract
+            return AnyTestInterface
             {
-                .impl = toAny(self.impl),
+                //unfortunate naming conflict
+                .impl = std.interface.toAny(self.impl),
                 .nameFn = abstractFn(AnyNameFn, self.nameFn),
             };
         }
@@ -127,7 +129,7 @@ test "interface" {
         }
         
         const NullImplInterface = TestInterface(*Self, @typeOf(name));
-        pub fn interface(self: *Self) NullImplInterface
+        pub fn testInterface(self: *Self) NullImplInterface
         {
             return NullImplInterface
             {
@@ -158,7 +160,7 @@ test "interface" {
         }
         
         const ValImplInterface = TestInterface(*Self, @typeOf(name));
-        pub fn interface(self: *Self) ValImplInterface
+        pub fn testInterface(self: *Self) ValImplInterface
         {
             return ValImplInterface
             {
@@ -172,23 +174,23 @@ test "interface" {
     var vimpl = ValImpl.init("Value");
     
     //test normal "comptime" interface
-    var n_iface = nimpl.interface();
+    var n_iface = nimpl.testInterface();
     var name = try n_iface.name();
     testing.expect(std.mem.eql(u8, name, "Null"));
     testExpectedErrorSet(@typeOf(@typeOf(n_iface).name), error{});
     
-    var v_iface = vimpl.interface();
+    var v_iface = vimpl.testInterface();
     name = try v_iface.name();
     testing.expect(std.mem.eql(u8, name, "Value"));
     testExpectedErrorSet(@typeOf(@typeOf(v_iface).name), error{ NameTooShort, });
     
     //test abstracted "runtime" interface
-    var iface = n_iface.abstract();
+    var iface = n_iface.toAny();
     name = try iface.name();
     testing.expect(std.mem.eql(u8, name, "Null"));
     testExpectedErrorSet(@typeOf(@typeOf(iface).name), anyerror);
     
-    iface = v_iface.abstract();
+    iface = v_iface.toAny();
     name = try iface.name();
     testing.expect(std.mem.eql(u8, name, "Value"));
     testExpectedErrorSet(@typeOf(@typeOf(iface).name), anyerror);
@@ -197,21 +199,21 @@ test "interface" {
     var n_iface_ptr = &n_iface;
     name = try n_iface_ptr.name();
     testing.expect(std.mem.eql(u8, name, "Null"));
-    var iface_ptr = &n_iface_ptr.abstract();
+    var iface_ptr = &n_iface_ptr.toAny();
     name = try iface_ptr.name();
     testing.expect(std.mem.eql(u8, name, "Null"));
     
     var v_iface_ptr = &v_iface;
     name = try v_iface_ptr.name();
     testing.expect(std.mem.eql(u8, name, "Value"));
-    iface_ptr = &v_iface_ptr.abstract();
+    iface_ptr = &v_iface_ptr.toAny();
     name = try iface_ptr.name();
     testing.expect(std.mem.eql(u8, name, "Value"));
     
-    //See #2487
+    //See #2487, also #2501
     //comptime
     //{
-    //    var ct_iface = ValImpl.init("Comptime").interface().abstract();
+    //    var ct_iface = ValImpl.init("Comptime").testInterface().toAny();
     //    std.testing.expect(std.mem.eql(u8, try ct_iface.name(), "Comptime"));
     //}
 }

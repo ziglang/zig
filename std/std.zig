@@ -33,6 +33,7 @@ pub const fmt = @import("fmt.zig");
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
+pub const interface = @import("interface.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
@@ -81,6 +82,7 @@ test "std" {
     _ = @import("fmt.zig");
     _ = @import("hash.zig");
     _ = @import("heap.zig");
+    _ = @import("interface.zig");
     _ = @import("io.zig");
     _ = @import("json.zig");
     _ = @import("lazy_init.zig");
@@ -88,6 +90,7 @@ test "std" {
     _ = @import("math.zig");
     _ = @import("mem.zig");
     _ = @import("meta.zig");
+    _ = @import("meta/trait.zig");
     _ = @import("net.zig");
     _ = @import("os.zig");
     _ = @import("pdb.zig");
@@ -99,6 +102,7 @@ test "std" {
     _ = @import("unicode.zig");
     _ = @import("valgrind.zig");
     _ = @import("zig.zig");
-
+    
+    _ = @import("rand/ziggurat.zig");
     _ = @import("debug/leb128.zig");
 }

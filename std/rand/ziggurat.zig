@@ -10,7 +10,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
-const Random = std.rand.Random;
+const AnyRandom = std.rand.AnyRandom;
 
 pub fn next_f64(random: var, comptime tables: ZigTable) f64 {
     while (true) {
@@ -40,7 +40,7 @@ pub fn next_f64(random: var, comptime tables: ZigTable) f64 {
         }
 
         if (i == 0) {
-            return tables.zero_case(random, u);
+            return tables.zero_case(random.toAny(), u);
         }
 
         // equivalent to f1 + DRanU() * (f0 - f1) < 1
@@ -60,7 +60,7 @@ pub const ZigTable = struct {
     // whether the distribution is symmetric
     is_symmetric: bool,
     // fallback calculation in the case we are in the 0 block
-    zero_case: fn (*Random, f64) f64,
+    zero_case: fn (AnyRandom, f64) f64,
 };
 
 // zigNorInit
@@ -70,7 +70,7 @@ fn ZigTableGen(
     comptime v: f64,
     comptime f: fn (f64) f64,
     comptime f_inv: fn (f64) f64,
-    comptime zero_case: fn (*Random, f64) f64,
+    comptime zero_case: fn (AnyRandom, f64) f64,
 ) ZigTable {
     var tables: ZigTable = undefined;
 
@@ -110,7 +110,7 @@ fn norm_f(x: f64) f64 {
 fn norm_f_inv(y: f64) f64 {
     return math.sqrt(-2.0 * math.ln(y));
 }
-fn norm_zero_case(random: *Random, u: f64) f64 {
+fn norm_zero_case(random: AnyRandom, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
 
@@ -130,7 +130,7 @@ test "ziggurant normal dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        _ = prng.random.floatNorm(f64);
+        _ = prng.random().floatNorm(f64);
     }
 }
 
@@ -149,7 +149,7 @@ fn exp_f(x: f64) f64 {
 fn exp_f_inv(y: f64) f64 {
     return -math.ln(y);
 }
-fn exp_zero_case(random: *Random, _: f64) f64 {
+fn exp_zero_case(random: AnyRandom, _: f64) f64 {
     return exp_r - math.ln(random.float(f64));
 }
 
@@ -157,7 +157,7 @@ test "ziggurant exp dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        _ = prng.random.floatExp(f64);
+        _ = prng.random().floatExp(f64);
     }
 }
 
