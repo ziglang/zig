@@ -284,6 +284,7 @@ const Code = struct {
         TestSafety: []const u8,
         Exe: ExpectedOutcome,
         Obj: ?[]const u8,
+        Lib,
     };
 };
 
@@ -484,6 +485,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     } else if (mem.eql(u8, code_kind_str, "obj_err")) {
                         code_kind_id = Code.Id{ .Obj = name };
                         name = "test";
+                    } else if (mem.eql(u8, code_kind_str, "lib")) {
+                        code_kind_id = Code.Id.Lib;
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
                         code_kind_id = Code.Id{ .Obj = null };
                         is_inline = true;
@@ -1401,6 +1404,42 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         if (!code.is_inline) {
                             try out.print("</code></pre>\n");
                         }
+                    },
+                    Code.Id.Lib => {
+                        var test_args = std.ArrayList([]const u8).init(allocator);
+                        defer test_args.deinit();
+
+                        try test_args.appendSlice([][]const u8{
+                            zig_exe,
+                            "build-lib",
+                            tmp_source_file_name,
+                            "--output-dir",
+                            tmp_dir_name,
+                        });
+                        try out.print("<pre><code class=\"shell\">$ zig build-lib {}.zig", code.name);
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => {
+                                try test_args.append("--release-safe");
+                                try out.print(" --release-safe");
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try test_args.append("--release-fast");
+                                try out.print(" --release-fast");
+                            },
+                            builtin.Mode.ReleaseSmall => {
+                                try test_args.append("--release-small");
+                                try out.print(" --release-small");
+                            },
+                        }
+                        if (code.target_str) |triple| {
+                            try test_args.appendSlice([][]const u8{ "-target", triple });
+                            try out.print(" -target {}", triple);
+                        }
+                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
+                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
+                        try out.print("\n{}{}</code></pre>\n", escaped_stderr, escaped_stdout);
                     },
                 }
                 warn("OK\n");
