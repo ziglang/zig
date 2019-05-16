@@ -8548,7 +8548,7 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && g->zig_target->os != OsFreestanding &&
+    if (!g->is_test_build && (g->zig_target->os != OsFreestanding || target_is_wasm(g->zig_target)) &&
         g->zig_target->os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))

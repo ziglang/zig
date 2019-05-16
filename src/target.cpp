@@ -947,8 +947,6 @@ bool target_allows_addr_zero(const ZigTarget *target) {
 const char *target_o_file_ext(const ZigTarget *target) {
     if (target->abi == ZigLLVM_MSVC || target->os == OsWindows || target->os == OsUefi) {
         return ".obj";
-    } else if (target_is_wasm(target)) {
-        return ".wasm";
     } else {
         return ".o";
     }
@@ -975,7 +973,7 @@ const char *target_exe_file_ext(const ZigTarget *target) {
 }
 
 const char *target_lib_file_prefix(const ZigTarget *target) {
-    if (target->os == OsWindows || target->os == OsUefi) {
+    if (target->os == OsWindows || target->os == OsUefi || target_is_wasm(target)) {
         return "";
     } else {
         return "lib";
@@ -985,6 +983,9 @@ const char *target_lib_file_prefix(const ZigTarget *target) {
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch)
 {
+    if (target_is_wasm(target)) {
+        return ".wasm";
+    }
     if (target->os == OsWindows || target->os == OsUefi) {
         if (is_static) {
             return ".lib";

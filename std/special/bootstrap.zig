@@ -25,20 +25,24 @@ nakedcc fn _start() noreturn {
     }
 
     switch (builtin.arch) {
-        builtin.Arch.x86_64 => {
+        .x86_64 => {
             argc_ptr = asm ("lea (%%rsp), %[argc]"
                 : [argc] "=r" (-> [*]usize)
             );
         },
-        builtin.Arch.i386 => {
+        .i386 => {
             argc_ptr = asm ("lea (%%esp), %[argc]"
                 : [argc] "=r" (-> [*]usize)
             );
         },
-        builtin.Arch.aarch64, builtin.Arch.aarch64_be => {
+        .aarch64, .aarch64_be => {
             argc_ptr = asm ("mov %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );
+        },
+        .wasm32, .wasm64 => {
+            _ = callMain();
+            while (true) {}
         },
         else => @compileError("unsupported arch"),
     }
