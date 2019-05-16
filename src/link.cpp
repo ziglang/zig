@@ -800,19 +800,18 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
     return &child_gen->output_file_path;
 }
 
-static Buf *build_a(CodeGen *parent_gen, const char *aname) {
-    Buf *source_basename = buf_sprintf("%s.zig", aname);
-    Buf *full_path = buf_alloc();
-    os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
-
-    return build_a_raw(parent_gen, aname, full_path, OutTypeLib);
-}
-
 static Buf *build_compiler_rt(CodeGen *parent_gen, OutType child_out_type) {
     Buf *full_path = buf_alloc();
     os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt.zig"), full_path);
 
     return build_a_raw(parent_gen, "compiler_rt", full_path, child_out_type);
+}
+
+static Buf *build_c(CodeGen *parent_gen, OutType child_out_type) {
+    Buf *full_path = buf_alloc();
+    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("c.zig"), full_path);
+
+    return build_a_raw(parent_gen, "c", full_path, child_out_type);
 }
 
 static const char *get_darwin_arch_string(const ZigTarget *t) {
@@ -1003,7 +1002,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
         if (g->libc_link_lib == nullptr) {
-            Buf *libc_a_path = build_a(g, "c");
+            Buf *libc_a_path = build_c(g, OutTypeLib);
             lj->args.append(buf_ptr(libc_a_path));
         }
 
@@ -1118,10 +1117,10 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     }
 
     if (g->out_type != OutTypeObj) {
-        Buf *libc_a_path = build_a(g, "c");
-        lj->args.append(buf_ptr(libc_a_path));
+        Buf *libc_o_path = build_c(g, OutTypeObj);
+        lj->args.append(buf_ptr(libc_o_path));
 
-        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
+        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 }
@@ -1360,7 +1359,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
         if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
-            Buf *libc_a_path = build_a(g, "c");
+            Buf *libc_a_path = build_c(g, OutTypeLib);
             lj->args.append(buf_ptr(libc_a_path));
         }
 
@@ -1687,7 +1686,7 @@ void codegen_link(CodeGen *g) {
         lj.args.append("-r");
     }
 
-    if (g->out_type == OutTypeLib && !g->is_dynamic) {
+    if (g->out_type == OutTypeLib && !g->is_dynamic && !target_is_wasm(g->zig_target)) {
         ZigList<const char *> file_names = {};
         for (size_t i = 0; i < g->link_objects.length; i += 1) {
             file_names.append(buf_ptr(g->link_objects.at(i)));
