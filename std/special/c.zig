@@ -20,11 +20,49 @@ comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
         @export("_start", wasm_start, .Strong);
     }
+    if (builtin.link_libc) {
+        @export("strcmp", strcmp, .Strong);
+        @export("strncmp", strncmp, .Strong);
+        @export("strerror", strerror, .Strong);
+        @export("strlen", strlen, .Strong);
+    }
 }
 
 extern fn main(argc: c_int, argv: [*][*]u8) c_int;
 extern fn wasm_start() void {
     _ = main(0, undefined);
+}
+
+extern fn strcmp(s1: [*]const u8, s2: [*]const u8) c_int {
+    return std.cstr.cmp(s1, s2);
+}
+
+extern fn strlen(s: [*]const u8) usize {
+    return std.mem.len(u8, s);
+}
+
+extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
+    if (_n == 0) return 0;
+    var l = _l;
+    var r = _r;
+    var n = _n - 1;
+    while (l[0] != 0 and r[0] != 0 and n != 0 and l[0] == r[0]) {
+        l += 1;
+        r += 1;
+        n -= 1;
+    }
+    return c_int(l[0]) - c_int(r[0]);
+}
+
+extern fn strerror(errnum: c_int) [*]const u8 {
+    return c"TODO strerror implementation";
+}
+
+test "strncmp" {
+    std.testing.expect(strncmp(c"a", c"b", 1) == -1);
+    std.testing.expect(strncmp(c"a", c"c", 1) == -2);
+    std.testing.expect(strncmp(c"b", c"a", 1) == 1);
+    std.testing.expect(strncmp(c"\xff", c"\x02", 1) == 253);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
