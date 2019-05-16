@@ -947,6 +947,8 @@ bool target_allows_addr_zero(const ZigTarget *target) {
 const char *target_o_file_ext(const ZigTarget *target) {
     if (target->abi == ZigLLVM_MSVC || target->os == OsWindows || target->os == OsUefi) {
         return ".obj";
+    } else if (target_is_wasm(target)) {
+        return ".wasm";
     } else {
         return ".o";
     }
