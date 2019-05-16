@@ -1097,6 +1097,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         tokenize_error(&t, "invalid digit: '%c'", c);
+                        break;
                     }
                     t.char_code *= t.radix;
                     t.char_code += digit_value;
