@@ -8960,7 +8960,7 @@ all your base are belong to us</code></pre>
       {#header_close#}
       {#header_open|WebAssembly#}
       {#header_open|Freestanding#}
-      {#code_begin|exe|wasm#}
+      {#code_begin|lib|wasm#}
       {#target_wasm#}
 extern fn print(i32) void;
 
