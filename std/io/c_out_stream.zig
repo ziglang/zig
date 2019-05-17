@@ -7,21 +7,16 @@ const posix = std.os.posix;
 /// std.io.FileOutStream because std.os.File.write would do this when linking
 /// libc.
 pub const COutStream = struct {
-    pub const Error = std.os.File.WriteError;
-    pub const Stream = OutStream(Error);
 
-    stream: Stream,
     c_file: *std.c.FILE,
 
     pub fn init(c_file: *std.c.FILE) COutStream {
         return COutStream{
             .c_file = c_file,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(COutStream, "stream", out_stream);
+    fn writeFn(self: *COutStream, bytes: []const u8) !void {
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
         // TODO errno on windows. should we have a posix layer for windows?
@@ -44,5 +39,13 @@ pub const COutStream = struct {
             posix.EPIPE => return error.BrokenPipe,
             else => return std.os.unexpectedErrorPosix(@intCast(usize, errno)),
         }
+    }
+    
+    const OutStreamImpl = OutStream(*COutStream, @typeOf(writeFn));
+    pub fn outStream(self: *COutStream) OutStreamImpl {
+        return OutStreamImpl {
+            .impl = self,
+            .writeFn = writeFn,
+        };
     }
 };

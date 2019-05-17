@@ -22,8 +22,8 @@ test "write a file, read it, then delete it" {
         defer file.close();
 
         var file_out_stream = file.outStream();
-        var buf_stream = io.BufferedOutStream(os.File.WriteError).init(&file_out_stream.stream);
-        const st = &buf_stream.stream;
+        var buf_stream = io.BufferedOutStream(os.File.OutStreamImpl).init(file_out_stream);
+        const st = buf_stream.outStream();
         try st.print("begin");
         try st.write(data[0..]);
         try st.print("end");
@@ -48,8 +48,8 @@ test "write a file, read it, then delete it" {
         expect(file_size == expected_file_size);
 
         var file_in_stream = file.inStream();
-        var buf_stream = io.BufferedInStream(os.File.ReadError).init(&file_in_stream.stream);
-        const st = &buf_stream.stream;
+        var buf_stream = io.BufferedInStream(os.File.InStreamImpl).init(file_in_stream);
+        const st = buf_stream.inStream();
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
         defer allocator.free(contents);
 
@@ -65,7 +65,7 @@ test "BufferOutStream" {
     var allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
 
     var buffer = try std.Buffer.initSize(allocator, 0);
-    var buf_stream = &std.io.BufferOutStream.init(&buffer).stream;
+    var buf_stream = &std.io.BufferOutStream.init(&buffer).outStream();
 
     const x: i32 = 42;
     const y: i32 = 1234;
@@ -80,46 +80,46 @@ test "SliceInStream" {
 
     var dest: [4]u8 = undefined;
 
-    var read = try ss.stream.read(dest[0..4]);
+    var read = try ss.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
-    read = try ss.stream.read(dest[0..4]);
+    read = try ss.inStream().read(dest[0..4]);
     expect(read == 3);
     expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try ss.stream.read(dest[0..4]);
+    read = try ss.inStream().read(dest[0..4]);
     expect(read == 0);
 }
 
 test "PeekStream" {
     const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(bytes);
-    var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
+    var ps = io.PeekStream(2, io.SliceInStream.InStreamImpl).init(ss.inStream());
 
     var dest: [4]u8 = undefined;
 
     ps.putBackByte(9);
     ps.putBackByte(10);
 
-    var read = try ps.stream.read(dest[0..4]);
+    var read = try ps.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(dest[0] == 10);
     expect(dest[1] == 9);
     expect(mem.eql(u8, dest[2..4], bytes[0..2]));
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(mem.eql(u8, dest[0..4], bytes[2..6]));
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 2);
     expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
     ps.putBackByte(11);
     ps.putBackByte(12);
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 2);
     expect(dest[0] == 12);
     expect(dest[1] == 11);
@@ -129,19 +129,19 @@ test "SliceOutStream" {
     var buffer: [10]u8 = undefined;
     var ss = io.SliceOutStream.init(buffer[0..]);
 
-    try ss.stream.write("Hello");
+    try ss.outStream().write("Hello");
     expect(mem.eql(u8, ss.getWritten(), "Hello"));
 
-    try ss.stream.write("world");
+    try ss.outStream().write("world");
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
-    expectError(error.OutOfSpace, ss.stream.write("!"));
+    expectError(error.OutOfSpace, ss.outStream().write("!"));
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
     ss.reset();
     expect(ss.getWritten().len == 0);
 
-    expectError(error.OutOfSpace, ss.stream.write("Hello world!"));
+    expectError(error.OutOfSpace, ss.outStream().write("Hello world!"));
     expect(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
 
@@ -150,8 +150,8 @@ test "BitInStream" {
     const mem_le = []u8{ 0b00011101, 0b10010101 };
 
     var mem_in_be = io.SliceInStream.init(mem_be[0..]);
-    const InError = io.SliceInStream.Error;
-    var bit_stream_be = io.BitInStream(builtin.Endian.Big, InError).init(&mem_in_be.stream);
+    const InStreamImpl = io.SliceInStream.InStreamImpl;
+    var bit_stream_be = io.BitInStream(.Big, InStreamImpl).init(mem_in_be.inStream());
 
     var out_bits: usize = undefined;
 
@@ -185,7 +185,7 @@ test "BitInStream" {
     expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
 
     var mem_in_le = io.SliceInStream.init(mem_le[0..]);
-    var bit_stream_le = io.BitInStream(builtin.Endian.Little, InError).init(&mem_in_le.stream);
+    var bit_stream_le = io.BitInStream(.Little, InStreamImpl).init(mem_in_le.inStream());
 
     expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
     expect(out_bits == 1);
@@ -222,8 +222,8 @@ test "BitOutStream" {
     var mem_le = []u8{0} ** 2;
 
     var mem_out_be = io.SliceOutStream.init(mem_be[0..]);
-    const OutError = io.SliceOutStream.Error;
-    var bit_stream_be = io.BitOutStream(builtin.Endian.Big, OutError).init(&mem_out_be.stream);
+    const OutStreamImpl = io.SliceOutStream.OutStreamImpl;
+    var bit_stream_be = io.BitOutStream(.Big, OutStreamImpl).init(mem_out_be.outStream());
 
     try bit_stream_be.writeBits(u2(1), 1);
     try bit_stream_be.writeBits(u5(2), 2);
@@ -247,7 +247,7 @@ test "BitOutStream" {
     try bit_stream_be.writeBits(u0(0), 0);
 
     var mem_out_le = io.SliceOutStream.init(mem_le[0..]);
-    var bit_stream_le = io.BitOutStream(builtin.Endian.Little, OutError).init(&mem_out_le.stream);
+    var bit_stream_le = io.BitOutStream(.Little, OutStreamImpl).init(mem_out_le.outStream());
 
     try bit_stream_le.writeBits(u2(1), 1);
     try bit_stream_le.writeBits(u5(2), 2);
@@ -276,10 +276,9 @@ test "BitStreams with File Stream" {
         var file = try os.File.openWrite(tmp_file_name);
         defer file.close();
 
-        var file_out = file.outStream();
-        var file_out_stream = &file_out.stream;
-        const OutError = os.File.WriteError;
-        var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
+        var file_out_stream = file.outStream();
+        const OutStreamImpl = os.File.OutStreamImpl;
+        var bit_stream = io.BitOutStream(builtin.endian, OutStreamImpl).init(file_out_stream);
 
         try bit_stream.writeBits(u2(1), 1);
         try bit_stream.writeBits(u5(2), 2);
@@ -293,10 +292,9 @@ test "BitStreams with File Stream" {
         var file = try os.File.openRead(tmp_file_name);
         defer file.close();
 
-        var file_in = file.inStream();
-        var file_in_stream = &file_in.stream;
-        const InError = os.File.ReadError;
-        var bit_stream = io.BitInStream(builtin.endian, InError).init(file_in_stream);
+        var file_in_stream = file.inStream();
+        const InStreamImpl = os.File.InStreamImpl;
+        var bit_stream = io.BitInStream(builtin.endian, InStreamImpl).init(file_in_stream);
 
         var out_bits: usize = undefined;
 
@@ -331,14 +329,14 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     var data_mem: [total_bytes]u8 = undefined;
     var out = io.SliceOutStream.init(data_mem[0..]);
-    const OutError = io.SliceOutStream.Error;
-    var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
+    const OutStreamImpl = io.SliceOutStream.OutStreamImpl;
+    var out_stream = out.outStream();
+    var serializer = io.Serializer(endian, packing, OutStreamImpl).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
-    const InError = io.SliceInStream.Error;
-    var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
+    const InStreamImpl = io.SliceInStream.InStreamImpl;
+    var in_stream = in.inStream();
+    var deserializer = io.Deserializer(endian, packing, InStreamImpl).init(in_stream);
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
@@ -370,10 +368,9 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     //Verify that empty error set works with serializer.
     //deserializer is covered by SliceInStream
-    const NullError = io.NullOutStream.Error;
-    var null_out = io.NullOutStream.init();
-    var null_out_stream = &null_out.stream;
-    var null_serializer = io.Serializer(endian, packing, NullError).init(null_out_stream);
+    const NullOutStreamImpl = io.NullOutStream.OutStreamImpl;
+    var null_out_stream = io.null_out_stream;
+    var null_serializer = io.Serializer(endian, packing, NullOutStreamImpl).init(null_out_stream);
     try null_serializer.serialize(data_mem[0..]);
     try null_serializer.flush();
 }
@@ -395,14 +392,14 @@ fn testIntSerializerDeserializerInfNaN(
     var data_mem: [mem_size]u8 = undefined;
 
     var out = io.SliceOutStream.init(data_mem[0..]);
-    const OutError = io.SliceOutStream.Error;
-    var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
+    const OutStreamImpl = io.SliceOutStream.OutStreamImpl;
+    var out_stream = out.outStream();
+    var serializer = io.Serializer(endian, packing, OutStreamImpl).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
-    const InError = io.SliceInStream.Error;
-    var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
+    const InStreamImpl = io.SliceInStream.InStreamImpl;
+    var in_stream = in.inStream();
+    var deserializer = io.Deserializer(endian, packing, InStreamImpl).init(in_stream);
 
     //@TODO: isInf/isNan not currently implemented for f128.
     try serializer.serialize(std.math.nan(f16));
@@ -527,14 +524,14 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
 
     var data_mem: [@sizeOf(MyStruct)]u8 = undefined;
     var out = io.SliceOutStream.init(data_mem[0..]);
-    const OutError = io.SliceOutStream.Error;
-    var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
+    const OutStreamImpl = io.SliceOutStream.OutStreamImpl;
+    var out_stream = out.outStream();
+    var serializer = io.Serializer(endian, packing, OutStreamImpl).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
-    const InError = io.SliceInStream.Error;
-    var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
+    const InStreamImpl = io.SliceInStream.InStreamImpl;
+    var in_stream = in.inStream();
+    var deserializer = io.Deserializer(endian, packing, InStreamImpl).init(in_stream);
 
     try serializer.serialize(my_inst);
 
@@ -566,14 +563,14 @@ fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !v
 
     var data_mem: [4]u8 = undefined;
     var out = io.SliceOutStream.init(data_mem[0..]);
-    const OutError = io.SliceOutStream.Error;
-    var out_stream = &out.stream;
-    var serializer = io.Serializer(endian, packing, OutError).init(out_stream);
+    const OutStreamImpl = io.SliceOutStream.OutStreamImpl;
+    var out_stream = out.outStream();
+    var serializer = io.Serializer(endian, packing, OutStreamImpl).init(out_stream);
 
     var in = io.SliceInStream.init(data_mem[0..]);
-    const InError = io.SliceInStream.Error;
-    var in_stream = &in.stream;
-    var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
+    const InStreamImpl = io.SliceInStream.InStreamImpl;
+    var in_stream = in.inStream();
+    var deserializer = io.Deserializer(endian, packing, InStreamImpl).init(in_stream);
 
     try serializer.serialize(u14(3));
     expectError(error.InvalidEnumTag, deserializer.deserialize(A));
@@ -597,6 +594,6 @@ test "c out stream" {
     const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
     defer std.os.deleteFileC(filename) catch {};
 
-    const out_stream = &io.COutStream.init(out_file).stream;
+    const out_stream = io.COutStream.init(out_file).outStream();
     try out_stream.print("hi: {}\n", i32(123));
 }

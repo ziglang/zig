@@ -9,7 +9,7 @@ pub const ConstAny = ?*const @OpaqueType();
 
 pub fn toAny(self: var) Any {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or @sizeOf(T) == 0) return @intToPtr(Any, 0);
+    if(@alignOf(T) == 0 or @sizeOf(T) == 0) return null;
     return @ptrCast(Any, self);
 }
 
@@ -21,7 +21,7 @@ pub fn fromAny(comptime T: type, any: Any) *T {
 pub fn toConstAny(self: var) ConstAny
 {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or  @sizeOf(T) == 0) return @intToPtr(AnyConst, 0);
+    if(@alignOf(T) == 0 or  @sizeOf(T) == 0) return null;
     return @ptrCast(AnyConst, self);
 }
 
