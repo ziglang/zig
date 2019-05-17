@@ -56,6 +56,7 @@ enum Error {
     ErrorCacheUnavailable,
     ErrorPathTooLong,
     ErrorCCompilerCannotFindFile,
+    ErrorNoCCompilerInstalled,
     ErrorReadingDepFile,
     ErrorInvalidDepFile,
     ErrorMissingArchitecture,

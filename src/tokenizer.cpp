@@ -1097,6 +1097,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         tokenize_error(&t, "invalid digit: '%c'", c);
+                        break;
                     }
                     t.char_code *= t.radix;
                     t.char_code += digit_value;
@@ -1106,6 +1107,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         if (t.unicode) {
                             if (t.char_code > 0x10ffff) {
                                 tokenize_error(&t, "unicode value out of range: %x", t.char_code);
+                                break;
                             }
                             if (t.cur_tok->id == TokenIdCharLiteral) {
                                 t.cur_tok->data.char_lit.c = t.char_code;
@@ -1146,6 +1148,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '\'':
                         tokenize_error(&t, "expected character");
+                        break;
                     case '\\':
                         t.state = TokenizeStateStringEscape;
                         break;
@@ -1389,8 +1392,10 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateCharCode:
             if (t.cur_tok->id == TokenIdStringLiteral) {
                 tokenize_error(&t, "unterminated string");
+                break;
             } else if (t.cur_tok->id == TokenIdCharLiteral) {
                 tokenize_error(&t, "unterminated character literal");
+                break;
             } else {
                 zig_unreachable();
             }

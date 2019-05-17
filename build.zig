@@ -71,6 +71,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
+    const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
@@ -115,11 +116,11 @@ pub fn build(b: *Builder) !void {
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, skip_non_native));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes, skip_non_native));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, skip_non_native));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
@@ -384,11 +385,17 @@ const Context = struct {
 };
 
 fn addLibUserlandStep(b: *Builder) void {
+    // Sadly macOS requires hacks to work around the buggy MACH-O linker code.
     const artifact = if (builtin.os == .macosx)
         b.addObject("userland", "src-self-hosted/stage1.zig")
     else
         b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
     artifact.disable_gen_h = true;
+    if (builtin.os == .macosx) {
+        artifact.disable_stack_probing = true;
+    } else {
+        artifact.bundle_compiler_rt = true;
+    }
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");

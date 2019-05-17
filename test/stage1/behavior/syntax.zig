@@ -1,6 +1,14 @@
 // Test trailing comma syntax
 // zig fmt: off
 
+extern var a: c_int;
+extern "c" var b: c_int;
+export var c: c_int = 0;
+threadlocal var d: c_int;
+extern threadlocal var e: c_int;
+extern "c" threadlocal var f: c_int;
+export threadlocal var g: c_int = 0;
+
 const struct_trailing_comma = struct { x: i32, y: i32, };
 const struct_no_comma = struct { x: i32, y: i32 };
 const struct_fn_no_comma = struct { fn m() void {} y: i32 };

@@ -1,11 +1,7 @@
 const builtin = @import("builtin");
 const math = @import("index.zig").math;
 
-
-pub fn doClientRequest(default: usize, request: usize,
-        a1: usize, a2: usize, a3: usize, a4: usize, a5: usize
-    ) usize
-{
+pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
     if (!builtin.valgrind_support) {
         return default;
     }
@@ -17,7 +13,7 @@ pub fn doClientRequest(default: usize, request: usize,
                 \\ roll $29, %%edi ; roll $19, %%edi
                 \\ xchgl %%ebx,%%ebx
                 : [_] "={edx}" (-> usize)
-                : [_] "{eax}" (&[]usize{request, a1, a2, a3, a4, a5}),
+                : [_] "{eax}" (&[]usize{ request, a1, a2, a3, a4, a5 }),
                   [_] "0" (default)
                 : "cc", "memory"
             );
@@ -28,7 +24,7 @@ pub fn doClientRequest(default: usize, request: usize,
                 \\ rolq $61, %%rdi ; rolq $51, %%rdi
                 \\ xchgq %%rbx,%%rbx
                 : [_] "={rdx}" (-> usize)
-                : [_] "{rax}" (&[]usize{request, a1, a2, a3, a4, a5}),
+                : [_] "{rax}" (&[]usize{ request, a1, a2, a3, a4, a5 }),
                   [_] "0" (default)
                 : "cc", "memory"
             );
@@ -42,10 +38,9 @@ pub fn doClientRequest(default: usize, request: usize,
         // mips64
         else => {
             return default;
-        }
+        },
     }
 }
-
 
 pub const ClientRequest = extern enum {
     RunningOnValgrind = 4097,
@@ -81,58 +76,38 @@ pub const ClientRequest = extern enum {
     InnerThreads = 6402,
 };
 pub fn ToolBase(base: [2]u8) u32 {
-    return (u32(base[0]&0xff) << 24) | (u32(base[1]&0xff) << 16);
+    return (u32(base[0] & 0xff) << 24) | (u32(base[1] & 0xff) << 16);
 }
 pub fn IsTool(base: [2]u8, code: usize) bool {
     return ToolBase(base) == (code & 0xffff0000);
 }
 
-fn doClientRequestExpr(default: usize, request: ClientRequest,
-        a1: usize, a2: usize, a3: usize, a4: usize, a5: usize
-    ) usize
-{
-    return doClientRequest(
-        default,
-        @intCast(usize, @enumToInt(request)),
-        a1, a2, a3, a4, a5);
+fn doClientRequestExpr(default: usize, request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
+    return doClientRequest(default, @intCast(usize, @enumToInt(request)), a1, a2, a3, a4, a5);
 }
 
-fn doClientRequestStmt(request: ClientRequest,
-        a1: usize, a2: usize, a3: usize, a4: usize, a5: usize
-    ) void
-{
+fn doClientRequestStmt(request: ClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
     _ = doClientRequestExpr(0, request, a1, a2, a3, a4, a5);
 }
-
-
 
 /// Returns the number of Valgrinds this code is running under.  That
 /// is, 0 if running natively, 1 if running under Valgrind, 2 if
 /// running under Valgrind which is running under another Valgrind,
 /// etc.
 pub fn runningOnValgrind() usize {
-    return doClientRequestExpr(0,
-        ClientRequest.RunningOnValgrind,
-        0, 0, 0, 0, 0);
+    return doClientRequestExpr(0, ClientRequest.RunningOnValgrind, 0, 0, 0, 0, 0);
 }
-
 
 /// Discard translation of code in the slice qzz.  Useful if you are debugging
 /// a JITter or some such, since it provides a way to make sure valgrind will
 /// retranslate the invalidated area.  Returns no value.
 pub fn discardTranslations(qzz: []const u8) void {
-    doClientRequestStmt(ClientRequest.DiscardTranslations,
-        @ptrToInt(qzz.ptr), qzz.len,
-        0, 0, 0);
+    doClientRequestStmt(ClientRequest.DiscardTranslations, @ptrToInt(qzz.ptr), qzz.len, 0, 0, 0);
 }
-
 
 pub fn innerThreads(qzz: [*]u8) void {
-    doClientRequestStmt(ClientRequest.InnerThreads,
-        qzz,
-        0, 0, 0, 0);
+    doClientRequestStmt(ClientRequest.InnerThreads, qzz, 0, 0, 0, 0);
 }
-
 
 //pub fn printf(format: [*]const u8, args: ...) usize {
 //    return doClientRequestExpr(0,
@@ -141,7 +116,6 @@ pub fn innerThreads(qzz: [*]u8) void {
 //        0, 0, 0);
 //}
 
-
 //pub fn printfBacktrace(format: [*]const u8, args: ...) usize {
 //    return doClientRequestExpr(0,
 //        ClientRequest.PrintfBacktraceValistByRef,
@@ -149,70 +123,41 @@ pub fn innerThreads(qzz: [*]u8) void {
 //        0, 0, 0);
 //}
 
-
-pub fn nonSIMDCall0(func: fn(usize) usize) usize {
-    return doClientRequestExpr(0,
-        ClientRequest.ClientCall0,
-        @ptrToInt(func),
-        0, 0, 0, 0);
+pub fn nonSIMDCall0(func: fn (usize) usize) usize {
+    return doClientRequestExpr(0, ClientRequest.ClientCall0, @ptrToInt(func), 0, 0, 0, 0);
 }
 
-pub fn nonSIMDCall1(func: fn(usize, usize) usize, a1: usize) usize {
-    return doClientRequestExpr(0,
-        ClientRequest.ClientCall1,
-        @ptrToInt(func), a1,
-        0, 0, 0);
+pub fn nonSIMDCall1(func: fn (usize, usize) usize, a1: usize) usize {
+    return doClientRequestExpr(0, ClientRequest.ClientCall1, @ptrToInt(func), a1, 0, 0, 0);
 }
 
-pub fn nonSIMDCall2(func: fn(usize, usize, usize) usize,
-    a1: usize, a2: usize) usize
-{
-    return doClientRequestExpr(0,
-        ClientRequest.ClientCall2,
-        @ptrToInt(func), a1, a2,
-        0, 0);
+pub fn nonSIMDCall2(func: fn (usize, usize, usize) usize, a1: usize, a2: usize) usize {
+    return doClientRequestExpr(0, ClientRequest.ClientCall2, @ptrToInt(func), a1, a2, 0, 0);
 }
 
-pub fn nonSIMDCall3(func: fn(usize, usize, usize, usize) usize,
-    a1: usize, a2: usize, a3: usize) usize
-{
-    return doClientRequestExpr(0,
-        ClientRequest.ClientCall3,
-        @ptrToInt(func), a1, a2, a3,
-        0);
+pub fn nonSIMDCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: usize, a3: usize) usize {
+    return doClientRequestExpr(0, ClientRequest.ClientCall3, @ptrToInt(func), a1, a2, a3, 0);
 }
-
 
 /// Counts the number of errors that have been recorded by a tool.  Nb:
 /// the tool must record the errors with VG_(maybe_record_error)() or
 /// VG_(unique_error)() for them to be counted.
 pub fn countErrors() usize {
     return doClientRequestExpr(0, // default return
-        ClientRequest.CountErrors,
-        0, 0, 0, 0, 0);
+        ClientRequest.CountErrors, 0, 0, 0, 0, 0);
 }
-
 
 pub fn mallocLikeBlock(mem: []u8, rzB: usize, is_zeroed: bool) void {
-    doClientRequestStmt(ClientRequest.MalloclikeBlock,
-        @ptrToInt(mem.ptr), mem.len, rzB, @boolToInt(is_zeroed),
-        0);
+    doClientRequestStmt(ClientRequest.MalloclikeBlock, @ptrToInt(mem.ptr), mem.len, rzB, @boolToInt(is_zeroed), 0);
 }
-
 
 pub fn resizeInPlaceBlock(oldmem: []u8, newsize: usize, rzB: usize) void {
-    doClientRequestStmt(ClientRequest.ResizeinplaceBlock,
-        @ptrToInt(oldmem.ptr), oldmem.len, newsize, rzB,
-        0);
+    doClientRequestStmt(ClientRequest.ResizeinplaceBlock, @ptrToInt(oldmem.ptr), oldmem.len, newsize, rzB, 0);
 }
-
 
 pub fn freeLikeBlock(addr: [*]u8, rzB: usize) void {
-    doClientRequestStmt(ClientRequest.FreelikeBlock,
-        @ptrToInt(addr), rzB,
-        0, 0, 0);
+    doClientRequestStmt(ClientRequest.FreelikeBlock, @ptrToInt(addr), rzB, 0, 0, 0);
 }
-
 
 /// Create a memory pool.
 pub const MempoolFlags = extern enum {
@@ -220,89 +165,62 @@ pub const MempoolFlags = extern enum {
     MetaPool = 2,
 };
 pub fn createMempool(pool: [*]u8, rzB: usize, is_zeroed: bool, flags: usize) void {
-    doClientRequestStmt(ClientRequest.CreateMempool,
-        @ptrToInt(pool), rzB, @boolToInt(is_zeroed), flags,
-        0);
+    doClientRequestStmt(ClientRequest.CreateMempool, @ptrToInt(pool), rzB, @boolToInt(is_zeroed), flags, 0);
 }
 
 /// Destroy a memory pool.
 pub fn destroyMempool(pool: [*]u8) void {
-    doClientRequestStmt(ClientRequest.DestroyMempool,
-        pool,
-        0, 0, 0, 0);
+    doClientRequestStmt(ClientRequest.DestroyMempool, pool, 0, 0, 0, 0);
 }
-
 
 /// Associate a piece of memory with a memory pool.
 pub fn mempoolAlloc(pool: [*]u8, mem: []u8) void {
-    doClientRequestStmt(ClientRequest.MempoolAlloc,
-        @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len,
-        0, 0);
+    doClientRequestStmt(ClientRequest.MempoolAlloc, @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len, 0, 0);
 }
 
 /// Disassociate a piece of memory from a memory pool.
 pub fn mempoolFree(pool: [*]u8, addr: [*]u8) void {
-    doClientRequestStmt(ClientRequest.MempoolFree,
-        @ptrToInt(pool), @ptrToInt(addr),
-        0, 0, 0);
+    doClientRequestStmt(ClientRequest.MempoolFree, @ptrToInt(pool), @ptrToInt(addr), 0, 0, 0);
 }
 
 /// Disassociate any pieces outside a particular range.
 pub fn mempoolTrim(pool: [*]u8, mem: []u8) void {
-    doClientRequestStmt(ClientRequest.MempoolTrim,
-        @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len,
-        0, 0);
+    doClientRequestStmt(ClientRequest.MempoolTrim, @ptrToInt(pool), @ptrToInt(mem.ptr), mem.len, 0, 0);
 }
 
 /// Resize and/or move a piece associated with a memory pool.
 pub fn moveMempool(poolA: [*]u8, poolB: [*]u8) void {
-    doClientRequestStmt(ClientRequest.MoveMempool,
-        @ptrToInt(poolA), @ptrToInt(poolB),
-        0, 0, 0);
+    doClientRequestStmt(ClientRequest.MoveMempool, @ptrToInt(poolA), @ptrToInt(poolB), 0, 0, 0);
 }
 
 /// Resize and/or move a piece associated with a memory pool.
 pub fn mempoolChange(pool: [*]u8, addrA: [*]u8, mem: []u8) void {
-    doClientRequestStmt(ClientRequest.MempoolChange,
-        @ptrToInt(pool), @ptrToInt(addrA), @ptrToInt(mem.ptr), mem.len,
-        0);
+    doClientRequestStmt(ClientRequest.MempoolChange, @ptrToInt(pool), @ptrToInt(addrA), @ptrToInt(mem.ptr), mem.len, 0);
 }
 
 /// Return if a mempool exists.
 pub fn mempoolExists(pool: [*]u8) bool {
-    return doClientRequestExpr(0,
-        ClientRequest.MempoolExists,
-        @ptrToInt(pool),
-        0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, ClientRequest.MempoolExists, @ptrToInt(pool), 0, 0, 0, 0) != 0;
 }
-
 
 /// Mark a piece of memory as being a stack. Returns a stack id.
 /// start is the lowest addressable stack byte, end is the highest
 /// addressable stack byte.
 pub fn stackRegister(stack: []u8) usize {
-    return doClientRequestExpr(0,
-        ClientRequest.StackRegister,
-        @ptrToInt(stack.ptr), @ptrToInt(stack.ptr) + stack.len,
-        0, 0, 0);
+    return doClientRequestExpr(0, ClientRequest.StackRegister, @ptrToInt(stack.ptr), @ptrToInt(stack.ptr) + stack.len, 0, 0, 0);
 }
 
 /// Unmark the piece of memory associated with a stack id as being a stack.
 pub fn stackDeregister(id: usize) void {
-    doClientRequestStmt(ClientRequest.StackDeregister,
-        id,
-        0, 0, 0, 0);
+    doClientRequestStmt(ClientRequest.StackDeregister, id, 0, 0, 0, 0);
 }
 
 /// Change the start and end address of the stack id.
 /// start is the new lowest addressable stack byte, end is the new highest
 /// addressable stack byte.
 pub fn stackChange(id: usize, newstack: []u8) void {
-    doClientRequestStmt(ClientRequest.StackChange,
-        id, @ptrToInt(newstack.ptr), @ptrToInt(newstack.ptr) + newstack.len,
-        0, 0);
+    doClientRequestStmt(ClientRequest.StackChange, id, @ptrToInt(newstack.ptr), @ptrToInt(newstack.ptr) + newstack.len, 0, 0);
 }
-
 
 // Load PDB debug info for Wine PE image_map.
 // pub fn loadPdbDebuginfo(fd, ptr, total_size, delta) void {
@@ -311,18 +229,13 @@ pub fn stackChange(id: usize, newstack: []u8) void {
 //         0);
 // }
 
-
 /// Map a code address to a source file name and line number.  buf64
 /// must point to a 64-byte buffer in the caller's address space. The
 /// result will be dumped in there and is guaranteed to be zero
 /// terminated.  If no info is found, the first byte is set to zero.
 pub fn mapIpToSrcloc(addr: *const u8, buf64: [64]u8) usize {
-    return doClientRequestExpr(0,
-        ClientRequest.MapIpToSrcloc,
-        @ptrToInt(addr), @ptrToInt(&buf64[0]),
-        0, 0, 0);
+    return doClientRequestExpr(0, ClientRequest.MapIpToSrcloc, @ptrToInt(addr), @ptrToInt(&buf64[0]), 0, 0, 0);
 }
-
 
 /// Disable error reporting for this thread.  Behaves in a stack like
 /// way, so you can safely call this multiple times provided that
@@ -333,18 +246,13 @@ pub fn mapIpToSrcloc(addr: *const u8, buf64: [64]u8) usize {
 /// reporting.  Child threads do not inherit this setting from their
 /// parents -- they are always created with reporting enabled.
 pub fn disableErrorReporting() void {
-    doClientRequestStmt(ClientRequest.ChangeErrDisablement,
-        1,
-        0, 0, 0, 0);
+    doClientRequestStmt(ClientRequest.ChangeErrDisablement, 1, 0, 0, 0, 0);
 }
 
 /// Re-enable error reporting, (see disableErrorReporting())
 pub fn enableErrorReporting() void {
-    doClientRequestStmt(ClientRequest.ChangeErrDisablement,
-        math.maxInt(usize),
-        0, 0, 0, 0);
+    doClientRequestStmt(ClientRequest.ChangeErrDisablement, math.maxInt(usize), 0, 0, 0, 0);
 }
-
 
 /// Execute a monitor command from the client program.
 /// If a connection is opened with GDB, the output will be sent
@@ -352,12 +260,8 @@ pub fn enableErrorReporting() void {
 /// If no connection is opened, output will go to the log output.
 /// Returns 1 if command not recognised, 0 otherwise.
 pub fn monitorCommand(command: [*]u8) bool {
-    return doClientRequestExpr(0,
-        ClientRequest.GdbMonitorCommand,
-        @ptrToInt(command.ptr),
-        0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, ClientRequest.GdbMonitorCommand, @ptrToInt(command.ptr), 0, 0, 0, 0) != 0;
 }
-
 
 pub const memcheck = @import("memcheck.zig");
 pub const callgrind = @import("callgrind.zig");

@@ -249,4 +249,6 @@ ZigLLVMDIType *get_llvm_di_type(CodeGen *g, ZigType *type);
 
 void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_path, bool translate_c);
 
+void src_assert(bool ok, AstNode *source_node);
+
 #endif

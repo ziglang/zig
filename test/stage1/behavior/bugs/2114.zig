@@ -3,7 +3,7 @@ const expect = std.testing.expect;
 const math = std.math;
 
 fn ctz(x: var) usize {
-    return @ctz(x);
+    return @ctz(@typeOf(x), x);
 }
 
 test "fixed" {

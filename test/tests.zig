@@ -165,10 +165,20 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     return cases.step;
 }
 
-pub fn addPkgTests(b: *build.Builder, test_filter: ?[]const u8, root_src: []const u8, name: []const u8, desc: []const u8, modes: []const Mode) *build.Step {
+pub fn addPkgTests(
+    b: *build.Builder,
+    test_filter: ?[]const u8,
+    root_src: []const u8,
+    name: []const u8,
+    desc: []const u8,
+    modes: []const Mode,
+    skip_non_native: bool,
+) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
+        if (skip_non_native and !is_native)
+            continue;
         for (modes) |mode| {
             for ([]bool{ false, true }) |link_libc| {
                 for ([]bool{ false, true }) |single_threaded| {
@@ -903,6 +913,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
+        stage2: bool,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -955,7 +966,8 @@ pub const TranslateCContext = struct {
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
 
-            zig_args.append("translate-c") catch unreachable;
+            const translate_c_cmd = if (self.case.stage2) "translate-c-2" else "translate-c";
+            zig_args.append(translate_c_cmd) catch unreachable;
             zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
@@ -1052,6 +1064,7 @@ pub const TranslateCContext = struct {
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
+            .stage2 = false,
         };
 
         tc.addSourceFile(filename, source);
@@ -1072,6 +1085,34 @@ pub const TranslateCContext = struct {
         self.addCase(tc);
     }
 
+    pub fn add_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        for ([]bool{ false, true }) |stage2| {
+            const tc = self.create(false, "source.h", name, source, expected_lines);
+            tc.stage2 = stage2;
+            self.addCase(tc);
+        }
+    }
+
+    pub fn addC_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        for ([]bool{ false, true }) |stage2| {
+            const tc = self.create(false, "source.c", name, source, expected_lines);
+            tc.stage2 = stage2;
+            self.addCase(tc);
+        }
+    }
+
+    pub fn add_2(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        const tc = self.create(false, "source.h", name, source, expected_lines);
+        tc.stage2 = true;
+        self.addCase(tc);
+    }
+
+    pub fn addC_2(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+        const tc = self.create(false, "source.c", name, source, expected_lines);
+        tc.stage2 = true;
+        self.addCase(tc);
+    }
+
     pub fn addAllowWarnings(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
         const tc = self.create(true, "source.h", name, source, expected_lines);
         self.addCase(tc);
@@ -1080,7 +1121,8 @@ pub const TranslateCContext = struct {
     pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
         const b = self.b;
 
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "translate-c {}", case.name) catch unreachable;
+        const translate_c_cmd = if (case.stage2) "translate-c-2" else "translate-c";
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", translate_c_cmd, case.name) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }

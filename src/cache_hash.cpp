@@ -470,6 +470,8 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
     Error err;
     Buf *contents = buf_alloc();
     if ((err = os_fetch_file_path(dep_file_path, contents))) {
+        if (err == ErrorFileNotFound)
+            return err;
         if (verbose) {
             fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
         }

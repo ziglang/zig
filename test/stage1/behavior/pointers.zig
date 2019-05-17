@@ -150,3 +150,53 @@ test "allowzero pointer and slice" {
     expect(@typeInfo(@typeOf(ptr)).Pointer.is_allowzero);
     expect(@typeInfo(@typeOf(slice)).Pointer.is_allowzero);
 }
+
+test "assign null directly to C pointer and test null equality" {
+    var x: [*c]i32 = null;
+    expect(x == null);
+    expect(null == x);
+    expect(!(x != null));
+    expect(!(null != x));
+    if (x) |same_x| {
+        @panic("fail");
+    }
+    var otherx: i32 = undefined;
+    expect((x orelse &otherx) == &otherx);
+
+    const y: [*c]i32 = null;
+    comptime expect(y == null);
+    comptime expect(null == y);
+    comptime expect(!(y != null));
+    comptime expect(!(null != y));
+    if (y) |same_y| @panic("fail");
+    const othery: i32 = undefined;
+    comptime expect((y orelse &othery) == &othery);
+
+    var n: i32 = 1234;
+    var x1: [*c]i32 = &n;
+    expect(!(x1 == null));
+    expect(!(null == x1));
+    expect(x1 != null);
+    expect(null != x1);
+    expect(x1.?.* == 1234);
+    if (x1) |same_x1| {
+        expect(same_x1.* == 1234);
+    } else {
+        @panic("fail");
+    }
+    expect((x1 orelse &otherx) == x1);
+
+    const nc: i32 = 1234;
+    const y1: [*c]const i32 = &nc;
+    comptime expect(!(y1 == null));
+    comptime expect(!(null == y1));
+    comptime expect(y1 != null);
+    comptime expect(null != y1);
+    comptime expect(y1.?.* == 1234);
+    if (y1) |same_y1| {
+        expect(same_y1.* == 1234);
+    } else {
+        @compileError("fail");
+    }
+    comptime expect((y1 orelse &othery) == y1);
+}

@@ -1,4 +1,6 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
+const expectError = std.testing.expectError;
 
 test "switch with numbers" {
     testSwitchWithNumbers(13);
@@ -295,4 +297,66 @@ test "anon enum literal used in switch on union enum" {
             expect(x == 1234);
         },
     }
+}
+
+test "else prong of switch on error set excludes other cases" {
+    const S = struct {
+        fn doTheTest() void {
+            expectError(error.C, bar());
+        }
+        const E = error{
+            A,
+            B,
+        } || E2;
+
+        const E2 = error{
+            C,
+            D,
+        };
+
+        fn foo() E!void {
+            return error.C;
+        }
+
+        fn bar() E2!void {
+            foo() catch |err| switch (err) {
+                error.A, error.B => {},
+                else => |e| return e,
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "switch prongs with error set cases make a new error set type for capture value" {
+    const S = struct {
+        fn doTheTest() void {
+            expectError(error.B, bar());
+        }
+        const E = E1 || E2;
+
+        const E1 = error{
+            A,
+            B,
+        };
+
+        const E2 = error{
+            C,
+            D,
+        };
+
+        fn foo() E!void {
+            return error.B;
+        }
+
+        fn bar() E1!void {
+            foo() catch |err| switch (err) {
+                error.A, error.B => |e| return e,
+                else => {},
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

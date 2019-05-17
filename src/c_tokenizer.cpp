@@ -124,6 +124,8 @@ static void begin_token(CTokenize *ctok, CTokId id) {
         case CTokIdAsterisk:
         case CTokIdBang:
         case CTokIdTilde:
+        case CTokIdShl:
+        case CTokIdLt:
             break;
     }
 }
@@ -223,6 +225,10 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdDot);
                         end_token(ctok);
                         break;
+                    case '<':
+                        begin_token(ctok, CTokIdLt);
+                        ctok->state = CTokStateGotLt;
+                        break;
                     case '(':
                         begin_token(ctok, CTokIdLParen);
                         end_token(ctok);
@@ -249,6 +255,19 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         break;
                     default:
                         return mark_error(ctok);
+                }
+                break;
+            case CTokStateGotLt:
+                switch (*c) {
+                    case '<':
+                        ctok->cur_tok->id = CTokIdShl;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
                 }
                 break;
             case CTokStateFloat:
@@ -791,6 +810,7 @@ found_end_of_macro:
         case CTokStateNumLitIntSuffixL:
         case CTokStateNumLitIntSuffixUL:
         case CTokStateNumLitIntSuffixLL:
+        case CTokStateGotLt:
             end_token(ctok);
             break;
         case CTokStateFloat:

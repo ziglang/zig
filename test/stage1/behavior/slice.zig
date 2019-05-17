@@ -13,12 +13,6 @@ test "compile time slice of pointer to hard coded address" {
     expect(y.len == 0x400);
 }
 
-test "slice child property" {
-    var array: [5]i32 = undefined;
-    var slice = array[0..];
-    expect(@typeOf(slice).Child == i32);
-}
-
 test "runtime safety lets us slice from len..len" {
     var an_array = []u8{
         1,

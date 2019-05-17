@@ -44,16 +44,22 @@ pub const pthread_attr_t = extern struct {
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,
+
     /// size of address
     msg_namelen: socklen_t,
+
     /// scatter/gather array
     msg_iov: [*]iovec,
+
     /// # elements in msg_iov
     msg_iovlen: i32,
+
     /// ancillary data
     msg_control: ?*c_void,
+
     /// ancillary data buffer len
     msg_controllen: socklen_t,
+
     /// flags on received message
     msg_flags: i32,
 };
@@ -61,16 +67,22 @@ pub const msghdr = extern struct {
 pub const msghdr_const = extern struct {
     /// optional address
     msg_name: ?*const sockaddr,
+
     /// size of address
     msg_namelen: socklen_t,
+
     /// scatter/gather array
     msg_iov: [*]iovec_const,
+
     /// # elements in msg_iov
     msg_iovlen: i32,
+
     /// ancillary data
     msg_control: ?*c_void,
+
     /// ancillary data buffer len
     msg_controllen: socklen_t,
+
     /// flags on received message
     msg_flags: i32,
 };

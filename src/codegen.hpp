@@ -44,6 +44,7 @@ void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patc
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_link(CodeGen *g);
+void zig_link_add_compiler_rt(CodeGen *g);
 void codegen_build_and_link(CodeGen *g);
 
 ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,

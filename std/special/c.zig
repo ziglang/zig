@@ -1,9 +1,25 @@
-// These functions are provided when not linking against libc because LLVM
-// sometimes generates code that calls them.
+// This is Zig's multi-target implementation of libc.
+// When builtin.link_libc is true, we need to export all the functions and
+// provide an entire C API.
+// Otherwise, only the functions which LLVM generates calls to need to be generated,
+// such as memcpy, memset, and some math functions.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+
+const is_wasm = switch (builtin.arch) { .wasm32, .wasm64 => true, else => false};
+const is_freestanding = switch (builtin.os) { .freestanding => true, else => false };
+comptime {
+    if (is_freestanding and is_wasm and builtin.link_libc) {
+        @export("_start", wasm_start, .Strong);
+    }
+}
+
+extern fn main(argc: c_int, argv: [*][*]u8) c_int;
+extern fn wasm_start() void {
+    _ = main(0, undefined);
+}
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.

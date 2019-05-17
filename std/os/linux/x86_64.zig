@@ -333,6 +333,19 @@ pub const SYS_execveat = 322;
 pub const SYS_userfaultfd = 323;
 pub const SYS_membarrier = 324;
 pub const SYS_mlock2 = 325;
+pub const SYS_copy_file_range = 326;
+pub const SYS_preadv2 = 327;
+pub const SYS_pwritev2 = 328;
+pub const SYS_pkey_mprotect = 329;
+pub const SYS_pkey_alloc = 330;
+pub const SYS_pkey_free = 331;
+pub const SYS_statx = 332;
+pub const SYS_io_pgetevents = 333;
+pub const SYS_rseq = 334;
+pub const SYS_pidfd_send_signal = 424;
+pub const SYS_io_uring_setup = 425;
+pub const SYS_io_uring_enter = 426;
+pub const SYS_io_uring_register = 427;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;
@@ -387,6 +400,11 @@ pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6";
 pub const VDSO_GETCPU_SYM = "__vdso_getcpu";
 pub const VDSO_GETCPU_VER = "LINUX_2.6";
+
+pub const ARCH_SET_GS = 0x1001;
+pub const ARCH_SET_FS = 0x1002;
+pub const ARCH_GET_FS = 0x1003;
+pub const ARCH_GET_GS = 0x1004;
 
 pub fn syscall0(number: usize) usize {
     return asm volatile ("syscall"

@@ -12,7 +12,6 @@ fn test__fixsfti(a: f32, expected: i128) void {
 
 test "fixsfti" {
     //warn("\n");
-
     test__fixsfti(-math.f32_max, math.minInt(i128));
 
     test__fixsfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));
@@ -30,7 +29,7 @@ test "fixsfti" {
     test__fixsfti(-0x1.FFFFFFFFFFFFFp+62, -0x8000000000000000);
     test__fixsfti(-0x1.FFFFFFFFFFFFEp+62, -0x8000000000000000);
 
-    test__fixsfti(-0x1.FFFFFFp+62,   -0x8000000000000000);
+    test__fixsfti(-0x1.FFFFFFp+62, -0x8000000000000000);
     test__fixsfti(-0x1.FFFFFEp+62, -0x7fffff8000000000);
     test__fixsfti(-0x1.FFFFFCp+62, -0x7fffff0000000000);
 

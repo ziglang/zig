@@ -183,7 +183,7 @@ pub fn formatType(
                         }
                         try output(context, @memberName(T, field_i));
                         try output(context, " = ");
-                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output, max_depth-1);
+                        try formatType(@field(value, @memberName(T, field_i)), "", context, Errors, output, max_depth - 1);
                     }
                     try output(context, " }");
                 },
@@ -198,7 +198,7 @@ pub fn formatType(
                         try output(context, " = ");
                         inline for (info.fields) |u_field| {
                             if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
-                                try formatType(@field(value, u_field.name), "", context, Errors, output, max_depth-1);
+                                try formatType(@field(value, u_field.name), "", context, Errors, output, max_depth - 1);
                             }
                         }
                         try output(context, " }");

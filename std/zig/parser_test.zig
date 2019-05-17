@@ -12,6 +12,21 @@ test "zig fmt: enum literal" {
     );
 }
 
+test "zig fmt: enum literal inside array literal" {
+    try testCanonical(
+        \\test "enums in arrays" {
+        \\    var colors = []Color{.Green};
+        \\    colors = []Colors{ .Green, .Cyan };
+        \\    colors = []Colors{
+        \\        .Grey,
+        \\        .Green,
+        \\        .Cyan,
+        \\    };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: character literal larger than u8" {
     try testCanonical(
         \\const x = '\U01f4a9';
@@ -1434,7 +1449,7 @@ test "zig fmt: precedence" {
 test "zig fmt: prefix operators" {
     try testCanonical(
         \\test "prefix operators" {
-        \\    try return --%~!*&0;
+        \\    try return --%~!&0;
         \\}
         \\
     );
@@ -1462,8 +1477,6 @@ test "zig fmt: var args" {
 test "zig fmt: var type" {
     try testCanonical(
         \\fn print(args: var) var {}
-        \\const Var = var;
-        \\const i: var = 0;
         \\
     );
 }
@@ -1827,15 +1840,6 @@ test "zig fmt: while" {
 test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
-        \\    for (a) continue;
-        \\
-        \\    for (a)
-        \\        continue;
-        \\
-        \\    for (a) {
-        \\        continue;
-        \\    }
-        \\
         \\    for (a) |v| {
         \\        continue;
         \\    }
@@ -2125,6 +2129,47 @@ test "zig fmt: comptime block in container" {
     );
 }
 
+test "zig fmt: inline asm parameter alignment" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        :
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        :
+        \\        :
+        \\        : "", ""
+        \\    );
+        \\    asm volatile (
+        \\        \\ foo
+        \\        \\ bar
+        \\        : [_] "" (-> usize),
+        \\          [_] "" (-> usize)
+        \\        : [_] "" (0),
+        \\          [_] "" (0)
+        \\        : "", ""
+        \\    );
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -2215,7 +2260,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                         needed_alloc_count,
                         failing_allocator.allocated_bytes,
                         failing_allocator.freed_bytes,
-                        failing_allocator.index,
+                        failing_allocator.allocations,
                         failing_allocator.deallocations,
                     );
                     return error.MemoryLeakDetected;

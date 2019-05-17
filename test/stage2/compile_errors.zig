@@ -27,4 +27,28 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    return 36893488147419103232;
         \\}
     , "1.zig", 2, 12, "integer value '36893488147419103232' cannot be stored in type 'c_int'");
+
+    try ctx.testCompileError(
+        \\comptime {
+        \\    var a: *align(4) align(4) i32 = 0;
+        \\}
+    , "1.zig", 2, 22, "Extra align qualifier");
+
+    try ctx.testCompileError(
+        \\comptime {
+        \\    var b: *const const i32 = 0;
+        \\}
+    , "1.zig", 2, 19, "Extra align qualifier");
+
+    try ctx.testCompileError(
+        \\comptime {
+        \\    var c: *volatile volatile i32 = 0;
+        \\}
+    , "1.zig", 2, 22, "Extra align qualifier");
+
+    try ctx.testCompileError(
+        \\comptime {
+        \\    var d: *allowzero allowzero i32 = 0;
+        \\}
+    , "1.zig", 2, 23, "Extra align qualifier");
 }

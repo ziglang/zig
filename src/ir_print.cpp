@@ -504,19 +504,61 @@ static void ir_print_optional_unwrap_ptr(IrPrint *irp, IrInstructionOptionalUnwr
 
 static void ir_print_clz(IrPrint *irp, IrInstructionClz *instruction) {
     fprintf(irp->f, "@clz(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
     fprintf(irp->f, "@ctz(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_pop_count(IrPrint *irp, IrInstructionPopCount *instruction) {
     fprintf(irp->f, "@popCount(");
-    ir_print_other_instruction(irp, instruction->value);
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
+    fprintf(irp->f, "@byteSwap(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_reverse(IrPrint *irp, IrInstructionBitReverse *instruction) {
+    fprintf(irp->f, "@bitReverse(");
+    if (instruction->type != nullptr) {
+        ir_print_other_instruction(irp, instruction->type);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op);
     fprintf(irp->f, ")");
 }
 
@@ -542,8 +584,15 @@ static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction)
 static void ir_print_switch_var(IrPrint *irp, IrInstructionSwitchVar *instruction) {
     fprintf(irp->f, "switchvar ");
     ir_print_other_instruction(irp, instruction->target_value_ptr);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->prong_value);
+    for (size_t i = 0; i < instruction->prongs_len; i += 1) {
+        fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, instruction->prongs_ptr[i]);
+    }
+}
+
+static void ir_print_switch_else_var(IrPrint *irp, IrInstructionSwitchElseVar *instruction) {
+    fprintf(irp->f, "switchelsevar ");
+    ir_print_other_instruction(irp, &instruction->switch_br->base);
 }
 
 static void ir_print_switch_target(IrPrint *irp, IrInstructionSwitchTarget *instruction) {
@@ -1003,6 +1052,12 @@ static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_assert_non_null(IrPrint *irp, IrInstructionAssertNonNull *instruction) {
+    fprintf(irp->f, "AssertNonNull(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_resize_slice(IrPrint *irp, IrInstructionResizeSlice *instruction) {
     fprintf(irp->f, "@resizeSlice(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1398,30 +1453,6 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_va
     }
 }
 
-static void ir_print_bswap(IrPrint *irp, IrInstructionBswap *instruction) {
-    fprintf(irp->f, "@bswap(");
-    if (instruction->type != nullptr) {
-        ir_print_other_instruction(irp, instruction->type);
-    } else {
-        fprintf(irp->f, "null");
-    }
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->op);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_bit_reverse(IrPrint *irp, IrInstructionBitReverse *instruction) {
-    fprintf(irp->f, "@bitreverse(");
-    if (instruction->type != nullptr) {
-        ir_print_other_instruction(irp, instruction->type);
-    } else {
-        fprintf(irp->f, "null");
-    }
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->op);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1538,20 +1569,29 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdOptionalUnwrapPtr:
             ir_print_optional_unwrap_ptr(irp, (IrInstructionOptionalUnwrapPtr *)instruction);
             break;
-        case IrInstructionIdCtz:
-            ir_print_ctz(irp, (IrInstructionCtz *)instruction);
-            break;
         case IrInstructionIdPopCount:
             ir_print_pop_count(irp, (IrInstructionPopCount *)instruction);
             break;
         case IrInstructionIdClz:
             ir_print_clz(irp, (IrInstructionClz *)instruction);
             break;
+        case IrInstructionIdCtz:
+            ir_print_ctz(irp, (IrInstructionCtz *)instruction);
+            break;
+        case IrInstructionIdBswap:
+            ir_print_bswap(irp, (IrInstructionBswap *)instruction);
+            break;
+        case IrInstructionIdBitReverse:
+            ir_print_bit_reverse(irp, (IrInstructionBitReverse *)instruction);
+            break;
         case IrInstructionIdSwitchBr:
             ir_print_switch_br(irp, (IrInstructionSwitchBr *)instruction);
             break;
         case IrInstructionIdSwitchVar:
             ir_print_switch_var(irp, (IrInstructionSwitchVar *)instruction);
+            break;
+        case IrInstructionIdSwitchElseVar:
+            ir_print_switch_else_var(irp, (IrInstructionSwitchElseVar *)instruction);
             break;
         case IrInstructionIdSwitchTarget:
             ir_print_switch_target(irp, (IrInstructionSwitchTarget *)instruction);
@@ -1853,12 +1893,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSqrt:
             ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
             break;
-        case IrInstructionIdBswap:
-            ir_print_bswap(irp, (IrInstructionBswap *)instruction);
-            break;
-        case IrInstructionIdBitReverse:
-            ir_print_bit_reverse(irp, (IrInstructionBitReverse *)instruction);
-            break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
             break;
@@ -1879,6 +1913,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAssertZero:
             ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);
+            break;
+        case IrInstructionIdAssertNonNull:
+            ir_print_assert_non_null(irp, (IrInstructionAssertNonNull *)instruction);
             break;
         case IrInstructionIdResizeSlice:
             ir_print_resize_slice(irp, (IrInstructionResizeSlice *)instruction);

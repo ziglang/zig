@@ -399,6 +399,15 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
+static void add_probe_stack_attr(CodeGen *g, LLVMValueRef fn_val) {
+    // Windows already emits its own stack probes
+    if (!g->disable_stack_probing && g->zig_target->os != OsWindows &&
+        (g->zig_target->arch == ZigLLVM_x86 ||
+         g->zig_target->arch == ZigLLVM_x86_64)) {
+        addLLVMFnAttrStr(fn_val, "probe-stack", "__zig_probe_stack");
+    }
+}
+
 static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     switch (id) {
         case GlobalLinkageIdInternal:
@@ -587,6 +596,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
+
+            add_probe_stack_attr(g, fn_table_entry->llvm_value);
         }
     } else {
         maybe_import_dll(g, fn_table_entry->llvm_value, linkage);
@@ -693,7 +704,6 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             return scope->di_scope;
         case ScopeIdBlock:
         case ScopeIdDefer:
-        case ScopeIdVarDecl:
         {
             assert(scope->parent);
             ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
@@ -704,6 +714,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
             return scope->di_scope;
         }
+        case ScopeIdVarDecl:
         case ScopeIdDeferExpr:
         case ScopeIdLoop:
         case ScopeIdSuspend:
@@ -997,8 +1008,17 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     LLVMBuildUnreachable(g->builder);
 }
 
+// TODO update most callsites to call gen_assertion instead of this
 static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
+}
+
+static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
+    if (ir_want_runtime_safety(g, source_instruction)) {
+        gen_safety_crash(g, msg_id);
+    } else {
+        LLVMBuildUnreachable(g->builder);
+    }
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -4012,19 +4032,19 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueRef maybe_handle) {
-    assert(maybe_type->id == ZigTypeIdOptional);
+    assert(maybe_type->id == ZigTypeIdOptional ||
+            (maybe_type->id == ZigTypeIdPointer && maybe_type->data.pointer.allow_zero));
+
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(child_type))
         return maybe_handle;
-    } else {
-        bool is_scalar = !handle_is_ptr(maybe_type);
-        if (is_scalar) {
-            return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
-        } else {
-            LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
-            return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
-        }
-    }
+
+    bool is_scalar = !handle_is_ptr(maybe_type);
+    if (is_scalar)
+        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
+
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
+    return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
 }
 
 static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable,
@@ -4045,8 +4065,8 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
         LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
@@ -4120,9 +4140,9 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
 }
 
 static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4132,9 +4152,9 @@ static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4144,9 +4164,9 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
@@ -5476,6 +5496,31 @@ static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executable,
+        IrInstructionAssertNonNull *instruction)
+{
+    LLVMValueRef target = ir_llvm_value(g, instruction->target);
+    ZigType *target_type = instruction->target->value.type;
+
+    if (target_type->id == ZigTypeIdPointer) {
+        assert(target_type->data.pointer.ptr_len == PtrLenC);
+        LLVMValueRef non_null_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target,
+                LLVMConstNull(get_llvm_type(g, target_type)), "");
+
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullFail");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "AssertNonNullOk");
+        LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_assertion(g, PanicMsgIdUnwrapOptionalFail, &instruction->base);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    } else {
+        zig_unreachable();
+    }
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5527,6 +5572,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTypeName:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
+        case IrInstructionIdSwitchElseVar:
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
@@ -5604,6 +5650,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_pop_count(g, executable, (IrInstructionPopCount *)instruction);
         case IrInstructionIdSwitchBr:
             return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
+        case IrInstructionIdBswap:
+            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
+        case IrInstructionIdBitReverse:
+            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdPhi:
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
         case IrInstructionIdRef:
@@ -5720,16 +5770,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
-        case IrInstructionIdBswap:
-            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
-        case IrInstructionIdBitReverse:
-            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdArrayToVector:
             return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
         case IrInstructionIdVectorToArray:
             return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
         case IrInstructionIdAssertZero:
             return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
+        case IrInstructionIdAssertNonNull:
+            return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
         case IrInstructionIdResizeSlice:
             return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
     }
@@ -6996,6 +7044,11 @@ static void zig_llvm_emit_output(CodeGen *g) {
             }
             validate_inline_fns(g);
             g->link_objects.append(output_path);
+            if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
+                (g->out_type == OutTypeLib && !g->is_dynamic)))
+            {
+                zig_link_add_compiler_rt(g);
+            }
             break;
 
         case EmitFileTypeAssembly:
@@ -7279,9 +7332,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
-    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
-    create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
-    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 1);
+    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 2);
+    create_builtin_fn(g, BuiltinFnIdClz, "clz", 2);
+    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 2);
+    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 2);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
@@ -7342,8 +7397,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
-    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
-    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitreverse", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8068,7 +8121,7 @@ static void detect_dynamic_linker(CodeGen *g) {
             for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
                 const char *lib_name = possible_ld_names[i];
                 if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
-                    if (err != ErrorCCompilerCannotFindFile) {
+                    if (err != ErrorCCompilerCannotFindFile && err != ErrorNoCCompilerInstalled) {
                         fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
                         exit(1);
                     }
@@ -8282,8 +8335,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         args.append(g->clang_argv[arg_i]);
     }
-
-
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {
@@ -8497,7 +8548,7 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && g->zig_target->os != OsFreestanding &&
+    if (!g->is_test_build && (g->zig_target->os != OsFreestanding || target_is_wasm(g->zig_target)) &&
         g->zig_target->os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
@@ -8528,24 +8579,6 @@ static void gen_root_source(CodeGen *g) {
 
     report_errors_and_maybe_exit(g);
 
-}
-
-void codegen_add_assembly(CodeGen *g, Buf *path) {
-    g->assembly_files.append(path);
-}
-
-static void gen_global_asm(CodeGen *g) {
-    Buf contents = BUF_INIT;
-    Error err;
-    for (size_t i = 0; i < g->assembly_files.length; i += 1) {
-        Buf *asm_file = g->assembly_files.at(i);
-        // No need to use the caching system for these fetches because they
-        // are handled separately.
-        if ((err = os_fetch_file_path(asm_file, &contents))) {
-            zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
-        }
-        buf_append_buf(&g->global_asm, &contents);
-    }
 }
 
 static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
@@ -8698,10 +8731,16 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
         // add the files depended on to the cache system
         if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
-            fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
-            exit(1);
+            // Don't treat the absence of the .d file as a fatal error, the
+            // compiler may not produce one eg. when compiling .s files
+            if (err != ErrorFileNotFound) {
+                fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+                exit(1);
+            }
         }
-        os_delete_file(out_dep_path);
+        if (err != ErrorFileNotFound) {
+            os_delete_file(out_dep_path);
+        }
 
         if ((err = cache_final(cache_hash, &digest))) {
             fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
@@ -9278,8 +9317,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_buf(ch, g->darwin_frameworks.items, g->darwin_frameworks.length);
     cache_list_of_buf(ch, g->rpath_list.items, g->rpath_list.length);
     cache_list_of_buf(ch, g->forbidden_libs.items, g->forbidden_libs.length);
-    cache_list_of_file(ch, g->assembly_files.items, g->assembly_files.length);
-    cache_int(ch, g->emit_file_type);
     cache_int(ch, g->build_mode);
     cache_int(ch, g->out_type);
     cache_bool(ch, g->zig_target->is_native);
@@ -9299,6 +9336,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_gen_h);
+    cache_bool(ch, g->bundle_compiler_rt);
+    cache_bool(ch, g->disable_stack_probing);
     cache_bool(ch, want_valgrind_support(g));
     cache_bool(ch, g->have_pic);
     cache_bool(ch, g->have_dynamic_link);
@@ -9338,7 +9377,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
 }
 
 static bool need_llvm_module(CodeGen *g) {
-    return g->assembly_files.length != 0 || buf_len(&g->root_package->root_src_path) != 0;
+    return buf_len(&g->root_package->root_src_path) != 0;
 }
 
 static void resolve_out_paths(CodeGen *g) {
@@ -9445,7 +9484,6 @@ void codegen_build_and_link(CodeGen *g) {
 
             codegen_add_time_event(g, "Semantic Analysis");
 
-            gen_global_asm(g);
             gen_root_source(g);
 
         }

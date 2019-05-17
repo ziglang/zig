@@ -16,6 +16,10 @@ pub extern fn __trunctfdf2(a: f128) f64 {
     return truncXfYf2(f64, f128, a);
 }
 
+pub extern fn __truncdfsf2(a: f64) f32 {
+    return truncXfYf2(f32, f64, a);
+}
+
 inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const src_rep_t = @IntType(false, @typeInfo(src_t).Float.bits);
     const dst_rep_t = @IntType(false, @typeInfo(dst_t).Float.bits);
