@@ -3313,8 +3313,8 @@ Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name) {
     for (size_t i = 0; i < decls_scope->use_decls.length; i += 1) {
         AstNode *use_decl_node = decls_scope->use_decls.at(i);
         if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
-            preview_use_decl(g, use_decl_node);
-            resolve_use_decl(g, use_decl_node);
+            preview_use_decl(g, use_decl_node, decls_scope);
+            resolve_use_decl(g, use_decl_node, decls_scope);
         }
     }
 
@@ -3754,14 +3754,14 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
-static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
+static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
     if (src_use_node->data.use.resolution == TldResolutionUnresolved) {
-        preview_use_decl(g, src_use_node);
+        preview_use_decl(g, src_use_node, decls_scope);
     }
 
     ConstExprValue *use_target_value = src_use_node->data.use.using_namespace_value;
     if (type_is_invalid(use_target_value->type)) {
-        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
+        decls_scope->any_imports_failed = true;
         return;
     }
 
@@ -3775,12 +3775,12 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
     if (target_import->id != ZigTypeIdStruct) {
         add_node_error(g, dst_use_node,
             buf_sprintf("expected struct, found '%s'", buf_ptr(&target_import->name)));
-        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
+        decls_scope->any_imports_failed = true;
         return;
     }
 
     if (get_container_scope(target_import)->any_imports_failed) {
-        get_container_scope(dst_use_node->owner)->any_imports_failed = true;
+        decls_scope->any_imports_failed = true;
     }
 
     auto it = get_container_scope(target_import)->decl_table.entry_iterator();
@@ -3798,7 +3798,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
         Buf *target_tld_name = entry->key;
 
-        auto existing_entry = get_container_scope(dst_use_node->owner)->decl_table.put_unique(target_tld_name, target_tld);
+        auto existing_entry = decls_scope->decl_table.put_unique(target_tld_name, target_tld);
         if (existing_entry) {
             Tld *existing_decl = existing_entry->value;
             if (existing_decl != target_tld) {
@@ -3814,11 +3814,11 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
     for (size_t i = 0; i < get_container_scope(target_import)->use_decls.length; i += 1) {
         AstNode *use_decl_node = get_container_scope(target_import)->use_decls.at(i);
         if (use_decl_node->data.use.visib_mod != VisibModPrivate)
-            add_symbols_from_import(g, use_decl_node, dst_use_node);
+            add_symbols_from_import(g, use_decl_node, dst_use_node, decls_scope);
     }
 }
 
-void resolve_use_decl(CodeGen *g, AstNode *node) {
+void resolve_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeUse);
 
     if (node->data.use.resolution == TldResolutionOk ||
@@ -3826,10 +3826,10 @@ void resolve_use_decl(CodeGen *g, AstNode *node) {
     {
         return;
     }
-    add_symbols_from_import(g, node, node);
+    add_symbols_from_import(g, node, node, decls_scope);
 }
 
-void preview_use_decl(CodeGen *g, AstNode *node) {
+void preview_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeUse);
 
     if (node->data.use.resolution == TldResolutionOk ||
@@ -3839,11 +3839,11 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     }
 
     node->data.use.resolution = TldResolutionResolving;
-    ConstExprValue *result = analyze_const_value(g, &get_container_scope(node->owner)->base,
+    ConstExprValue *result = analyze_const_value(g, &decls_scope->base,
         node->data.use.expr, g->builtin_types.entry_type, nullptr);
 
     if (type_is_invalid(result->type))
-        get_container_scope(node->owner)->any_imports_failed = true;
+        decls_scope->any_imports_failed = true;
 
     node->data.use.using_namespace_value = result;
 }
@@ -3967,8 +3967,12 @@ void semantic_analyze(CodeGen *g) {
     {
         for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
             AstNode *use_decl_node = g->use_queue.at(g->use_queue_index);
-            preview_use_decl(g, use_decl_node);
-            resolve_use_decl(g, use_decl_node);
+            // Get the top-level scope where `use` is used
+            ScopeDecls *decls_scope = get_container_scope(use_decl_node->owner);
+            if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
+                preview_use_decl(g, use_decl_node, decls_scope);
+                resolve_use_decl(g, use_decl_node, decls_scope);
+            }
         }
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
