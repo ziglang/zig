@@ -449,27 +449,27 @@ pub const File = struct {
         
         file: File,
         
-        pub fn readFn(self: *const Self, buffer: []u8) !usize {
+        pub fn readFn(self: *const Self, buffer: []u8) ReadError!usize {
             return self.file.read(buffer);
         }
         
-        pub fn writeFn(self: *const Self, bytes: []const u8) !void {
+        pub fn writeFn(self: *const Self, bytes: []const u8) WriteError!void {
             return self.file.write(bytes);
         }
         
-        pub fn seekToFn(self: *const Self, pos: u64)  !void {
+        pub fn seekToFn(self: *const Self, pos: u64)  SeekError!void {
             return self.file.seekTo(pos);
         }
 
-        pub fn seekForwardFn(self: *const Self, amt: i64)  !void {
+        pub fn seekForwardFn(self: *const Self, amt: i64)  SeekError!void {
             return self.file.seekForward(amt);
         }
 
-        pub fn getEndPosFn(self: *const Self) !u64 {
+        pub fn getEndPosFn(self: *const Self) GetSeekPosError!u64 {
             return self.file.getEndPos();
         }
 
-        pub fn getPosFn(self: *const Self)  !u64 {
+        pub fn getPosFn(self: *const Self)  GetSeekPosError!u64 {
             return self.file.getPos();
         }
         

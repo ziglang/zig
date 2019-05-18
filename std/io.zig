@@ -52,7 +52,9 @@ pub fn InStream(comptime S: type, comptime ReadFn: type) type {
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
         readFn: ReadFn,
-
+        
+        pub const ReadError = ReadFn.ReturnType.ErrorSet;
+        
         /// Replaces `buffer` contents by reading from the stream until it is finished.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
         /// the contents read from the stream are lost.
@@ -125,14 +127,14 @@ pub fn InStream(comptime S: type, comptime ReadFn: type) type {
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        pub fn read(self: Self, buffer: []u8) !usize {
+        pub fn read(self: Self, buffer: []u8) ReadError!usize {
             return self.readFn(self.impl, buffer);
         }
 
         /// Returns the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        pub fn readFull(self: Self, buffer: []u8) !usize {
+        pub fn readFull(self: Self, buffer: []u8) ReadError!usize {
             var index: usize = 0;
             while (index != buffer.len) {
                 const amt = try self.read(buffer[index..]);
@@ -233,13 +235,15 @@ pub fn OutStream(comptime S: type, comptime WriteFn: type) type {
         
         impl: S,
         writeFn: WriteFn,
-
+        
+        pub const WriteError = WriteFn.ReturnType.ErrorSet;
+        
         pub fn print(self: Self, comptime format: []const u8, args: ...) !void {
             const Error = WriteFn.ReturnType.ErrorSet;
             return std.fmt.format(self.impl, Error, self.writeFn, format, args);
         }
 
-        pub fn write(self: Self, bytes: []const u8) !void {
+        pub fn write(self: Self, bytes: []const u8) WriteError!void {
             return self.writeFn(self.impl, bytes);
         }
 
@@ -248,7 +252,7 @@ pub fn OutStream(comptime S: type, comptime WriteFn: type) type {
             return self.writeFn(self.impl, slice);
         }
 
-        pub fn writeByteNTimes(self: Self, byte: u8, n: usize)  !void {
+        pub fn writeByteNTimes(self: Self, byte: u8, n: usize)  WriteError!void {
             const slice = (*const [1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
@@ -257,32 +261,32 @@ pub fn OutStream(comptime S: type, comptime WriteFn: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNative(self: Self, comptime T: type, value: T) !void {
+        pub fn writeIntNative(self: Self, comptime T: type, value: T) WriteError!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self.impl, bytes);
         }
 
         /// Write a foreign-endian integer.
-        pub fn writeIntForeign(self: Self, comptime T: type, value: T) !void {
+        pub fn writeIntForeign(self: Self, comptime T: type, value: T) WriteError!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self.impl, bytes);
         }
 
-        pub fn writeIntLittle(self: Self, comptime T: type, value: T) !void {
+        pub fn writeIntLittle(self: Self, comptime T: type, value: T) WriteError!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntLittle(T, &bytes, value);
             return self.writeFn(self.impl, bytes);
         }
 
-        pub fn writeIntBig(self: Self, comptime T: type, value: T) !void {
+        pub fn writeIntBig(self: Self, comptime T: type, value: T) WriteError!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntBig(T, &bytes, value);
             return self.writeFn(self.impl, bytes);
         }
 
-        pub fn writeInt(self: Self, comptime T: type, value: T, endian: builtin.Endian) !void {
+        pub fn writeInt(self: Self, comptime T: type, value: T, endian: builtin.Endian) WriteError!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self.impl, bytes);
@@ -335,6 +339,8 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Stream: type
         start_index: usize,
         end_index: usize,
 
+        pub const ReadError = Stream.ReadError;
+
         pub fn init(unbuffered_in_stream: Stream) Self {
             return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
@@ -349,7 +355,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Stream: type
             };
         }
 
-        fn readFn(self: *Self, dest: []u8) !usize {
+        fn readFn(self: *Self, dest: []u8) ReadError!usize {
             var dest_index: usize = 0;
             while (true) {
                 const dest_space = dest.len - dest_index;
@@ -453,6 +459,8 @@ pub fn PeekStream(comptime buffer_size: usize, comptime Stream: type) type {
         buffer: [buffer_size]u8,
         index: usize,
         at_end: bool,
+        
+        pub const ReadError = Stream.ReadError;
 
         pub fn init(base: Stream) Self {
             return Self{
@@ -476,7 +484,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime Stream: type) type {
             }
         }
 
-        fn readFn(self: *Self, dest: []u8) !usize {
+        fn readFn(self: *Self, dest: []u8) ReadError!usize {
             // copy over anything putBack()'d
             var pos: usize = 0;
             while (pos < dest.len and self.index != 0) {
@@ -514,6 +522,8 @@ pub const SliceInStream = struct {
     pos: usize,
     slice: []const u8,
 
+    pub const ReadError = error{};
+
     pub fn init(slice: []const u8) Self {
         return Self{
             .slice = slice,
@@ -521,7 +531,7 @@ pub const SliceInStream = struct {
         };
     }
 
-    fn readFn(self: *Self, dest: []u8) !usize {
+    fn readFn(self: *Self, dest: []u8) ReadError!usize {
         const size = math.min(dest.len, self.slice.len - self.pos);
         const end = self.pos + size;
 
@@ -548,7 +558,9 @@ pub fn BitInStream(endian: builtin.Endian, comptime Stream: type) type {
         in_stream: Stream,
         bit_buffer: u7,
         bit_count: u3,
-
+        
+        pub const ReadError = Stream.ReadError;
+        
         const u8_bit_count = comptime meta.bitCount(u8);
         const u7_bit_count = comptime meta.bitCount(u7);
         const u4_bit_count = comptime meta.bitCount(u4);
@@ -574,7 +586,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Stream: type) type {
         /// Reads `bits` bits from the stream and returns a specified unsigned int type
         ///  containing them in the least significant end. The number of bits successfully
         ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
-        pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) !U {
+        pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) ReadError!U {
             comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
@@ -665,7 +677,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Stream: type) type {
             self.bit_count = 0;
         }
 
-        pub fn read(self: *Self, buffer: []u8) !usize {
+        pub fn read(self: *Self, buffer: []u8) ReadError!usize {
             var out_bits: usize = undefined;
             var out_bits_total = usize(0);
             //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
@@ -696,7 +708,8 @@ pub fn BitInStream(endian: builtin.Endian, comptime Stream: type) type {
 pub const SliceOutStream = struct {
     pub pos: usize,
     slice: []u8,
-
+    
+    pub const WriteError = error{OutOfSpace};
     pub fn init(slice: []u8) SliceOutStream {
         return SliceOutStream{
             .slice = slice,
@@ -712,7 +725,7 @@ pub const SliceOutStream = struct {
         self.pos = 0;
     }
 
-    fn writeFn(self: *SliceOutStream, bytes: []const u8) !void {
+    fn writeFn(self: *SliceOutStream, bytes: []const u8) WriteError!void {
         assert(self.pos <= self.slice.len);
 
         const n = if (self.pos + bytes.len <= self.slice.len)
@@ -750,9 +763,11 @@ pub const null_out_stream = (NullOutStream{}).outStream();
 
 /// An OutStream that doesn't write to anything.
 pub const NullOutStream = struct {
-    fn writeFn(self: ?*NullOutStream, bytes: []const u8) error{}!void {}
+    pub const WriteError = error{};
+
+    fn writeFn(self: ?*NullOutStream, bytes: []const u8) WriteError!void {}
     
-    const OutStreamImpl = OutStream(?*NullOutStream, @typeOf(writeFn));
+    pub const OutStreamImpl = OutStream(?*NullOutStream, @typeOf(writeFn));
     pub fn outStream(self: *NullOutStream) OutStreamImpl {
         return OutStreamImpl {
             .impl = null,
@@ -774,6 +789,8 @@ pub fn CountingOutStream(comptime Stream: type) type {
 
         pub bytes_written: u64,
         child_stream: Stream,
+        
+        pub const WriteError = Stream.WriteError;
 
         pub fn init(child_stream: Stream) Self {
             return Self{
@@ -782,7 +799,7 @@ pub fn CountingOutStream(comptime Stream: type) type {
             };
         }
 
-        fn writeFn(self: *Self, bytes: []const u8) !void {
+        fn writeFn(self: *Self, bytes: []const u8) WriteError!void {
             try self.child_stream.write(bytes);
             self.bytes_written += bytes.len;
         }
@@ -819,6 +836,8 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime Stream: typ
         buffer: [buffer_size]u8,
         index: usize,
 
+        pub const WriteError = Stream.WriteError;
+
         pub fn init(unbuffered_out_stream: Stream) Self {
             return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
@@ -832,7 +851,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime Stream: typ
             self.index = 0;
         }
 
-        fn writeFn(self: *Self, bytes: []const u8) !void {
+        fn writeFn(self: *Self, bytes: []const u8) WriteError!void {
             if (bytes.len >= self.buffer.len) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
@@ -893,6 +912,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Stream: type) type {
         out_stream: Stream,
         bit_buffer: u8,
         bit_count: u4,
+        
+        pub const WriteError = Stream.WriteError;
 
         const u8_bit_count = comptime meta.bitCount(u8);
         const u4_bit_count = comptime meta.bitCount(u4);
@@ -908,7 +929,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Stream: type) type {
         /// Write the specified number of bits to the stream from the least significant bits of
         ///  the specified unsigned int value. Bits will only be written to the stream when there
         ///  are enough to fill a byte.
-        pub fn writeBits(self: *Self, value: var, bits: usize) !void {
+        pub fn writeBits(self: *Self, value: var, bits: usize) WriteError!void {
             if (bits == 0) return;
 
             const U = @typeOf(value);
@@ -996,7 +1017,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Stream: type) type {
             self.bit_count = 0;
         }
 
-        pub fn write(self: *Self, buffer: []const u8) Error!void {
+        pub fn write(self: *Self, buffer: []const u8) WriteError!void {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
             //@NOTE: I'm not sure this is a good idea, maybe flushBits should be forced
@@ -1155,6 +1176,8 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         in_stream: if (packing == .Bit) BitInStream(endian, Stream) else Stream,
 
+        pub const ReadError = Stream.ReadError;
+
         pub fn init(in_stream: Stream) Self {
             return Self{ .in_stream = switch (packing) {
                 .Bit => BitInStream(endian, Stream).init(in_stream),
@@ -1168,7 +1191,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         }
 
         //@BUG: inferred error issue. See: #1386
-        fn deserializeInt(self: *Self, comptime T: type) !T {
+        fn deserializeInt(self: *Self, comptime T: type) (ReadError || error{EndOfStream})!T {
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const u8_bit_count = 8;
@@ -1362,7 +1385,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
         out_stream: if (packing == .Bit) BitOutStream(endian, Stream) else Stream,
 
-        pub const Stream = OutStream(Error);
+        pub const WriteError = Stream.WriteError;
 
         pub fn init(out_stream: Stream) Self {
             return Self{ .out_stream = switch (packing) {
@@ -1372,11 +1395,11 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         /// Flushes any unwritten bits to the stream
-        pub fn flush(self: *Self) !void {
+        pub fn flush(self: *Self) WriteError!void {
             if (packing == .Bit) return self.out_stream.flushBits();
         }
 
-        fn serializeInt(self: *Self, value: var) !void {
+        fn serializeInt(self: *Self, value: var) WriteError!void {
             const T = @typeOf(value);
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
@@ -1408,7 +1431,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         /// Serializes the passed value into the stream
-        pub fn serialize(self: *Self, value: var) !void {
+        pub fn serialize(self: *Self, value: var) WriteError!void {
             const T = comptime @typeOf(value);
 
             if (comptime trait.isIndexable(T)) {

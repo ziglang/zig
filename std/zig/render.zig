@@ -132,7 +132,7 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @typeOf(stream).Child.Error!void {
+fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @typeOf(stream).WriteError!void {
     const first_token = node.firstToken();
     var prev_token = first_token;
     while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
@@ -233,7 +233,7 @@ fn renderExpression(
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) !void {
+) (@typeOf(stream).WriteError || std.mem.Allocator.Error) !void {
     switch (base.id) {
         ast.Node.Id.Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
@@ -577,7 +577,7 @@ fn renderExpression(
                         while (it.next()) |field_init| {
                             var find_stream = FindByteOutStream.init('\n');
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &find_stream.stream, tree, 0, &dummy_col, field_init.*, Space.None);
+                            try renderExpression(allocator, find_stream.outStream(), tree, 0, &dummy_col, field_init.*, Space.None);
                             if (find_stream.byte_found) break :blk false;
                         }
                         break :blk true;
@@ -708,8 +708,8 @@ fn renderExpression(
                         var column_widths = widths[widths.len - row_size ..];
 
                         // Null stream for counting the printed length of each expression
-                        var null_stream = std.io.NullOutStream.init();
-                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(&null_stream.stream);
+                        var null_stream = std.io.NullOutStream{};
+                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.OutStreamImpl).init(null_stream.outStream());
 
                         var it = exprs.iterator(0);
                         var i: usize = 0;
@@ -717,7 +717,7 @@ fn renderExpression(
                         while (it.next()) |expr| : (i += 1) {
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
+                            try renderExpression(allocator, counting_stream.outStream(), tree, 0, &dummy_col, expr.*, Space.None);
                             const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
@@ -1815,7 +1815,7 @@ fn renderStatement(
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
-) !void {
+) (@typeOf(stream).WriteError || std.mem.Allocator.Error) !void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
@@ -1854,7 +1854,7 @@ fn renderTokenOffset(
     start_col: *usize,
     space: Space,
     token_skip_bytes: usize,
-) !void {
+) @typeOf(stream).WriteError!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -2037,7 +2037,7 @@ fn renderDocComments(
     node: var,
     indent: usize,
     start_col: *usize,
-) !void {
+) @typeOf(stream).WriteError!void {
     const comment = node.doc_comments orelse return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();
@@ -2077,23 +2077,20 @@ fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
 // The contents are not written to anything.
 const FindByteOutStream = struct {
     const Self = FindByteOutStream;
-    pub const Error = error{};
-    pub const Stream = std.io.OutStream(Error);
 
-    pub stream: Stream,
     pub byte_found: bool,
     byte: u8,
 
+    pub const WriteError = error{};
+    
     pub fn init(byte: u8) Self {
         return Self{
-            .stream = Stream{ .writeFn = writeFn },
             .byte = byte,
             .byte_found = false,
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(Self, "stream", out_stream);
+    fn writeFn(self: *FindByteOutStream, bytes: []const u8) WriteError!void {
         if (self.byte_found) return;
         self.byte_found = blk: {
             for (bytes) |b|
@@ -2101,4 +2098,12 @@ const FindByteOutStream = struct {
             break :blk false;
         };
     }
+    
+    pub const OutStreamImpl = std.io.OutStream(*FindByteOutStream, @typeOf(writeFn));
+    pub fn outStream(self: *FindByteOutStream) OutStreamImpl {
+        return OutStreamImpl {
+            .impl = self,
+            .writeFn = writeFn,
+        };
+    } 
 };

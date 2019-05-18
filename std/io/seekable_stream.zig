@@ -24,25 +24,28 @@ pub fn SeekableStream(
         const Self = @This();
         
         impl: S,
+        
         seekToFn: SeekToFn,
         seekForwardFn: SeekForwardFn,
-
         getPosFn: GetPosFn,
         getEndPosFn: GetEndPosFn,
 
-        pub fn seekTo(self: Self, pos: u64) !void {
+        pub const SeekError = SeekToFn.ReturnType.ErrorSet;
+        pub const GetPosError = GetPosFn.ReturnType.ErrorSet;
+        
+        pub fn seekTo(self: Self, pos: u64) SeekError!void {
             return self.seekToFn(self.impl, pos);
         }
 
-        pub fn seekForward(self: Self, amt: i64) !void {
+        pub fn seekForward(self: Self, amt: i64) SeekError!void {
             return self.seekForwardFn(self.impl, amt);
         }
 
-        pub fn getEndPos(self: Self) !u64 {
+        pub fn getEndPos(self: Self) GetPosError!u64 {
             return self.getEndPosFn(self.impl);
         }
 
-        pub fn getPos(self: Self) !u64 {
+        pub fn getPos(self: Self) GetPosError!u64 {
             return self.getPosFn(self.impl);
         }
         
