@@ -592,12 +592,6 @@ const MsfStream = struct {
     blocks: []u32,
     block_size: u32,
 
-    /// Implementation of InStream trait for Pdb.MsfStream
-    stream: Stream,
-
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
-    pub const Stream = io.InStream(Error);
-
     fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: *mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
@@ -660,8 +654,7 @@ const MsfStream = struct {
         return size;
     }
 
-    // XXX: The `len` parameter should be signed
-    fn seekForward(self: *MsfStream, len: u64) !void {
+    fn seekForward(self: *MsfStream, len: i64) !void {
         self.pos += len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
@@ -684,9 +677,42 @@ const MsfStream = struct {
 
         return block * self.block_size + offset;
     }
-
-    fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-        const self = @fieldParentPtr(MsfStream, "stream", in_stream);
-        return self.read(buffer);
+    
+    fn getPosFn(self: *MsfStream) error{}!u64 {
+        return self.getFilePos();
     }
+    
+    fn getEndPosFn(self: *MsfStream) error{}!u64 {
+        return self.block_size * self.blocks.len;
+    }
+    
+    /// Implementation of stream interfaces for Pdb.MsfStream
+    pub const InStreamImpl = io.InStream(*MsfStream, @typeOf(read));
+    pub const SeekableStreamImpl = io.SeekableStream(
+        *MsfStream,
+        @typeOf(seekTo),
+        @typeOf(seekForward),
+        @typeOf(getPosFn),
+        @typeOf(getEndPosFn),
+    );
+    
+    pub fn inStream(self: *MsfStream) InStreamImpl {
+        return InStreamImpl{
+            .impl = self,
+            .readFn = readFn,
+        };
+    }
+    
+    pub fn seekableStream(self: *MsfStream) SeekableStreamImpl {
+        return SeekableStreamImpl{
+            .impl = self,
+            .seekToFn = seekTo,
+            .seekForwardFn = seekForward,
+            .getPosFn = getPosFn,
+            .getEndPosFn = .getEndPosFn,
+        };
+    }
+    
+    
+    
 };

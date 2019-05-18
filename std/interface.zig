@@ -128,10 +128,10 @@ test "interface" {
             return "Null";
         }
         
-        const NullImplInterface = TestInterface(*Self, @typeOf(name));
-        pub fn testInterface(self: *Self) NullImplInterface
+        const InterfaceImpl = TestInterface(*Self, @typeOf(name));
+        pub fn testInterface(self: *Self) InterfaceImpl
         {
-            return NullImplInterface
+            return InterfaceImpl
             {
                 .impl = self,
                 .nameFn = name,
@@ -159,10 +159,10 @@ test "interface" {
             return self.val;
         }
         
-        const ValImplInterface = TestInterface(*Self, @typeOf(name));
-        pub fn testInterface(self: *Self) ValImplInterface
+        const InterfaceImpl = TestInterface(*Self, @typeOf(name));
+        pub fn testInterface(self: *Self) InterfaceImpl
         {
-            return ValImplInterface
+            return InterfaceImpl
             {
                 .impl = self,
                 .nameFn = name,

@@ -14,7 +14,7 @@ pub const AnySeekableStream = SeekableStream(
     AnyGetEndPosFn
 );
 pub fn SeekableStream(
-    comptime S: type
+    comptime S: type,
     comptime SeekToFn: type,
     comptime SeekForwardFn: type, 
     comptime GetPosFn: type,
@@ -30,23 +30,23 @@ pub fn SeekableStream(
         getPosFn: GetPosFn,
         getEndPosFn: GetEndPosFn,
 
-        pub fn seekTo(self: *Self, pos: u64) !void {
+        pub fn seekTo(self: Self, pos: u64) !void {
             return self.seekToFn(self.impl, pos);
         }
 
-        pub fn seekForward(self: *Self, amt: i64) !void {
+        pub fn seekForward(self: Self, amt: i64) !void {
             return self.seekForwardFn(self.impl, amt);
         }
 
-        pub fn getEndPos(self: *Self) !u64 {
+        pub fn getEndPos(self: Self) !u64 {
             return self.getEndPosFn(self.impl);
         }
 
-        pub fn getPos(self: *Self) !u64 {
+        pub fn getPos(self: Self) !u64 {
             return self.getPosFn(self.impl);
         }
         
-        pub const toAny(self: *Self) AnySeekableStream {
+        pub fn toAny(self: *Self) AnySeekableStream {
             return AnySeekableStream {
                 .impl = interface.toAny(self.impl),
                 .seekToFn = interface.abstractFn(AnySeekToFn, self.seekToFn),

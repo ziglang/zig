@@ -298,7 +298,7 @@ test "listen on a port, send bytes, receive bytes" {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/1592
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
 
-            const stream = &socket.outStream().stream;
+            const stream = socket.streams().outStream();
             try stream.print("hello from server\n");
         }
     };

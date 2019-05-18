@@ -426,86 +426,75 @@ pub const File = struct {
             @compileError("Unsupported OS");
         }
     }
-
-    pub fn inStream(file: File) InStream {
-        return InStream{
+    
+    /// Implementation of stream interfaces for File
+    pub const InStreamImpl = io.InStream(*const Streams, @typeOf(Streams.readFn));
+    pub const OutStreamImpl = io.OutStream(*const Streams, @typeOf(Streams.writeFn));
+    pub const SeekableStreamImpl = io.SeekableStream(
+        *const Streams,
+        @typeOf(Streams.seekToFn),
+        @typeOf(Streams.seekForwardFn),
+        @typeOf(Streams.getPosFn),
+        @typeOf(Streams.getEndPosFn),
+    );
+    
+    pub fn streams(file: File) Streams {
+        return Streams{
             .file = file,
-            .stream = InStream.Stream{ .readFn = InStream.readFn },
         };
     }
-
-    pub fn outStream(file: File) OutStream {
-        return OutStream{
-            .file = file,
-            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
-        };
-    }
-
-    pub fn seekableStream(file: File) SeekableStream {
-        return SeekableStream{
-            .file = file,
-            .stream = SeekableStream.Stream{
-                .seekToFn = SeekableStream.seekToFn,
-                .seekForwardFn = SeekableStream.seekForwardFn,
-                .getPosFn = SeekableStream.getPosFn,
-                .getEndPosFn = SeekableStream.getEndPosFn,
-            },
-        };
-    }
-
-    /// Implementation of io.InStream trait for File
-    pub const InStream = struct {
+    
+    pub const Streams = struct {
+        pub const Self = @This();
+        
         file: File,
-        stream: Stream,
-
-        pub const Error = ReadError;
-        pub const Stream = io.InStream(Error);
-
-        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-            const self = @fieldParentPtr(InStream, "stream", in_stream);
+        
+        pub fn readFn(self: *const Self, buffer: []u8) !usize {
             return self.file.read(buffer);
         }
-    };
-
-    /// Implementation of io.OutStream trait for File
-    pub const OutStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Error = WriteError;
-        pub const Stream = io.OutStream(Error);
-
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-            const self = @fieldParentPtr(OutStream, "stream", out_stream);
+        
+        pub fn writeFn(self: *const Self, bytes: []const u8) !void {
             return self.file.write(bytes);
         }
-    };
-
-    /// Implementation of io.SeekableStream trait for File
-    pub const SeekableStream = struct {
-        file: File,
-        stream: Stream,
-
-        pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
-
-        pub fn seekToFn(seekable_stream: *Stream, pos: u64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        
+        pub fn seekToFn(self: *const Self, pos: u64)  !void {
             return self.file.seekTo(pos);
         }
 
-        pub fn seekForwardFn(seekable_stream: *Stream, amt: i64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn seekForwardFn(self: *const Self, amt: i64)  !void {
             return self.file.seekForward(amt);
         }
 
-        pub fn getEndPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn getEndPosFn(self: *const Self) !u64 {
             return self.file.getEndPos();
         }
 
-        pub fn getPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn getPosFn(self: *const Self)  !u64 {
             return self.file.getPos();
+        }
+        
+        pub fn inStream(self: *const Self) InStreamImpl {
+            return InStreamImpl{
+                .impl = self,
+                .readFn = readFn,
+            };
+        }
+        
+        pub fn outStream(self: *const Self) OutStreamImpl {
+            return OutStreamImpl{
+                .impl = self,
+                .writeFn = writeFn,
+            };
+        }
+        
+        pub fn seekableStream(self: *const Self) SeekableStreamImpl {
+            return SeekableStreamImpl{
+                .impl = self,
+                .seekToFn = seekToFn,
+                .seekForwardFn = seekForwardFn,
+                .getPosFn = getPosFn,
+                .getEndPosFn = .getEndPosFn,
+            };
         }
     };
 };

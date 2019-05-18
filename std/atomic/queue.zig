@@ -111,9 +111,10 @@ pub fn Queue(comptime T: type) type {
             self.dumpToStream(Error, stderr) catch return;
         }
 
-        pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
+        pub fn dumpToStream(self: *Self, stream: var) !void {
             const S = struct {
-                fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
+                const Error = @typeOf(stream.writeFn).ReturnType.ErrorSet;
+                fn dumpRecursive(s: var, optional_node: ?*Node, indent: usize) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
                         try s.print("0x{x}={}\n", @ptrToInt(node), node.data);
@@ -311,7 +312,7 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(sos.outStream());
     expect(mem.eql(u8, buffer[0..sos.pos],
         \\head: (null)
         \\tail: (null)
@@ -327,7 +328,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_0);
 
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(sos.outStream());
 
     var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -347,7 +348,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_1);
 
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(sos.outStream());
 
     expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1

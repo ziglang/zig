@@ -21,7 +21,7 @@ test "write a file, read it, then delete it" {
         var file = try os.File.openWrite(tmp_file_name);
         defer file.close();
 
-        var file_out_stream = file.outStream();
+        var file_out_stream = file.streams().outStream();
         var buf_stream = io.BufferedOutStream(os.File.OutStreamImpl).init(file_out_stream);
         const st = buf_stream.outStream();
         try st.print("begin");
@@ -47,7 +47,7 @@ test "write a file, read it, then delete it" {
         const expected_file_size = "begin".len + data.len + "end".len;
         expect(file_size == expected_file_size);
 
-        var file_in_stream = file.inStream();
+        var file_in_stream = file.streams().inStream();
         var buf_stream = io.BufferedInStream(os.File.InStreamImpl).init(file_in_stream);
         const st = buf_stream.inStream();
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
@@ -276,7 +276,7 @@ test "BitStreams with File Stream" {
         var file = try os.File.openWrite(tmp_file_name);
         defer file.close();
 
-        var file_out_stream = file.outStream();
+        var file_out_stream = file.streams().outStream();
         const OutStreamImpl = os.File.OutStreamImpl;
         var bit_stream = io.BitOutStream(builtin.endian, OutStreamImpl).init(file_out_stream);
 
@@ -292,7 +292,7 @@ test "BitStreams with File Stream" {
         var file = try os.File.openRead(tmp_file_name);
         defer file.close();
 
-        var file_in_stream = file.inStream();
+        var file_in_stream = file.streams().inStream();
         const InStreamImpl = os.File.InStreamImpl;
         var bit_stream = io.BitInStream(builtin.endian, InStreamImpl).init(file_in_stream);
 

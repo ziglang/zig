@@ -40,9 +40,7 @@ pub fn Random(comptime R: type, comptime FillFn: type) type {
         
         impl: R,
         fillFn: FillFn,
-        
-        
-        
+
         /// Read random bytes into the specified buffer until full.
         pub fn bytes(self: Self, buf: []u8) void {
             self.fillFn(self.impl, buf);
@@ -329,9 +327,9 @@ const SequentialPrng = struct {
     }
     
     /// Implements the random interface
-    const SelfRandom = Random(*Self, @typeOf(fill));
-    pub fn random(self: *Self) SelfRandom {
-        return SelfRandom {
+    pub const RandomImpl = Random(*Self, @typeOf(fill));
+    pub fn random(self: *Self) RandomImpl {
+        return RandomImpl {
             .impl = self,
             .fillFn = fill,
         };
@@ -612,9 +610,9 @@ pub const Pcg = struct {
     }
     
     /// Implements the Random interface
-    const PcgRandom = Random(*Pcg, @typeOf(fill));
-    pub fn random(self: *Pcg) PcgRandom {
-        return PcgRandom {
+    pub const RandomImpl = Random(*Pcg, @typeOf(fill));
+    pub fn random(self: *Pcg) RandomImpl {
+        return RandomImpl {
             .impl = self,
             .fillFn = fill,
         };
@@ -726,9 +724,10 @@ pub const Xoroshiro128 = struct {
     }
     
     /// Implements the Random interface
-    const Xoroshiro128Random = Random(*Xoroshiro128, @typeOf(fill));
-    pub fn random(self: *Xoroshiro128) Xoroshiro128Random {
-        return Xoroshiro128Random {
+    /// Implements the random interface
+    pub const RandomImpl = Random(*Xoroshiro128, @typeOf(fill));
+    pub fn random(self: *Xoroshiro128) RandomImpl {
+        return RandomImpl {
             .impl = self,
             .fillFn = fill,
         };
@@ -939,9 +938,9 @@ pub const Isaac64 = struct {
     }
     
     /// Implements the Random interface
-    const Isaac64Random = Random(*Isaac64, @typeOf(fill));
-    pub fn random(self: *Isaac64) Isaac64Random {
-        return Isaac64Random {
+    pub const RandomImpl = Random(*Isaac64Random, @typeOf(fill));
+    pub fn random(self: *Isaac64Random) RandomImpl {
+        return RandomImpl {
             .impl = self,
             .fillFn = fill,
         };
