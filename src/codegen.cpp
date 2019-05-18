@@ -1972,13 +1972,18 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - size_in_bits : bit_offset;
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
 
-    LLVMValueRef mask_val = LLVMConstAllOnes(get_llvm_type(g, child_type));
+    // Convert to equally-sized integer type in order to perform the bit
+    // operations on the value to store
+    LLVMTypeRef value_bits_type = LLVMIntType(size_in_bits);
+    LLVMValueRef value_bits = LLVMBuildBitCast(g->builder, value, value_bits_type, "");
+
+    LLVMValueRef mask_val = LLVMConstAllOnes(value_bits_type);
     mask_val = LLVMConstZExt(mask_val, LLVMTypeOf(containing_int));
     mask_val = LLVMConstShl(mask_val, shift_amt_val);
     mask_val = LLVMConstNot(mask_val);
 
     LLVMValueRef anded_containing_int = LLVMBuildAnd(g->builder, containing_int, mask_val, "");
-    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value, LLVMTypeOf(containing_int), "");
+    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value_bits, LLVMTypeOf(containing_int), "");
     LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
@@ -3388,16 +3393,23 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
 
-    if (!handle_is_ptr(child_type))
-        return LLVMBuildTrunc(g->builder, shifted_value, get_llvm_type(g, child_type), "");
+    if (handle_is_ptr(child_type)) {
+        assert(instruction->tmp_ptr != nullptr);
+        LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
+        LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
+        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+                                                      LLVMPointerType(same_size_int, 0), "");
+        LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
+        return instruction->tmp_ptr;
+    }
 
-    assert(instruction->tmp_ptr != nullptr);
-    LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
-    LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
-    LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
-            LLVMPointerType(same_size_int, 0), "");
-    LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
-    return instruction->tmp_ptr;
+    if (child_type->id == ZigTypeIdFloat) {
+        LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
+        LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
+        return LLVMBuildBitCast(g->builder, truncated_int, get_llvm_type(g, child_type), "");
+    }
+
+    return LLVMBuildTrunc(g->builder, shifted_value, get_llvm_type(g, child_type), "");
 }
 
 static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {

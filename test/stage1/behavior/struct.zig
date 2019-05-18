@@ -1,8 +1,9 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt; 
+const maxInt = std.math.maxInt;
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
         return a + b;
@@ -505,10 +506,10 @@ test "packed struct with u0 field access" {
     comptime expect(s.f0 == 0);
 }
 
-const S0 = struct{
+const S0 = struct {
     bar: S1,
 
-    pub const S1 = struct{
+    pub const S1 = struct {
         value: u8,
     };
 
@@ -522,4 +523,25 @@ var g_foo: S0 = S0.init();
 test "access to global struct fields" {
     g_foo.bar.value = 42;
     expect(g_foo.bar.value == 42);
+}
+
+test "packed struct with fp fields" {
+    const S = packed struct {
+        data: [3]f32,
+
+        pub fn frob(self: *@This()) void {
+            self.data[0] += self.data[1] + self.data[2];
+            self.data[1] += self.data[0] + self.data[2];
+            self.data[2] += self.data[0] + self.data[1];
+        }
+    };
+
+    var s: S = undefined;
+    s.data[0] = 1.0;
+    s.data[1] = 2.0;
+    s.data[2] = 3.0;
+    s.frob();
+    expectEqual(f32(6.0), s.data[0]);
+    expectEqual(f32(11.0), s.data[1]);
+    expectEqual(f32(20.0), s.data[2]);
 }
