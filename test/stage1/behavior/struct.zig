@@ -2,7 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt; 
+const maxInt = std.math.maxInt;
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) i32 {
         return a + b;
@@ -256,7 +256,11 @@ const Foo96Bits = packed struct {
 test "packed struct 24bits" {
     comptime {
         expect(@sizeOf(Foo24Bits) == 4);
-        expect(@sizeOf(Foo96Bits) == 16);
+        if (@sizeOf(usize) == 4) {
+            expect(@sizeOf(Foo96Bits) == 12);
+        } else {
+            expect(@sizeOf(Foo96Bits) == 16);
+        }
     }
 
     var value = Foo96Bits{
@@ -505,10 +509,10 @@ test "packed struct with u0 field access" {
     comptime expect(s.f0 == 0);
 }
 
-const S0 = struct{
+const S0 = struct {
     bar: S1,
 
-    pub const S1 = struct{
+    pub const S1 = struct {
         value: u8,
     };
 
