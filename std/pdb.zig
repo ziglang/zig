@@ -493,8 +493,7 @@ const Msf = struct {
     streams: []MsfStream,
 
     fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
-        var file_stream = file.inStream();
-        const in = &file_stream.stream;
+        const in = file.streams().inStream();
 
         const superblock = try in.readStruct(SuperBlock);
 
@@ -518,11 +517,11 @@ const Msf = struct {
             allocator,
         );
 
-        const stream_count = try self.directory.stream.readIntLittle(u32);
+        const stream_count = try self.directory.inStream().readIntLittle(u32);
 
         const stream_sizes = try allocator.alloc(u32, stream_count);
         for (stream_sizes) |*s| {
-            const size = try self.directory.stream.readIntLittle(u32);
+            const size = try self.directory.inStream().readIntLittle(u32);
             s.* = blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -592,17 +591,17 @@ const MsfStream = struct {
     blocks: []u32,
     block_size: u32,
 
+    pub const ReadError = os.File.ReadError || os.File.SeekError || error{EndOfStream};
+
     fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: *mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
             .blocks = try allocator.alloc(u32, block_count),
             .block_size = block_size,
-            .stream = Stream{ .readFn = readFn },
         };
 
-        var file_stream = file.inStream();
-        const in = &file_stream.stream;
+        const in = file.streams().inStream();
         try file.seekTo(pos);
 
         var i: u32 = 0;
@@ -617,7 +616,7 @@ const MsfStream = struct {
         var list = ArrayList(u8).init(allocator);
         defer list.deinit();
         while (true) {
-            const byte = try self.stream.readByte();
+            const byte = try self.inStream().readByte();
             if (byte == 0) {
                 return list.toSlice();
             }
@@ -625,14 +624,13 @@ const MsfStream = struct {
         }
     }
 
-    fn read(self: *MsfStream, buffer: []u8) !usize {
+    fn read(self: *MsfStream, buffer: []u8) ReadError!usize {
         var block_id = self.pos / self.block_size;
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
 
         try self.in_file.seekTo(block * self.block_size + offset);
-        var file_stream = self.in_file.inStream();
-        const in = &file_stream.stream;
+        const in = self.in_file.streams().inStream();
 
         var size: usize = 0;
         for (buffer) |*byte| {
@@ -654,7 +652,7 @@ const MsfStream = struct {
         return size;
     }
 
-    fn seekForward(self: *MsfStream, len: i64) !void {
+    fn seekForward(self: *MsfStream, len: u64) !void {
         self.pos += len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
@@ -699,7 +697,7 @@ const MsfStream = struct {
     pub fn inStream(self: *MsfStream) InStreamImpl {
         return InStreamImpl{
             .impl = self,
-            .readFn = readFn,
+            .readFn = read,
         };
     }
     

@@ -579,16 +579,17 @@ fn populateModule(di: *DebugInfo, mod: *Module) !void {
         return;
 
     const modi = di.pdb.getStreamById(mod.mod_info.ModuleSymStream) orelse return error.MissingDebugInfo;
+    const modi_stream = modi.inStream();
 
-    const signature = try modi.stream.readIntLittle(u32);
+    const signature = try modi_stream.readIntLittle(u32);
     if (signature != 4)
         return error.InvalidDebugInfo;
 
     mod.symbols = try allocator.alloc(u8, mod.mod_info.SymByteSize - 4);
-    try modi.stream.readNoEof(mod.symbols);
+    try modi_stream.readNoEof(mod.symbols);
 
     mod.subsect_info = try allocator.alloc(u8, mod.mod_info.C13ByteSize);
-    try modi.stream.readNoEof(mod.subsect_info);
+    try modi_stream.readNoEof(mod.subsect_info);
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -813,20 +814,21 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
 
     try di.pdb.openFile(di.coff, path);
 
-    var pdb_stream = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
-    const version = try pdb_stream.stream.readIntLittle(u32);
-    const signature = try pdb_stream.stream.readIntLittle(u32);
-    const age = try pdb_stream.stream.readIntLittle(u32);
+    var pdb_stream_base = di.pdb.getStream(pdb.StreamType.Pdb) orelse return error.InvalidDebugInfo;
+    var pdb_stream = pdb_stream_base.inStream();
+    const version = try pdb_stream.readIntLittle(u32);
+    const signature = try pdb_stream.readIntLittle(u32);
+    const age = try pdb_stream.readIntLittle(u32);
     var guid: [16]u8 = undefined;
-    try pdb_stream.stream.readNoEof(guid[0..]);
+    try pdb_stream.readNoEof(guid[0..]);
     if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
         return error.InvalidDebugInfo;
     // We validated the executable and pdb match.
 
     const string_table_index = str_tab_index: {
-        const name_bytes_len = try pdb_stream.stream.readIntLittle(u32);
+        const name_bytes_len = try pdb_stream.readIntLittle(u32);
         const name_bytes = try allocator.alloc(u8, name_bytes_len);
-        try pdb_stream.stream.readNoEof(name_bytes);
+        try pdb_stream.readNoEof(name_bytes);
 
         const HashTableHeader = packed struct {
             Size: u32,
@@ -836,17 +838,17 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
                 return cap * 2 / 3 + 1;
             }
         };
-        const hash_tbl_hdr = try pdb_stream.stream.readStruct(HashTableHeader);
+        const hash_tbl_hdr = try pdb_stream.readStruct(HashTableHeader);
         if (hash_tbl_hdr.Capacity == 0)
             return error.InvalidDebugInfo;
 
         if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
             return error.InvalidDebugInfo;
 
-        const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const present = try readSparseBitVector(pdb_stream, allocator);
         if (present.len != hash_tbl_hdr.Size)
             return error.InvalidDebugInfo;
-        const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const deleted = try readSparseBitVector(pdb_stream, allocator);
 
         const Bucket = struct {
             first: u32,
@@ -854,8 +856,8 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         };
         const bucket_list = try allocator.alloc(Bucket, present.len);
         for (present) |_| {
-            const name_offset = try pdb_stream.stream.readIntLittle(u32);
-            const name_index = try pdb_stream.stream.readIntLittle(u32);
+            const name_offset = try pdb_stream.readIntLittle(u32);
+            const name_index = try pdb_stream.readIntLittle(u32);
             const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
@@ -868,9 +870,10 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return error.MissingDebugInfo;
 
     const dbi = di.pdb.dbi;
+    const dbi_stream = dbi.inStream();
 
     // Dbi Header
-    const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
+    const dbi_stream_header = try dbi_stream.readStruct(pdb.DbiStreamHeader);
     const mod_info_size = dbi_stream_header.ModInfoSize;
     const section_contrib_size = dbi_stream_header.SectionContributionSize;
 
@@ -879,7 +882,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try dbi.stream.readStruct(pdb.ModInfo);
+        const mod_info = try dbi_stream.readStruct(pdb.ModInfo);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
         const module_name = try dbi.readNullTermString(allocator);
@@ -917,14 +920,14 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     var sect_contribs = ArrayList(pdb.SectionContribEntry).init(allocator);
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi.stream.readIntLittle(u32));
+        const ver = @intToEnum(pdb.SectionContrSubstreamVersion, try dbi_stream.readIntLittle(u32));
         if (ver != pdb.SectionContrSubstreamVersion.Ver60)
             return error.InvalidDebugInfo;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try dbi.stream.readStruct(pdb.SectionContribEntry);
+        entry.* = try dbi_stream.readStruct(pdb.SectionContribEntry);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)

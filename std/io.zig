@@ -1126,7 +1126,7 @@ test "io.readLineFrom" {
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
     var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = stdin.streams().inStream();
     return readLineSliceFrom(stdin_stream, slice);
 }
 

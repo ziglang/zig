@@ -212,11 +212,11 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        var stderr_file_in_stream = child.stderr.?.inStream();
+        var stdout_file_in_stream = child.stdout.?.streams().inStream();
+        var stderr_file_in_stream = child.stderr.?.streams().inStream();
 
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
-        try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+        try stdout_file_in_stream.readAllBuffer(&stdout, max_output_size);
+        try stderr_file_in_stream.readAllBuffer(&stderr, max_output_size);
 
         return ExecResult{
             .term = try child.wait(),

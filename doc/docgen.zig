@@ -41,12 +41,12 @@ pub fn main() !void {
     var out_file = try os.File.openWrite(out_file_name);
     defer out_file.close();
 
-    var file_in_stream = in_file.inStream();
+    var file_in_stream = in_file.streams().inStream();
 
-    const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
+    const input_file_bytes = try file_in_stream.readAllAlloc(allocator, max_doc_file_size);
 
-    var file_out_stream = out_file.outStream();
-    var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(&file_out_stream.stream);
+    var file_out_stream = out_file.streams().outStream();
+    var buffered_out_stream = io.BufferedOutStream(os.File.OutStreamImpl).init(file_out_stream);
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -54,7 +54,7 @@ pub fn main() !void {
     try os.makePath(allocator, tmp_dir_name);
     defer os.deleteTree(allocator, tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
+    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.outStream(), zig_exe);
     try buffered_out_stream.flush();
 }
 
@@ -326,7 +326,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
     defer toc_buf.deinit();
 
     var toc_buf_adapter = io.BufferOutStream.init(&toc_buf);
-    var toc = &toc_buf_adapter.stream;
+    var toc = toc_buf_adapter.outStream();
 
     var nodes = std.ArrayList(Node).init(allocator);
     defer nodes.deinit();
@@ -571,7 +571,7 @@ fn urlize(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     for (input) |c| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
@@ -591,7 +591,7 @@ fn escapeHtml(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     try writeEscaped(out, input);
     return buf.toOwnedSlice();
 }
@@ -637,7 +637,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     var number_start_index: usize = undefined;
     var first_number: usize = undefined;
     var second_number: usize = undefined;
