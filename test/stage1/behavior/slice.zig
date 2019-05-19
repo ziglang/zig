@@ -54,3 +54,9 @@ test "comptime slices are disambiguated" {
     expect(sliceSum([]u8{ 1, 2 }) == 3);
     expect(sliceSum([]u8{ 3, 4 }) == 7);
 }
+
+test "slice in packed struct" {
+    const S = packed struct {
+        s: []u8,
+    };
+}

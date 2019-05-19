@@ -684,7 +684,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     Buf *len_field_name = buf_create_from_str("len");
 
     entry->data.structure.resolve_status = ResolveStatusSizeKnown;
-    entry->data.structure.layout = ContainerLayoutAuto;
+    entry->data.structure.layout = ContainerLayoutPacked;
     entry->data.structure.is_slice = true;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
