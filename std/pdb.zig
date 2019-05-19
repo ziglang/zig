@@ -632,7 +632,7 @@ const MsfStream = struct {
     }
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
-        var block_id = self.pos / self.block_size;
+        var block_id = @intCast(usize, self.pos / self.block_size);
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
 

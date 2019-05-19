@@ -363,7 +363,7 @@ pub const Elf = struct {
     entry_addr: u64,
     program_header_offset: u64,
     section_header_offset: u64,
-    string_section_index: u64,
+    string_section_index: usize,
     string_section: *SectionHeader,
     section_headers: []SectionHeader,
     allocator: *mem.Allocator,
@@ -458,7 +458,7 @@ pub const Elf = struct {
         const ph_entry_count = try in.readInt(u16, elf.endian);
         const sh_entry_size = try in.readInt(u16, elf.endian);
         const sh_entry_count = try in.readInt(u16, elf.endian);
-        elf.string_section_index = u64(try in.readInt(u16, elf.endian));
+        elf.string_section_index = usize(try in.readInt(u16, elf.endian));
 
         if (elf.string_section_index >= sh_entry_count) return error.InvalidFormat;
 
