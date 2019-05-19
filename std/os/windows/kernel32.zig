@@ -170,9 +170,9 @@ pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_dwMoveMethod: DWORD,
 ) BOOL;
 
-pub extern "kernel32" stdcallcc fn SetErrorMode(uMode: UINT) UINT;
+pub extern "kernel32" stdcallcc fn SetThreadErrorMode(dwNewMode: DWORD, lpOldMode: LPDWORD) BOOL;
 
-pub extern "kernel32" stdcallcc fn GetErrorMode() UINT;
+pub extern "kernel32" stdcallcc fn GetThreadErrorMode() DWORD;
 
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;
 
@@ -211,15 +211,3 @@ pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRIT
 pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 
 pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
-
-pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
-
-pub const RTL_RUN_ONCE = extern struct {
-    Ptr: ?*c_void,
-};
-
-pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
-
-pub const SEM_FAILCRITICALERRORS = 0x0001;
-
-pub const SEM_NOGPFAULTERRORBOX = 0x0002;
