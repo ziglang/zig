@@ -8,7 +8,10 @@ const assert = std.debug.assert;
 
 var argc_ptr: [*]usize = undefined;
 
-const is_wasm = switch (builtin.arch) { .wasm32, .wasm64 => true, else => false};
+const is_wasm = switch (builtin.arch) {
+    .wasm32, .wasm64 => true,
+    else => false,
+};
 
 comptime {
     if (builtin.link_libc) {
