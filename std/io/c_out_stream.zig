@@ -15,8 +15,10 @@ pub const COutStream = struct {
             .c_file = c_file,
         };
     }
+    
+    pub const WriteError = std.os.File.WriteError;
 
-    fn writeFn(self: *COutStream, bytes: []const u8) !void {
+    fn writeFn(self: *COutStream, bytes: []const u8) WriteError!void {
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
         // TODO errno on windows. should we have a posix layer for windows?

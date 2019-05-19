@@ -48,17 +48,17 @@ pub fn main() !void {
     var prefix: ?[]const u8 = null;
 
     var stderr_file = io.getStdErr();
-    var stderr_file_stream: os.File.OutStream = undefined;
+    var stderr_file_stream: os.File.OutStreamImpl = undefined;
     var stderr_stream = if (stderr_file) |f| x: {
-        stderr_file_stream = f.outStream();
-        break :x &stderr_file_stream.stream;
+        stderr_file_stream = f.streams().outStream();
+        break :x stderr_file_stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
-    var stdout_file_stream: os.File.OutStream = undefined;
+    var stdout_file_stream: os.File.OutStreamImpl = undefined;
     var stdout_stream = if (stdout_file) |f| x: {
-        stdout_file_stream = f.outStream();
-        break :x &stdout_file_stream.stream;
+        stdout_file_stream = f.streams().outStream();
+        break :x stdout_file_stream;
     } else |err| err;
 
     while (arg_it.next(allocator)) |err_or_arg| {

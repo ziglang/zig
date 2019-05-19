@@ -809,11 +809,11 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const stream = &os.File.openHandle(fd).outStream().stream;
+    const stream = os.File.openHandle(fd).streams().outStream();
     stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &os.File.openHandle(fd).inStream().stream;
+    const stream = os.File.openHandle(fd).streams().inStream();
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }

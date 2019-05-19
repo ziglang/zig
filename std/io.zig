@@ -1042,8 +1042,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Stream: type) type {
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
-    file_stream: os.File.outStream(),
-    buffered_stream: BufferedOutStream(),
+    file_stream: os.File.OutStreamImpl,
+    buffered_stream: BufferedOutStream(os.File.OutStreamImpl),
     allocator: *mem.Allocator,
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
@@ -1060,8 +1060,8 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
-        self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = BufferedOutStream(os.File.WriteError).init(&self.file_stream.stream);
+        self.file_stream = self.atomic_file.file.streams().outStream();
+        self.buffered_stream = BufferedOutStream(os.File.OutStreamImpl).init(self.file_stream);
         return self;
     }
 
@@ -1076,7 +1076,7 @@ pub const BufferedAtomicFile = struct {
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: *BufferedAtomicFile) BufferedOutStream.OutStreamImpl {
+    pub fn stream(self: *BufferedAtomicFile) BufferedOutStream(os.File.OutStreamImpl).OutStreamImpl {
         return self.buffered_stream.outStream();
     }
 

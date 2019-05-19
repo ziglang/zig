@@ -13,19 +13,21 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) !bool {
+pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).WriteError || Error)!bool {
     var anything_changed: bool = false;
 
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
         const MyStream = @This();
-
+        
         anything_changed_ptr: *bool,
-        child_stream: @typeOf(stream),
+        child_stream: Stream,
         source_index: usize,
         source: []const u8,
 
-        fn write(self: *MyStream, bytes: []const u8) !void {
+        const Stream = @typeOf(stream);
+
+        fn write(self: *MyStream, bytes: []const u8) Stream.WriteError!void {
             if (!self.anything_changed_ptr.*) {
                 const end = self.source_index + bytes.len;
                 if (end > self.source.len) {

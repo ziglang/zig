@@ -105,7 +105,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.COutStream.init(output_file).outStream();
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.SystemResources => return Error.SystemResources,
         error.OperationAborted => return Error.OperationAborted,
@@ -144,12 +144,12 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
     }
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    stdout = &stdout_out_stream.stream;
+    var stdout_out_stream = stdout_file.streams().outStream();
+    stdout = stdout_out_stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = stderr_file.outStream();
-    stderr = &stderr_out_stream.stream;
+    var stderr_out_stream = stderr_file.streams().outStream();
+    stderr = stderr_out_stream;
 
     const args = args_list.toSliceConst();
     var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[2..]);
@@ -181,9 +181,9 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = stdin_file.inStream();
+        var stdin = stdin_file.streams().inStream();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
+        const source_code = try stdin.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -349,11 +349,11 @@ fn printErrMsgToFile(
     const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
 
     var text_buf = try std.Buffer.initSize(allocator, 0);
-    var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+    var out_stream = std.io.BufferOutStream.init(&text_buf).outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
-    const stream = &file.outStream().stream;
+    const stream = file.streams().outStream();
     if (!color_on) {
         try stream.print(
             "{}:{}:{}: error: {}\n",
@@ -392,5 +392,5 @@ const Flag = arg.Flag;
 const errmsg = @import("errmsg.zig");
 
 var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(os.File.WriteError) = undefined;
-var stdout: *io.OutStream(os.File.WriteError) = undefined;
+var stderr: os.File.OutStreamImpl = undefined;
+var stdout: os.File.OutStreamImpl = undefined;
