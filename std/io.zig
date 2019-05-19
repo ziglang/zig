@@ -18,23 +18,6 @@ const testing = std.testing;
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
-const GetStdIoErrs = os.WindowsGetStdHandleErrs;
-
-pub fn getStdErr() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE) else if (is_posix) os.posix.STDERR_FILENO else unreachable;
-    return File.openHandle(handle);
-}
-
-pub fn getStdOut() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE) else if (is_posix) os.posix.STDOUT_FILENO else unreachable;
-    return File.openHandle(handle);
-}
-
-pub fn getStdIn() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE) else if (is_posix) os.posix.STDIN_FILENO else unreachable;
-    return File.openHandle(handle);
-}
-
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 pub const SliceSeekableInStream = @import("io/seekable_stream.zig").SliceSeekableInStream;
 pub const COutStream = @import("io/c_out_stream.zig").COutStream;

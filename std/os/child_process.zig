@@ -415,7 +415,7 @@ pub const ChildProcess = struct {
                 os.posix_setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            os.posixExecve(self.argv, env_map, self.allocator) catch |err| forkChildErrReport(err_pipe[1], err);
+            os.posix.execve(self.allocator, self.argv, env_map) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
         // we are the parent

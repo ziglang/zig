@@ -12,7 +12,12 @@ pub use switch (builtin.arch) {
     builtin.Arch.aarch64 => @import("linux/arm64.zig"),
     else => @compileError("unsupported arch"),
 };
-pub use @import("linux/errno.zig");
+pub const is_the_target = builtin.os == .linux;
+pub const errno_codes = @import("linux/errno.zig");
+pub use errno_codes;
+
+/// See `std.os.posix.getauxval`.
+pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
@@ -697,9 +702,9 @@ pub const winsize = extern struct {
 };
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: usize) usize {
+pub fn getErrno(r: usize) u12 {
     const signed_r = @bitCast(isize, r);
-    return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
+    return if (signed_r > -4096 and signed_r < 0) @intCast(u12, -signed_r) else 0;
 }
 
 pub fn dup2(old: i32, new: i32) usize {
@@ -764,11 +769,6 @@ pub fn inotify_add_watch(fd: i32, pathname: [*]const u8, mask: u32) usize {
 
 pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
     return syscall2(SYS_inotify_rm_watch, @bitCast(usize, isize(fd)), @bitCast(usize, isize(wd)));
-}
-
-pub fn isatty(fd: i32) bool {
-    var wsz: winsize = undefined;
-    return syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -1136,15 +1136,6 @@ pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
 pub const empty_sigset = []usize{0} ** sigset_t.len;
-
-pub fn raise(sig: i32) usize {
-    var set: sigset_t = undefined;
-    blockAppSignals(&set);
-    const tid = syscall0(SYS_gettid);
-    const ret = syscall2(SYS_tkill, tid, @bitCast(usize, isize(sig)));
-    restoreSignals(&set);
-    return ret;
-}
 
 fn blockAllSignals(set: *sigset_t) void {
     _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG / 8);
@@ -1672,7 +1663,7 @@ pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_inf
 }
 
 test "import" {
-    if (builtin.os == builtin.Os.linux) {
+    if (is_the_target) {
         _ = @import("linux/test.zig");
     }
 }

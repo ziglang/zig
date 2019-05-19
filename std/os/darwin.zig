@@ -1,9 +1,16 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const c = std.c;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub use @import("darwin/errno.zig");
+pub const is_the_target = switch (builtin.os) {
+    .ios, .macosx, .watchos, .tvos => true,
+    else => false,
+};
+
+pub const errno_codes = @import("darwin/errno.zig");
+pub use errno_codes;
 
 pub const PATH_MAX = 1024;
 

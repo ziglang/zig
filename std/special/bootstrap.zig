@@ -81,7 +81,7 @@ fn posixCallMainAndExit() noreturn {
     if (builtin.os == builtin.Os.linux) {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
-        std.os.linux_elf_aux_maybe = auxv;
+        std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
         std.os.linux.tls.initTLS();
 
@@ -99,7 +99,7 @@ fn posixCallMainAndExit() noreturn {
 // and we want fewer call frames in stack traces.
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
-    std.os.posix_environ_raw = envp;
+    std.os.posix.environ = envp;
     return callMain();
 }
 

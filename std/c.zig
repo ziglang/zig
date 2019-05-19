@@ -1,14 +1,23 @@
 const builtin = @import("builtin");
-const Os = builtin.Os;
+
+pub const is_the_target = builtin.link_libc;
 
 pub use switch (builtin.os) {
-    Os.linux => @import("c/linux.zig"),
-    Os.windows => @import("c/windows.zig"),
-    Os.macosx, Os.ios => @import("c/darwin.zig"),
-    Os.freebsd => @import("c/freebsd.zig"),
-    Os.netbsd => @import("c/netbsd.zig"),
+    .linux => @import("c/linux.zig"),
+    .windows => @import("c/windows.zig"),
+    .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
+    .freebsd => @import("c/freebsd.zig"),
+    .netbsd => @import("c/netbsd.zig"),
     else => struct {},
 };
+
+pub fn getErrno(rc: var) u12 {
+    if (rc == -1) {
+        return @intCast(u12, _errno().*);
+    } else {
+        return 0;
+    }
+}
 
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 
@@ -56,6 +65,7 @@ pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
 pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) c_int;
 pub extern "c" fn rmdir(path: [*]const u8) c_int;
+pub extern "c" fn getenv(name: [*]const u8) ?[*]u8;
 
 pub extern "c" fn aligned_alloc(alignment: usize, size: usize) ?*c_void;
 pub extern "c" fn malloc(usize) ?*c_void;

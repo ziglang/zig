@@ -2,6 +2,11 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
+pub const is_the_target = switch (builtin.os) {
+    .windows => true,
+    else => false,
+};
+
 pub use @import("windows/advapi32.zig");
 pub use @import("windows/kernel32.zig");
 pub use @import("windows/ntdll.zig");
@@ -9,10 +14,13 @@ pub use @import("windows/ole32.zig");
 pub use @import("windows/shell32.zig");
 
 test "import" {
-    _ = @import("windows/util.zig");
+    if (is_the_target) {
+        _ = @import("windows/util.zig");
+    }
 }
 
 pub const ERROR = @import("windows/error.zig");
+pub const errno_codes = @import("windows/errno.zig");
 
 pub const SHORT = c_short;
 pub const BOOL = c_int;

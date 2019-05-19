@@ -2,13 +2,9 @@ const c = @cImport({
     // See https://github.com/ziglang/zig/issues/515
     @cDefine("_NO_CRT_STDIO_INLINE", "1");
     @cInclude("stdio.h");
-    @cInclude("string.h");
 });
 
-const msg = c"Hello, world!\n";
-
-export fn main(argc: c_int, argv: **u8) c_int {
-    if (c.printf(msg) != @intCast(c_int, c.strlen(msg))) return -1;
-
+export fn main(argc: c_int, argv: [*]?[*]u8) c_int {
+    c.fprintf(c.stderr, c"Hello, world!\n");
     return 0;
 }

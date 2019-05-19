@@ -223,9 +223,18 @@ pub const File = struct {
         os.close(self.handle);
     }
 
-    /// Calls `os.isTty` on `self.handle`.
+    /// Test whether the file refers to a terminal.
+    /// See also `supportsAnsiEscapeCodes`.
     pub fn isTty(self: File) bool {
-        return os.isTty(self.handle);
+        return posix.isatty(self.handle);
+    }
+
+    /// Test whether ANSI escape codes will be treated as such.
+    pub fn supportsAnsiEscapeCodes(self: File) bool {
+        if (windows.is_the_target) {
+            return posix.isCygwinPty(self.handle);
+        }
+        return self.isTty();
     }
 
     pub const SeekError = error{
@@ -389,43 +398,16 @@ pub const File = struct {
         }
     }
 
-    pub const ReadError = os.WindowsReadError || os.PosixReadError;
+    pub const ReadError = posix.ReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
-        if (is_posix) {
-            return os.posixRead(self.handle, buffer);
-        } else if (is_windows) {
-            var index: usize = 0;
-            while (index < buffer.len) {
-                const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(maxInt(windows.DWORD)), buffer.len - index));
-                var amt_read: windows.DWORD = undefined;
-                if (windows.ReadFile(self.handle, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
-                    const err = windows.GetLastError();
-                    return switch (err) {
-                        windows.ERROR.OPERATION_ABORTED => continue,
-                        windows.ERROR.BROKEN_PIPE => return index,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-                if (amt_read == 0) return index;
-                index += amt_read;
-            }
-            return index;
-        } else {
-            @compileError("Unsupported OS");
-        }
+        return posix.read(self.handle, buffer);
     }
 
-    pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
+    pub const WriteError = posix.WriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!void {
-        if (is_posix) {
-            try os.posixWrite(self.handle, bytes);
-        } else if (is_windows) {
-            try os.windowsWrite(self.handle, bytes);
-        } else {
-            @compileError("Unsupported OS");
-        }
+        return posix.write(self.handle, bytes);
     }
 
     pub fn inStream(file: File) InStream {
@@ -509,4 +491,19 @@ pub const File = struct {
             return self.file.getPos();
         }
     };
+
+    pub fn stdout() !File {
+        const handle = try posix.GetStdHandle(posix.STD_OUTPUT_HANDLE);
+        return openHandle(handle);
+    }
+
+    pub fn stderr() !File {
+        const handle = try posix.GetStdHandle(posix.STD_ERROR_HANDLE);
+        return openHandle(handle);
+    }
+
+    pub fn stdin() !File {
+        const handle = try posix.GetStdHandle(posix.STD_INPUT_HANDLE);
+        return openHandle(handle);
+    }
 };

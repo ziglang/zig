@@ -89,14 +89,7 @@ pub const Server = struct {
                     },
                 };
             } else |err| switch (err) {
-                error.ProcessFdQuotaExceeded => {
-                    errdefer os.emfile_promise_queue.remove(&self.waiting_for_emfile_node);
-                    suspend {
-                        self.waiting_for_emfile_node = PromiseNode.init(@handle());
-                        os.emfile_promise_queue.append(&self.waiting_for_emfile_node);
-                    }
-                    continue;
-                },
+                error.ProcessFdQuotaExceeded => @panic("TODO handle this error"),
                 error.ConnectionAborted => continue,
 
                 error.FileDescriptorNotASocket => unreachable,
