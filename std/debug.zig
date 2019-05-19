@@ -1490,14 +1490,16 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
 }
 
 fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
-    return FormValue{ .Ref = switch (size) {
-        1 => try in_stream.readIntLittle(u8),
-        2 => try in_stream.readIntLittle(u16),
-        4 => try in_stream.readIntLittle(u32),
-        8 => try in_stream.readIntLittle(u64),
-        -1 => try leb.readULEB128(u64, in_stream),
-        else => unreachable,
-    } };
+    return FormValue{
+        .Ref = switch (size) {
+            1 => try in_stream.readIntLittle(u8),
+            2 => try in_stream.readIntLittle(u16),
+            4 => try in_stream.readIntLittle(u32),
+            8 => try in_stream.readIntLittle(u64),
+            -1 => try leb.readULEB128(u64, in_stream),
+            else => unreachable,
+        },
+    };
 }
 
 fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {

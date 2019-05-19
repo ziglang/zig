@@ -8,8 +8,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
-const is_wasm = switch (builtin.arch) { .wasm32, .wasm64 => true, else => false};
-const is_freestanding = switch (builtin.os) { .freestanding => true, else => false };
+const is_wasm = switch (builtin.arch) {
+    .wasm32, .wasm64 => true,
+    else => false,
+};
+const is_freestanding = switch (builtin.os) {
+    .freestanding => true,
+    else => false,
+};
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
         @export("_start", wasm_start, .Strong);
