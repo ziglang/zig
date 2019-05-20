@@ -11,43 +11,47 @@ const maxInt = std.math.maxInt;
 
 const Allocator = mem.Allocator;
 
-pub const c_allocator = &c_allocator_state;
-var c_allocator_state = Allocator{
-    .reallocFn = cRealloc,
-    .shrinkFn = cShrink,
+pub const CAllocator = struct {
+    pub const ReallocError = error{OutOfMemory};
+    
+    fn realloc(self: ?*CAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
+        assert(new_align <= @alignOf(c_longdouble));
+        const old_ptr = if (old_mem.len == 0) null else @ptrCast(*c_void, old_mem.ptr);
+        const buf = c.realloc(old_ptr, new_size) orelse return error.OutOfMemory;
+        return @ptrCast([*]u8, buf)[0..new_size];
+    }
+
+    fn shrink(self: ?*CAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        const old_ptr = @ptrCast(*c_void, old_mem.ptr);
+        const buf = c.realloc(old_ptr, new_size) orelse return old_mem[0..new_size];
+        return @ptrCast([*]u8, buf)[0..new_size];
+    }
+    
+    pub const AllocatorImpl = Allocator(?*CAllocator, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: *Callocator) AllocatorImpl {
+        return  AllocatorImpl {
+            .impl = self,
+            .reallocFn = realloc,
+            .shrinkFn = shrink,
+        };
+    };
 };
 
-fn cRealloc(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-    assert(new_align <= @alignOf(c_longdouble));
-    const old_ptr = if (old_mem.len == 0) null else @ptrCast(*c_void, old_mem.ptr);
-    const buf = c.realloc(old_ptr, new_size) orelse return error.OutOfMemory;
-    return @ptrCast([*]u8, buf)[0..new_size];
-}
-
-fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-    const old_ptr = @ptrCast(*c_void, old_mem.ptr);
-    const buf = c.realloc(old_ptr, new_size) orelse return old_mem[0..new_size];
-    return @ptrCast([*]u8, buf)[0..new_size];
-}
+pub const c_allocator = (Callocator{}).allocator();
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
 pub const DirectAllocator = struct {
-    allocator: Allocator,
+
+    pub const ReallocError = error{OutOfMemory};
 
     pub fn init() DirectAllocator {
-        return DirectAllocator{
-            .allocator = Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
-        };
+        return DirectAllocator{};
     }
 
     pub fn deinit(self: *DirectAllocator) void {}
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
+    fn alloc(self: *DirectAllocator, n: usize, alignment: u29) ReallocError![]u8 {
         if (n == 0)
             return (([*]u8)(undefined))[0..0];
 
@@ -134,7 +138,7 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: *DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 const base_addr = @ptrToInt(old_mem.ptr);
@@ -177,7 +181,9 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(self: *DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, 
+        new_align: u29) ReallocError![]u8
+    {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 if (new_size <= old_mem.len and new_align <= old_align) {
@@ -247,21 +253,25 @@ pub const DirectAllocator = struct {
             else => @compileError("Unsupported OS"),
         }
     }
+    
+    pub const AllocatorImpl = Allocator(*DirectAllocator, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: *DirectAllocator) AllocatorImpl {
+        return AllocatorImpl {
+            .impl = self,
+            .reallocFn = realloc,
+            .shrinkFn = shrink,
+        };
+    }
 };
 
 pub const HeapAllocator = switch (builtin.os) {
     .windows => struct {
-        allocator: Allocator,
         heap_handle: ?HeapHandle,
 
         const HeapHandle = os.windows.HANDLE;
 
         pub fn init() HeapAllocator {
             return HeapAllocator{
-                .allocator = Allocator{
-                    .reallocFn = realloc,
-                    .shrinkFn = shrink,
-                },
                 .heap_handle = null,
             };
         }
@@ -272,8 +282,7 @@ pub const HeapAllocator = switch (builtin.os) {
             }
         }
 
-        fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-            const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
+        fn alloc(self: *HeapAllocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
             if (n == 0)
                 return (([*]u8)(undefined))[0..0];
 
@@ -294,8 +303,8 @@ pub const HeapAllocator = switch (builtin.os) {
             return @intToPtr([*]u8, adjusted_addr)[0..n];
         }
 
-        fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-            return realloc(allocator, old_mem, old_align, new_size, new_align) catch {
+        fn shrink(self: *HeapAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+            return self.realloc(old_mem, old_align, new_size, new_align) catch {
                 const old_adjusted_addr = @ptrToInt(old_mem.ptr);
                 const old_record_addr = old_adjusted_addr + old_mem.len;
                 const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
@@ -306,10 +315,9 @@ pub const HeapAllocator = switch (builtin.os) {
             };
         }
 
-        fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-            if (old_mem.len == 0) return alloc(allocator, new_size, new_align);
+        fn realloc(self: *HeapAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+            if (old_mem.len == 0) return self.alloc(new_size, new_align);
 
-            const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
             const old_adjusted_addr = @ptrToInt(old_mem.ptr);
             const old_record_addr = old_adjusted_addr + old_mem.len;
             const root_addr = @intToPtr(*align(1) usize, old_record_addr).*;
@@ -344,6 +352,15 @@ pub const HeapAllocator = switch (builtin.os) {
             @intToPtr(*align(1) usize, new_record_addr).* = new_root_addr;
             return @intToPtr([*]u8, new_adjusted_addr)[0..new_size];
         }
+        
+        pub const AllocatorImpl = Allocator(*HeapAllocator, @typeOf(realloc), @typeOf(shrink));
+        pub fn allocator(self: *HeapAllocator) AllocatorImpl {
+            return AllocatorImpl {
+                .impl = self,
+                .reallocFn = realloc,
+                .shrinkFn = shrink,
+            };
+        }
     },
     else => @compileError("Unsupported OS"),
 };
@@ -351,20 +368,16 @@ pub const HeapAllocator = switch (builtin.os) {
 /// This allocator takes an existing allocator, wraps it, and provides an interface
 /// where you can allocate without freeing, and then free it all together.
 pub const ArenaAllocator = struct {
-    pub allocator: Allocator,
-
-    child_allocator: *Allocator,
+    child_allocator: AnyAllocator,
     buffer_list: std.LinkedList([]u8),
     end_index: usize,
 
+    pub const ReallocError = error{OutOfMemory};
+
     const BufNode = std.LinkedList([]u8).Node;
 
-    pub fn init(child_allocator: *Allocator) ArenaAllocator {
+    pub fn init(child_allocator: AnyAllocator) ArenaAllocator {
         return ArenaAllocator{
-            .allocator = Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
             .child_allocator = child_allocator,
             .buffer_list = std.LinkedList([]u8).init(),
             .end_index = 0,
@@ -402,9 +415,7 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
-
+    fn alloc(self: *ArenaAllocator, n: usize, alignment: u29) ![]u8 {
         var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
@@ -422,40 +433,45 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(self: *ArenaAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
         if (new_size <= old_mem.len and new_align <= new_size) {
             // We can't do anything with the memory, so tell the client to keep it.
             return error.OutOfMemory;
         } else {
-            const result = try alloc(allocator, new_size, new_align);
+            const result = try self.alloc(new_size, new_align);
             @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: *ArenaAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         return old_mem[0..new_size];
+    }
+    
+    pub const AllocatorImpl = Allocator(*ArenaAllocator, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: *ArenaAllocator) AllocatorImpl {
+        return AllocatorImpl {
+            .impl = self,
+            .reallocFn = realloc,
+            .shrinkFn = shrink,
+        };
     }
 };
 
 pub const FixedBufferAllocator = struct {
-    allocator: Allocator,
     end_index: usize,
     buffer: []u8,
 
+    pub const ReallocError = error{OutOfMemory};
+
     pub fn init(buffer: []u8) FixedBufferAllocator {
         return FixedBufferAllocator{
-            .allocator = Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
             .buffer = buffer,
             .end_index = 0,
         };
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+    fn alloc(self: *FixedBufferAllocator, n: usize, alignment: u29) ![]u8 {
         const addr = @ptrToInt(self.buffer.ptr) + self.end_index;
         const adjusted_addr = mem.alignForward(addr, alignment);
         const adjusted_index = self.end_index + (adjusted_addr - addr);
@@ -469,8 +485,7 @@ pub const FixedBufferAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+    fn realloc(self: *FixedBufferAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         assert(old_mem.len <= self.end_index);
         if (old_mem.ptr == self.buffer.ptr + self.end_index - old_mem.len and
             mem.alignForward(@ptrToInt(old_mem.ptr), new_align) == @ptrToInt(old_mem.ptr))
@@ -485,14 +500,23 @@ pub const FixedBufferAllocator = struct {
             // We can't do anything with the memory, so tell the client to keep it.
             return error.OutOfMemory;
         } else {
-            const result = try alloc(allocator, new_size, new_align);
+            const result = try self.alloc(ew_size, new_align);
             @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: *FixedBufferAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         return old_mem[0..new_size];
+    }
+    
+    pub const AllocatorImpl = Allocator(*FixedBufferAllocator, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: *FixedBufferAllocator) AllocatorImpl {
+        return AllocatorImpl {
+            .impl = self,
+            .reallocFn = realloc,
+            .shrinkFn = shrink,
+        };
     }
 };
 

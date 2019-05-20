@@ -2,97 +2,134 @@ const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
+const interface = std.interface;
 const builtin = @import("builtin");
 const mem = @This();
 const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
-pub const Allocator = struct {
-    pub const Error = error{OutOfMemory};
+//These are only necessary until after the async rewrite #2377, though
+// obviously we'd like to keep the documentation
 
-    /// Realloc is used to modify the size or alignment of an existing allocation,
-    /// as well as to provide the allocator with an opportunity to move an allocation
-    /// to a better location.
-    /// When the size/alignment is greater than the previous allocation, this function
-    /// returns `error.OutOfMemory` when the requested new allocation could not be granted.
-    /// When the size/alignment is less than or equal to the previous allocation,
-    /// this function returns `error.OutOfMemory` when the allocator decides the client
-    /// would be better off keeping the extra alignment/size. Clients will call
-    /// `shrinkFn` when they require the allocator to track a new alignment/size,
-    /// and so this function should only return success when the allocator considers
-    /// the reallocation desirable from the allocator's perspective.
-    /// As an example, `std.ArrayList` tracks a "capacity", and therefore can handle
-    /// reallocation failure, even when `new_n` <= `old_mem.len`. A `FixedBufferAllocator`
-    /// would always return `error.OutOfMemory` for `reallocFn` when the size/alignment
-    /// is less than or equal to the old allocation, because it cannot reclaim the memory,
-    /// and thus the `std.ArrayList` would be better off retaining its capacity.
-    /// When `reallocFn` returns,
-    /// `return_value[0..min(old_mem.len, new_byte_count)]` must be the same
-    /// as `old_mem` was when `reallocFn` is called. The bytes of
-    /// `return_value[old_mem.len..]` have undefined values.
-    /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
-    reallocFn: fn (
-        self: *Allocator,
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
-        /// is guaranteed to be >= 1.
-        old_mem: []u8,
-        /// If `old_mem.len == 0` then this is `undefined`, otherwise:
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        /// Guaranteed to be >= 1.
-        /// Guaranteed to be a power of 2.
-        old_alignment: u29,
-        /// If `new_byte_count` is 0 then this is a free and it is guaranteed that
-        /// `old_mem.len != 0`.
-        new_byte_count: usize,
-        /// Guaranteed to be >= 1.
-        /// Guaranteed to be a power of 2.
-        /// Returned slice's pointer must have this alignment.
-        new_alignment: u29,
-    ) Error![]u8,
+/// Realloc is used to modify the size or alignment of an existing allocation,
+/// as well as to provide the allocator with an opportunity to move an allocation
+/// to a better location.
+/// When the size/alignment is greater than the previous allocation, this function
+/// returns `error.OutOfMemory` when the requested new allocation could not be granted.
+/// When the size/alignment is less than or equal to the previous allocation,
+/// this function returns `error.OutOfMemory` when the allocator decides the client
+/// would be better off keeping the extra alignment/size. Clients will call
+/// `shrinkFn` when they require the allocator to track a new alignment/size,
+/// and so this function should only return success when the allocator considers
+/// the reallocation desirable from the allocator's perspective.
+/// As an example, `std.ArrayList` tracks a "capacity", and therefore can handle
+/// reallocation failure, even when `new_n` <= `old_mem.len`. A `FixedBufferAllocator`
+/// would always return `error.OutOfMemory` for `reallocFn` when the size/alignment
+/// is less than or equal to the old allocation, because it cannot reclaim the memory,
+/// and thus the `std.ArrayList` would be better off retaining its capacity.
+/// When `reallocFn` returns,
+/// `return_value[0..min(old_mem.len, new_byte_count)]` must be the same
+/// as `old_mem` was when `reallocFn` is called. The bytes of
+/// `return_value[old_mem.len..]` have undefined values.
+/// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
+pub const AnyReallocFn = fn (
+    self: A,
+    /// Guaranteed to be the same as what was returned from most recent call to
+    /// `reallocFn` or `shrinkFn`.
+    /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
+    /// is guaranteed to be >= 1.
+    old_mem: []u8,
+    /// If `old_mem.len == 0` then this is `undefined`, otherwise:
+    /// Guaranteed to be the same as what was returned from most recent call to
+    /// `reallocFn` or `shrinkFn`.
+    /// Guaranteed to be >= 1.
+    /// Guaranteed to be a power of 2.
+    old_alignment: u29,
+    /// If `new_byte_count` is 0 then this is a free and it is guaranteed that
+    /// `old_mem.len != 0`.
+    new_byte_count: usize,
+    /// Guaranteed to be >= 1.
+    /// Guaranteed to be a power of 2.
+    /// Returned slice's pointer must have this alignment.
+    new_alignment: u29,
+) error{OutOfMemory}![]u8;
 
-    /// This function deallocates memory. It must succeed.
-    shrinkFn: fn (
-        self: *Allocator,
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        old_mem: []u8,
-        /// Guaranteed to be the same as what was returned from most recent call to
-        /// `reallocFn` or `shrinkFn`.
-        old_alignment: u29,
-        /// Guaranteed to be less than or equal to `old_mem.len`.
-        new_byte_count: usize,
-        /// If `new_byte_count == 0` then this is `undefined`, otherwise:
-        /// Guaranteed to be less than or equal to `old_alignment`.
-        new_alignment: u29,
-    ) []u8,
+/// This function deallocates memory. It must succeed.
+pub const AnyShrinkFn = fn (
+    self: A,
+    /// Guaranteed to be the same as what was returned from most recent call to
+    /// `reallocFn` or `shrinkFn`.
+    old_mem: []u8,
+    /// Guaranteed to be the same as what was returned from most recent call to
+    /// `reallocFn` or `shrinkFn`.
+    old_alignment: u29,
+    /// Guaranteed to be less than or equal to `old_mem.len`.
+    new_byte_count: usize,
+    /// If `new_byte_count == 0` then this is `undefined`, otherwise:
+    /// Guaranteed to be less than or equal to `old_alignment`.
+    new_alignment: u29,
+) []u8;
+
+//AnyAllocator is a bit special because it has to handle interfacing with async until #2377
+// is complete, so Allocator's toAny needs to setup some additional fields to handle async's
+// assumptions.
+pub const AnyAllocator = struct {
+    impl: interface.Any,
+    reallocFn: AnyReallocFn,
+    shrinkFn: AnyShrinkFn,
+    
+    pub const ReallocError = error{OutOfMemory};
+    
+    //These are only necessary until after the async rewrite #2377
+    asyncReallocFn: AnyAsyncReallocFn,
+    AnyAsyncShrinkFn: AnyAsyncShrinkFn,
+
+    pub fn asyncRealloc(self: *AnyAllocator, old_mem: []u8, old_align: u29, 
+        new_size: usize, new_align: u29) ReallocError![]u8
+    {
+        return self.reallocFn(self.impl, old_mem, old_align, new_size, new_align);
+    }
+    
+    pub fn asyncShrink(self: *AnyAllocator, old_mem: []u8, old_align: u29, 
+        new_size: usize, new_align: u29) []u8
+    {
+        return self.shrinkFn(self.impl, old_mem, old_align, new_size, new_align);
+    }
+};
+
+pub fn Allocator(comptime A: type, comptime ReallocFn: type, comptime ShrinkFn: type) type {
+    pub const Self = @This();
+    
+    impl: A,
+    reallocFn: ReallocFn,
+    shrinkFn: ShrinkFn,
+
+    pub const ReallocError = error{OutOfMemory};
 
     /// Call `destroy` with the result.
     /// Returns undefined memory.
-    pub fn create(self: *Allocator, comptime T: type) Error!*T {
+    pub fn create(self: A, comptime T: type) ReallocError!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
     /// `ptr` should be the return value of `create`
-    pub fn destroy(self: *Allocator, ptr: var) void {
+    pub fn destroy(self: A, ptr: var) void {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
+        const shrink_result = self.shrinkFn(self.impl, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
         assert(shrink_result.len == 0);
     }
 
-    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
+    pub fn alloc(self: A, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
     pub fn alignedAlloc(
-        self: *Allocator,
+        self: A,
         comptime T: type,
         comptime alignment: u29,
         n: usize,
@@ -101,8 +138,8 @@ pub const Allocator = struct {
             return ([*]align(alignment) T)(undefined)[0..0];
         }
 
-        const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
+        const byte_count = math.mul(usize, @sizeOf(T), n) catch return error.OutOfMemory;
+        const byte_slice = try self.reallocFn(self.impl, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         return @bytesToSlice(T, @alignCast(alignment, byte_slice));
@@ -118,9 +155,9 @@ pub const Allocator = struct {
     /// in `std.ArrayList.shrink`.
     /// If you need guaranteed success, call `shrink`.
     /// If `new_n` is 0, this is the same as `free` and it always succeeds.
-    pub fn realloc(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn realloc(self: A, old_mem: var, new_n: usize) t: {
         const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
-        break :t Error![]align(Slice.alignment) Slice.child;
+        break :t ReallocError![]align(Slice.alignment) Slice.child;
     } {
         const old_alignment = @typeInfo(@typeOf(old_mem)).Pointer.alignment;
         return self.alignedRealloc(old_mem, old_alignment, new_n);
@@ -130,11 +167,11 @@ pub const Allocator = struct {
     /// a new alignment, which can be larger, smaller, or the same as the old
     /// allocation.
     pub fn alignedRealloc(
-        self: *Allocator,
+        self: A,
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
-    ) Error![]align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
+    ) ReallocError![]align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
         const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
         const T = Slice.child;
         if (old_mem.len == 0) {
@@ -146,8 +183,8 @@ pub const Allocator = struct {
         }
 
         const old_byte_slice = @sliceToBytes(old_mem);
-        const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return error.OutOfMemory;
+        const byte_slice = try self.reallocFn(self.impl, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
@@ -160,7 +197,7 @@ pub const Allocator = struct {
     /// Shrink always succeeds, and `new_n` must be <= `old_mem.len`.
     /// Returned slice has same alignment as old_mem.
     /// Shrinking to 0 is the same as calling `free`.
-    pub fn shrink(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn shrink(self: A, old_mem: var, new_n: usize) t: {
         const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
         break :t []align(Slice.alignment) Slice.child;
     } {
@@ -172,7 +209,7 @@ pub const Allocator = struct {
     /// a new alignment, which must be smaller or the same as the old
     /// allocation.
     pub fn alignedShrink(
-        self: *Allocator,
+        self: A,
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
@@ -193,18 +230,30 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * new_n;
 
         const old_byte_slice = @sliceToBytes(old_mem);
-        const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = self.shrinkFn(self.impl, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
-    pub fn free(self: *Allocator, memory: var) void {
+    pub fn free(self: A, memory: var) void {
         const Slice = @typeInfo(@typeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
+        const shrink_result = self.shrinkFn(self.impl, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
+    }
+    
+    pub fn toAny(self: A) AnyAllocator {
+        return AnyAllocator {
+            .impl = interface.toAny(self),
+            .reallocFn = interface.abstractFn(AnyReallocFn, self.reallocFn),
+            .shrinkFn = interface.abstractFn(ShrinkFn, self.shrinkFn),
+            
+            //These are only necessary until after the async rewrite #2377
+            .asyncReallocFn = AnyAllocator.asyncRealloc,
+            .asyncShrinkFn = AnyAllocator.asyncShrink,
+        };
     }
 };
 
@@ -348,7 +397,7 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
-pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
+pub fn dupe(allocator: var, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
@@ -957,7 +1006,7 @@ pub const SplitIterator = struct {
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+pub fn join(allocator: var, separator: []const u8, slices: []const []const u8) ![]u8 {
     if (slices.len == 0) return (([*]u8)(undefined))[0..0];
 
     const total_len = blk: {
@@ -985,7 +1034,7 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 
 test "mem.join" {
     var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    const a = std.heap.FixedBufferAllocator.init(&buf).allocator();
     testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
     testing.expect(eql(u8, try join(a, ",", [][]const u8{"a"}), "a"));
     testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
