@@ -895,6 +895,18 @@ pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_inf
     return last_r;
 }
 
+pub fn io_uring_setup(entries: u32, p: *io_uring_params) usize {
+    return syscall2(SYS_io_uring_setup, entries, @ptrToInt(p));
+}
+
+pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, sig: ?*sigset_t) usize {
+    return syscall6(SYS_io_uring_enter, @bitCast(usize, isize(fd)), to_submit, min_complete, flags, @ptrToInt(sig), NSIG / 8);
+}
+
+pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32) usize {
+    return syscall4(SYS_io_uring_register, @bitCast(usize, isize(fd)), opcode, @ptrToInt(arg), nr_args);
+}
+
 test "" {
     if (is_the_target) {
         _ = @import("linux/test.zig");
