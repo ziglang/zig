@@ -11,7 +11,6 @@ comptime {
 test "std.os" {
     _ = @import("os/child_process.zig");
     _ = @import("os/darwin.zig");
-    _ = @import("os/darwin/errno.zig");
     _ = @import("os/get_user_id.zig");
     _ = @import("os/linux.zig");
     _ = @import("os/path.zig");
@@ -32,14 +31,14 @@ pub const zen = @import("os/zen.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 
-pub const system = if (builtin.link_libc) c else switch (builtin.os) {
+pub const system = switch (builtin.os) {
     .linux => linux,
     .macosx, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .netbsd => netbsd,
     .zen => zen,
     .wasi => wasi,
-    else => @compileError("Unsupported OS"),
+    else => struct {},
 };
 
 pub const net = @import("net.zig");
@@ -92,8 +91,6 @@ pub const WindowsWaitError = windows_util.WaitError;
 pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
 pub const WindowsReadError = windows_util.ReadError;
-
-pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
 pub const getAppDataDir = @import("os/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("os/get_app_data_dir.zig").GetAppDataDirError;
@@ -776,11 +773,13 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = posix.getdirentries64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
-                    const err = posix.getErrno(result);
-                    if (err > 0) {
-                        switch (err) {
-                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                    const result = system.__getdirentries64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
+                    if (result == 0) return null;
+                    if (result < 0) {
+                        switch (system.getErrno(result)) {
+                            posix.EBADF => unreachable,
+                            posix.EFAULT => unreachable,
+                            posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
                                 self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
                                 continue;
@@ -788,9 +787,8 @@ pub const Dir = struct {
                             else => return unexpectedErrorPosix(err),
                         }
                     }
-                    if (result == 0) return null;
                     self.handle.index = 0;
-                    self.handle.end_index = result;
+                    self.handle.end_index = @intCast(usize, result);
                     break;
                 }
             }
@@ -1357,28 +1355,16 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
         Os.freebsd => {
             var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
-            const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
-
-            if (err == 0) return mem.toSlice(u8, out_buffer);
-
-            return switch (err) {
-                posix.EFAULT => error.BadAdress,
-                posix.EPERM => error.PermissionDenied,
-                else => unexpectedErrorPosix(err),
-            };
+            try posix.sysctl(&mib, out_buffer, &out_len, null, 0);
+            // TODO could this slice from 0 to out_len instead?
+            return mem.toSlice(u8, out_buffer);
         },
         Os.netbsd => {
             var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC_ARGS, -1, posix.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
-            const err = posix.getErrno(posix.sysctl(&mib, 4, out_buffer, &out_len, null, 0));
-
-            if (err == 0) return mem.toSlice(u8, out_buffer);
-
-            return switch (err) {
-                posix.EFAULT => error.BadAdress,
-                posix.EPERM => error.PermissionDenied,
-                else => unexpectedErrorPosix(err),
-            };
+            try posix.sysctl(&mib, out_buffer, &out_len, null, 0);
+            // TODO could this slice from 0 to out_len instead?
+            return mem.toSlice(u8, out_buffer);
         },
         Os.windows => {
             var utf16le_buf: [posix.PATH_MAX_WIDE]u16 = undefined;
@@ -1744,22 +1730,12 @@ pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
         .macosx, .freebsd, .netbsd => {
             var count: c_int = undefined;
             var count_len: usize = @sizeOf(c_int);
-            const rc = posix.sysctlbyname(switch (builtin.os) {
+            const name = switch (builtin.os) {
                 builtin.Os.macosx => c"hw.logicalcpu",
                 else => c"hw.ncpu",
-            }, @ptrCast(*c_void, &count), &count_len, null, 0);
-            const err = posix.getErrno(rc);
-            switch (err) {
-                0 => return @intCast(usize, count),
-                posix.EFAULT => unreachable,
-                posix.EINVAL => unreachable,
-                posix.ENOMEM => return CpuCountError.OutOfMemory,
-                posix.ENOTDIR => unreachable,
-                posix.EISDIR => unreachable,
-                posix.ENOENT => unreachable,
-                posix.EPERM => unreachable,
-                else => return os.unexpectedErrorPosix(err),
-            }
+            };
+            try posix.sysctlbyname(name, @ptrCast(*c_void, &count), &count_len, null, 0);
+            return @intCast(usize, count);
         },
         .linux => {
             const usize_count = 16;

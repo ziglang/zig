@@ -9923,6 +9923,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
         <li>Minimize energy spent on coding style.</li>
+        <li>Resource deallocation must succeed.</li>
         <li>Together we serve end users.</li>
       </ul>
       {#header_close#}

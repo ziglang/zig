@@ -6,6 +6,8 @@ pub const is_the_target = switch (builtin.os) {
     .windows => true,
     else => false,
 };
+pub const posix = @import("windows/posix.zig");
+pub use posix;
 
 pub use @import("windows/advapi32.zig");
 pub use @import("windows/kernel32.zig");
@@ -20,7 +22,6 @@ test "import" {
 }
 
 pub const ERROR = @import("windows/error.zig");
-pub const errno_codes = @import("windows/errno.zig");
 
 pub const SHORT = c_short;
 pub const BOOL = c_int;
@@ -64,15 +65,6 @@ pub const LONGLONG = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;
-
-/// The standard input device. Initially, this is the console input buffer, CONIN$.
-pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
-
-/// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
-
-/// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 

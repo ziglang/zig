@@ -16,7 +16,7 @@ const is_windows = builtin.os == builtin.Os.windows;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
-    handle: os.FileHandle,
+    handle: posix.fd_t,
 
     pub const Mode = switch (builtin.os) {
         Os.windows => void,
@@ -138,83 +138,24 @@ pub const File = struct {
         return openHandle(handle);
     }
 
-    pub fn openHandle(handle: os.FileHandle) File {
+    pub fn openHandle(handle: posix.fd_t) File {
         return File{ .handle = handle };
     }
 
-    pub const AccessError = error{
-        PermissionDenied,
-        FileNotFound,
-        NameTooLong,
-        InputOutput,
-        SystemResources,
-        BadPathName,
-
-        /// On Windows, file paths must be valid Unicode.
-        InvalidUtf8,
-
-        Unexpected,
-    };
-
-    /// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
-    /// Otherwise use `access` or `accessC`.
-    pub fn accessW(path: [*]const u16) AccessError!void {
-        if (os.windows.GetFileAttributesW(path) != os.windows.INVALID_FILE_ATTRIBUTES) {
-            return;
-        }
-
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
-            else => return os.unexpectedErrorWindows(err),
-        }
+    /// Test for the existence of `path`.
+    /// `path` is UTF8-encoded.
+    pub fn exists(path: []const u8) AccessError!void {
+        return posix.access(path, posix.F_OK);
     }
 
-    /// Call if you have a UTF-8 encoded, null-terminated string.
-    /// Otherwise use `access` or `accessW`.
-    pub fn accessC(path: [*]const u8) AccessError!void {
-        if (is_windows) {
-            const path_w = try windows_util.cStrToPrefixedFileW(path);
-            return accessW(&path_w);
-        }
-        if (is_posix) {
-            const result = posix.access(path, posix.F_OK);
-            const err = posix.getErrno(result);
-            switch (err) {
-                0 => return,
-                posix.EACCES => return error.PermissionDenied,
-                posix.EROFS => return error.PermissionDenied,
-                posix.ELOOP => return error.PermissionDenied,
-                posix.ETXTBSY => return error.PermissionDenied,
-                posix.ENOTDIR => return error.FileNotFound,
-                posix.ENOENT => return error.FileNotFound,
-
-                posix.ENAMETOOLONG => return error.NameTooLong,
-                posix.EINVAL => unreachable,
-                posix.EFAULT => unreachable,
-                posix.EIO => return error.InputOutput,
-                posix.ENOMEM => return error.SystemResources,
-                else => return os.unexpectedErrorPosix(err),
-            }
-        }
-        @compileError("Unsupported OS");
+    /// Same as `exists` except the parameter is null-terminated UTF16LE-encoded.
+    pub fn existsW(path: [*]const u16) AccessError!void {
+        return posix.accessW(path, posix.F_OK);
     }
 
-    pub fn access(path: []const u8) AccessError!void {
-        if (is_windows) {
-            const path_w = try windows_util.sliceToPrefixedFileW(path);
-            return accessW(&path_w);
-        }
-        if (is_posix) {
-            var path_with_null: [posix.PATH_MAX]u8 = undefined;
-            if (path.len >= posix.PATH_MAX) return error.NameTooLong;
-            mem.copy(u8, path_with_null[0..], path);
-            path_with_null[path.len] = 0;
-            return accessC(&path_with_null);
-        }
-        @compileError("Unsupported OS");
+    /// Same as `exists` except the parameter is null-terminated.
+    pub fn existsC(path: [*]const u8) AccessError!void {
+        return posix.accessC(path, posix.F_OK);
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,

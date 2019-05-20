@@ -11,8 +11,6 @@ const cstr = std.cstr;
 pub const WaitError = error{
     WaitAbandoned,
     WaitTimeOut,
-
-    /// See https://github.com/ziglang/zig/issues/1396
     Unexpected,
 };
 

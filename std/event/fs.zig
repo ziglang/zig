@@ -8,6 +8,7 @@ const mem = std.mem;
 const posix = os.posix;
 const windows = os.windows;
 const Loop = event.Loop;
+const fd_t = posix.fd_t;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
@@ -30,7 +31,7 @@ pub const Request = struct {
         End, // special - means the fs thread should exit
 
         pub const PWriteV = struct {
-            fd: os.FileHandle,
+            fd: fd_t,
             iov: []const os.posix.iovec_const,
             offset: usize,
             result: Error!void,
@@ -39,7 +40,7 @@ pub const Request = struct {
         };
 
         pub const PReadV = struct {
-            fd: os.FileHandle,
+            fd: fd_t,
             iov: []const os.posix.iovec,
             offset: usize,
             result: Error!usize,
@@ -52,7 +53,7 @@ pub const Request = struct {
             path: []const u8,
             flags: u32,
             mode: os.File.Mode,
-            result: Error!os.FileHandle,
+            result: Error!fd_t,
 
             pub const Error = os.File.OpenError;
         };
@@ -68,7 +69,7 @@ pub const Request = struct {
         };
 
         pub const Close = struct {
-            fd: os.FileHandle,
+            fd: fd_t,
         };
     };
 };
@@ -76,7 +77,7 @@ pub const Request = struct {
 pub const PWriteVError = error{OutOfMemory} || os.File.WriteError;
 
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) PWriteVError!void {
+pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -109,7 +110,7 @@ pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, o
 }
 
 /// data must outlive the returned promise
-pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
+pub async fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
     if (data.len == 0) return;
     if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
 
@@ -121,7 +122,7 @@ pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []cons
     }
 }
 
-pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, offset: u64) os.WindowsWriteError!void {
+pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -169,7 +170,7 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
 /// iovecs must live until pwritev promise completes.
 pub async fn pwritevPosix(
     loop: *Loop,
-    fd: os.FileHandle,
+    fd: fd_t,
     iovecs: []const posix.iovec_const,
     offset: usize,
 ) os.PosixWriteError!void {
@@ -212,7 +213,7 @@ pub async fn pwritevPosix(
 pub const PReadVError = error{OutOfMemory} || os.File.ReadError;
 
 /// data - just the inner references - must live until preadv promise completes.
-pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) PReadVError!usize {
+pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -247,7 +248,7 @@ pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: 
 }
 
 /// data must outlive the returned promise
-pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: u64) os.WindowsReadError!usize {
+pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) os.WindowsReadError!usize {
     assert(data.len != 0);
     if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
 
@@ -271,7 +272,7 @@ pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, o
     }
 }
 
-pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u64) !usize {
+pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -318,7 +319,7 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
 /// iovecs must live until preadv promise completes
 pub async fn preadvPosix(
     loop: *Loop,
-    fd: os.FileHandle,
+    fd: fd_t,
     iovecs: []const posix.iovec,
     offset: usize,
 ) os.PosixReadError!usize {
@@ -363,7 +364,7 @@ pub async fn openPosix(
     path: []const u8,
     flags: u32,
     mode: os.File.Mode,
-) os.File.OpenError!os.FileHandle {
+) os.File.OpenError!fd_t {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -402,7 +403,7 @@ pub async fn openPosix(
     return req_node.data.msg.Open.result;
 }
 
-pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
@@ -423,12 +424,12 @@ pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHa
 
 /// Creates if does not exist. Truncates the file if it exists.
 /// Uses the default mode.
-pub async fn openWrite(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+pub async fn openWrite(loop: *Loop, path: []const u8) os.File.OpenError!fd_t {
     return await (async openWriteMode(loop, path, os.File.default_mode) catch unreachable);
 }
 
 /// Creates if does not exist. Truncates the file if it exists.
-pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os.File.OpenError!os.FileHandle {
+pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os.File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx,
         builtin.Os.linux,
@@ -454,7 +455,7 @@ pub async fn openReadWrite(
     loop: *Loop,
     path: []const u8,
     mode: os.File.Mode,
-) os.File.OpenError!os.FileHandle {
+) os.File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
             const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
@@ -487,7 +488,7 @@ pub const CloseOperation = struct {
         builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => OsDataPosix,
 
         builtin.Os.windows => struct {
-            handle: ?os.FileHandle,
+            handle: ?fd_t,
         },
 
         else => @compileError("Unsupported OS"),
@@ -551,7 +552,7 @@ pub const CloseOperation = struct {
         }
     }
 
-    pub fn setHandle(self: *CloseOperation, handle: os.FileHandle) void {
+    pub fn setHandle(self: *CloseOperation, handle: fd_t) void {
         switch (builtin.os) {
             builtin.Os.linux,
             builtin.Os.macosx,
@@ -585,7 +586,7 @@ pub const CloseOperation = struct {
         }
     }
 
-    pub fn getHandle(self: *CloseOperation) os.FileHandle {
+    pub fn getHandle(self: *CloseOperation) fd_t {
         switch (builtin.os) {
             builtin.Os.linux,
             builtin.Os.macosx,
@@ -1388,7 +1389,7 @@ async fn testFsWatch(loop: *Loop) !void {
 }
 
 pub const OutStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
     offset: usize,
@@ -1396,7 +1397,7 @@ pub const OutStream = struct {
     pub const Error = os.File.WriteError;
     pub const Stream = event.io.OutStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) OutStream {
+    pub fn init(loop: *Loop, fd: fd_t, offset: usize) OutStream {
         return OutStream{
             .fd = fd,
             .loop = loop,
@@ -1414,7 +1415,7 @@ pub const OutStream = struct {
 };
 
 pub const InStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
     offset: usize,
@@ -1422,7 +1423,7 @@ pub const InStream = struct {
     pub const Error = PReadVError; // TODO make this not have OutOfMemory
     pub const Stream = event.io.InStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) InStream {
+    pub fn init(loop: *Loop, fd: fd_t, offset: usize) InStream {
         return InStream{
             .fd = fd,
             .loop = loop,

@@ -376,14 +376,7 @@ pub const ChildProcess = struct {
         const err_pipe = try makePipe();
         errdefer destroyPipe(err_pipe);
 
-        const pid_result = posix.fork();
-        const pid_err = posix.getErrno(pid_result);
-        if (pid_err > 0) {
-            return switch (pid_err) {
-                posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
-                else => os.unexpectedErrorPosix(pid_err),
-            };
-        }
+        const pid_result = try posix.fork();
         if (pid_result == 0) {
             // we are the child
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);

@@ -1162,10 +1162,8 @@ pub const RealError = error{
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
 
-    /// TODO remove this possibility
     PathAlreadyExists,
 
-    /// TODO remove this possibility
     Unexpected,
 };
 

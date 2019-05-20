@@ -7,6 +7,8 @@ const os = std.os;
 const posix = os.posix;
 const Loop = std.event.Loop;
 
+const fd_t = posix.fd_t;
+
 pub const Server = struct {
     handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
 
@@ -139,7 +141,7 @@ pub const ReadError = error{
 };
 
 /// returns number of bytes read. 0 means EOF.
-pub async fn read(loop: *std.event.Loop, fd: os.FileHandle, buffer: []u8) ReadError!usize {
+pub async fn read(loop: *std.event.Loop, fd: fd_t, buffer: []u8) ReadError!usize {
     const iov = posix.iovec{
         .iov_base = buffer.ptr,
         .iov_len = buffer.len,
@@ -150,7 +152,7 @@ pub async fn read(loop: *std.event.Loop, fd: os.FileHandle, buffer: []u8) ReadEr
 
 pub const WriteError = error{};
 
-pub async fn write(loop: *std.event.Loop, fd: os.FileHandle, buffer: []const u8) WriteError!void {
+pub async fn write(loop: *std.event.Loop, fd: fd_t, buffer: []const u8) WriteError!void {
     const iov = posix.iovec_const{
         .iov_base = buffer.ptr,
         .iov_len = buffer.len,
@@ -220,7 +222,7 @@ pub async fn readvPosix(loop: *std.event.Loop, fd: i32, iov: [*]posix.iovec, cou
     }
 }
 
-pub async fn writev(loop: *Loop, fd: os.FileHandle, data: []const []const u8) !void {
+pub async fn writev(loop: *Loop, fd: fd_t, data: []const []const u8) !void {
     const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
     defer loop.allocator.free(iovecs);
 
@@ -234,7 +236,7 @@ pub async fn writev(loop: *Loop, fd: os.FileHandle, data: []const []const u8) !v
     return await (async writevPosix(loop, fd, iovecs.ptr, data.len) catch unreachable);
 }
 
-pub async fn readv(loop: *Loop, fd: os.FileHandle, data: []const []u8) !usize {
+pub async fn readv(loop: *Loop, fd: fd_t, data: []const []u8) !usize {
     const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
     defer loop.allocator.free(iovecs);
 
@@ -324,14 +326,14 @@ async fn doAsyncTest(loop: *Loop, address: *const std.net.Address, server: *Serv
 }
 
 pub const OutStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
 
     pub const Error = WriteError;
     pub const Stream = event.io.OutStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle) OutStream {
+    pub fn init(loop: *Loop, fd: fd_t) OutStream {
         return OutStream{
             .fd = fd,
             .loop = loop,
@@ -346,14 +348,14 @@ pub const OutStream = struct {
 };
 
 pub const InStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
 
     pub const Error = ReadError;
     pub const Stream = event.io.InStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle) InStream {
+    pub fn init(loop: *Loop, fd: fd_t) InStream {
         return InStream{
             .fd = fd,
             .loop = loop,
