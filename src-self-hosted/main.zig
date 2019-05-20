@@ -45,7 +45,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) anyerror!void,
+    exec: fn (AnyAllocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {

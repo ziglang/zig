@@ -14,7 +14,7 @@ pub const Error = error{ParseError} || ReallocError;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: AnyAllocator, source: []const u8) !*Tree {
+pub fn parse(allocator: var, source: []const u8) !*Tree {
     const tree = blk: {
         // This block looks unnecessary, but is a "foot-shield" to prevent the SegmentedLists
         // from being initialized with a pointer to this `arena`, which is created on

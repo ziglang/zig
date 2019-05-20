@@ -1129,7 +1129,7 @@ pub const Value = union(enum) {
 
 // A non-stream JSON parser which constructs a tree of Value's.
 pub const Parser = struct {
-    allocator: AynAllocator,
+    allocator: AnyAllocator,
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.

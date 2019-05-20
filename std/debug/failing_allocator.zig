@@ -1,5 +1,7 @@
 const std = @import("../std.zig");
 const mem = std.mem;
+const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 
 /// Allocator that fails after N allocations, useful for making sure out of
 /// memory conditions are handled correctly.
@@ -14,9 +16,9 @@ pub const FailingAllocator = struct {
 
     pub const ReallocError = error{OutOfMemory};
 
-    pub fn init(allocator: var, fail_index: usize) FailingAllocator {
+    pub fn init(internal_allocator: var, fail_index: usize) FailingAllocator {
         return FailingAllocator{
-            .internal_allocator = allocator.toAny(),
+            .internal_allocator = internal_allocator.toAny(),
             .fail_index = fail_index,
             .index = 0,
             .allocated_bytes = 0,
@@ -64,6 +66,10 @@ pub const FailingAllocator = struct {
             .impl = self,
             .reallocFn = realloc,
             .shrinkFn = shrink,
+            
+            //These are only necessary until after the async rewrite #2377
+            .asyncReallocFn = {},
+            .asyncShrinkFn = {},
         };
     }
 };

@@ -266,7 +266,7 @@ pub const Int = struct {
     }
 
     /// Sets an Int to value. Value must be an primitive integer type.
-    pub fn set(self: *Int, value: var) Allocator.Error!void {
+    pub fn set(self: *Int, value: var) AnyAllocator.ReallocError!void {
         self.assertWritable();
         const T = @typeOf(value);
 
@@ -615,7 +615,7 @@ pub const Int = struct {
     /// r, a and b may be aliases.
     ///
     /// Returns an error if memory could not be allocated.
-    pub fn add(r: *Int, a: Int, b: Int) Allocator.Error!void {
+    pub fn add(r: *Int, a: Int, b: Int) AnyAllocator.ReallocError!void {
         r.assertWritable();
         if (a.eqZero()) {
             try r.copy(b);
