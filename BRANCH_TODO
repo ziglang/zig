@@ -1,0 +1,6 @@
+Possible kernel bugs:
+  - if entries is small (e.g. 1) which means that .ring_entries (a *u32) can be unaligned
+  - processes don't exit and can't be killed
+    Seems to be unregisterFiles related
+  - io_uring_setup returns ENOMEM
+  - fence in getCompletion doesn't always work (especially after a write)
