@@ -5,7 +5,6 @@ const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
-const InStream = std.stream.InStream;
 
 pub const AT_NULL = 0;
 pub const AT_IGNORE = 1;
