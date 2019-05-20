@@ -7,7 +7,7 @@ test "allocation and looping over 3-byte integer" {
     expect(@alignOf(u24) == 4);
     expect(@alignOf([1]u24) == 4);
     var buffer: [100]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buffer).allocator;
+    const a = std.heap.FixedBufferAllocator.init(&buffer).allocator();
 
     var x = a.alloc(u24, 2) catch unreachable;
     expect(x.len == 2);

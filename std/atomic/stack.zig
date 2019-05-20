@@ -1,7 +1,9 @@
+const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const AtomicOrder = builtin.AtomicOrder;
 const expect = std.testing.expect;
+const AnyAllocator = std.mem.AnyAllocator;
 
 /// Many reader, many writer, non-allocating, thread-safe
 /// Uses a spinlock to protect push() and pop()
@@ -68,9 +70,8 @@ pub fn Stack(comptime T: type) type {
     };
 }
 
-const std = @import("../std.zig");
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: AnyAllocator,
     stack: *Stack(i32),
     put_sum: isize,
     get_sum: isize,
@@ -89,15 +90,15 @@ test "std.atomic.stack" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 300 * 1024);
-    defer direct_allocator.allocator.free(plenty_of_memory);
+    var plenty_of_memory = try direct_allocator.allocator().alloc(u8, 300 * 1024);
+    defer direct_allocator.allocator().free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var a = fixed_buffer_allocator.allocator();
 
     var stack = Stack(i32).init();
     var context = Context{
-        .allocator = a,
+        .allocator = a.toAny(),
         .stack = &stack,
         .put_sum = 0,
         .get_sum = 0,

@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 const fs = std.event.fs;
@@ -12,7 +13,7 @@ const windows = os.windows;
 const maxInt = std.math.maxInt;
 
 pub const Loop = struct {
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
     next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
     final_resume_node: ResumeNode,
@@ -88,7 +89,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initSingleThreaded(self: *Loop, allocator: var) !void {
         return self.initInternal(allocator, 1);
     }
 
@@ -97,7 +98,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initMultiThreaded(self: *Loop, allocator: var) !void {
         if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
@@ -105,10 +106,10 @@ pub const Loop = struct {
 
     /// Thread count is the total thread count. The thread pool size will be
     /// max(thread_count - 1, 0)
-    fn initInternal(self: *Loop, allocator: *mem.Allocator, thread_count: usize) !void {
+    fn initInternal(self: *Loop, allocator: var, thread_count: usize) !void {
         self.* = Loop{
             .pending_event_count = 1,
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
             .os_data = undefined,
             .next_tick_queue = std.atomic.Queue(promise).init(),
             .extra_threads = undefined,
@@ -139,7 +140,7 @@ pub const Loop = struct {
         self.allocator.free(self.extra_threads);
     }
 
-    const InitOsDataError = os.LinuxEpollCreateError || mem.Allocator.Error || os.LinuxEventFdError ||
+    const InitOsDataError = os.LinuxEpollCreateError || mem.AnyAllocator.ReallocError || os.LinuxEventFdError ||
         os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
         os.WindowsCreateIoCompletionPortError;
 
@@ -594,7 +595,7 @@ pub const Loop = struct {
             }
         };
         var handle: promise->@typeOf(func).ReturnType = undefined;
-        return async<self.allocator> S.asyncFunc(self, &handle, args);
+        return async<&self.allocator> S.asyncFunc(self, &handle, args);
     }
 
     /// Awaiting a yield lets the event loop run, starting any unstarted async operations.
@@ -869,7 +870,7 @@ test "std.event.Loop - basic" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
@@ -885,7 +886,7 @@ test "std.event.Loop - call" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);

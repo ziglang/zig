@@ -112,7 +112,7 @@ pub const Target = union(enum) {
         llvm.InitializeAllAsmParsers();
     }
 
-    pub fn getTriple(self: Target, allocator: *std.mem.Allocator) !std.Buffer {
+    pub fn getTriple(self: Target, allocator: var) !std.Buffer {
         var result = try std.Buffer.initSize(allocator, 0);
         errdefer result.deinit();
 

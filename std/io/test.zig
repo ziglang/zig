@@ -11,7 +11,7 @@ const builtin = @import("builtin");
 
 test "write a file, read it, then delete it" {
     var raw_bytes: [200 * 1024]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
+    var allocator = std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator();
 
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
@@ -62,7 +62,7 @@ test "write a file, read it, then delete it" {
 
 test "BufferOutStream" {
     var bytes: [100]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    var allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var buffer = try std.Buffer.initSize(allocator, 0);
     var buf_stream = &std.io.BufferOutStream.init(&buffer).outStream();

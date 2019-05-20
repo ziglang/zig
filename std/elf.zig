@@ -4,6 +4,7 @@ const io = std.io;
 const os = std.os;
 const math = std.math;
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const debug = std.debug;
 
 pub const AT_NULL = 0;
@@ -365,29 +366,29 @@ pub const Elf = struct {
     string_section_index: u64,
     string_section: *SectionHeader,
     section_headers: []SectionHeader,
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
     prealloc_file: os.File,
 
     /// Call close when done.
-    pub fn openPath(elf: *Elf, allocator: *mem.Allocator, path: []const u8) !void {
+    pub fn openPath(elf: *Elf, allocator: var, path: []const u8) !void {
         @compileError("TODO implement");
     }
 
     /// Call close when done.
-    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: os.File) !void {
+    pub fn openFile(elf: *Elf, allocator: var, file: os.File) !void {
         @compileError("TODO implement");
     }
 
     pub fn openStream(
         elf: *Elf,
-        allocator: *mem.Allocator,
-        seekable_stream: io.AnySeekableStream,
-        in: io.AnyInStream,
+        allocator: var,
+        seekable_stream: var,
+        in: var,
     ) !void {
         elf.auto_close_stream = false;
-        elf.allocator = allocator;
-        elf.seekable_stream = seekable_stream;
-        elf.in_stream = in;
+        elf.allocator = allocator.toAny();
+        elf.seekable_stream = seekable_stream.toAny();
+        elf.in_stream = in.toAny();
 
         var magic: [4]u8 = undefined;
         try in.readNoEof(magic[0..]);

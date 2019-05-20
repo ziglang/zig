@@ -14,7 +14,7 @@ pub const Package = struct {
 
     /// makes internal copies of root_src_dir and root_src_path
     /// allocator should be an arena allocator because Package never frees anything
-    pub fn create(allocator: *mem.Allocator, root_src_dir: []const u8, root_src_path: []const u8) !*Package {
+    pub fn create(allocator: var, root_src_dir: []const u8, root_src_path: []const u8) !*Package {
         const ptr = try allocator.create(Package);
         ptr.* = Package{
             .root_src_dir = try Buffer.init(allocator, root_src_dir),

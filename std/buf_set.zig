@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const HashMap = @import("hash_map.zig").HashMap;
 const mem = @import("mem.zig");
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const testing = std.testing;
 
 pub const BufSet = struct {
@@ -9,7 +9,7 @@ pub const BufSet = struct {
 
     const BufSetHashMap = HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 
-    pub fn init(a: *Allocator) BufSet {
+    pub fn init(a: var) BufSet {
         var self = BufSet{ .hash_map = BufSetHashMap.init(a) };
         return self;
     }
@@ -49,7 +49,7 @@ pub const BufSet = struct {
         return self.hash_map.iterator();
     }
 
-    pub fn allocator(self: *const BufSet) *Allocator {
+    pub fn allocator(self: *const BufSet) AnyAllocator {
         return self.hash_map.allocator;
     }
 
@@ -68,7 +68,7 @@ test "BufSet" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var bufset = BufSet.init(&direct_allocator.allocator);
+    var bufset = BufSet.init(direct_allocator.allocator());
     defer bufset.deinit();
 
     try bufset.put("x");

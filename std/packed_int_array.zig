@@ -624,7 +624,7 @@ test "PackedIntArray at end of available memory" {
     };
 
     var da = std.heap.DirectAllocator.init();
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var pad = try allocator.create(Padded);
     defer allocator.destroy(pad);
@@ -639,7 +639,7 @@ test "PackedIntSlice at end of available memory" {
     const PackedSlice = PackedIntSlice(u11);
 
     var da = std.heap.DirectAllocator.init();
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var page = try allocator.alloc(u8, std.os.page_size);
     defer allocator.free(page);

@@ -9,6 +9,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const os = std.os;
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const meta = std.meta;
 const trait = meta.trait;
 const Buffer = std.Buffer;
@@ -82,7 +83,7 @@ pub fn InStream(comptime S: type, comptime ReadFn: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: Self, allocator: var, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -116,7 +117,7 @@ pub fn InStream(comptime S: type, comptime ReadFn: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readUntilDelimiterAlloc(self: Self, allocator: *mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
+        pub fn readUntilDelimiterAlloc(self: Self, allocator: var, delimiter: u8, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -308,12 +309,12 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
+pub fn readFileAlloc(allocator: var, path: []const u8) ![]u8 {
     return readFileAllocAligned(allocator, path, @alignOf(u8));
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
+pub fn readFileAllocAligned(allocator: var, path: []const u8, comptime A: u29) ![]align(A) u8 {
     var file = try File.openRead(path);
     defer file.close();
 
@@ -435,7 +436,7 @@ test "io.BufferedInStream" {
     };
 
     var buf: [100]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
 
     const str = "This is a test";
     var one_byte_stream = OneByteReadInStream.init(str);
@@ -1044,16 +1045,16 @@ pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStreamImpl,
     buffered_stream: BufferedOutStream(os.File.OutStreamImpl),
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
 
-    pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
+    pub fn create(allocator: var, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
         var self = try allocator.create(BufferedAtomicFile);
         self.* = BufferedAtomicFile{
             .atomic_file = undefined,
             .file_stream = undefined,
             .buffered_stream = undefined,
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
         };
         errdefer allocator.destroy(self);
 
@@ -1108,7 +1109,7 @@ pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
 
 test "io.readLineFrom" {
     var bytes: [128]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var buf = try std.Buffer.initSize(allocator, 0);
     var mem_stream = SliceInStream.init(

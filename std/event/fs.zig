@@ -791,7 +791,7 @@ pub fn Watch(comptime V: type) type {
                     errdefer os.close(inotify_fd);
 
                     var result: *Self = undefined;
-                    _ = try async<loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
+                    _ = try async<&loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
                     return result;
                 },
 
@@ -1317,7 +1317,7 @@ const test_tmp_dir = "std_event_fs_test";
 //    var da = std.heap.DirectAllocator.init();
 //    defer da.deinit();
 //
-//    const allocator = &da.allocator;
+//    const allocator = da.allocator();
 //
 //    // TODO move this into event loop too
 //    try os.makePath(allocator, test_tmp_dir);
@@ -1327,8 +1327,9 @@ const test_tmp_dir = "std_event_fs_test";
 //    try loop.initMultiThreaded(allocator);
 //    defer loop.deinit();
 //
+//    const async_allocator = allocator.toAny();
 //    var result: anyerror!void = error.ResultNeverWritten;
-//    const handle = try async<allocator> testFsWatchCantFail(&loop, &result);
+//    const handle = try async<&async_allocator> testFsWatchCantFail(&loop, &result);
 //    defer cancel handle;
 //
 //    loop.run();

@@ -13,7 +13,7 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).WriteError || Error)!bool {
+pub fn render(allocator: var, stream: var, tree: *ast.Tree) (@typeOf(stream).WriteError || Error)!bool {
     var anything_changed: bool = false;
 
     // make a passthrough stream that checks whether something changed
@@ -69,7 +69,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
 }
 
 fn renderRoot(
-    allocator: *mem.Allocator,
+    allocator: var,
     stream: var,
     tree: *ast.Tree,
 ) !void {
@@ -148,7 +148,7 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     }
 }
 
-fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) !void {
+fn renderTopLevelDecl(allocator: var, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) !void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -228,14 +228,14 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
 }
 
 fn renderExpression(
-    allocator: *mem.Allocator,
+    allocator: var,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) (@typeOf(stream).WriteError || std.mem.Allocator.Error) !void {
+) (@typeOf(stream).WriteError || Error) !void {
     switch (base.id) {
         ast.Node.Id.Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
@@ -1709,7 +1709,7 @@ fn renderExpression(
 }
 
 fn renderVarDecl(
-    allocator: *mem.Allocator,
+    allocator: var,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
@@ -1781,7 +1781,7 @@ fn renderVarDecl(
 }
 
 fn renderParamDecl(
-    allocator: *mem.Allocator,
+    allocator: var,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
@@ -1811,13 +1811,13 @@ fn renderParamDecl(
 }
 
 fn renderStatement(
-    allocator: *mem.Allocator,
+    allocator: var,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
-) (@typeOf(stream).WriteError || std.mem.Allocator.Error) !void {
+) (@typeOf(stream).WriteError || Error) !void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);

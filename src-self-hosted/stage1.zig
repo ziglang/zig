@@ -186,7 +186,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         const source_code = try stdin.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
-        const tree = std.zig.parse(allocator, source_code) catch |err| {
+        const tree = std.zig.parse(allocator.toAny(), source_code) catch |err| {
             try stderr.print("error parsing stdin: {}\n", err);
             os.exit(1);
         };
@@ -218,7 +218,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         .seen = Fmt.SeenMap.init(allocator),
         .any_error = false,
         .color = color,
-        .allocator = allocator,
+        .allocator = allocator.toAny(),
     };
 
     const check_mode = flags.present("check");
@@ -319,13 +319,13 @@ const Fmt = struct {
     seen: SeenMap,
     any_error: bool,
     color: errmsg.Color,
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
 
     const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 };
 
 fn printErrMsgToFile(
-    allocator: *mem.Allocator,
+    allocator: var,
     parse_error: *const ast.Error,
     tree: *ast.Tree,
     path: []const u8,
@@ -381,7 +381,7 @@ fn printErrMsgToFile(
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 

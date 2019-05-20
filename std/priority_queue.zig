@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const Allocator = std.mem.Allocator;
+const AnyAllocator = std.mem.AnyAllocator;
 const debug = std.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -10,14 +10,14 @@ pub fn PriorityQueue(comptime T: type) type {
 
         items: []T,
         len: usize,
-        allocator: *Allocator,
+        allocator: AnyAllocator,
         compareFn: fn (a: T, b: T) bool,
 
-        pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
+        pub fn init(allocator: var, compareFn: fn (a: T, b: T) bool) Self {
             return Self{
                 .items = []T{},
                 .len = 0,
-                .allocator = allocator,
+                .allocator = allocator.toAny(),
                 .compareFn = compareFn,
             };
         }
@@ -119,11 +119,11 @@ pub fn PriorityQueue(comptime T: type) type {
         /// PriorityQueue takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: *Allocator, compareFn: fn (a: T, b: T) bool, items: []T) Self {
+        pub fn fromOwnedSlice(allocator: var, compareFn: fn (a: T, b: T) bool, items: []T) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
-                .allocator = allocator,
+                .allocator = allocator.toAny(),
                 .compareFn = compareFn,
             };
             const half = (queue.len >> 1) - 1;

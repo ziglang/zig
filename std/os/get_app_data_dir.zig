@@ -11,7 +11,7 @@ pub const GetAppDataDirError = error{
 
 /// Caller owns returned memory.
 /// TODO determine if we can remove the allocator requirement
-pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
+pub fn getAppDataDir(allocator: var, appname: []const u8) GetAppDataDirError![]u8 {
     switch (builtin.os) {
         builtin.Os.windows => {
             var dir_path_ptr: [*]u16 = undefined;
@@ -62,7 +62,7 @@ fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
 
 test "std.os.getAppDataDir" {
     var buf: [512]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
 
     // We can't actually validate the result
     _ = getAppDataDir(allocator, "zig") catch return;

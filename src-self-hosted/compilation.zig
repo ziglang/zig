@@ -2,7 +2,7 @@ const std = @import("std");
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const Buffer = std.Buffer;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
@@ -101,7 +101,7 @@ pub const ZigCompiler = struct {
     }
 
     /// Must be called only once, ever. Sets global state.
-    pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
+    pub fn setLlvmArgv(allocator: var, llvm_argv: []const []const u8) !void {
         if (llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [][]const []const u8{
                 [][]const u8{"zig (LLVM option parsing)"},
@@ -348,7 +348,7 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        const handle = try async<zig_compiler.loop.allocator> createAsync(
+        const handle = try async<&zig_compiler.loop.allocator> createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -1178,13 +1178,13 @@ pub const Compilation = struct {
     }
 
     /// General Purpose Allocator. Must free when done.
-    fn gpa(self: Compilation) *mem.Allocator {
+    fn gpa(self: Compilation) AnyAllocator {
         return self.loop.allocator;
     }
 
     /// Arena Allocator. Automatically freed when the Compilation is destroyed.
-    fn arena(self: *Compilation) *mem.Allocator {
-        return &self.arena_allocator.allocator;
+    fn arena(self: *Compilation) std.heap.ArenaAllocator.AllocatorImpl {
+        return self.arena_allocator.allocator();
     }
 
     /// If the temporary directory for this compilation has not been created, it creates it.
@@ -1383,7 +1383,7 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
     held.value.append(fn_val.link_set_node);
 }
 
-fn getZigDir(allocator: *mem.Allocator) ![]u8 {
+fn getZigDir(allocator: var) ![]u8 {
     return os.getAppDataDir(allocator, "zig");
 }
 
@@ -1469,9 +1469,10 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 }
 
 // TODO these are hacks which should probably be solved by the language
-fn getAwaitResult(allocator: *Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
+fn getAwaitResult(allocator: var, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
     var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
-    cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
+    const async_allocator = allocator.toAny();
+    cancel (async<&async_allocator> getAwaitResultAsync(handle, &result) catch unreachable);
     return result.?;
 }
 

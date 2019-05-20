@@ -7,7 +7,7 @@ const assert = debug.assert;
 const warn = std.debug.warn;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const os = std.os;
 const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
@@ -22,7 +22,7 @@ pub const Builder = struct {
     install_tls: TopLevelStep,
     have_uninstall_step: bool,
     have_install_step: bool,
-    allocator: *Allocator,
+    allocator: AnyAllocator,
     native_system_lib_paths: ArrayList([]const u8),
     native_system_include_dirs: ArrayList([]const u8),
     native_system_rpaths: ArrayList([]const u8),
@@ -93,7 +93,7 @@ pub const Builder = struct {
         description: []const u8,
     };
 
-    pub fn init(allocator: *Allocator, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
+    pub fn init(allocator: var, zig_exe: []const u8, build_root: []const u8, cache_root: []const u8) Builder {
         const env_map = allocator.create(BufMap) catch unreachable;
         env_map.* = os.getEnvMap(allocator) catch unreachable;
         var self = Builder{
@@ -109,7 +109,7 @@ pub const Builder = struct {
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
             .invalid_user_input = false,
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
             .native_system_lib_paths = ArrayList([]const u8).init(allocator),
             .native_system_include_dirs = ArrayList([]const u8).init(allocator),
             .native_system_rpaths = ArrayList([]const u8).init(allocator),
@@ -799,7 +799,7 @@ const CrossTarget = struct {
     os: builtin.Os,
     abi: builtin.Abi,
 
-    pub fn zigTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
+    pub fn zigTriple(cross_target: CrossTarget, allocator: var) []u8 {
         return std.fmt.allocPrint(
             allocator,
             "{}{}-{}-{}",
@@ -810,7 +810,7 @@ const CrossTarget = struct {
         ) catch unreachable;
     }
 
-    pub fn linuxTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
+    pub fn linuxTriple(cross_target: CrossTarget, allocator: var) []u8 {
         return std.fmt.allocPrint(
             allocator,
             "{}-{}-{}",
@@ -1858,7 +1858,7 @@ pub const Step = struct {
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: *Allocator, makeFn: fn (*Step) anyerror!void) Step {
+    pub fn init(name: []const u8, allocator: var, makeFn: fn (*Step) anyerror!void) Step {
         return Step{
             .name = name,
             .makeFn = makeFn,
@@ -1867,7 +1867,7 @@ pub const Step = struct {
             .done_flag = false,
         };
     }
-    pub fn initNoOp(name: []const u8, allocator: *Allocator) Step {
+    pub fn initNoOp(name: []const u8, allocator: var) Step {
         return init(name, allocator, makeNoOp);
     }
 
@@ -1885,7 +1885,7 @@ pub const Step = struct {
     fn makeNoOp(self: *Step) anyerror!void {}
 };
 
-fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
+fn doAtomicSymLinks(allocator: var, output_path: []const u8, filename_major_only: []const u8, filename_name_only: []const u8) !void {
     const out_dir = os.path.dirname(output_path) orelse ".";
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3

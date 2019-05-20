@@ -964,7 +964,7 @@ pub const Code = struct {
     tree_scope: *Scope.AstTree,
 
     /// allocator is comp.gpa()
-    pub fn destroy(self: *Code, allocator: *Allocator) void {
+    pub fn destroy(self: *Code, allocator: var) void {
         self.arena.deinit();
         allocator.destroy(self);
     }
@@ -1028,7 +1028,7 @@ pub const Builder = struct {
             .return_type = null,
             .tree_scope = tree_scope,
         };
-        code.basic_block_list = std.ArrayList(*BasicBlock).init(&code.arena.allocator);
+        code.basic_block_list = std.ArrayList(*BasicBlock).init(code.arena.allocator());
         errdefer code.destroy(comp.gpa());
 
         return Builder{
@@ -1762,8 +1762,8 @@ pub const Builder = struct {
         }
     }
 
-    fn arena(self: *Builder) *Allocator {
-        return &self.code.arena.allocator;
+    fn arena(self: *Builder) std.heap.ArenaAllocator.AllocatorImpl {
+        return self.code.arena.allocator();
     }
 
     fn buildExtra(

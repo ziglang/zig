@@ -78,7 +78,7 @@ pub fn Group(comptime ReturnType: type) type {
                 }
             };
             var node: *Stack.Node = undefined;
-            const handle = try async<self.lock.loop.allocator> S.asyncFunc(&node, args);
+            const handle = try async<&self.lock.loop.allocator> S.asyncFunc(&node, args);
             node.* = Stack.Node{
                 .next = undefined,
                 .data = handle,
@@ -128,13 +128,14 @@ test "std.event.Group" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
-
-    const handle = try async<allocator> testGroup(&loop);
+    
+    var async_allocator = allocator.toAny();
+    const handle = try async<&async_allocator> testGroup(&loop);
     defer cancel handle;
 
     loop.run();

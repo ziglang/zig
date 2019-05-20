@@ -1572,8 +1572,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
-        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-        \\    const p = (async<a> foo()) catch unreachable;
+        \\    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
+        \\    const async_allocator = a.toAny();
+        \\    const p = (async<&async_allocator> foo()) catch unreachable;
         \\    cancel p;
         \\}
         \\
@@ -1628,7 +1629,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "returning error from void async function",
         \\const std = @import("std",);
         \\export fn entry() void {
-        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
+        \\    const async_allocator = std.debug.global_allocator.toAny();
+        \\    const p = async<&async_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;
@@ -5131,7 +5133,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    const a = MdNode.Header {
-        \\        .text = MdText.init(&std.debug.global_allocator),
+        \\        .text = MdText.init(std.debug.global_allocator),
         \\        .weight = HeaderWeight.H1,
         \\    };
         \\}

@@ -9,7 +9,7 @@ pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(direct_allocator.allocator());
     defer arena.deinit();
 
     var arg_it = os.args();
@@ -17,7 +17,7 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    a = &arena.allocator;
+    a = arena.allocator();
 
     const zig_exe_rel = try (arg_it.next(a) orelse {
         std.debug.warn("Expected first argument to be path to zig compiler\n");

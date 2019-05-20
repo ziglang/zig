@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const os = std.os;
 const Token = std.zig.Token;
 const ast = std.zig.ast;
@@ -46,7 +47,7 @@ pub const Msg = struct {
     const PathAndTree = struct {
         span: Span,
         tree: *ast.Tree,
-        allocator: *mem.Allocator,
+        allocator: AnyAllocator,
     };
 
     const ScopeAndComp = struct {
@@ -56,7 +57,7 @@ pub const Msg = struct {
     };
 
     const Cli = struct {
-        allocator: *mem.Allocator,
+        allocator: AnyAllocator,
     };
 
     pub fn destroy(self: *Msg) void {
@@ -191,7 +192,7 @@ pub const Msg = struct {
     /// Caller owns returned Msg and must free with `allocator`
     /// allocator will additionally be used for printing messages later.
     pub fn createFromParseError(
-        allocator: *mem.Allocator,
+        allocator: var,
         parse_error: *const ast.Error,
         tree: *ast.Tree,
         realpath: []const u8,
@@ -212,7 +213,7 @@ pub const Msg = struct {
             .realpath = realpath_copy,
             .data = Data{
                 .PathAndTree = PathAndTree{
-                    .allocator = allocator,
+                    .allocator = allocator.toAny(),
                     .tree = tree,
                     .span = Span{
                         .first = loc_token,

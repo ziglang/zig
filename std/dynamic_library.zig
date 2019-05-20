@@ -3,6 +3,7 @@ const Os = builtin.Os;
 
 const std = @import("std.zig");
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const cstr = std.cstr;
 const os = std.os;
 const assert = std.debug.assert;
@@ -109,7 +110,7 @@ pub const LinuxDynLib = struct {
     map_size: usize,
 
     /// Trusts the file
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
+    pub fn open(allocator: var, path: []const u8) !DynLib {
         const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
         errdefer std.os.close(fd);
 
@@ -252,14 +253,14 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 pub const WindowsDynLib = struct {
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
     dll: windows.HMODULE,
 
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
+    pub fn open(allocator: var, path: []const u8) !WindowsDynLib {
         const wpath = try win_util.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
             .dll = windows.LoadLibraryW(&wpath) orelse {
                 const err = windows.GetLastError();
                 switch (err) {

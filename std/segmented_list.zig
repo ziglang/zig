@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const Allocator = std.mem.Allocator;
+const AnyAllocator = std.mem.AnyAllocator;
 
 // Imagine that `fn at(self: *Self, index: usize) &T` is a customer asking for a box
 // from a warehouse, based on a flat array, boxes ordered from 0 to N - 1.
@@ -89,7 +89,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         prealloc_segment: [prealloc_item_count]T,
         dynamic_segments: [][*]T,
-        allocator: *Allocator,
+        allocator: AnyAllocator,
         len: usize,
 
         pub const prealloc_count = prealloc_item_count;
@@ -103,9 +103,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         /// Deinitialize with `deinit`
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: var) Self {
             return Self{
-                .allocator = allocator,
+                .allocator = allocator.toAny(),
                 .len = 0,
                 .prealloc_segment = undefined,
                 .dynamic_segments = [][*]T{},
@@ -336,7 +336,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 test "std.SegmentedList" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
-    var a = &da.allocator;
+    var a = da.allocator();
 
     try testSegmentedList(0, a);
     try testSegmentedList(1, a);
@@ -346,7 +346,7 @@ test "std.SegmentedList" {
     try testSegmentedList(16, a);
 }
 
-fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
+fn testSegmentedList(comptime prealloc: usize, allocator: var) !void {
     var list = SegmentedList(i32, prealloc).init(allocator);
     defer list.deinit();
 

@@ -7,6 +7,7 @@ const debug = std.debug;
 const testing = std.testing;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
+const AnyAllocator = mem.AnyAllocator;
 
 // A single token slice into the parent string.
 //
@@ -985,7 +986,6 @@ test "json.validate" {
     testing.expect(validate("{}"));
 }
 
-const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
@@ -1129,7 +1129,7 @@ pub const Value = union(enum) {
 
 // A non-stream JSON parser which constructs a tree of Value's.
 pub const Parser = struct {
-    allocator: *Allocator,
+    allocator: AynAllocator,
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
@@ -1142,9 +1142,9 @@ pub const Parser = struct {
         Simple,
     };
 
-    pub fn init(allocator: *Allocator, copy_strings: bool) Parser {
+    pub fn init(allocator: var, copy_strings: bool) Parser {
         return Parser{
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
             .state = State.Simple,
             .copy_strings = copy_strings,
             .stack = ArrayList(Value).init(allocator),
@@ -1167,7 +1167,7 @@ pub const Parser = struct {
         errdefer arena.deinit();
 
         while (try s.next()) |token| {
-            try p.transition(&arena.allocator, input, s.i - 1, token);
+            try p.transition(arena.allocator(), input, s.i - 1, token);
         }
 
         debug.assert(p.stack.len == 1);
@@ -1180,7 +1180,7 @@ pub const Parser = struct {
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: Token) !void {
+    fn transition(p: *Parser, allocator: var, input: []const u8, i: usize, token: Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
@@ -1334,7 +1334,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, token: Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: var, token: Token, input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);

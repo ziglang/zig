@@ -8,7 +8,7 @@ const posix = os.posix;
 const Loop = std.event.Loop;
 
 pub const Server = struct {
-    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+    handleRequestFn: async<*mem.AnyAllocator> fn (*Server, *const std.net.Address, os.File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -40,7 +40,7 @@ pub const Server = struct {
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+        handleRequestFn: async<*mem.AnyAllocator> fn (*Server, *const std.net.Address, os.File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -52,7 +52,7 @@ pub const Server = struct {
         try os.posixListen(sockfd, posix.SOMAXCONN);
         self.listen_address = std.net.Address.initPosix(try os.posixGetSockName(sockfd));
 
-        self.accept_coro = try async<self.loop.allocator> Server.handler(self);
+        self.accept_coro = try async<&self.loop.allocator> Server.handler(self);
         errdefer cancel self.accept_coro.?;
 
         self.listen_resume_node.handle = self.accept_coro.?;
@@ -82,7 +82,7 @@ pub const Server = struct {
                     continue;
                 }
                 var socket = os.File.openHandle(accepted_fd);
-                _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
+                _ = async<&self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -281,7 +281,7 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: Server,
 
         const Self = @This();
-        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
+        async<*mem.AnyAllocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
@@ -311,8 +311,9 @@ test "listen on a port, send bytes, receive bytes" {
     var server = MyServer{ .tcp_server = Server.init(&loop) };
     defer server.tcp_server.deinit();
     try server.tcp_server.listen(&addr, MyServer.handler);
-
-    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
+    
+    var async_allocator = std.debug.global_allocator.toAny();
+    const p = try async<&async_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
     defer cancel p;
     loop.run();
 }

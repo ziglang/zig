@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 const io = std.io;
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const os = std.os;
 
 const ArrayList = std.ArrayList;
@@ -29,7 +30,7 @@ pub const CoffError = error{
 
 pub const Coff = struct {
     in_file: os.File,
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
 
     coff_header: CoffHeader,
     pe_header: OptionalHeader,

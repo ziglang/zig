@@ -4,7 +4,7 @@ const debug = std.debug;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
@@ -32,7 +32,7 @@ pub const Int = struct {
     pub const default_capacity = 4;
 
     /// Allocator used by the Int when requesting memory.
-    allocator: ?*Allocator,
+    allocator: ?AnyAllocator,
 
     /// Raw digits. These are:
     ///
@@ -49,14 +49,14 @@ pub const Int = struct {
 
     /// Creates a new Int. default_capacity limbs will be allocated immediately.
     /// Int will be zeroed.
-    pub fn init(allocator: *Allocator) !Int {
+    pub fn init(allocator: var) !Int {
         return try Int.initCapacity(allocator, default_capacity);
     }
 
     /// Creates a new Int. Int will be set to `value`.
     ///
     /// This is identical to an `init`, followed by a `set`.
-    pub fn initSet(allocator: *Allocator, value: var) !Int {
+    pub fn initSet(allocator: var, value: var) !Int {
         var s = try Int.init(allocator);
         try s.set(value);
         return s;
@@ -64,9 +64,9 @@ pub const Int = struct {
 
     /// Creates a new Int with a specific capacity. If capacity < default_capacity then the
     /// default capacity will be used instead.
-    pub fn initCapacity(allocator: *Allocator, capacity: usize) !Int {
+    pub fn initCapacity(allocator: var, capacity: usize) !Int {
         return Int{
-            .allocator = allocator,
+            .allocator = allocator.toAny(),
             .metadata = 1,
             .limbs = block: {
                 var limbs = try allocator.alloc(Limb, math.max(default_capacity, capacity));
@@ -432,7 +432,7 @@ pub const Int = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     /// TODO make this call format instead of the other way around
-    pub fn toString(self: Int, allocator: *Allocator, base: u8) ![]const u8 {
+    pub fn toString(self: Int, allocator: var, base: u8) ![]const u8 {
         if (base < 2 or base > 16) {
             return error.InvalidBase;
         }
@@ -952,7 +952,7 @@ pub const Int = struct {
     // Handbook of Applied Cryptography, 14.20
     //
     // x = qy + r where 0 <= r < y
-    fn divN(allocator: *Allocator, q: *Int, r: *Int, x: *Int, y: *Int) !void {
+    fn divN(allocator: var, q: *Int, r: *Int, x: *Int, y: *Int) !void {
         debug.assert(y.len() >= 2);
         debug.assert(x.len() >= y.len());
         debug.assert(q.limbs.len >= x.len() + y.len() - 1);
@@ -1199,7 +1199,7 @@ pub const Int = struct {
 
 var buffer: [64 * 8192]u8 = undefined;
 var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-const al = &fixed.allocator;
+const al = fixed.allocator();
 
 test "big.int comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;

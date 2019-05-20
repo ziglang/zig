@@ -4,7 +4,7 @@ const assert = debug.assert;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
-const Allocator = mem.Allocator;
+const AnyAllocator = mem.AnyAllocator;
 const builtin = @import("builtin");
 
 const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
@@ -19,7 +19,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         entries: []Entry,
         size: usize,
         max_distance_from_start_index: usize,
-        allocator: *Allocator,
+        allocator: AnyAllocator,
         // this is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
@@ -75,10 +75,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             }
         };
 
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: var) Self {
             return Self{
                 .entries = []Entry{},
-                .allocator = allocator,
+                .allocator = allocator.toAny(),
                 .size = 0,
                 .max_distance_from_start_index = 0,
                 .modification_count = if (want_modification_safety) 0 else {},
@@ -378,7 +378,7 @@ test "basic hash map usage" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
@@ -421,7 +421,7 @@ test "iterator hash map" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var reset_map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer reset_map.deinit();
 
     testing.expect((try reset_map.put(1, 11)) == null);
@@ -468,7 +468,7 @@ test "ensure capacity" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer map.deinit();
 
     try map.ensureCapacity(20);

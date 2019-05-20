@@ -28,7 +28,7 @@ pub const LibCInstallation = struct {
 
     pub fn parse(
         self: *LibCInstallation,
-        allocator: *std.mem.Allocator,
+        allocator: var,
         libc_file: []const u8,
         stderr: std.os.File.OutStreamImpl,
     ) !void {

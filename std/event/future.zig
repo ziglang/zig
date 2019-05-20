@@ -91,13 +91,14 @@ test "std.event.Future" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    const handle = try async<allocator> testFuture(&loop);
+    var async_allocator = allocator.toAny();
+    const handle = try async<&async_allocator> testFuture(&loop);
     defer cancel handle;
 
     loop.run();

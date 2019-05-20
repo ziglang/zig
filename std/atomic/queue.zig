@@ -4,6 +4,7 @@ const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
+const AnyAllocator = std.mem.AnyAllocator;
 
 /// Many producer, many consumer, non-allocating, thread-safe.
 /// Uses a mutex to protect access.
@@ -136,7 +137,7 @@ pub fn Queue(comptime T: type) type {
 }
 
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: AnyAllocator,
     queue: *Queue(i32),
     put_sum: isize,
     get_sum: isize,
@@ -156,15 +157,15 @@ test "std.atomic.Queue" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var plenty_of_memory = try direct_allocator.allocator.alloc(u8, 300 * 1024);
-    defer direct_allocator.allocator.free(plenty_of_memory);
+    var plenty_of_memory = try direct_allocator.allocator().alloc(u8, 300 * 1024);
+    defer direct_allocator.allocator().free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var a = fixed_buffer_allocator().allocator;
 
     var queue = Queue(i32).init();
     var context = Context{
-        .allocator = a,
+        .allocator = a.toAny(),
         .queue = &queue,
         .put_sum = 0,
         .get_sum = 0,

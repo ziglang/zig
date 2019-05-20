@@ -6,6 +6,7 @@ const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
 const coff = std.coff;
+const AnyAllocator = mem.AnyAllocator;
 
 const ArrayList = std.ArrayList;
 
@@ -460,7 +461,7 @@ pub const PDBStringTableHeader = packed struct {
 
 pub const Pdb = struct {
     in_file: os.File,
-    allocator: *mem.Allocator,
+    allocator: AnyAllocator,
     coff: *coff.Coff,
     string_table: *MsfStream,
     dbi: *MsfStream,
@@ -469,7 +470,7 @@ pub const Pdb = struct {
 
     pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
         self.in_file = try os.File.openRead(file_name);
-        self.allocator = coff_ptr.allocator;
+        self.allocator = coff_ptr.allocator.toAny();
         self.coff = coff_ptr;
 
         try self.msf.openFile(self.allocator, self.in_file);
@@ -492,7 +493,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
+    fn openFile(self: *Msf, allocator: var, file: os.File) !void {
         const in = file.streams().inStream();
 
         const superblock = try in.readStruct(SuperBlock);
@@ -593,7 +594,7 @@ const MsfStream = struct {
 
     pub const ReadError = os.File.ReadError || os.File.SeekError || error{EndOfStream};
 
-    fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: *mem.Allocator) !MsfStream {
+    fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: var) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
@@ -612,7 +613,7 @@ const MsfStream = struct {
         return stream;
     }
 
-    fn readNullTermString(self: *MsfStream, allocator: *mem.Allocator) ![]u8 {
+    fn readNullTermString(self: *MsfStream, allocator: var) ![]u8 {
         var list = ArrayList(u8).init(allocator);
         defer list.deinit();
         while (true) {

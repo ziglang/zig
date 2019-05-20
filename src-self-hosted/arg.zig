@@ -31,7 +31,7 @@ fn argInAllowedSet(maybe_set: ?[]const []const u8, arg: []const u8) bool {
 }
 
 // Modifies the current argument index during iteration
-fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: *usize) !FlagArg {
+fn readFlagArguments(allocator: var, args: []const []const u8, required: usize, allowed_set: ?[]const []const u8, index: *usize) !FlagArg {
     switch (required) {
         0 => return FlagArg{ .None = undefined }, // TODO: Required to force non-tag but value?
         1 => {
@@ -80,7 +80,7 @@ pub const Args = struct {
     flags: HashMapFlags,
     positionals: ArrayList([]const u8),
 
-    pub fn parse(allocator: *Allocator, comptime spec: []const Flag, args: []const []const u8) !Args {
+    pub fn parse(allocator: var, comptime spec: []const Flag, args: []const []const u8) !Args {
         var parsed = Args{
             .flags = HashMapFlags.init(allocator),
             .positionals = ArrayList([]const u8).init(allocator),

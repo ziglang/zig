@@ -30,7 +30,7 @@ pub const Rational = struct {
 
     /// Create a new Rational. A small amount of memory will be allocated on initialization.
     /// This will be 2 * Int.default_capacity.
-    pub fn init(a: *Allocator) !Rational {
+    pub fn init(a: var) !Rational {
         return Rational{
             .p = try Int.init(a),
             .q = try Int.initSet(a, 1),
@@ -589,7 +589,7 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
 
 var buffer: [64 * 8192]u8 = undefined;
 var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-var al = &fixed.allocator;
+var al = fixed.allocator();
 
 test "big.rational gcd non-one small" {
     var a = try Int.initSet(al, 17);

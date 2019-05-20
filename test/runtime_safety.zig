@@ -479,6 +479,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("error return trace across suspend points",
         \\const std = @import("std");
         \\
+        \\const allocator = std.debug.global_allocator.toAny();
+        \\
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    std.os.exit(126);
         \\}
@@ -486,12 +488,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const p = nonFailing();
         \\    resume p;
-        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
+        \\    const p2 = async<&allocator> printTrace(p) catch unreachable;
         \\    cancel p2;
         \\}
         \\
         \\fn nonFailing() promise->anyerror!void {
-        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\    return async<&allocator> failing() catch unreachable;
         \\}
         \\
         \\async fn failing() anyerror!void {

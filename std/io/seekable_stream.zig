@@ -49,7 +49,7 @@ pub fn SeekableStream(
             return self.getPosFn(self.impl);
         }
         
-        pub fn toAny(self: *Self) AnySeekableStream {
+        pub fn toAny(self: Self) AnySeekableStream {
             return AnySeekableStream {
                 .impl = interface.toAny(self.impl),
                 .seekToFn = interface.abstractFn(AnySeekToFn, self.seekToFn),
