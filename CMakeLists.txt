@@ -6707,8 +6707,6 @@ target_link_libraries(zig0 compiler)
 
 if(WIN32)
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
-elseif(APPLE)
-    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.o")
 else()
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
 endif()
