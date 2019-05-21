@@ -13,7 +13,7 @@ test "coroutine await struct" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     await_seq('a');
     const p = async<&async_allocator> await_amain() catch unreachable;
     await_seq('f');

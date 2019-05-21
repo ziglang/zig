@@ -194,15 +194,15 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn realloc(self: ?*DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, 
+    fn realloc(self: *DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, 
         new_align: u29) ReallocError![]u8
     {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 if (new_size <= old_mem.len and new_align <= old_align) {
-                    return self.?.shrink(old_mem, old_align, new_size, new_align);
+                    return self.shrink(old_mem, old_align, new_size, new_align);
                 }
-                const result = try self.?.alloc(new_size, new_align);
+                const result = try self.alloc(new_size, new_align);
                 if (old_mem.len != 0) {
                     @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                     _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
@@ -615,7 +615,7 @@ const WasmAllocator = struct {
             self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * os.page_size);
         }
 
-        if (is_last_item(allocator, old_mem, new_align)) {
+        if (self.is_last_item(old_mem, new_align)) {
             const start_index = self.end_index - old_mem.len;
             const new_end_index = start_index + new_size;
 

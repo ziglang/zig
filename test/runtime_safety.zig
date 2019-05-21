@@ -479,7 +479,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addRuntimeSafety("error return trace across suspend points",
         \\const std = @import("std");
         \\
-        \\const allocator = std.debug.global_allocator.toAny();
+        \\var allocator = std.debug.global_allocator.toAny();
         \\
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    std.os.exit(126);

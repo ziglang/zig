@@ -1573,7 +1573,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
         \\    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
-        \\    const async_allocator = a.toAny();
+        \\    var async_allocator = a.toAny();
         \\    const p = (async<&async_allocator> foo()) catch unreachable;
         \\    cancel p;
         \\}
@@ -1585,8 +1585,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:12:9: error: cannot suspend inside suspend block",
-        "tmp.zig:11:5: note: other suspend block here",
+        "tmp.zig:13:9: error: cannot suspend inside suspend block",
+        "tmp.zig:12:5: note: other suspend block here",
     );
 
     cases.add(
@@ -1629,14 +1629,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "returning error from void async function",
         \\const std = @import("std",);
         \\export fn entry() void {
-        \\    const async_allocator = std.debug.global_allocator.toAny();
+        \\    var async_allocator = std.debug.global_allocator.toAny();
         \\    const p = async<&async_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        "tmp.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:7:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(

@@ -1327,7 +1327,7 @@ const test_tmp_dir = "std_event_fs_test";
 //    try loop.initMultiThreaded(allocator);
 //    defer loop.deinit();
 //
-//    const async_allocator = allocator.toAny();
+//    var async_allocator = allocator.toAny();
 //    var result: anyerror!void = error.ResultNeverWritten;
 //    const handle = try async<&async_allocator> testFsWatchCantFail(&loop, &result);
 //    defer cancel handle;

@@ -8,7 +8,7 @@ test "create a coroutine and cancel it" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = try async<&async_allocator> simpleAsyncFn();
     comptime expect(@typeOf(p) == promise->void);
     cancel p;
@@ -24,7 +24,7 @@ test "coroutine suspend, resume, cancel" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     seq('a');
     const p = try async<&async_allocator> testAsyncSeq();
     seq('c');
@@ -54,7 +54,7 @@ test "coroutine suspend with block" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = try async<&async_allocator> testSuspendBlock();
     std.testing.expect(!result);
     resume a_promise;
@@ -84,7 +84,7 @@ test "coroutine await" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     await_seq('a');
     const p = async<&async_allocator> await_amain() catch unreachable;
     await_seq('f');
@@ -124,7 +124,7 @@ test "coroutine await early return" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     early_seq('a');
     const p = async<&async_allocator> early_amain() catch @panic("out of memory");
     early_seq('f');
@@ -153,7 +153,7 @@ fn early_seq(c: u8) void {
 
 test "coro allocation failure" {
     var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
-    const async_allocator = failing_allocator.allocator().toAny();
+    var async_allocator = failing_allocator.allocator().toAny();
     
     if (async<&async_allocator> asyncFuncThatNeverGetsRun()) {
         @panic("expected allocation failure");
@@ -176,7 +176,7 @@ test "async function with dot syntax" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = try async<&async_allocator> S.foo();
     cancel p;
     expect(S.y == 2);
@@ -185,19 +185,19 @@ test "async function with dot syntax" {
 test "async fn pointer in a struct field" {
     var data: i32 = 1;
     const Foo = struct {
-        bar: async<*std.mem.Allocator> fn (*i32) void,
+        bar: async<*std.mem.AnyAllocator> fn (*i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = (async<&async_allocator> foo.bar(&data)) catch unreachable;
     expect(data == 2);
     cancel p;
     expect(data == 4);
 }
-async<*std.mem.Allocator> fn simpleAsyncFn2(y: *i32) void {
+async<*std.mem.AnyAllocator> fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
     suspend;
@@ -207,7 +207,7 @@ test "async fn with inferred error set" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = (async<&async_allocator> failing()) catch unreachable;
     resume p;
     cancel p;
@@ -224,7 +224,7 @@ test "error return trace across suspend points - early return" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
     
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p2 = try async<&async_allocator> printTrace(p);
     cancel p2;
 }
@@ -232,14 +232,14 @@ test "error return trace across suspend points - early return" {
 test "error return trace across suspend points - async return" {
     const p = nonFailing();
     
-    const async_allocator = std.debug.global_allocator.toAny();
+    var async_allocator = std.debug.global_allocator.toAny();
     const p2 = try async<&async_allocator> printTrace(p);
     resume p;
     cancel p2;
 }
 
 fn nonFailing() (promise->anyerror!void) {
-    const async_allocator = std.debug.global_allocator.toAny();
+    var async_allocator = std.debug.global_allocator.toAny();
     return async<&async_allocator> suspendThenFail() catch unreachable;
 }
 async fn suspendThenFail() anyerror!void {
@@ -261,7 +261,7 @@ async fn printTrace(p: promise->(anyerror!void)) void {
 test "break from suspend" {
     var buf: [500]u8 = undefined;
     var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
-    const async_allocator = a.toAny();
+    var async_allocator = a.toAny();
     var my_result: i32 = 1;
     const p = try async<&async_allocator> testBreakFromSuspend(&my_result);
     cancel p;

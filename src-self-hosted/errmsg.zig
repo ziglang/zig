@@ -81,7 +81,7 @@ pub const Msg = struct {
         }
     }
 
-    fn getAllocator(self: *const Msg) *mem.Allocator {
+    fn getAllocator(self: *const Msg) AnyAllocator {
         switch (self.data) {
             Data.Cli => |cli| return cli.allocator,
             Data.PathAndTree => |path_and_tree| {

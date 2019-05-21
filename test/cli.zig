@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const os = std.os;
 const testing = std.testing;
 
-var a: *std.mem.Allocator = undefined;
+var a: std.heap.ArenaAllocator.AllocatorImpl = undefined;
 
 pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();

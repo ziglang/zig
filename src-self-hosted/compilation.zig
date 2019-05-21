@@ -1471,7 +1471,7 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 // TODO these are hacks which should probably be solved by the language
 fn getAwaitResult(allocator: var, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
     var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
-    const async_allocator = allocator.toAny();
+    var async_allocator = allocator.toAny();
     cancel (async<&async_allocator> getAwaitResultAsync(handle, &result) catch unreachable);
     return result.?;
 }

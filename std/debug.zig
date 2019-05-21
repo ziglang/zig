@@ -422,7 +422,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                                 const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
 
                                 break :subsections LineInfo{
-                                    .allocator = allocator,
+                                    .allocator = allocator.toAny(),
                                     .file_name = source_file_name,
                                     .line = flags.Start,
                                     .column = column,

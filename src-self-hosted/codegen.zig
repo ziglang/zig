@@ -11,6 +11,7 @@ const event = std.event;
 const assert = std.debug.assert;
 const DW = std.dwarf;
 const maxInt = std.math.maxInt;
+const AnyAllocator = std.mem.AnyAllocator;
 
 pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) !void {
     fn_val.base.ref();
@@ -80,7 +81,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         .dibuilder = dibuilder,
         .context = context,
         .lock = event.Lock.init(comp.loop),
-        .arena = code.arena.allocator(),
+        .arena = code.arena.allocator().toAny(),
     };
 
     try renderToLlvmModule(&ofile, fn_val, code);
@@ -142,9 +143,9 @@ pub const ObjectFile = struct {
     dibuilder: *llvm.DIBuilder,
     context: *llvm.Context,
     lock: event.Lock,
-    arena: *std.mem.Allocator,
+    arena: AnyAllocator,
 
-    fn gpa(self: *ObjectFile) *std.mem.Allocator {
+    fn gpa(self: *ObjectFile) AnyAllocator {
         return self.comp.gpa();
     }
 };

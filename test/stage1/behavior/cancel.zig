@@ -8,7 +8,7 @@ test "cancel forwards" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = async<&async_allocator> f1() catch unreachable;
     cancel p;
     std.testing.expect(defer_f1);
@@ -46,7 +46,7 @@ test "cancel backwards" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const async_allocator = da.allocator().toAny();
+    var async_allocator = da.allocator().toAny();
     const p = async<&async_allocator> b1() catch unreachable;
     cancel p;
     std.testing.expect(defer_b1);

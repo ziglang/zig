@@ -1,6 +1,7 @@
 const std = @import("std");
 const io = std.io;
 const mem = std.mem;
+const AnyAllocator = mem.AnyAllocator;
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -16,7 +17,7 @@ const Token = union(enum) {
     Eof,
 };
 
-var global_allocator: std.heap.ArenaAllocator.AllocatorImpl = undefined;
+var global_allocator: AnyAllocator = undefined;
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
     const State = enum {
@@ -188,7 +189,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(direct_allocator.allocator());
     defer arena.deinit();
 
-    global_allocator = arena.allocator();
+    global_allocator = arena.allocator().toAny();
 
     var stdin_buf = try Buffer.initSize(global_allocator, 0);
     defer stdin_buf.deinit();
@@ -204,7 +205,7 @@ pub fn main() !void {
 }
 
 test "invalid inputs" {
-    global_allocator = std.debug.global_allocator;
+    global_allocator = std.debug.global_allocator.toAny();
 
     expectError("}ABC", error.InvalidInput);
     expectError("{ABC", error.InvalidInput);
@@ -225,7 +226,7 @@ fn expectError(test_input: []const u8, expected_err: anyerror) void {
 }
 
 test "valid inputs" {
-    global_allocator = std.debug.global_allocator;
+    global_allocator = std.debug.global_allocator.toAny();
 
     expectExpansion("{x,y,z}", "x y z");
     expectExpansion("{A,B}{x,y}", "Ax Ay Bx By");

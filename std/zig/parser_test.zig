@@ -2065,7 +2065,7 @@ test "zig fmt: coroutines" {
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const async_allocator = std.debug.global_allocator.toAny();
+        \\    var async_allocator = std.debug.global_allocator.toAny();
         \\    const p: promise = try async<&async_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
