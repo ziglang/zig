@@ -33,7 +33,7 @@ pub const CAllocator = struct {
     pub const AllocatorImpl = Allocator(interface.Any, @typeOf(realloc), @typeOf(shrink));
     pub fn allocator(self: var) AllocatorImpl {
         return  AllocatorImpl {
-            .impl = self,
+            .impl = null,
             .reallocFn = realloc,
             .shrinkFn = shrink,
             
