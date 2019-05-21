@@ -17,20 +17,20 @@ pub const CAllocator = struct {
 
     pub const ReallocError = error{OutOfMemory};
     
-    fn realloc(self: interface.Any, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
+    fn realloc(self: interface.Unused, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
         assert(new_align <= @alignOf(c_longdouble));
         const old_ptr = if (old_mem.len == 0) null else @ptrCast(*c_void, old_mem.ptr);
         const buf = c.realloc(old_ptr, new_size) orelse return error.OutOfMemory;
         return @ptrCast([*]u8, buf)[0..new_size];
     }
 
-    fn shrink(self: interface.Any, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: interface.Unused, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const old_ptr = @ptrCast(*c_void, old_mem.ptr);
         const buf = c.realloc(old_ptr, new_size) orelse return old_mem[0..new_size];
         return @ptrCast([*]u8, buf)[0..new_size];
     }
     
-    pub const AllocatorImpl = Allocator(interface.Any, @typeOf(realloc), @typeOf(shrink));
+    pub const AllocatorImpl = Allocator(interface.Unused, @typeOf(realloc), @typeOf(shrink));
     pub fn allocator(self: var) AllocatorImpl {
         return  AllocatorImpl {
             .impl = null,
