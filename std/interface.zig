@@ -6,12 +6,12 @@ const testing = std.testing;
 
 pub const Any = ?*@OpaqueType();
 pub const ConstAny = ?*const @OpaqueType();
+pub const Unused = ?*@OpaqueType();
 
 pub fn toAny(self: var) Any {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or @sizeOf(T) == 0) return null;
-    //const aligned = @alignCast(@alignOf(Any), self);
-    //return @ptrCast(Any, aligned);
+    if(@alignOf(T) == 0 or @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
+        "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
     return @ptrCast(Any, self);
 }
 
@@ -23,9 +23,8 @@ pub fn fromAny(comptime T: type, any: Any) *T {
 pub fn toConstAny(self: var) ConstAny
 {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or  @sizeOf(T) == 0) return null;
-    //const aligned = @alignCast(@alignOf(ConstAny), self);
-    //return @ptrCast(ConstAny, aligned);
+    if(@alignOf(T) == 0 or  @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
+        "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
     return @ptrCast(ConstAny, self);
 }
 
@@ -88,7 +87,7 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
     return @ptrCast(AbstractFunc, func);
 }
 
-const AnyNameFn = fn(Any)anyerror![]const u8;
+const AnyNameFn = fn(Any, usize)anyerror![]const u8;
 const AnyTestInterface = TestInterface(Any, AnyNameFn);
 fn TestInterface(comptime T: type, comptime NameFn: type) type
 {
@@ -99,7 +98,10 @@ fn TestInterface(comptime T: type, comptime NameFn: type) type
         
         pub fn name(self: *@This()) ![]const u8
         {
-            return self.nameFn(self.impl);
+            //0-bit T would make the first argument not get passed at all
+            // which would break an abstracted interface. The second parameter
+            // is used to verif that didn't happen.
+            return self.nameFn(self.impl, std.math.maxInt(usize));
         }
         
         pub fn toAny(self: *@This()) AnyTestInterface
@@ -123,21 +125,28 @@ fn testExpectedErrorSet(comptime Func: type, comptime Error: type) void {
 }
 
 test "interface" {
+    //An implementation with no fields
+    //Must use `Any` instead of `*Self` because 0-bit types would get passed at all
+    // so `name` would expect 1 parameter, not two, while AnyTestInterface would
+    // pass two anyway.
     const NullImpl = struct
     {
         const Self = @This();
         
-        pub fn name(self: *Self) error{}![]const u8
+        pub fn name(self: Unused, id: usize) error{}![]const u8
         {
+            //Verify we didn't get unexpected paramters due to the above mentioned
+            // quality of 0-bit types.
+            testing.expect(id == std.math.maxInt(usize));
             return "Null";
         }
         
-        const InterfaceImpl = TestInterface(*Self, @typeOf(name));
-        pub fn testInterface(self: *Self) InterfaceImpl
+        const TestInterfaceImpl = TestInterface(Unused, @typeOf(name));
+        pub fn testInterface(self: var) TestInterfaceImpl
         {
-            return InterfaceImpl
+            return TestInterfaceImpl
             {
-                .impl = self,
+                .impl = null,
                 .nameFn = name,
             };
         }
@@ -157,16 +166,17 @@ test "interface" {
             };
         }
         
-        pub fn name(self: *Self) ![]const u8
+        pub fn name(self: *Self, id: usize) ![]const u8
         {
+            testing.expect(id == std.math.maxInt(usize));
             if(self.val.len < 5) return error.NameTooShort;
             return self.val;
         }
         
-        const InterfaceImpl = TestInterface(*Self, @typeOf(name));
-        pub fn testInterface(self: *Self) InterfaceImpl
+        const TestInterfaceImpl = TestInterface(*Self, @typeOf(name));
+        pub fn testInterface(self: *Self) TestInterfaceImpl
         {
-            return InterfaceImpl
+            return TestInterfaceImpl
             {
                 .impl = self,
                 .nameFn = name,

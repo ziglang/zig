@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const interface = std.interface;
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -13,29 +14,24 @@ const AnyAllocator = mem.AnyAllocator;
 const Allocator = mem.Allocator;
 
 pub const CAllocator = struct {
-    _: u8,
-    
-    pub fn init() CAllocator {
-        return CAllocator{ ._ = 0, };
-    }
-    
+
     pub const ReallocError = error{OutOfMemory};
     
-    fn realloc(self: *CAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
+    fn realloc(self: interface.Any, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ReallocError![]u8 {
         assert(new_align <= @alignOf(c_longdouble));
         const old_ptr = if (old_mem.len == 0) null else @ptrCast(*c_void, old_mem.ptr);
         const buf = c.realloc(old_ptr, new_size) orelse return error.OutOfMemory;
         return @ptrCast([*]u8, buf)[0..new_size];
     }
 
-    fn shrink(self: *CAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: interface.Any, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const old_ptr = @ptrCast(*c_void, old_mem.ptr);
         const buf = c.realloc(old_ptr, new_size) orelse return old_mem[0..new_size];
         return @ptrCast([*]u8, buf)[0..new_size];
     }
     
-    pub const AllocatorImpl = Allocator(*CAllocator, @typeOf(realloc), @typeOf(shrink));
-    pub fn allocator(self: *CAllocator) AllocatorImpl {
+    pub const AllocatorImpl = Allocator(interface.Any, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: var) AllocatorImpl {
         return  AllocatorImpl {
             .impl = self,
             .reallocFn = realloc,
@@ -48,18 +44,15 @@ pub const CAllocator = struct {
     }
 };
 
-pub const c_allocator = CAllocator.init().allocator();
+pub const c_allocator = (CAllocator{}).allocator();
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
 pub const DirectAllocator = struct {
-    //@TODO: For now this seems to be necessary when the interface becomes an Any
-    _: u8,
-    
     pub const ReallocError = error{OutOfMemory};
 
     pub fn init() DirectAllocator {
-        return DirectAllocator{ ._ = 0, };
+        return DirectAllocator{};
     }
 
     pub fn deinit(self: *DirectAllocator) void {}
@@ -151,7 +144,7 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn shrink(self: *DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(self: interface.Unused, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 const base_addr = @ptrToInt(old_mem.ptr);
@@ -194,15 +187,15 @@ pub const DirectAllocator = struct {
         }
     }
 
-    fn realloc(self: *DirectAllocator, old_mem: []u8, old_align: u29, new_size: usize, 
+    fn realloc(self: interface.Unused, old_mem: []u8, old_align: u29, new_size: usize, 
         new_align: u29) ReallocError![]u8
     {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
                 if (new_size <= old_mem.len and new_align <= old_align) {
-                    return self.shrink(old_mem, old_align, new_size, new_align);
+                    return shrink(null, old_mem, old_align, new_size, new_align);
                 }
-                const result = try self.alloc(new_size, new_align);
+                const result = try alloc(DirectAllocator{}, new_size, new_align);
                 if (old_mem.len != 0) {
                     @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                     _ = os.posix.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
@@ -211,11 +204,11 @@ pub const DirectAllocator = struct {
             },
             .windows => {
                 if (old_mem.len == 0) {
-                    return self.alloc(new_size, new_align);
+                    return alloc(DirectAllocator{}, new_size, new_align);
                 }
 
                 if (new_size <= old_mem.len and new_align <= old_align) {
-                    return self.shrink(old_mem, old_align, new_size, new_align);
+                    return shrink(null, old_mem, old_align, new_size, new_align);
                 }
 
                 const w = os.windows;
@@ -225,7 +218,7 @@ pub const DirectAllocator = struct {
                     // Current allocation doesn't satisfy the new alignment.
                     // For now we'll do a new one no matter what, but maybe
                     // there is something smarter to do instead.
-                    const result = try self.alloc(new_size, new_align);
+                    const result = try alloc(DirectAllocator{}, new_size, new_align);
                     assert(old_mem.len != 0);
                     @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
                     if (w.VirtualFree(old_mem.ptr, 0, w.MEM_RELEASE) == 0) unreachable;
@@ -253,7 +246,7 @@ pub const DirectAllocator = struct {
                 ) orelse {
                     // Committing new pages at the end of the existing allocation
                     // failed, we need to try a new one.
-                    const new_alloc_mem = try self.alloc(new_size, new_align);
+                    const new_alloc_mem = try alloc(DirectAllocator{}, new_size, new_align);
                     @memcpy(new_alloc_mem.ptr, old_mem.ptr, old_mem.len);
                     if (w.VirtualFree(old_mem.ptr, 0, w.MEM_RELEASE) == 0) unreachable;
 
@@ -267,10 +260,10 @@ pub const DirectAllocator = struct {
         }
     }
     
-    pub const AllocatorImpl = Allocator(*DirectAllocator, @typeOf(realloc), @typeOf(shrink));
-    pub fn allocator(self: *DirectAllocator) AllocatorImpl {
+    pub const AllocatorImpl = Allocator(interface.Unused, @typeOf(realloc), @typeOf(shrink));
+    pub fn allocator(self: var) AllocatorImpl {
         return AllocatorImpl {
-            .impl = self,
+            .impl = null,
             .reallocFn = realloc,
             .shrinkFn = shrink,
             

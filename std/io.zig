@@ -766,10 +766,10 @@ pub const null_out_stream = (NullOutStream{}).outStream();
 pub const NullOutStream = struct {
     pub const WriteError = error{};
 
-    fn writeFn(self: ?*NullOutStream, bytes: []const u8) WriteError!void {}
+    fn writeFn(self: interface.Unused, bytes: []const u8) WriteError!void {}
     
-    pub const OutStreamImpl = OutStream(?*NullOutStream, @typeOf(writeFn));
-    pub fn outStream(self: *NullOutStream) OutStreamImpl {
+    pub const OutStreamImpl = OutStream(interface.Unused, @typeOf(writeFn));
+    pub fn outStream(self: var) OutStreamImpl {
         return OutStreamImpl {
             .impl = null,
             .writeFn = writeFn,
