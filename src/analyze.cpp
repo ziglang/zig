@@ -3892,10 +3892,17 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     buf_init_from_buf(&namespace_name, &package->pkg_path);
     if (source_kind == SourceKindNonRoot) {
         assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
-
-        if (buf_len(&namespace_name) != 0) buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
-        buf_append_mem(&namespace_name, buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
-            buf_len(&noextname) - (buf_len(&resolved_root_src_dir) + 1));
+        if (buf_len(&namespace_name) != 0) {
+            buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
+        }
+        // The namespace components are obtained from the relative path to the
+        // source directory
+        if (buf_len(&noextname) > buf_len(&resolved_root_src_dir)) {
+            // Skip the trailing separator
+            buf_append_mem(&namespace_name,
+                buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
+                buf_len(&noextname) - buf_len(&resolved_root_src_dir) - 1);
+        }
         buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
     }
     Buf *bare_name = buf_alloc();
