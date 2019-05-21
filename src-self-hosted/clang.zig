@@ -1,5 +1,6 @@
 pub const struct_ZigClangAPValue = @OpaqueType();
 pub const struct_ZigClangAPSInt = @OpaqueType();
+pub const struct_ZigClangAPFloat = @OpaqueType();
 pub const struct_ZigClangASTContext = @OpaqueType();
 pub const struct_ZigClangASTUnit = @OpaqueType();
 pub const struct_ZigClangArraySubscriptExpr = @OpaqueType();
@@ -69,6 +70,7 @@ pub const struct_ZigClangValueDecl = @OpaqueType();
 pub const struct_ZigClangVarDecl = @OpaqueType();
 pub const struct_ZigClangWhileStmt = @OpaqueType();
 pub const ZigClangFunctionType = @OpaqueType();
+pub const struct_ZigClangPredefinedExpr = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
