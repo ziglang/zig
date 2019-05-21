@@ -10,7 +10,7 @@ pub const Unused = ?*@OpaqueType();
 
 pub fn toAny(self: var) Any {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
+    if (@alignOf(T) == 0 or @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
         "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
     return @ptrCast(Any, self);
 }
@@ -23,7 +23,7 @@ pub fn fromAny(comptime T: type, any: Any) *T {
 pub fn toConstAny(self: var) ConstAny
 {
     const T = @typeOf(self);
-    if(@alignOf(T) == 0 or  @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
+    if (@alignOf(T) == 0 or  @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
         "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
     return @ptrCast(ConstAny, self);
 }
@@ -33,8 +33,7 @@ pub fn fromConstAny(comptime T: type, any: ConstAny) *const T {
     return @ptrCast(*const T, aligned);
 }
 
-pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
-{
+pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc {
     const ImplementationFunc = @typeOf(func);
     const impl_func_info = @typeInfo(ImplementationFunc).Fn;
     const abs_func_info = @typeInfo(AbstractFunc).Fn;
@@ -70,15 +69,15 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
         
         //If arg is Any or ConstAny, ensure it is a pointer or optional pointer.
         // In the latter case, additionally ensure that it is const.
-        switch(abs_arg.arg_type.?) {
+        switch (abs_arg.arg_type.?) {
             Any, ConstAny => {
                 //This will handle asserting that it is a pointer or optional pointer
-                const impl_arg_ptr = switch(@typeInfo(impl_arg.arg_type.?)) {
+                const impl_arg_ptr = switch (@typeInfo(impl_arg.arg_type.?)) {
                     .Optional => |o| @typeInfo(o.child).Pointer,
                     .Pointer => |p| p,
                     else => unreachable,
                 };
-                if(abs_arg.arg_type.? == ConstAny) debug.assert(impl_arg_ptr.is_const);
+                if (abs_arg.arg_type.? == ConstAny) debug.assert(impl_arg_ptr.is_const);
             },
             else => debug.assert(abs_arg.arg_type.? == impl_arg.arg_type.?),
         }
@@ -89,25 +88,20 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc
 
 const AnyNameFn = fn(Any, usize)anyerror![]const u8;
 const AnyTestInterface = TestInterface(Any, AnyNameFn);
-fn TestInterface(comptime T: type, comptime NameFn: type) type
-{
-    return struct
-    {
+fn TestInterface(comptime T: type, comptime NameFn: type) type {
+    return struct {
         impl: T,
         nameFn: NameFn,
         
-        pub fn name(self: *@This()) ![]const u8
-        {
+        pub fn name(self: *@This()) ![]const u8 {
             //0-bit T would make the first argument not get passed at all
             // which would break an abstracted interface. The second parameter
             // is used to verif that didn't happen.
             return self.nameFn(self.impl, std.math.maxInt(usize));
         }
         
-        pub fn toAny(self: *@This()) AnyTestInterface
-        {
-            return AnyTestInterface
-            {
+        pub fn toAny(self: *@This()) AnyTestInterface {
+            return AnyTestInterface {
                 //unfortunate naming conflict
                 .impl = std.interface.toAny(self.impl),
                 .nameFn = abstractFn(AnyNameFn, self.nameFn),
@@ -129,12 +123,10 @@ test "interface" {
     //Must use `Any` instead of `*Self` because 0-bit types would get passed at all
     // so `name` would expect 1 parameter, not two, while AnyTestInterface would
     // pass two anyway.
-    const NullImpl = struct
-    {
+    const NullImpl = struct {
         const Self = @This();
         
-        pub fn name(self: Unused, id: usize) error{}![]const u8
-        {
+        pub fn name(self: Unused, id: usize) error{}![]const u8 {
             //Verify we didn't get unexpected paramters due to the above mentioned
             // quality of 0-bit types.
             testing.expect(id == std.math.maxInt(usize));
@@ -142,42 +134,34 @@ test "interface" {
         }
         
         const TestInterfaceImpl = TestInterface(Unused, @typeOf(name));
-        pub fn testInterface(self: var) TestInterfaceImpl
-        {
-            return TestInterfaceImpl
-            {
+        pub fn testInterface(self: var) TestInterfaceImpl {
+            return TestInterfaceImpl {
                 .impl = null,
                 .nameFn = name,
             };
         }
     };
     
-    const ValImpl = struct
-    {
+    const ValImpl = struct {
         const Self = @This();
         
         val: []const u8,
         
-        pub fn init(val: []const u8) Self
-        {
-            return Self
-            {
+        pub fn init(val: []const u8) Self {
+            return Self {
                 .val = val,
             };
         }
         
-        pub fn name(self: *Self, id: usize) ![]const u8
-        {
+        pub fn name(self: *Self, id: usize) ![]const u8 {
             testing.expect(id == std.math.maxInt(usize));
             if(self.val.len < 5) return error.NameTooShort;
             return self.val;
         }
         
         const TestInterfaceImpl = TestInterface(*Self, @typeOf(name));
-        pub fn testInterface(self: *Self) TestInterfaceImpl
-        {
-            return TestInterfaceImpl
-            {
+        pub fn testInterface(self: *Self) TestInterfaceImpl {
+            return TestInterfaceImpl {
                 .impl = self,
                 .nameFn = name,
             };
