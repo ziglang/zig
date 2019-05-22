@@ -866,6 +866,12 @@ pub const struct_ZigClangQualType = extern struct {
     ptr: ?*c_void,
 };
 
+pub const struct_ZigClangAPValueLValueBase = extern struct {
+    Ptr: ?*c_void,
+    CallIndex: c_uint,
+    Version: c_uint,
+};
+
 pub extern fn ZigClangErrorMsg_delete(ptr: [*c]Stage2ErrorMsg, len: usize) void;
 
 pub extern fn ZigClangLoadFromCommandLine(
