@@ -6,12 +6,12 @@ const testing = std.testing;
 
 pub const Any = ?*@OpaqueType();
 pub const ConstAny = ?*const @OpaqueType();
-pub const Unused = ?*@OpaqueType();
+pub const Unused = ?*const @OpaqueType();
 
 pub fn toAny(self: var) Any {
     const T = @typeOf(self);
     if (@alignOf(T) == 0 or @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
-        "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
+        "assign 'null' instead and ensure first parameter of implementation Fns is Any");
     return @ptrCast(Any, self);
 }
 
@@ -24,7 +24,7 @@ pub fn toConstAny(self: var) ConstAny
 {
     const T = @typeOf(self);
     if (@alignOf(T) == 0 or  @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
-        "assign 'null' instead and ensure first parameter of implementatin Fns is Any");
+        "assign 'null' instead and ensure first parameter of implementation Fns is Any");
     return @ptrCast(ConstAny, self);
 }
 
@@ -86,6 +86,8 @@ pub fn abstractFn(comptime AbstractFunc: type, func: var) AbstractFunc {
     return @ptrCast(AbstractFunc, func);
 }
 
+
+//Example interface definition
 const AnyNameFn = fn(Any, usize)anyerror![]const u8;
 const AnyTestInterface = TestInterface(Any, AnyNameFn);
 fn TestInterface(comptime T: type, comptime NameFn: type) type {
@@ -120,7 +122,7 @@ fn testExpectedErrorSet(comptime Func: type, comptime Error: type) void {
 
 test "interface" {
     //An implementation with no fields
-    //Must use `Any` instead of `*Self` because 0-bit types would get passed at all
+    //Must use `Unused` instead of `*Self` because 0-bit types would get passed at all
     // so `name` would expect 1 parameter, not two, while AnyTestInterface would
     // pass two anyway.
     const NullImpl = struct {
