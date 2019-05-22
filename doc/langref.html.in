@@ -8435,7 +8435,7 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
           <li>Are you building for WebAssembly? In this case, {#syntax#}std.heap.wasm_allocator{#endsyntax#} is likely
-              the only possible choice for your main allocator.</li>
+              the right choice for your main allocator as it uses WebAssembly's memory instructions.</li>
           <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
