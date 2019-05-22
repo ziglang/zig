@@ -8969,7 +8969,7 @@ all your base are belong to us</code></pre>
       <p>Zig supports building for WebAssembly out of the box. There is also a specialized {#syntax#}std.heap.wasm_allocator{#endsyntax#}
       memory allocator for WebAssembly environments.</p>
       {#header_open|Freestanding#}
-      <p>For embedded environments like the web browser and nodejs, build as a library using the freestanding OS target.
+      <p>For host environments like the web browser and nodejs, build as a library using the freestanding OS target.
       Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
       {#code_begin|lib|math#}
       {#target_wasm#}
