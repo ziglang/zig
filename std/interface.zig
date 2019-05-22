@@ -5,7 +5,7 @@ const debug = std.debug;
 const testing = std.testing;
 
 pub const Any = ?*@OpaqueType();
-
+pub const ConstAny = ?*const @OpaqueType();
 pub const Unused = ?*@OpaqueType();
 
 pub fn toAny(self: var) Any {
