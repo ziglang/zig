@@ -6,7 +6,7 @@ fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
 
     if (a == 0) {
         return T(0.0);
@@ -23,7 +23,7 @@ fn floatsiXf(comptime T: type, a: i32) T {
     // Take absolute value of a via abs(x) = (x^(x >> 31)) - (x >> 31).
     const abs_a = (a ^ sign) -% sign;
     // The exponent is the width of abs(a)
-    const exp = Z(31 - @clz(abs_a));
+    const exp = Z(31 - @clz(i32, abs_a));
 
     const sign_bit = if (sign < 0) signBit else 0;
 

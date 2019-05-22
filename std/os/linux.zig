@@ -961,11 +961,14 @@ pub fn waitpid(pid: i32, status: *i32, options: i32) usize {
 
 var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
 
+// We must follow the C calling convention when we call into the VDSO
+const vdso_clock_gettime_ty = extern fn (i32, *timespec) usize;
+
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (VDSO_CGT_SYM.len != 0) {
         const ptr = @atomicLoad(?*const c_void, &vdso_clock_gettime, .Unordered);
         if (ptr) |fn_ptr| {
-            const f = @ptrCast(@typeOf(clock_gettime), fn_ptr);
+            const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
             const rc = f(clk_id, tp);
             switch (rc) {
                 0, @bitCast(usize, isize(-EINVAL)) => return rc,
@@ -983,7 +986,7 @@ extern fn init_vdso_clock_gettime(clk: i32, ts: *timespec) usize {
     _ = @cmpxchgStrong(?*const c_void, &vdso_clock_gettime, &init_vdso_clock_gettime, ptr, .Monotonic, .Monotonic);
     // Call into the VDSO if available
     if (ptr) |fn_ptr| {
-        const f = @ptrCast(@typeOf(clock_gettime), fn_ptr);
+        const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
         return f(clk, ts);
     }
     return @bitCast(usize, isize(-ENOSYS));

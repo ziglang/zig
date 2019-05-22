@@ -103,7 +103,7 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
     s.d1 = @truncate(u32, n.mantissa >> 32);
     s.d2 = 0;
 
-    var binary_exponent: u64 = 92;
+    var binary_exponent: i32 = 92;
     var exp = n.exponent;
 
     while (exp > 0) : (exp -= 1) {
@@ -161,7 +161,7 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
         } else if (binary_exponent < 1) {
             break :blk if (n.negative) f64_minus_zero else f64_plus_zero;
         } else if (s.d2 != 0) {
-            const binexs2 = u64(binary_exponent) << 52;
+            const binexs2 = @intCast(u64, binary_exponent) << 52;
             const rr = (u64(s.d2 & ~mask28) << 24) | ((u64(s.d1) + 128) >> 8) | binexs2;
             break :blk if (n.negative) rr | (1 << 63) else rr;
         } else {
@@ -415,6 +415,7 @@ test "fmt.parseFloat" {
         if (T != f16) {
             expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
             expect(approxEq(T, try parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
+            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), T(0.7062146892655368), epsilon));
         }
     }
 }

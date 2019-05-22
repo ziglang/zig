@@ -698,7 +698,7 @@ test "math.floorPowerOfTwo" {
 
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     assert(x != 0);
-    return @intCast(Log2Int(T), T.bit_count - 1 - @clz(x));
+    return @intCast(Log2Int(T), T.bit_count - 1 - @clz(T, x));
 }
 
 pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {

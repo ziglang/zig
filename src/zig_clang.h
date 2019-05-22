@@ -102,6 +102,7 @@ struct ZigClangValueDecl;
 struct ZigClangVarDecl;
 struct ZigClangWhileStmt;
 struct ZigClangFunctionType;
+struct ZigClangPredefinedExpr;
 
 typedef struct ZigClangStmt *const * ZigClangCompoundStmt_const_body_iterator;
 
@@ -723,6 +724,14 @@ enum ZigClangAPFloat_roundingMode {
     ZigClangAPFloat_roundingMode_NearestTiesToAway,
 };
 
+enum ZigClangStringLiteral_StringKind {
+    ZigClangStringLiteral_StringKind_Ascii,
+    ZigClangStringLiteral_StringKind_Wide,
+    ZigClangStringLiteral_StringKind_UTF8,
+    ZigClangStringLiteral_StringKind_UTF16,
+    ZigClangStringLiteral_StringKind_UTF32,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -840,4 +849,10 @@ ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_
 ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAPFloat *self, char *DST,
         unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM);
 
+ZIG_EXTERN_C enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self);
+ZIG_EXTERN_C const char *ZigClangStringLiteral_getString_bytes_begin_size(const struct ZigClangStringLiteral *self,
+        size_t *len);
+
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
+        const struct ZigClangPredefinedExpr *self);
 #endif

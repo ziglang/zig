@@ -35,3 +35,20 @@ fn elseIfExpressionF(c: u8) u8 {
         return u8(2);
     }
 }
+
+// #2297
+var global_with_val: anyerror!u32 = 0;
+var global_with_err: anyerror!u32 = error.SomeError;
+
+test "unwrap mutable global var" {
+    if (global_with_val) |v| {
+        expect(v == 0);
+    } else |e| {
+        unreachable;
+    }
+    if (global_with_err) |_| {
+        unreachable;
+    } else |e| {
+        expect(e == error.SomeError);
+    }
+}

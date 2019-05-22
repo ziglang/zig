@@ -503,10 +503,6 @@ static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     return node;
 }
 
-static Buf *string_ref_to_buf(llvm::StringRef string_ref) {
-    return buf_create_from_mem((const char *)string_ref.bytes_begin(), string_ref.size());
-}
-
 static AstNode *trans_create_node_apint(Context *c, const ZigClangAPSInt *aps_int) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
@@ -671,7 +667,7 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const ZigClangQualType qt,
 //            FieldAccess
 //                FnCall (.builtin = true)
 //                    Symbol "import"
-//                    clang::StringLiteral "std"
+//                    ZigClangStringLiteral "std"
 //                Symbol "math"
 //            Symbol "Log2Int"
 //        zig_type_node
@@ -3334,21 +3330,23 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const clan
     return ErrorNone;
 }
 
-static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransScope *scope, const clang::StringLiteral *stmt) {
-    switch (stmt->getKind()) {
-        case clang::StringLiteral::Ascii:
-        case clang::StringLiteral::UTF8: {
-            AstNode *node = trans_create_node_str_lit_c(c, string_ref_to_buf(stmt->getString()));
+static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangStringLiteral *stmt) {
+    switch (ZigClangStringLiteral_getKind(stmt)) {
+        case ZigClangStringLiteral_StringKind_Ascii:
+        case ZigClangStringLiteral_StringKind_UTF8: {
+            size_t str_len;
+            const char *str_ptr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &str_len);
+            AstNode *node = trans_create_node_str_lit_c(c, buf_create_from_mem(str_ptr, str_len));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::StringLiteral::UTF16:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF16 string literals");
+        case ZigClangStringLiteral_StringKind_UTF16:
+            emit_warning(c, ZigClangStmt_getBeginLoc((const ZigClangStmt *)stmt), "TODO support UTF16 string literals");
             return nullptr;
-        case clang::StringLiteral::UTF32:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF32 string literals");
+        case ZigClangStringLiteral_StringKind_UTF32:
+            emit_warning(c, ZigClangStmt_getBeginLoc((const ZigClangStmt *)stmt), "TODO support UTF32 string literals");
             return nullptr;
-        case clang::StringLiteral::Wide:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support wide string literals");
+        case ZigClangStringLiteral_StringKind_Wide:
+            emit_warning(c, ZigClangStmt_getBeginLoc((const ZigClangStmt *)stmt), "TODO support wide string literals");
             return nullptr;
     }
     zig_unreachable();
@@ -3368,14 +3366,14 @@ static AstNode *trans_break_stmt(Context *c, TransScope *scope, const clang::Bre
     zig_unreachable();
 }
 
-static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const clang::ContinueStmt *stmt) {
+static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const ZigClangContinueStmt *stmt) {
     return trans_create_node(c, NodeTypeContinue);
 }
 
 static AstNode *trans_predefined_expr(Context *c, ResultUsed result_used, TransScope *scope,
-    const clang::PredefinedExpr *expr)
+    const ZigClangPredefinedExpr *expr)
 {
-    return trans_string_literal(c, result_used, scope, expr->getFunctionName());
+    return trans_string_literal(c, result_used, scope, ZigClangPredefinedExpr_getFunctionName(expr));
 }
 
 static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_scope, AstNode *result_node) {
@@ -3466,13 +3464,13 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
         }
         case ZigClangStmt_StringLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_string_literal(c, result_used, scope, (const clang::StringLiteral *)stmt));
+                    trans_string_literal(c, result_used, scope, (const ZigClangStringLiteral *)stmt));
         case ZigClangStmt_BreakStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_break_stmt(c, scope, (const clang::BreakStmt *)stmt));
         case ZigClangStmt_ContinueStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_continue_stmt(c, scope, (const clang::ContinueStmt *)stmt));
+                    trans_continue_stmt(c, scope, (const ZigClangContinueStmt *)stmt));
         case ZigClangStmt_ParenExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_expr(c, result_used, scope,
@@ -3489,7 +3487,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
                     trans_constant_expr(c, result_used, (const clang::ConstantExpr *)stmt));
         case ZigClangStmt_PredefinedExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                             trans_predefined_expr(c, result_used, scope, (const clang::PredefinedExpr *)stmt));
+                             trans_predefined_expr(c, result_used, scope, (const ZigClangPredefinedExpr *)stmt));
         case ZigClangStmt_StmtExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_stmt_expr(c, result_used, scope, (const clang::StmtExpr *)stmt, out_node_scope));

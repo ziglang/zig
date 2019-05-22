@@ -114,7 +114,7 @@ pub fn setThreadPointer(addr: usize) void {
         .aarch64 => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
-                            :
+                :
                 : [addr] "r" (addr)
             );
         },

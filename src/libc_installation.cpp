@@ -283,6 +283,8 @@ Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirnam
     Buf *out_stdout = buf_alloc();
     Error err;
     if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+        if (err == ErrorFileNotFound)
+            return ErrorNoCCompilerInstalled;
         if (verbose) {
             fprintf(stderr, "unable to determine libc library path: executing '%s': %s\n", cc_exe, err_str(err));
         }

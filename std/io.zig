@@ -1179,11 +1179,14 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         pub const ReadError = Stream.ReadError;
 
+
         pub fn init(in_stream: Stream) Self {
-            return Self{ .in_stream = switch (packing) {
-                .Bit => BitInStream(endian, Stream).init(in_stream),
-                .Byte => in_stream,
-            } };
+            return Self{ 
+                .in_stream = switch (packing) {
+                    .Bit => BitInStream(endian, Stream).init(in_stream),
+                    .Byte => in_stream,
+                },
+            };
         }
 
         pub fn alignToByte(self: *Self) void {
@@ -1389,10 +1392,12 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         pub const WriteError = Stream.WriteError;
 
         pub fn init(out_stream: Stream) Self {
-            return Self{ .out_stream = switch (packing) {
+          return Self{ 
+              .out_stream = switch (packing) {
                 .Bit => BitOutStream(endian, Stream).init(out_stream),
                 .Byte => out_stream,
-            } };
+              }, 
+          };
         }
 
         /// Flushes any unwritten bits to the stream

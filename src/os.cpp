@@ -791,6 +791,7 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
     int stdin_pipe[2];
     int stdout_pipe[2];
     int stderr_pipe[2];
+    int err_pipe[2];
 
     int err;
     if ((err = pipe(stdin_pipe)))
@@ -798,6 +799,8 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
     if ((err = pipe(stdout_pipe)))
         zig_panic("pipe failed");
     if ((err = pipe(stderr_pipe)))
+        zig_panic("pipe failed");
+    if ((err = pipe(err_pipe)))
         zig_panic("pipe failed");
 
     pid_t pid = fork();
@@ -821,11 +824,12 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
             argv[i + 1] = args.at(i);
         }
         execvp(exe, const_cast<char * const *>(argv));
+        Error report_err = ErrorUnexpected;
         if (errno == ENOENT) {
-            return ErrorFileNotFound;
-        } else {
-            zig_panic("execvp failed: %s", strerror(errno));
+            report_err = ErrorFileNotFound;
         }
+        write(err_pipe[1], &report_err, sizeof(Error));
+        exit(1);
     } else {
         // parent
         close(stdin_pipe[0]);
@@ -847,7 +851,13 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
         if (err1) return err1;
         if (err2) return err2;
-        return ErrorNone;
+
+        Error child_err = ErrorNone;
+        write(err_pipe[1], &child_err, sizeof(Error));
+        close(err_pipe[1]);
+        read(err_pipe[0], &child_err, sizeof(Error));
+        close(err_pipe[0]);
+        return child_err;
     }
 }
 #endif

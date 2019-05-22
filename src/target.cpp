@@ -973,7 +973,7 @@ const char *target_exe_file_ext(const ZigTarget *target) {
 }
 
 const char *target_lib_file_prefix(const ZigTarget *target) {
-    if (target->os == OsWindows || target->os == OsUefi) {
+    if (target->os == OsWindows || target->os == OsUefi || target_is_wasm(target)) {
         return "";
     } else {
         return "lib";
@@ -983,6 +983,9 @@ const char *target_lib_file_prefix(const ZigTarget *target) {
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch)
 {
+    if (target_is_wasm(target)) {
+        return ".wasm";
+    }
     if (target->os == OsWindows || target->os == OsUefi) {
         if (is_static) {
             return ".lib";
@@ -1376,6 +1379,9 @@ bool target_is_single_threaded(const ZigTarget *target) {
 }
 
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
+    if (arch == ZigLLVM_wasm32 || arch == ZigLLVM_wasm64) {
+        return ZigLLVM_Musl;
+    }
     switch (os) {
         case OsFreestanding:
         case OsAnanas:
@@ -1490,6 +1496,7 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_systemz, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_sparc, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_sparcv9, OsLinux, ZigLLVM_GNU},
+    {ZigLLVM_wasm32, OsFreestanding, ZigLLVM_Musl},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
@@ -1508,7 +1515,6 @@ bool target_can_build_libc(const ZigTarget *target) {
 }
 
 const char *target_libc_generic_name(const ZigTarget *target) {
-    assert(target->os == OsLinux);
     switch (target->abi) {
         case ZigLLVM_GNU:
         case ZigLLVM_GNUABIN32:
@@ -1520,6 +1526,7 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_Musl:
         case ZigLLVM_MuslEABI:
         case ZigLLVM_MuslEABIHF:
+        case ZigLLVM_UnknownEnvironment:
             return "musl";
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
@@ -1530,7 +1537,6 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_Cygnus:
         case ZigLLVM_CoreCLR:
         case ZigLLVM_Simulator:
-        case ZigLLVM_UnknownEnvironment:
             zig_unreachable();
     }
     zig_unreachable();

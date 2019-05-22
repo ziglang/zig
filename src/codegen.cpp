@@ -1972,13 +1972,18 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - size_in_bits : bit_offset;
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
 
-    LLVMValueRef mask_val = LLVMConstAllOnes(get_llvm_type(g, child_type));
+    // Convert to equally-sized integer type in order to perform the bit
+    // operations on the value to store
+    LLVMTypeRef value_bits_type = LLVMIntType(size_in_bits);
+    LLVMValueRef value_bits = LLVMBuildBitCast(g->builder, value, value_bits_type, "");
+
+    LLVMValueRef mask_val = LLVMConstAllOnes(value_bits_type);
     mask_val = LLVMConstZExt(mask_val, LLVMTypeOf(containing_int));
     mask_val = LLVMConstShl(mask_val, shift_amt_val);
     mask_val = LLVMConstNot(mask_val);
 
     LLVMValueRef anded_containing_int = LLVMBuildAnd(g->builder, containing_int, mask_val, "");
-    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value, LLVMTypeOf(containing_int), "");
+    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value_bits, LLVMTypeOf(containing_int), "");
     LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
@@ -3388,16 +3393,23 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
 
-    if (!handle_is_ptr(child_type))
-        return LLVMBuildTrunc(g->builder, shifted_value, get_llvm_type(g, child_type), "");
+    if (handle_is_ptr(child_type)) {
+        assert(instruction->tmp_ptr != nullptr);
+        LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
+        LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
+        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+                                                      LLVMPointerType(same_size_int, 0), "");
+        LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
+        return instruction->tmp_ptr;
+    }
 
-    assert(instruction->tmp_ptr != nullptr);
-    LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
-    LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
-    LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
-            LLVMPointerType(same_size_int, 0), "");
-    LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
-    return instruction->tmp_ptr;
+    if (child_type->id == ZigTypeIdFloat) {
+        LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
+        LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
+        return LLVMBuildBitCast(g->builder, truncated_int, get_llvm_type(g, child_type), "");
+    }
+
+    return LLVMBuildTrunc(g->builder, shifted_value, get_llvm_type(g, child_type), "");
 }
 
 static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
@@ -4140,9 +4152,9 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
 }
 
 static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4152,9 +4164,9 @@ static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
@@ -4164,9 +4176,9 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
-    ZigType *int_type = instruction->value->value.type;
+    ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
-    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->op);
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
@@ -5650,6 +5662,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_pop_count(g, executable, (IrInstructionPopCount *)instruction);
         case IrInstructionIdSwitchBr:
             return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
+        case IrInstructionIdBswap:
+            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
+        case IrInstructionIdBitReverse:
+            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdPhi:
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
         case IrInstructionIdRef:
@@ -5766,10 +5782,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
-        case IrInstructionIdBswap:
-            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
-        case IrInstructionIdBitReverse:
-            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdArrayToVector:
             return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
         case IrInstructionIdVectorToArray:
@@ -7332,9 +7344,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
-    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
-    create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
-    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 1);
+    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 2);
+    create_builtin_fn(g, BuiltinFnIdClz, "clz", 2);
+    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 2);
+    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 2);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
@@ -7395,8 +7409,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
-    create_builtin_fn(g, BuiltinFnIdBswap, "bswap", 2);
-    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitreverse", 2);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8121,7 +8133,7 @@ static void detect_dynamic_linker(CodeGen *g) {
             for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
                 const char *lib_name = possible_ld_names[i];
                 if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
-                    if (err != ErrorCCompilerCannotFindFile) {
+                    if (err != ErrorCCompilerCannotFindFile && err != ErrorNoCCompilerInstalled) {
                         fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
                         exit(1);
                     }
@@ -8548,7 +8560,7 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && g->zig_target->os != OsFreestanding &&
+    if (!g->is_test_build && (g->zig_target->os != OsFreestanding || target_is_wasm(g->zig_target)) &&
         g->zig_target->os != OsUefi &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))

@@ -10,69 +10,47 @@ pub const CallgrindClientRequest = extern enum {
     StopInstrumentation,
 };
 
-fn doCallgrindClientRequestExpr(default: usize, request: CallgrindClientRequest,
-        a1: usize, a2: usize, a3: usize, a4: usize, a5: usize
-    ) usize
-{
-    return valgrind.doClientRequest(
-        default,
-        @intCast(usize, @enumToInt(request)),
-        a1, a2, a3, a4, a5);
+fn doCallgrindClientRequestExpr(default: usize, request: CallgrindClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
+    return valgrind.doClientRequest(default, @intCast(usize, @enumToInt(request)), a1, a2, a3, a4, a5);
 }
 
-fn doCallgrindClientRequestStmt(request: CallgrindClientRequest,
-        a1: usize, a2: usize, a3: usize, a4: usize, a5: usize
-    ) void
-{
+fn doCallgrindClientRequestStmt(request: CallgrindClientRequest, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) void {
     _ = doCallgrindClientRequestExpr(0, request, a1, a2, a3, a4, a5);
 }
 
-
-
 /// Dump current state of cost centers, and zero them afterwards
 pub fn dumpStats() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStats,
-        0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStats, 0, 0, 0, 0, 0);
 }
-
 
 /// Dump current state of cost centers, and zero them afterwards.
 /// The argument is appended to a string stating the reason which triggered
 /// the dump. This string is written as a description field into the
 /// profile data dump.
 pub fn dumpStatsAt(pos_str: [*]u8) void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStatsAt,
-        @ptrToInt(pos_str),
-        0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.DumpStatsAt, @ptrToInt(pos_str), 0, 0, 0, 0);
 }
-
 
 /// Zero cost centers
 pub fn zeroStats() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.ZeroStats,
-        0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.ZeroStats, 0, 0, 0, 0, 0);
 }
-
 
 /// Toggles collection state.
 /// The collection state specifies whether the happening of events
 /// should be noted or if they are to be ignored. Events are noted
 /// by increment of counters in a cost center
 pub fn toggleCollect() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.ToggleCollect,
-        0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.ToggleCollect, 0, 0, 0, 0, 0);
 }
-
 
 /// Start full callgrind instrumentation if not already switched on.
 /// When cache simulation is done, it will flush the simulated cache;
 /// this will lead to an artificial cache warmup phase afterwards with
 /// cache misses which would not have happened in reality.
 pub fn startInstrumentation() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.StartInstrumentation,
-        0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.StartInstrumentation, 0, 0, 0, 0, 0);
 }
-
 
 /// Stop full callgrind instrumentation if not already switched off.
 /// This flushes Valgrinds translation cache, and does no additional
@@ -82,6 +60,5 @@ pub fn startInstrumentation() void {
 /// To start Callgrind in this mode to ignore the setup phase, use
 /// the option "--instr-atstart=no".
 pub fn stopInstrumentation() void {
-    doCallgrindClientRequestStmt(CallgrindClientRequest.StopInstrumentation,
-        0, 0, 0, 0, 0);
+    doCallgrindClientRequestStmt(CallgrindClientRequest.StopInstrumentation, 0, 0, 0, 0, 0);
 }
