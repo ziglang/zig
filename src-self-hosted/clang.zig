@@ -678,6 +678,22 @@ pub const ZigClangStorageClass = extern enum {
     Register,
 };
 
+pub const ZigClangAPFloat_roundingMode = extern enum {
+    NearestTiesToEven,
+    TowardPositive,
+    TowardNegative,
+    TowardZero,
+    NearestTiesToAway,
+};
+
+pub const ZigClangStringLiteral_StringKind = extern enum {
+    Ascii,
+    Wide,
+    UTF8,
+    UTF16,
+    UTF32,
+};
+
 pub extern fn ZigClangSourceManager_getSpellingLoc(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
