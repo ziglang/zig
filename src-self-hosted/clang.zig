@@ -669,6 +669,15 @@ pub const ZigClangCallingConv = extern enum {
     AArch64VectorCall,
 };
 
+pub const ZigClangStorageClass = extern enum {
+    None,
+    Extern,
+    Static,
+    PrivateExtern,
+    Auto,
+    Register,
+};
+
 pub extern fn ZigClangSourceManager_getSpellingLoc(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(arg0: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
@@ -851,15 +860,6 @@ pub extern fn ZigClangDecl_getDeclKindName(decl: *const struct_ZigClangDecl) [*]
 
 pub const struct_ZigClangQualType = extern struct {
     ptr: ?*c_void,
-};
-
-pub const ZigClangStorageClass = extern enum {
-    None,
-    Extern,
-    Static,
-    PrivateExtern,
-    Auto,
-    Register,
 };
 
 pub const ZigClangCompoundStmt_const_body_iterator = [*c]const *struct_ZigClangStmt;
