@@ -11,7 +11,7 @@ pub const Unused = ?*@OpaqueType();
 pub fn toAny(self: var) Any {
     const T = @typeOf(self);
     if (@alignOf(T) == 0 or @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
-        "assign 'null' instead and ensure first parameter of implementation Fns is Any");
+        "assign 'null' instead and ensure first parameter of implementation Fns is Unused");
     return @ptrCast(Any, self);
 }
 
@@ -24,7 +24,7 @@ pub fn toConstAny(self: var) ConstAny
 {
     const T = @typeOf(self);
     if (@alignOf(T) == 0 or  @sizeOf(T) == 0) @compileError(@typeName(T) ++ " is a 0-bit type. " ++ 
-        "assign 'null' instead and ensure first parameter of implementation Fns is Any");
+        "assign 'null' instead and ensure first parameter of implementation Fns is Unused");
     return @ptrCast(ConstAny, self);
 }
 
