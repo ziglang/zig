@@ -238,7 +238,8 @@ pub const File = struct {
     pub fn seekForward(self: File, amount: i64) SeekError!void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
-                const result = posix.lseek(self.handle, amount, posix.SEEK_CUR);
+                const iamount = try math.cast(isize, amount);
+                const result = posix.lseek(self.handle, iamount, posix.SEEK_CUR);
                 const err = posix.getErrno(result);
                 if (err > 0) {
                     return switch (err) {

@@ -280,7 +280,12 @@ pub const SYS_pkey_alloc = 289;
 pub const SYS_pkey_free = 290;
 pub const SYS_statx = 291;
 pub const SYS_io_pgetevents = 292;
-pub const SYS_syscalls = 293;
+pub const SYS_rseq = 293;
+pub const SYS_kexec_file_load = 294;
+pub const SYS_pidfd_send_signal = 424;
+pub const SYS_io_uring_setup = 425;
+pub const SYS_io_uring_enter = 426;
+pub const SYS_io_uring_register = 427;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;

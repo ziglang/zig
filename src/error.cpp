@@ -54,6 +54,7 @@ const char *err_str(Error err) {
         case ErrorOperationAborted: return "operation aborted";
         case ErrorBrokenPipe: return "broken pipe";
         case ErrorNoSpaceLeft: return "no space left";
+        case ErrorNoCCompilerInstalled: return "no C compiler installed";
     }
     return "(invalid error)";
 }

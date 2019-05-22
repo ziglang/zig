@@ -975,7 +975,7 @@ fn testAllocatorLargeAlignment(allocator: var) !void {
     const large_align = u29(os.page_size << 2);
 
     var align_mask: usize = undefined;
-    _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(large_align)), &align_mask);
+    _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(u29, large_align)), &align_mask);
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
     testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));
