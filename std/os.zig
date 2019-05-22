@@ -1136,7 +1136,7 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     defer in_file.close();
 
     const mode = try in_file.mode();
-    const in_stream = &in_file.inStream().stream;
+    const in_stream = in_file.streams().inStream();
 
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
