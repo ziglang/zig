@@ -861,6 +861,11 @@ pub const Stage2ErrorMsg = extern struct {
     // byte offset into source
     offset: c_uint,
 };
+
+pub const struct_ZigClangQualType = extern struct {
+    ptr: ?*c_void,
+};
+
 pub extern fn ZigClangErrorMsg_delete(ptr: [*c]Stage2ErrorMsg, len: usize) void;
 
 pub extern fn ZigClangLoadFromCommandLine(
@@ -873,10 +878,6 @@ pub extern fn ZigClangLoadFromCommandLine(
 
 pub extern fn ZigClangDecl_getKind(decl: *const ZigClangDecl) ZigClangDeclKind;
 pub extern fn ZigClangDecl_getDeclKindName(decl: *const struct_ZigClangDecl) [*]const u8;
-
-pub const struct_ZigClangQualType = extern struct {
-    ptr: ?*c_void,
-};
 
 pub const ZigClangCompoundStmt_const_body_iterator = [*c]const *struct_ZigClangStmt;
 
