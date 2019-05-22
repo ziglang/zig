@@ -985,6 +985,9 @@ int main(int argc, char **argv) {
             {
                 fprintf(stderr, "Expected source file argument.\n");
                 return print_error_usage(arg0);
+            } else if (cmd == CmdRun && emit_file_type != EmitFileTypeBinary) {
+                fprintf(stderr, "Cannot run non-executable file.\n");
+                return print_error_usage(arg0);
             }
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
@@ -1188,6 +1191,12 @@ int main(int argc, char **argv) {
                 Buf *test_exe_path_unresolved = &g->output_file_path;
                 Buf *test_exe_path = buf_alloc();
                 *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
+
+                if (emit_file_type != EmitFileTypeBinary) {
+                    fprintf(stderr, "Created %s but skipping execution because it is non executable.\n",
+                            buf_ptr(test_exe_path));
+                    return 0;
+                }
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {
