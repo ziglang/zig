@@ -119,7 +119,7 @@ pub const LinuxDynLib = struct {
             null,
             size,
             linux.PROT_READ | linux.PROT_EXEC,
-            linux.MAP_PRIVATE | linux.MAP_LOCKED,
+            linux.MAP_PRIVATE,
             fd,
             0,
         );
