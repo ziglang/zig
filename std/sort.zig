@@ -1166,7 +1166,7 @@ test "sort fuzz testing" {
     const test_case_count = 10;
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        fuzzTest(&prng.random);
+        fuzzTest(&prng.random());
     }
 }
 

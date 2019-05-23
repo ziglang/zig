@@ -502,7 +502,7 @@ pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(0);
-            return autoHash(key, &rng.random(), u32);
+            return autoHash(key, comptime &rng.random(), u32);
         }
     }.hash;
 }
