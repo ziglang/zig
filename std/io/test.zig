@@ -15,7 +15,7 @@ test "write a file, read it, then delete it" {
 
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
-    prng.random.bytes(data[0..]);
+    prng.random().bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
         var file = try os.File.openWrite(tmp_file_name);

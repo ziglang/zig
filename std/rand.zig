@@ -9,7 +9,7 @@
 //
 // var r = DefaultPrng.init(seed);
 //
-// const s = r.random.int(u64);
+// const s = r.random().int(u64);
 // ```
 //
 // TODO(tiehuis): Benchmark these against other reference implementations.
@@ -30,6 +30,9 @@ pub const DefaultPrng = Xoroshiro128;
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
+    pub const RandomImpl = ?*@OpaqueType();
+    
+    impl: RandomImpl,
     fillFn: fn (r: *Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until full.
@@ -273,6 +276,23 @@ pub const Random = struct {
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
+    
+    /// Cast the original type to the implementation pointer
+    pub fn ifaceCast(ptr: var) RandomImpl {
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
+        debug.assert(ptr != null);
+        return @ptrCast(RandomImpl, ptr);
+    }
+    
+    /// Cast the implementation pointer back to the original type
+    pub fn implCast(r: *Random, comptime T: type) *T {
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
+        debug.assert(r.impl != null);
+        const aligned = @alignCast(@alignOf(T), r.impl);
+        return @ptrCast(*T, aligned);
+    }
+    
+    
 };
 
 /// Convert a random integer 0 <= random_int <= maxValue(T),
@@ -291,22 +311,27 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
 
 const SequentialPrng = struct {
     const Self = @This();
-    random: Random,
     next_value: u8,
 
     pub fn init() Self {
         return Self{
-            .random = Random{ .fillFn = fill },
             .next_value = 0,
         };
     }
 
     fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Self, "random", r);
+        const self = r.implCast(SequentialPrng);
         for (buf) |*b| {
             b.* = self.next_value;
         }
         self.next_value +%= 1;
+    }
+    
+    pub fn random(self: *Self) Random {
+        return Random {
+            .impl = Random.ifaceCast(self),
+            .fillFn = fill,
+        };
     }
 };
 
@@ -317,43 +342,43 @@ test "Random int" {
 fn testRandomInt() void {
     var r = SequentialPrng.init();
 
-    expect(r.random.int(u0) == 0);
+    expect(r.random().int(u0) == 0);
 
     r.next_value = 0;
-    expect(r.random.int(u1) == 0);
-    expect(r.random.int(u1) == 1);
-    expect(r.random.int(u2) == 2);
-    expect(r.random.int(u2) == 3);
-    expect(r.random.int(u2) == 0);
+    expect(r.random().int(u1) == 0);
+    expect(r.random().int(u1) == 1);
+    expect(r.random().int(u2) == 2);
+    expect(r.random().int(u2) == 3);
+    expect(r.random().int(u2) == 0);
 
     r.next_value = 0xff;
-    expect(r.random.int(u8) == 0xff);
+    expect(r.random().int(u8) == 0xff);
     r.next_value = 0x11;
-    expect(r.random.int(u8) == 0x11);
+    expect(r.random().int(u8) == 0x11);
 
     r.next_value = 0xff;
-    expect(r.random.int(u32) == 0xffffffff);
+    expect(r.random().int(u32) == 0xffffffff);
     r.next_value = 0x11;
-    expect(r.random.int(u32) == 0x11111111);
+    expect(r.random().int(u32) == 0x11111111);
 
     r.next_value = 0xff;
-    expect(r.random.int(i32) == -1);
+    expect(r.random().int(i32) == -1);
     r.next_value = 0x11;
-    expect(r.random.int(i32) == 0x11111111);
+    expect(r.random().int(i32) == 0x11111111);
 
     r.next_value = 0xff;
-    expect(r.random.int(i8) == -1);
+    expect(r.random().int(i8) == -1);
     r.next_value = 0x11;
-    expect(r.random.int(i8) == 0x11);
+    expect(r.random().int(i8) == 0x11);
 
     r.next_value = 0xff;
-    expect(r.random.int(u33) == 0x1ffffffff);
+    expect(r.random().int(u33) == 0x1ffffffff);
     r.next_value = 0xff;
-    expect(r.random.int(i1) == -1);
+    expect(r.random().int(i1) == -1);
     r.next_value = 0xff;
-    expect(r.random.int(i2) == -1);
+    expect(r.random().int(i2) == -1);
     r.next_value = 0xff;
-    expect(r.random.int(i33) == -1);
+    expect(r.random().int(i33) == -1);
 }
 
 test "Random boolean" {
@@ -362,10 +387,10 @@ test "Random boolean" {
 }
 fn testRandomBoolean() void {
     var r = SequentialPrng.init();
-    expect(r.random.boolean() == false);
-    expect(r.random.boolean() == true);
-    expect(r.random.boolean() == false);
-    expect(r.random.boolean() == true);
+    expect(r.random().boolean() == false);
+    expect(r.random().boolean() == true);
+    expect(r.random().boolean() == false);
+    expect(r.random().boolean() == true);
 }
 
 test "Random intLessThan" {
@@ -376,36 +401,36 @@ test "Random intLessThan" {
 fn testRandomIntLessThan() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    expect(r.random.uintLessThan(u8, 4) == 3);
+    expect(r.random().uintLessThan(u8, 4) == 3);
     expect(r.next_value == 0);
-    expect(r.random.uintLessThan(u8, 4) == 0);
+    expect(r.random().uintLessThan(u8, 4) == 0);
     expect(r.next_value == 1);
 
     r.next_value = 0;
-    expect(r.random.uintLessThan(u64, 32) == 0);
+    expect(r.random().uintLessThan(u64, 32) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    expect(r.random.uintLessThan(u8, 3) == 0);
+    expect(r.random().uintLessThan(u8, 3) == 0);
     // verify we incremented twice
     expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    expect(r.random().intRangeLessThan(u8, 0, 0x80) == 0x7f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
+    expect(r.random().intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    expect(r.random().intRangeLessThan(i8, 0, 0x40) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    expect(r.random().intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
+    expect(r.random().intRangeLessThan(i8, -0x80, 0) == -1);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i3, -4, 0) == -1);
+    expect(r.random().intRangeLessThan(i3, -4, 0) == -1);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i3, -2, 2) == 1);
+    expect(r.random().intRangeLessThan(i3, -2, 2) == 1);
 }
 
 test "Random intAtMost" {
@@ -416,34 +441,34 @@ test "Random intAtMost" {
 fn testRandomIntAtMost() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    expect(r.random.uintAtMost(u8, 3) == 3);
+    expect(r.random().uintAtMost(u8, 3) == 3);
     expect(r.next_value == 0);
-    expect(r.random.uintAtMost(u8, 3) == 0);
+    expect(r.random().uintAtMost(u8, 3) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    expect(r.random.uintAtMost(u8, 2) == 0);
+    expect(r.random().uintAtMost(u8, 2) == 0);
     // verify we incremented twice
     expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    expect(r.random().intRangeAtMost(u8, 0, 0x7f) == 0x7f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
+    expect(r.random().intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    expect(r.random().intRangeAtMost(i8, 0, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    expect(r.random().intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
+    expect(r.random().intRangeAtMost(i8, -0x80, -1) == -1);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i3, -4, -1) == -1);
+    expect(r.random().intRangeAtMost(i3, -4, -1) == -1);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i3, -2, 1) == 1);
+    expect(r.random().intRangeAtMost(i3, -2, 1) == 1);
 
-    expect(r.random.uintAtMost(u0, 0) == 0);
+    expect(r.random().uintAtMost(u0, 0) == 0);
 }
 
 test "Random Biased" {
@@ -451,30 +476,30 @@ test "Random Biased" {
     // Not thoroughly checking the logic here.
     // Just want to execute all the paths with different types.
 
-    expect(r.random.uintLessThanBiased(u1, 1) == 0);
-    expect(r.random.uintLessThanBiased(u32, 10) < 10);
-    expect(r.random.uintLessThanBiased(u64, 20) < 20);
+    expect(r.random().uintLessThanBiased(u1, 1) == 0);
+    expect(r.random().uintLessThanBiased(u32, 10) < 10);
+    expect(r.random().uintLessThanBiased(u64, 20) < 20);
 
-    expect(r.random.uintAtMostBiased(u0, 0) == 0);
-    expect(r.random.uintAtMostBiased(u1, 0) <= 0);
-    expect(r.random.uintAtMostBiased(u32, 10) <= 10);
-    expect(r.random.uintAtMostBiased(u64, 20) <= 20);
+    expect(r.random().uintAtMostBiased(u0, 0) == 0);
+    expect(r.random().uintAtMostBiased(u1, 0) <= 0);
+    expect(r.random().uintAtMostBiased(u32, 10) <= 10);
+    expect(r.random().uintAtMostBiased(u64, 20) <= 20);
 
-    expect(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
-    expect(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
-    expect(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
-    expect(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
-    expect(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
-    expect(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
+    expect(r.random().intRangeLessThanBiased(u1, 0, 1) == 0);
+    expect(r.random().intRangeLessThanBiased(i1, -1, 0) == -1);
+    expect(r.random().intRangeLessThanBiased(u32, 10, 20) >= 10);
+    expect(r.random().intRangeLessThanBiased(i32, 10, 20) >= 10);
+    expect(r.random().intRangeLessThanBiased(u64, 20, 40) >= 20);
+    expect(r.random().intRangeLessThanBiased(i64, 20, 40) >= 20);
 
     // uncomment for broken module error:
-    //expect(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
-    expect(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
-    expect(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
-    expect(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
-    expect(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
-    expect(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
-    expect(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
+    //expect(r.random().intRangeAtMostBiased(u0, 0, 0) == 0);
+    expect(r.random().intRangeAtMostBiased(u1, 0, 1) >= 0);
+    expect(r.random().intRangeAtMostBiased(i1, -1, 0) >= -1);
+    expect(r.random().intRangeAtMostBiased(u32, 10, 20) >= 10);
+    expect(r.random().intRangeAtMostBiased(i32, 10, 20) >= 10);
+    expect(r.random().intRangeAtMostBiased(u64, 20, 40) >= 20);
+    expect(r.random().intRangeAtMostBiased(i64, 20, 40) >= 20);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
@@ -521,14 +546,11 @@ test "splitmix64 sequence" {
 pub const Pcg = struct {
     const default_multiplier = 6364136223846793005;
 
-    random: Random,
-
     s: u64,
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
         var pcg = Pcg{
-            .random = Random{ .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -562,7 +584,7 @@ pub const Pcg = struct {
     }
 
     fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Pcg, "random", r);
+        const self = r.implCast(Pcg);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -585,6 +607,13 @@ pub const Pcg = struct {
                 n >>= 4;
             }
         }
+    }
+    
+    pub fn random(self: *Pcg) Random {
+        return Random {
+            .impl = Random.ifaceCast(self),
+            .fillFn = fill,
+        };
     }
 };
 
@@ -612,13 +641,11 @@ test "pcg sequence" {
 //
 // PRNG
 pub const Xoroshiro128 = struct {
-    random: Random,
 
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
         var x = Xoroshiro128{
-            .random = Random{ .fillFn = fill },
             .s = undefined,
         };
 
@@ -672,7 +699,7 @@ pub const Xoroshiro128 = struct {
     }
 
     fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Xoroshiro128, "random", r);
+        const self = r.implCast(Xoroshiro128);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -695,6 +722,13 @@ pub const Xoroshiro128 = struct {
                 n >>= 8;
             }
         }
+    }
+    
+    pub fn random(self: *Xoroshiro128) Random {
+        return Random {
+            .impl = Random.ifaceCast(self),
+            .fillFn = fill,
+        };
     }
 };
 
@@ -739,7 +773,6 @@ test "xoroshiro sequence" {
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 pub const Isaac64 = struct {
-    random: Random,
 
     r: [256]u64,
     m: [256]u64,
@@ -750,7 +783,6 @@ pub const Isaac64 = struct {
 
     pub fn init(init_s: u64) Isaac64 {
         var isaac = Isaac64{
-            .random = Random{ .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -881,7 +913,7 @@ pub const Isaac64 = struct {
     }
 
     fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Isaac64, "random", r);
+        const self = r.implCast(Isaac64);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -904,6 +936,13 @@ pub const Isaac64 = struct {
                 n >>= 8;
             }
         }
+    }
+    
+    pub fn random(self: *Isaac64) Random {
+        return Random {
+            .impl = Random.ifaceCast(self),
+            .fillFn = fill,
+        };
     }
 };
 
@@ -941,11 +980,11 @@ test "Random float" {
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        const val1 = prng.random.float(f32);
+        const val1 = prng.random().float(f32);
         expect(val1 >= 0.0);
         expect(val1 < 1.0);
 
-        const val2 = prng.random.float(f64);
+        const val2 = prng.random().float(f64);
         expect(val2 >= 0.0);
         expect(val2 < 1.0);
     }
@@ -959,7 +998,7 @@ test "Random shuffle" {
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        prng.random.shuffle(u8, seq[0..]);
+        prng.random().shuffle(u8, seq[0..]);
         seen[seq[0]] = true;
         expect(sumArray(seq[0..]) == 10);
     }
@@ -979,10 +1018,10 @@ fn sumArray(s: []const u8) u32 {
 
 test "Random range" {
     var prng = DefaultPrng.init(0);
-    testRange(&prng.random, -4, 3);
-    testRange(&prng.random, -4, -1);
-    testRange(&prng.random, 10, 14);
-    testRange(&prng.random, -0x80, 0x7f);
+    testRange(&prng.random(), -4, 3);
+    testRange(&prng.random(), -4, -1);
+    testRange(&prng.random(), 10, 14);
+    testRange(&prng.random(), -0x80, 0x7f);
 }
 
 fn testRange(r: *Random, start: i8, end: i8) void {

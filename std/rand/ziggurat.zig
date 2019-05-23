@@ -130,7 +130,7 @@ test "ziggurant normal dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        _ = prng.random.floatNorm(f64);
+        _ = prng.random().floatNorm(f64);
     }
 }
 
@@ -157,7 +157,7 @@ test "ziggurant exp dist sanity" {
     var prng = std.rand.DefaultPrng.init(0);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        _ = prng.random.floatExp(f64);
+        _ = prng.random().floatExp(f64);
     }
 }
 

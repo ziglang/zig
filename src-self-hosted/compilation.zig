@@ -1235,7 +1235,7 @@ pub const Compilation = struct {
             const held = await (async self.zig_compiler.prng.acquire() catch unreachable);
             defer held.release();
 
-            held.value.random.bytes(rand_bytes[0..]);
+            held.value.random().bytes(rand_bytes[0..]);
         }
 
         var result: [12]u8 = undefined;
