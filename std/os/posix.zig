@@ -2,21 +2,18 @@
 // The purpose is not to match POSIX as closely as possible. Instead,
 // the goal is to provide a very specific layer of abstraction:
 // * Implement the POSIX functions, types, and definitions where possible,
-//   using lower-level target-specific API. For example, on Linux `rename` might call
-//   SYS_renameat or SYS_rename depending on the architecture.
+//   using lower-level target-specific API.
 // * When null-terminated byte buffers are required, provide APIs which accept
 //   slices as well as APIs which accept null-terminated byte buffers. Same goes
 //   for UTF-16LE encoding.
 // * Convert "errno"-style error codes into Zig errors.
-// * Work around kernel bugs and limitations. For example, if a function accepts
-//   a `usize` number of bytes to write, but the kernel can only handle maxInt(u32)
-//   number of bytes, this API layer should introduce a loop to make multiple
-//   syscalls so that the full `usize` number of bytes are written.
 // * Implement the OS-specific functions, types, and definitions that the Zig
 //   standard library needs, at the same API abstraction layer as outlined above.
-//   this includes, for example Windows functions.
-// * When there exists a corresponding libc function and linking libc, call the
-//   libc function.
+//   For example kevent() and getrandom(). Windows-specific functions are separate,
+//   in `std.os.windows`.
+// * When there exists a corresponding libc function and linking libc, the libc
+//   implementation is used. Exceptions are made for known buggy areas of libc.
+//   On Linux libc can be side-stepped by using `std.os.linux.sys`.
 // Note: The Zig standard library does not support POSIX thread cancellation, and
 // in general EINTR is handled by trying again.
 
@@ -29,17 +26,12 @@ const mem = std.mem;
 const BufMap = std.BufMap;
 const Allocator = mem.Allocator;
 const windows = os.windows;
+const kernel32 = windows.kernel32;
 const wasi = os.wasi;
 const linux = os.linux;
 const testing = std.testing;
 
 pub use system.posix;
-
-/// > The maximum path of 32,767 characters is approximate, because the "\\?\"
-/// > prefix may be expanded to a longer string by the system at run time, and
-/// > this expansion applies to the total length.
-/// from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-pub const PATH_MAX_WIDE = 32767;
 
 /// See also `getenv`.
 pub var environ: [][*]u8 = undefined;
@@ -59,7 +51,7 @@ pub const errno = system.getErrno;
 /// Note: The Zig standard library does not support POSIX thread cancellation.
 pub fn close(fd: fd_t) void {
     if (windows.is_the_target and !builtin.link_libc) {
-        assert(windows.CloseHandle(fd) != 0);
+        assert(kernel32.CloseHandle(fd) != 0);
         return;
     }
     if (wasi.is_the_target) {
@@ -87,11 +79,10 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
         // Call RtlGenRandom() instead of CryptGetRandom() on Windows
         // https://github.com/rust-lang-nursery/rand/issues/111
         // https://bugzilla.mozilla.org/show_bug.cgi?id=504270
-        if (windows.RtlGenRandom(buf.ptr, buf.len) == 0) {
-            const err = windows.GetLastError();
-            return switch (err) {
-                else => unexpectedErrorWindows(err),
-            };
+        if (windows.advapi32.RtlGenRandom(buf.ptr, buf.len) == 0) {
+            switch (kernel32.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
         }
         return;
     }
@@ -230,12 +221,11 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             const want_read_count = @intCast(windows.DWORD, math.min(windows.DWORD(math.maxInt(windows.DWORD)), buffer.len - index));
             var amt_read: windows.DWORD = undefined;
             if (windows.ReadFile(fd, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
+                switch (windows.GetLastError()) {
                     windows.ERROR.OPERATION_ABORTED => continue,
                     windows.ERROR.BROKEN_PIPE => return index,
-                    else => unexpectedErrorWindows(err),
-                };
+                    else => |err| return windows.unexpectedError(err),
+                }
             }
             if (amt_read == 0) return index;
             index += amt_read;
@@ -372,7 +362,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
                 windows.ERROR.NOT_ENOUGH_QUOTA => return error.SystemResources,
                 windows.ERROR.IO_PENDING => unreachable,
                 windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
-                else => |err| return unexpectedErrorWindows(err),
+                else => |err| return windows.unexpectedError(err),
             }
         }
     }
@@ -541,67 +531,6 @@ pub fn openC(file_path: [*]const u8, flags: u32, perm: usize) OpenError!fd_t {
             else => |err| return unexpectedErrno(err),
         }
     }
-}
-
-pub const WindowsOpenError = error{
-    SharingViolation,
-    PathAlreadyExists,
-
-    /// When any of the path components can not be found or the file component can not
-    /// be found. Some operating systems distinguish between path components not found and
-    /// file components not found, but they are collapsed into FileNotFound to gain
-    /// consistency across operating systems.
-    FileNotFound,
-
-    AccessDenied,
-    PipeBusy,
-    NameTooLong,
-
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-
-    Unexpected,
-};
-
-pub fn openWindows(
-    file_path: []const u8,
-    desired_access: windows.DWORD,
-    share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD,
-    flags_and_attrs: windows.DWORD,
-) WindowsOpenError!fd_t {
-    const file_path_w = try sliceToPrefixedFileW(file_path);
-    return openW(&file_path_w, desired_access, share_mode, creation_disposition, flags_and_attrs);
-}
-
-pub fn openW(
-    file_path_w: [*]const u16,
-    desired_access: windows.DWORD,
-    share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD,
-    flags_and_attrs: windows.DWORD,
-) WindowsOpenError!windows.HANDLE {
-    const result = windows.CreateFileW(file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
-
-    if (result == windows.INVALID_HANDLE_VALUE) {
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.SHARING_VIOLATION => return error.SharingViolation,
-            windows.ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
-            windows.ERROR.FILE_EXISTS => return error.PathAlreadyExists,
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
-            windows.ERROR.PIPE_BUSY => return error.PipeBusy,
-            else => return unexpectedErrorWindows(err),
-        }
-    }
-
-    return result;
 }
 
 pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
@@ -797,14 +726,13 @@ pub const GetCwdError = error{
 /// The result is a slice of out_buffer, indexed from 0.
 pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     if (windows.is_the_target and !builtin.link_libc) {
-        var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
+        var utf16le_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
         const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
         const casted_ptr = ([*]u16)(&utf16le_buf); // TODO shouldn't need this cast
         const result = windows.GetCurrentDirectoryW(casted_len, casted_ptr);
         if (result == 0) {
-            const err = windows.GetLastError();
-            switch (err) {
-                else => return unexpectedErrorWindows(err),
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
             }
         }
         assert(result <= utf16le_buf.len);
@@ -910,12 +838,7 @@ pub fn symlinkC(target_path: [*]const u8, new_path: [*]const u8) SymLinkError!vo
         const new_path_w = try cStrToPrefixedFileW(new_path);
         return symlinkW(&target_path_w, &new_path_w);
     }
-    const err = if (builtin.link_libc or @hasDecl(system, "SYS_symlink")) blk: {
-        break :blk errno(system.symlink(target_path, new_path));
-    } else blk: {
-        break :blk errno(system.symlinkat(target_path, AT_FDCWD, new_path));
-    };
-    switch (err) {
+    switch (errno(system.symlink(target_path, new_path))) {
         0 => return,
         EFAULT => unreachable,
         EINVAL => unreachable,
@@ -931,7 +854,7 @@ pub fn symlinkC(target_path: [*]const u8, new_path: [*]const u8) SymLinkError!vo
         ENOMEM => return error.SystemResources,
         ENOSPC => return error.NoSpaceLeft,
         EROFS => return error.ReadOnlyFileSystem,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -941,9 +864,8 @@ pub fn symlinkC(target_path: [*]const u8, new_path: [*]const u8) SymLinkError!vo
 /// TODO handle when linking libc
 pub fn symlinkW(target_path_w: [*]const u16, new_path_w: [*]const u16) SymLinkError!void {
     if (windows.CreateSymbolicLinkW(target_path_w, new_path_w, 0) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
-            else => return unexpectedErrorWindows(err),
+        switch (windows.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -984,13 +906,12 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
 /// TODO handle when linking libc
 pub fn unlinkW(file_path: [*]const u16) UnlinkError!void {
     if (windows.unlinkW(file_path) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
             windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
             windows.ERROR.INVALID_PARAMETER => return error.NameTooLong,
-            else => return unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -1001,12 +922,7 @@ pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
         const file_path_w = try cStrToPrefixedFileW(file_path);
         return unlinkW(&file_path_w);
     }
-    const err = if (builtin.link_libc or @hasDecl(system, "SYS_unlink")) blk: {
-        break :blk errno(system.unlink(file_path));
-    } else blk: {
-        break :blk errno(system.unlinkat(AT_FDCWD, file_path, 0));
-    };
-    switch (err) {
+    switch (errno(system.unlink(file_path))) {
         0 => return,
         EACCES => return error.AccessDenied,
         EPERM => return error.AccessDenied,
@@ -1021,7 +937,7 @@ pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
         ENOTDIR => return error.NotDir,
         ENOMEM => return error.SystemResources,
         EROFS => return error.ReadOnlyFileSystem,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1047,14 +963,7 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
         const new_path_w = try cStrToPrefixedFileW(new_path);
         return renameW(&old_path_w, &new_path_w);
     }
-    const err = if (builtin.link_libc or @hasDecl(system, "SYS_rename")) blk: {
-        break :blk errno(system.rename(old_path, new_path));
-    } else if (@hasDecl(system, "SYS_renameat")) blk: {
-        break :blk errno(system.renameat(AT_FDCWD, old_path, AT_FDCWD, new_path));
-    } else blk: {
-        break :blk errno(system.renameat2(AT_FDCWD, old_path, AT_FDCWD, new_path, 0));
-    };
-    switch (err) {
+    switch (errno(system.rename(old_path, new_path))) {
         0 => return,
         EACCES => return error.AccessDenied,
         EPERM => return error.AccessDenied,
@@ -1074,7 +983,7 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
         ENOTEMPTY => return error.PathAlreadyExists,
         EROFS => return error.ReadOnlyFileSystem,
         EXDEV => return error.RenameAcrossMountPoints,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1083,9 +992,8 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
 pub fn renameW(old_path: [*]const u16, new_path: [*]const u16) RenameError!void {
     const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
     if (windows.MoveFileExW(old_path, new_path, flags) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
-            else => return unexpectedErrorWindows(err),
+        switch (windows.GetLastError()) {
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -1110,12 +1018,7 @@ pub fn mkdirC(dir_path: [*]const u8, mode: u32) MakeDirError!void {
         const dir_path_w = try cStrToPrefixedFileW(dir_path);
         return mkdirW(&dir_path_w, mode);
     }
-    const err = if (builtin.link_libc or @hasDecl(system, "SYS_mkdir")) blk: {
-        break :blk errno(system.mkdir(dir_path, mode));
-    } else blk: {
-        break :blk errno(system.mkdirat(AT_FDCWD, dir_path, mode));
-    };
-    switch (err) {
+    switch (errno(system.mkdir(dir_path, mode))) {
         0 => return,
         EACCES => return error.AccessDenied,
         EPERM => return error.AccessDenied,
@@ -1130,7 +1033,7 @@ pub fn mkdirC(dir_path: [*]const u8, mode: u32) MakeDirError!void {
         ENOSPC => return error.NoSpaceLeft,
         ENOTDIR => return error.NotDir,
         EROFS => return error.ReadOnlyFileSystem,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1139,11 +1042,10 @@ pub fn mkdirW(dir_path: []const u8, mode: u32) MakeDirError!void {
     const dir_path_w = try sliceToPrefixedFileW(dir_path);
 
     if (windows.CreateDirectoryW(&dir_path_w, null) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
             windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            else => return unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -1180,12 +1082,7 @@ pub fn rmdirC(dir_path: [*]const u8) DeleteDirError!void {
         const dir_path_w = try cStrToPrefixedFileW(dir_path);
         return rmdirW(&dir_path_w);
     }
-    const err = if (builtin.link_libc or @hasDecl(system, "SYS_rmdir")) blk: {
-        break :blk errno(system.rmdir(dir_path));
-    } else blk: {
-        break :blk errno(system.unlinkat(AT_FDCWD, dir_path, AT_REMOVEDIR));
-    };
-    switch (err) {
+    switch (errno(system.rmdir(dir_path))) {
         0 => return,
         EACCES => return error.AccessDenied,
         EPERM => return error.AccessDenied,
@@ -1200,7 +1097,7 @@ pub fn rmdirC(dir_path: [*]const u8) DeleteDirError!void {
         EEXIST => return error.DirNotEmpty,
         ENOTEMPTY => return error.DirNotEmpty,
         EROFS => return error.ReadOnlyFileSystem,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1208,11 +1105,10 @@ pub fn rmdirC(dir_path: [*]const u8) DeleteDirError!void {
 /// TODO handle linking libc
 pub fn rmdirW(dir_path_w: [*]const u16) DeleteDirError!void {
     if (windows.RemoveDirectoryW(dir_path_w) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.DIR_NOT_EMPTY => return error.DirNotEmpty,
-            else => return unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -1277,11 +1173,7 @@ pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
         const file_path_w = try cStrToPrefixedFileW(file_path);
         return readlinkW(&file_path_w, out_buffer);
     }
-    const rc = if (builtin.link_libc or @hasDecl(system, "SYS_readlink")) blk: {
-        break :blk system.readlink(file_path, out_buffer.ptr, out_buffer.len);
-    } else blk: {
-        break :blk system.readlinkat(AT_FDCWD, file_path, out_buffer.ptr, out_buffer.len);
-    };
+    const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
         0 => return out_buffer[0..rc],
         EACCES => return error.AccessDenied,
@@ -1354,7 +1246,7 @@ pub fn GetStdHandle(handle_id: windows.DWORD) GetStdHandleError!fd_t {
         const handle = windows.GetStdHandle(handle_id) orelse return error.NoStandardHandleAttached;
         if (handle == windows.INVALID_HANDLE_VALUE) {
             switch (windows.GetLastError()) {
-                else => |err| unexpectedErrorWindows(err),
+                else => |err| windows.unexpectedError(err),
             }
         }
         return handle;
@@ -2070,17 +1962,12 @@ pub const ForkError = error{
 };
 
 pub fn fork() ForkError!pid_t {
-    if (builtin.link_libc) {
-        return system.fork();
-    }
-    if (linux.is_the_target) {
-        const rc = if (@hasDecl(system, "SYS_fork")) system.fork() else system.clone2(SIGCHLD, 0);
-        switch (errno(rc)) {
-            0 => return rc,
-            EAGAIN => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            else => |err| return unexpectedErrno(err),
-        }
+    const rc = system.fork();
+    switch (errno(rc)) {
+        0 => return rc,
+        EAGAIN => return error.SystemResources,
+        ENOMEM => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -2173,7 +2060,7 @@ pub fn accessW(path: [*]const u16, mode: u32) AccessError!void {
         windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
         windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
         windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
-        else => |err| return unexpectedErrorWindows(err),
+        else => |err| return windows.unexpectedError(err),
     }
 }
 
@@ -2209,11 +2096,7 @@ pub const PipeError = error{
 
 /// Creates a unidirectional data channel that can be used for interprocess communication.
 pub fn pipe(fds: *[2]fd_t) PipeError!void {
-    const rc = if (builtin.link_libc or @hasDecl(system, SYS_pipe))
-        system.pipe(fds)
-    else
-        system.pipe2(fds, 0);
-    switch (errno(rc)) {
+    switch (errno(system.pipe(fds))) {
         0 => return,
         EINVAL => unreachable, // Invalid parameters to pipe()
         EFAULT => unreachable, // Invalid fds pointer
@@ -2296,6 +2179,112 @@ pub const realpath = std.os.path.real;
 pub const realpathC = std.os.path.realC;
 pub const realpathW = std.os.path.realW;
 
+pub const WaitForSingleObjectError = error{
+    WaitAbandoned,
+    WaitTimeOut,
+    Unexpected,
+};
+
+pub fn WaitForSingleObject(handle: windows.HANDLE, milliseconds: windows.DWORD) WaitForSingleObjectError!void {
+    switch (windows.WaitForSingleObject(handle, milliseconds)) {
+        windows.WAIT_ABANDONED => return error.WaitAbandoned,
+        windows.WAIT_OBJECT_0 => return,
+        windows.WAIT_TIMEOUT => return error.WaitTimeOut,
+        windows.WAIT_FAILED => {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        },
+        else => return error.Unexpected,
+    }
+}
+
+pub fn FindFirstFile(
+    dir_path: []const u8,
+    find_file_data: *windows.WIN32_FIND_DATAW,
+) !windows.HANDLE {
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{ '\\', '*', 0 });
+    const handle = windows.FindFirstFileW(&dir_path_w, find_file_data);
+
+    if (handle == windows.INVALID_HANDLE_VALUE) {
+        switch (windows.GetLastError()) {
+            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+
+    return handle;
+}
+
+/// Returns `true` if there was another file, `false` otherwise.
+pub fn FindNextFile(handle: windows.HANDLE, find_file_data: *windows.WIN32_FIND_DATAW) !bool {
+    if (windows.FindNextFileW(handle, find_file_data) == 0) {
+        switch (windows.GetLastError()) {
+            windows.ERROR.NO_MORE_FILES => return false,
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
+    return true;
+}
+
+pub const CreateIoCompletionPortError = error{Unexpected};
+
+pub fn CreateIoCompletionPort(
+    file_handle: windows.HANDLE,
+    existing_completion_port: ?windows.HANDLE,
+    completion_key: usize,
+    concurrent_thread_count: windows.DWORD,
+) CreateIoCompletionPortError!windows.HANDLE {
+    const handle = windows.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
+        switch (windows.GetLastError()) {
+            windows.ERROR.INVALID_PARAMETER => unreachable,
+            else => |err| return windows.unexpectedError(err),
+        }
+    };
+    return handle;
+}
+
+pub const WindowsPostQueuedCompletionStatusError = error{Unexpected};
+
+pub fn windowsPostQueuedCompletionStatus(completion_port: windows.HANDLE, bytes_transferred_count: windows.DWORD, completion_key: usize, lpOverlapped: ?*windows.OVERLAPPED) WindowsPostQueuedCompletionStatusError!void {
+    if (windows.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
+        const err = windows.GetLastError();
+        switch (err) {
+            else => return windows.unexpectedError(err),
+        }
+    }
+}
+
+pub const GetQueuedCompletionStatusResult = enum {
+    Normal,
+    Aborted,
+    Cancelled,
+    EOF,
+};
+
+pub fn GetQueuedCompletionStatus(
+    completion_port: windows.HANDLE,
+    bytes_transferred_count: *windows.DWORD,
+    lpCompletionKey: *usize,
+    lpOverlapped: *?*windows.OVERLAPPED,
+    dwMilliseconds: windows.DWORD,
+) GetQueuedCompletionStatusResult {
+    if (windows.GetQueuedCompletionStatus(completion_port, bytes_transferred_count, lpCompletionKey, lpOverlapped, dwMilliseconds) == windows.FALSE) {
+        switch (windows.GetLastError()) {
+            windows.ERROR.ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
+            windows.ERROR.OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
+            windows.ERROR.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            else => |err| {
+                if (std.debug.runtime_safety) {
+                    std.debug.panic("unexpected error: {}\n", err);
+                }
+            },
+        }
+    }
+    return GetQueuedCompletionStatusResult.Normal;
+}
+
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
 pub fn toPosixPath(file_path: []const u8) ![PATH_MAX]u8 {
@@ -2307,64 +2296,12 @@ pub fn toPosixPath(file_path: []const u8) ![PATH_MAX]u8 {
     return path_with_null;
 }
 
-const unexpected_error_tracing = builtin.mode == .Debug;
-const UnexpectedError = error{
-    /// The Operating System returned an undocumented error code.
-    Unexpected,
-};
-
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrno(errno: usize) UnexpectedError {
-    if (unexpected_error_tracing) {
+pub fn unexpectedErrno(errno: usize) os.UnexpectedError {
+    if (os.unexpected_error_tracing) {
         std.debug.warn("unexpected errno: {}\n", errno);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
-}
-
-/// Call this when you made a windows DLL call or something that does SetLastError
-/// and you get an unexpected error.
-pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
-    if (unexpected_error_tracing) {
-        std.debug.warn("unexpected GetLastError(): {}\n", err);
-        std.debug.dumpCurrentStackTrace(null);
-    }
-    return error.Unexpected;
-}
-
-pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
-}
-
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedSuffixedFileW(s, []u16{0});
-}
-
-pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
-    // TODO well defined copy elision
-    var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
-
-    // > File I/O functions in the Windows API convert "/" to "\" as part of
-    // > converting the name to an NT-style name, except when using the "\\?\"
-    // > prefix as detailed in the following sections.
-    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // disallow forward slashes in zig std lib file functions on Windows.
-    for (s) |byte| {
-        switch (byte) {
-            '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => {},
-        }
-    }
-    const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
-        const prefix = []u16{ '\\', '\\', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
-        break :blk prefix.len;
-    };
-    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    assert(end_index <= result.len);
-    if (end_index + suffix.len > result.len) return error.NameTooLong;
-    mem.copy(u16, result[end_index..], suffix);
-    return result;
 }

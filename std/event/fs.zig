@@ -154,16 +154,15 @@ pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64)
     }
     var bytes_transferred: windows.DWORD = undefined;
     if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        const err = windows.GetLastError();
-        return switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
-            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
-            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
-            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
-            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
-            else => os.unexpectedErrorWindows(err),
-        };
+            windows.ERROR.INVALID_USER_BUFFER => return error.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => return error.SystemResources,
+            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
+            else => |err| return windows.unexpectedError(err),
+        }
     }
 }
 
@@ -304,13 +303,12 @@ pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize
     }
     var bytes_transferred: windows.DWORD = undefined;
     if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
             windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
-            else => return os.unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
     return usize(bytes_transferred);
@@ -1042,11 +1040,10 @@ pub fn Watch(comptime V: type) type {
                 null,
             );
             if (dir_handle == windows.INVALID_HANDLE_VALUE) {
-                const err = windows.GetLastError();
-                switch (err) {
+                switch (windows.GetLastError()) {
                     windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
                     windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    else => return os.unexpectedErrorWindows(err),
+                    else => |err| return windows.unexpectedError(err),
                 }
             }
             var dir_handle_consumed = false;
@@ -1165,9 +1162,8 @@ pub fn Watch(comptime V: type) type {
                 }
                 var bytes_transferred: windows.DWORD = undefined;
                 if (windows.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-                    const errno = windows.GetLastError();
-                    const err = switch (errno) {
-                        else => os.unexpectedErrorWindows(errno),
+                    const err = switch (windows.GetLastError()) {
+                        else => |err| windows.unexpectedError(err),
                     };
                     await (async self.channel.put(err) catch unreachable);
                 } else {

@@ -558,7 +558,7 @@ pub const ChildProcess = struct {
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
-        const maybe_envp_buf = if (self.env_map) |env_map| try os.createWindowsEnvBlock(self.allocator, env_map) else null;
+        const maybe_envp_buf = if (self.env_map) |env_map| try createWindowsEnvBlock(self.allocator, env_map) else null;
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
@@ -679,13 +679,12 @@ fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, c
         lpStartupInfo,
         lpProcessInformation,
     ) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+        switch (windows.GetLastError()) {
             windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             windows.ERROR.INVALID_PARAMETER => unreachable,
             windows.ERROR.INVALID_NAME => return error.InvalidName,
-            else => return os.unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
 }
@@ -733,32 +732,10 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
     if (wr) |h| os.close(h);
 }
 
-// TODO: workaround for bug where the `const` from `&const` is dropped when the type is
-// a namespace field lookup
-const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
-
-fn windowsMakePipe(rd: *windows.HANDLE, wr: *windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
-    if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
-        const err = windows.GetLastError();
-        return switch (err) {
-            else => os.unexpectedErrorWindows(err),
-        };
-    }
-}
-
-fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.DWORD) !void {
-    if (windows.SetHandleInformation(h, mask, flags) == 0) {
-        const err = windows.GetLastError();
-        return switch (err) {
-            else => os.unexpectedErrorWindows(err),
-        };
-    }
-}
-
 fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
-    try windowsMakePipe(&rd_h, &wr_h, sattr);
+    try windows.CreatePipe(&rd_h, &wr_h, sattr);
     errdefer windowsDestroyPipe(rd_h, wr_h);
     try windowsSetHandleInfo(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
     rd.* = rd_h;
@@ -768,7 +745,7 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const S
 fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
-    try windowsMakePipe(&rd_h, &wr_h, sattr);
+    try windows.CreatePipe(&rd_h, &wr_h, sattr);
     errdefer windowsDestroyPipe(rd_h, wr_h);
     try windowsSetHandleInfo(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
     rd.* = rd_h;
@@ -809,4 +786,41 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 fn readIntFd(fd: i32) !ErrInt {
     const stream = &os.File.openHandle(fd).inStream().stream;
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
+}
+
+/// Caller must free result.
+pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) ![]u16 {
+    // count bytes needed
+    const max_chars_needed = x: {
+        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        var it = env_map.iterator();
+        while (it.next()) |pair| {
+            // +1 for '='
+            // +1 for null byte
+            max_chars_needed += pair.key.len + pair.value.len + 2;
+        }
+        break :x max_chars_needed;
+    };
+    const result = try allocator.alloc(u16, max_chars_needed);
+    errdefer allocator.free(result);
+
+    var it = env_map.iterator();
+    var i: usize = 0;
+    while (it.next()) |pair| {
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.key);
+        result[i] = '=';
+        i += 1;
+        i += try unicode.utf8ToUtf16Le(result[i..], pair.value);
+        result[i] = 0;
+        i += 1;
+    }
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    return allocator.shrink(result, i);
 }

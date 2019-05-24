@@ -261,12 +261,11 @@ pub const WindowsDynLib = struct {
         return WindowsDynLib{
             .allocator = allocator,
             .dll = windows.LoadLibraryW(&wpath) orelse {
-                const err = windows.GetLastError();
-                switch (err) {
+                switch (windows.GetLastError()) {
                     windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
                     windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
                     windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-                    else => return os.unexpectedErrorWindows(err),
+                    else => |err| return windows.unexpectedError(err),
                 }
             },
         };

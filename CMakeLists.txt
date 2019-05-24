@@ -619,6 +619,7 @@ set(ZIG_STD_FILES
     "os/linux/posix.zig"
     "os/linux/posix/arm64.zig"
     "os/linux/posix/x86_64.zig"
+    "os/linux/sys.zig"
     "os/linux/tls.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"

@@ -31,13 +31,14 @@ pub const zen = @import("os/zen.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 
-pub const system = switch (builtin.os) {
+pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     .linux => linux,
     .macosx, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .netbsd => netbsd,
     .zen => zen,
     .wasi => wasi,
+    .windows => windows,
     else => struct {},
 };
 
@@ -51,6 +52,12 @@ pub const time = @import("os/time.zig");
 pub const page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     else => 4 * 1024,
+};
+
+pub const unexpected_error_tracing = builtin.mode == .Debug;
+pub const UnexpectedError = error{
+    /// The Operating System returned an undocumented error code.
+    Unexpected,
 };
 
 /// This represents the maximum size of a UTF-8 encoded file path.
@@ -259,7 +266,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 return switch (err) {
                     windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
                     else => {
-                        unexpectedErrorWindows(err) catch {};
+                        windows.unexpectedError(err) catch {};
                         return error.EnvironmentVariableNotFound;
                     },
                 };
@@ -825,7 +832,7 @@ pub const Dir = struct {
             if (self.handle.first) {
                 self.handle.first = false;
             } else {
-                if (!try windows_util.windowsFindNextFile(self.handle.handle, &self.handle.find_file_data))
+                if (!try posix.FindNextFile(self.handle.handle, &self.handle.find_file_data))
                     return null;
             }
             const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
@@ -1333,7 +1340,7 @@ pub fn selfExePathW(out_buffer: *[posix.PATH_MAX_WIDE]u16) ![]u16 {
     if (rc == 0) {
         const err = windows.GetLastError();
         switch (err) {
-            else => return unexpectedErrorWindows(err),
+            else => return windows.unexpectedError(err),
         }
     }
     return out_buffer[0..rc];
@@ -1597,10 +1604,9 @@ pub fn spawnThread(context: var, comptime startFn: var) SpawnThreadError!*Thread
 
         const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
         outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
-            const err = windows.GetLastError();
-            return switch (err) {
-                else => os.unexpectedErrorWindows(err),
-            };
+            switch (windows.GetLastError()) {
+                else => |err| windows.unexpectedError(err),
+            }
         };
         return &outer_context.thread;
     }

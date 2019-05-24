@@ -1,27 +1,29 @@
+// This file contains the types and constants of the Windows API,
+// as well as the Windows-equivalent of "Zig-flavored POSIX" API layer.
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const is_the_target = switch (builtin.os) {
-    .windows => true,
-    else => false,
-};
-pub const posix = @import("windows/posix.zig");
+pub const is_the_target = builtin.os == .windows;
+pub const posix = if (builtin.link_libc) struct {} else @import("windows/posix.zig");
 pub use posix;
 
-pub use @import("windows/advapi32.zig");
-pub use @import("windows/kernel32.zig");
-pub use @import("windows/ntdll.zig");
-pub use @import("windows/ole32.zig");
-pub use @import("windows/shell32.zig");
-
-test "import" {
-    if (is_the_target) {
-        _ = @import("windows/util.zig");
-    }
-}
+pub const advapi32 = @import("windows/advapi32.zig");
+pub const kernel32 = @import("windows/kernel32.zig");
+pub const ntdll = @import("windows/ntdll.zig");
+pub const ole32 = @import("windows/ole32.zig");
+pub const shell32 = @import("windows/shell32.zig");
 
 pub const ERROR = @import("windows/error.zig");
+
+/// The standard input device. Initially, this is the console input buffer, CONIN$.
+pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
+
+/// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
+pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
+
+/// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
+pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
 pub const SHORT = c_short;
 pub const BOOL = c_int;
@@ -428,3 +430,233 @@ pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
 pub const PIMAGE_TLS_CALLBACK = ?extern fn (PVOID, DWORD, PVOID) void;
+
+pub const PROV_RSA_FULL = 1;
+
+pub const REGSAM = ACCESS_MASK;
+pub const ACCESS_MASK = DWORD;
+pub const PHKEY = *HKEY;
+pub const HKEY = *HKEY__;
+pub const HKEY__ = extern struct {
+    unused: c_int,
+};
+pub const LSTATUS = LONG;
+
+pub const FILE_NOTIFY_INFORMATION = extern struct {
+    NextEntryOffset: DWORD,
+    Action: DWORD,
+    FileNameLength: DWORD,
+    FileName: [1]WCHAR,
+};
+
+pub const FILE_ACTION_ADDED = 0x00000001;
+pub const FILE_ACTION_REMOVED = 0x00000002;
+pub const FILE_ACTION_MODIFIED = 0x00000003;
+pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
+pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
+
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
+
+pub const FILE_LIST_DIRECTORY = 1;
+
+pub const FILE_NOTIFY_CHANGE_CREATION = 64;
+pub const FILE_NOTIFY_CHANGE_SIZE = 8;
+pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
+pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
+pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
+pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
+pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
+pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+
+pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
+    dwSize: COORD,
+    dwCursorPosition: COORD,
+    wAttributes: WORD,
+    srWindow: SMALL_RECT,
+    dwMaximumWindowSize: COORD,
+};
+
+pub const FOREGROUND_BLUE = 1;
+pub const FOREGROUND_GREEN = 2;
+pub const FOREGROUND_RED = 4;
+pub const FOREGROUND_INTENSITY = 8;
+
+pub const LIST_ENTRY = extern struct {
+    Flink: *LIST_ENTRY,
+    Blink: *LIST_ENTRY,
+};
+
+pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
+    Type: WORD,
+    CreatorBackTraceIndex: WORD,
+    CriticalSection: *RTL_CRITICAL_SECTION,
+    ProcessLocksList: LIST_ENTRY,
+    EntryCount: DWORD,
+    ContentionCount: DWORD,
+    Flags: DWORD,
+    CreatorBackTraceIndexHigh: WORD,
+    SpareWORD: WORD,
+};
+
+pub const RTL_CRITICAL_SECTION = extern struct {
+    DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
+    LockCount: LONG,
+    RecursionCount: LONG,
+    OwningThread: HANDLE,
+    LockSemaphore: HANDLE,
+    SpinCount: ULONG_PTR,
+};
+
+pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
+pub const INIT_ONCE = RTL_RUN_ONCE;
+pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
+pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
+
+pub const RTL_RUN_ONCE = extern struct {
+    Ptr: ?*c_void,
+};
+
+pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
+
+pub const COINIT_APARTMENTTHREADED = COINIT.COINIT_APARTMENTTHREADED;
+pub const COINIT_MULTITHREADED = COINIT.COINIT_MULTITHREADED;
+pub const COINIT_DISABLE_OLE1DDE = COINIT.COINIT_DISABLE_OLE1DDE;
+pub const COINIT_SPEED_OVER_MEMORY = COINIT.COINIT_SPEED_OVER_MEMORY;
+pub const COINIT = extern enum {
+    COINIT_APARTMENTTHREADED = 2,
+    COINIT_MULTITHREADED = 0,
+    COINIT_DISABLE_OLE1DDE = 4,
+    COINIT_SPEED_OVER_MEMORY = 8,
+};
+
+/// > The maximum path of 32,767 characters is approximate, because the "\\?\"
+/// > prefix may be expanded to a longer string by the system at run time, and
+/// > this expansion applies to the total length.
+/// from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+pub const PATH_MAX_WIDE = 32767;
+
+pub const OpenError = error{
+    SharingViolation,
+    PathAlreadyExists,
+
+    /// When any of the path components can not be found or the file component can not
+    /// be found. Some operating systems distinguish between path components not found and
+    /// file components not found, but they are collapsed into FileNotFound to gain
+    /// consistency across operating systems.
+    FileNotFound,
+
+    AccessDenied,
+    PipeBusy,
+    NameTooLong,
+
+    /// On Windows, file paths must be valid Unicode.
+    InvalidUtf8,
+
+    /// On Windows, file paths cannot contain these characters:
+    /// '/', '*', '?', '"', '<', '>', '|'
+    BadPathName,
+
+    Unexpected,
+};
+
+pub fn CreateFile(
+    file_path: []const u8,
+    desired_access: DWORD,
+    share_mode: DWORD,
+    creation_disposition: DWORD,
+    flags_and_attrs: DWORD,
+) OpenError!fd_t {
+    const file_path_w = try sliceToPrefixedFileW(file_path);
+    return CreateFileW(&file_path_w, desired_access, share_mode, creation_disposition, flags_and_attrs);
+}
+
+pub fn CreateFileW(
+    file_path_w: [*]const u16,
+    desired_access: DWORD,
+    share_mode: DWORD,
+    creation_disposition: DWORD,
+    flags_and_attrs: DWORD,
+) OpenError!HANDLE {
+    const result = kernel32.CreateFileW(file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
+
+    if (result == INVALID_HANDLE_VALUE) {
+        switch (kernel32.GetLastError()) {
+            ERROR.SHARING_VIOLATION => return error.SharingViolation,
+            ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
+            ERROR.FILE_EXISTS => return error.PathAlreadyExists,
+            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            ERROR.ACCESS_DENIED => return error.AccessDenied,
+            ERROR.PIPE_BUSY => return error.PipeBusy,
+            else => |err| return unexpectedErrorWindows(err),
+        }
+    }
+
+    return result;
+}
+
+pub const CreatePipeError = error{Unexpected};
+
+fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
+    if (kernel32.CreatePipe(rd, wr, sattr, 0) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+pub const SetHandleInformationError = error{Unexpected};
+
+fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
+    if (SetHandleInformation(h, mask, flags) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
+    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+}
+
+pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
+    return sliceToPrefixedSuffixedFileW(s, []u16{0});
+}
+
+pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
+    // TODO well defined copy elision
+    var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
+
+    // > File I/O functions in the Windows API convert "/" to "\" as part of
+    // > converting the name to an NT-style name, except when using the "\\?\"
+    // > prefix as detailed in the following sections.
+    // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
+    // Because we want the larger maximum path length for absolute paths, we
+    // disallow forward slashes in zig std lib file functions on Windows.
+    for (s) |byte| {
+        switch (byte) {
+            '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => {},
+        }
+    }
+    const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
+        const prefix = []u16{ '\\', '\\', '?', '\\' };
+        mem.copy(u16, result[0..], prefix);
+        break :blk prefix.len;
+    };
+    const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
+    assert(end_index <= result.len);
+    if (end_index + suffix.len > result.len) return error.NameTooLong;
+    mem.copy(u16, result[end_index..], suffix);
+    return result;
+}
+
+/// Call this when you made a windows DLL call or something that does SetLastError
+/// and you get an unexpected error.
+pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
+    if (std.os.unexpected_error_tracing) {
+        std.debug.warn("unexpected GetLastError(): {}\n", err);
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
