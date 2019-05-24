@@ -8,6 +8,8 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
+//@NOTE: The Fns shouldn't need to take `*const Allocator` once coroutine rewrite (#2377) is complete.
+// just `Allocator`.
 pub const Allocator = struct {
     pub const AllocatorImpl = ?*@OpaqueType();
     pub const Error = error{OutOfMemory};
@@ -36,7 +38,7 @@ pub const Allocator = struct {
     /// `return_value[old_mem.len..]` have undefined values.
     /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
     reallocFn: fn (
-        self: Allocator,
+        self: *const Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
         /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
@@ -59,7 +61,7 @@ pub const Allocator = struct {
 
     /// This function deallocates memory. It must succeed.
     shrinkFn: fn (
-        self: Allocator,
+        self: *const Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
         old_mem: []u8,
@@ -86,7 +88,7 @@ pub const Allocator = struct {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
+        const shrink_result = self.shrinkFn(&self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
         assert(shrink_result.len == 0);
     }
 
@@ -105,7 +107,7 @@ pub const Allocator = struct {
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
+        const byte_slice = try self.reallocFn(&self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         return @bytesToSlice(T, @alignCast(alignment, byte_slice));
@@ -150,7 +152,7 @@ pub const Allocator = struct {
 
         const old_byte_slice = @sliceToBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = try self.reallocFn(&self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
@@ -196,7 +198,7 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * new_n;
 
         const old_byte_slice = @sliceToBytes(old_mem);
-        const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = self.shrinkFn(&self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
@@ -206,7 +208,7 @@ pub const Allocator = struct {
         const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
+        const shrink_result = self.shrinkFn(&self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
     
