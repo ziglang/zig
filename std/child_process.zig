@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std.zig");
 const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;
@@ -12,10 +12,9 @@ const Buffer = std.Buffer;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
-const windows_util = @import("windows/util.zig");
 const maxInt = std.math.maxInt;
 
-const is_windows = builtin.os == Os.windows;
+const is_windows = builtin.os == .windows;
 
 pub const ChildProcess = struct {
     pub pid: if (is_windows) void else i32,

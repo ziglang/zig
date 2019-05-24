@@ -8,6 +8,11 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
+pub const page_size = switch (builtin.arch) {
+    .wasm32, .wasm64 => 64 * 1024,
+    else => 4 * 1024,
+};
+
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};
 
@@ -1456,4 +1461,22 @@ test "std.mem.alignForward" {
     testing.expect(alignForward(15, 8) == 16);
     testing.expect(alignForward(16, 8) == 16);
     testing.expect(alignForward(17, 8) == 24);
+}
+
+pub fn getBaseAddress() usize {
+    switch (builtin.os) {
+        .linux => {
+            const base = std.os.posix.getauxval(std.elf.AT_BASE);
+            if (base != 0) {
+                return base;
+            }
+            const phdr = std.os.posix.getauxval(std.elf.AT_PHDR);
+            return phdr - @sizeOf(std.elf.Ehdr);
+        },
+        .macosx, .freebsd, .netbsd => {
+            return @ptrToInt(&std.c._mh_execute_header);
+        },
+        .windows => return @ptrToInt(windows.GetModuleHandleW(null)),
+        else => @compileError("Unsupported OS"),
+    }
 }

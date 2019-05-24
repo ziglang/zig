@@ -320,8 +320,21 @@ pub fn close(fd: i32) usize {
     return syscall1(SYS_close, @bitCast(usize, isize(fd)));
 }
 
-pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
-    return syscall3(SYS_lseek, @bitCast(usize, isize(fd)), @bitCast(usize, offset), ref_pos);
+/// Can only be called on 32 bit systems. For 64 bit see `lseek`.
+pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
+    return syscall5(
+        SYS__llseek,
+        @bitCast(usize, isize(fd)),
+        @truncate(usize, offset >> 32),
+        @truncate(usize, offset),
+        @ptrToInt(result),
+        whence,
+    );
+}
+
+/// Can only be called on 64 bit systems. For 32 bit see `llseek`.
+pub fn lseek(fd: i32, offset: i64, whence: usize) usize {
+    return syscall3(SYS_lseek, @bitCast(usize, isize(fd)), @bitCast(usize, offset), whence);
 }
 
 pub fn exit(status: i32) noreturn {

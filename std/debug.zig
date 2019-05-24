@@ -893,7 +893,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         if (this_record_len % 4 != 0) {
             const round_to_next_4 = (this_record_len | 0x3) + 1;
             const march_forward_bytes = round_to_next_4 - this_record_len;
-            try dbi.seekForward(march_forward_bytes);
+            try dbi.seekBy(march_forward_bytes);
             this_record_len += march_forward_bytes;
         }
 
@@ -1116,7 +1116,7 @@ fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
-    var buf: [os.page_size]u8 = undefined;
+    var buf: [mem.page_size]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;
     var abs_index: usize = 0;
@@ -1938,7 +1938,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                 },
                 else => {
                     const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
-                    try di.dwarf_seekable_stream.seekForward(fwd_amt);
+                    try di.dwarf_seekable_stream.seekBy(fwd_amt);
                 },
             }
         } else if (opcode >= opcode_base) {
@@ -1990,7 +1990,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
                 else => {
                     if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
                     const len_bytes = standard_opcode_lengths[opcode - 1];
-                    try di.dwarf_seekable_stream.seekForward(len_bytes);
+                    try di.dwarf_seekable_stream.seekBy(len_bytes);
                 },
             }
         }

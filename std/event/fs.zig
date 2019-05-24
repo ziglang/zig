@@ -688,7 +688,7 @@ pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8
     defer list.deinit();
 
     while (true) {
-        try list.ensureCapacity(list.len + os.page_size);
+        try list.ensureCapacity(list.len + mem.page_size);
         const buf = list.items[list.len..];
         const buf_array = [][]u8{buf};
         const amt = try await (async preadv(loop, fd, buf_array, list.len) catch unreachable);

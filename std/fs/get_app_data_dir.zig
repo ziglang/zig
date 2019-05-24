@@ -13,7 +13,7 @@ pub const GetAppDataDirError = error{
 /// TODO determine if we can remove the allocator requirement
 pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
     switch (builtin.os) {
-        builtin.Os.windows => {
+        .windows => {
             var dir_path_ptr: [*]u16 = undefined;
             switch (os.windows.SHGetKnownFolderPath(
                 &os.windows.FOLDERID_LocalAppData,
@@ -36,14 +36,14 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                 else => return error.AppDataDirUnavailable,
             }
         },
-        builtin.Os.macosx => {
+        .macosx => {
             const home_dir = os.getEnvPosix("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
             };
             return os.path.join(allocator, [][]const u8{ home_dir, "Library", "Application Support", appname });
         },
-        builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
+        .linux, .freebsd, .netbsd => {
             const home_dir = os.getEnvPosix("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
@@ -60,7 +60,7 @@ fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
     return ptr[0..index];
 }
 
-test "std.os.getAppDataDir" {
+test "getAppDataDir" {
     var buf: [512]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
 

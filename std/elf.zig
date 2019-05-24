@@ -410,7 +410,7 @@ pub const Elf = struct {
         if (version_byte != 1) return error.InvalidFormat;
 
         // skip over padding
-        try seekable_stream.seekForward(9);
+        try seekable_stream.seekBy(9);
 
         elf.file_type = switch (try in.readInt(u16, elf.endian)) {
             1 => FileType.Relocatable,
@@ -447,7 +447,7 @@ pub const Elf = struct {
         }
 
         // skip over flags
-        try seekable_stream.seekForward(4);
+        try seekable_stream.seekBy(4);
 
         const header_size = try in.readInt(u16, elf.endian);
         if ((elf.is_64 and header_size != 64) or (!elf.is_64 and header_size != 52)) {

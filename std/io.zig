@@ -49,7 +49,7 @@ pub fn InStream(comptime ReadError: type) type {
                     return;
                 }
 
-                const new_buf_size = math.min(max_size, actual_buf_len + os.page_size);
+                const new_buf_size = math.min(max_size, actual_buf_len + mem.page_size);
                 if (new_buf_size == actual_buf_len) return error.StreamTooLong;
                 try buffer.resize(new_buf_size);
             }
@@ -284,7 +284,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(os.page_size, Error);
+    return BufferedInStreamCustom(mem.page_size, Error);
 }
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
@@ -757,7 +757,7 @@ test "io.CountingOutStream" {
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
-    return BufferedOutStreamCustom(os.page_size, Error);
+    return BufferedOutStreamCustom(mem.page_size, Error);
 }
 
 pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {

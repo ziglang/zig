@@ -8,7 +8,7 @@ pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType
         pub const GetSeekPosError = GetSeekPosErrorType;
 
         seekToFn: fn (self: *Self, pos: u64) SeekError!void,
-        seekForwardFn: fn (self: *Self, pos: i64) SeekError!void,
+        seekByFn: fn (self: *Self, pos: i64) SeekError!void,
 
         getPosFn: fn (self: *Self) GetSeekPosError!u64,
         getEndPosFn: fn (self: *Self) GetSeekPosError!u64,
@@ -17,8 +17,8 @@ pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType
             return self.seekToFn(self, pos);
         }
 
-        pub fn seekForward(self: *Self, amt: i64) SeekError!void {
-            return self.seekForwardFn(self, amt);
+        pub fn seekBy(self: *Self, amt: i64) SeekError!void {
+            return self.seekByFn(self, amt);
         }
 
         pub fn getEndPos(self: *Self) GetSeekPosError!u64 {
@@ -52,7 +52,7 @@ pub const SliceSeekableInStream = struct {
             .stream = Stream{ .readFn = readFn },
             .seekable_stream = SeekableInStream{
                 .seekToFn = seekToFn,
-                .seekForwardFn = seekForwardFn,
+                .seekByFn = seekByFn,
                 .getEndPosFn = getEndPosFn,
                 .getPosFn = getPosFn,
             },
@@ -77,7 +77,7 @@ pub const SliceSeekableInStream = struct {
         self.pos = usize_pos;
     }
 
-    fn seekForwardFn(in_stream: *SeekableInStream, amt: i64) SeekError!void {
+    fn seekByFn(in_stream: *SeekableInStream, amt: i64) SeekError!void {
         const self = @fieldParentPtr(Self, "seekable_stream", in_stream);
 
         if (amt < 0) {

@@ -660,8 +660,7 @@ const MsfStream = struct {
         return size;
     }
 
-    // XXX: The `len` parameter should be signed
-    fn seekForward(self: *MsfStream, len: u64) !void {
+    fn seekBy(self: *MsfStream, len: i64) !void {
         self.pos += len;
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;

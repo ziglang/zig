@@ -91,7 +91,7 @@ pub const Coff = struct {
         } else
             return error.InvalidPEMagic;
 
-        try self.in_file.seekForward(skip_size);
+        try self.in_file.seekBy(skip_size);
 
         const number_of_rva_and_sizes = try in.readIntLittle(u32);
         if (number_of_rva_and_sizes != IMAGE_NUMBEROF_DIRECTORY_ENTRIES)

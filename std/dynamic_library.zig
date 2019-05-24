@@ -125,7 +125,7 @@ pub const LinuxDynLib = struct {
         );
         errdefer _ = linux.munmap(addr, size);
 
-        const bytes = @intToPtr([*]align(std.os.page_size) u8, addr)[0..size];
+        const bytes = @intToPtr([*]align(mem.page_size) u8, addr)[0..size];
 
         return DynLib{
             .elf_lib = try ElfLib.init(bytes),
