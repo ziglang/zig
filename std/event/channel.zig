@@ -337,10 +337,10 @@ test "std.event.Channel" {
     const channel = try Channel(i32).create(&loop, 0);
     defer channel.destroy();
 
-    const handle = try async<allocator> testChannelGetter(&loop, channel);
+    const handle = try async<&allocator> testChannelGetter(&loop, channel);
     defer cancel handle;
 
-    const putter = try async<allocator> testChannelPutter(channel);
+    const putter = try async<&allocator> testChannelPutter(channel);
     defer cancel putter;
 
     loop.run();

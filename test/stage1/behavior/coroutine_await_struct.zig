@@ -14,7 +14,7 @@ test "coroutine await struct" {
     defer da.deinit();
 
     await_seq('a');
-    const p = async<&da.allocator> await_amain() catch unreachable;
+    const p = async<&da.allocator()> await_amain() catch unreachable;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
