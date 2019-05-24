@@ -24,7 +24,7 @@ pub const FailingAllocator = struct {
         };
     }
 
-    fn realloc(a: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(a: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) mem.Allocator.Error![]u8 {
         const self = a.implCast(FailingAllocator);
 
         if (self.index == self.fail_index) {

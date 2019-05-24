@@ -431,7 +431,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn shrink(allocator: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         return old_mem[0..new_size];
     }
     
@@ -469,7 +469,7 @@ pub const FixedBufferAllocator = struct {
         return result;
     }
 
-    fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
         const self = a.implCast(FixedBufferAllocator);
         
         assert(old_mem.len <= self.end_index);
@@ -486,7 +486,7 @@ pub const FixedBufferAllocator = struct {
             // We can't do anything with the memory, so tell the client to keep it.
             return error.OutOfMemory;
         } else {
-            const result = try alloc(new_size, new_align);
+            const result = try self.alloc(new_size, new_align);
             @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
             return result;
         }
@@ -561,7 +561,7 @@ const WasmAllocator = struct {
         return memory.ptr == self.start_ptr + self.end_index - memory.len and mem.alignForward(@ptrToInt(memory.ptr), alignment) == @ptrToInt(memory.ptr);
     }
 
-    fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
         const self = a.implCast(WasmAllocator);
 
         // Initialize start_ptr at the first realloc
@@ -632,7 +632,7 @@ pub const ThreadSafeFixedBufferAllocator = blk: {
                 }
             }
 
-            fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+            fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
                 const self = a.implCast(ThreadSafeFixedBufferAllocator);
                 
                 if (new_size <= old_mem.len and new_align <= old_align) {
@@ -681,7 +681,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
             return self.allocator();
         }
 
-        fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
             const self = a.impleCast(Self);
             
             const in_buffer = @ptrToInt(old_mem.ptr) >= @ptrToInt(&self.buffer) and
