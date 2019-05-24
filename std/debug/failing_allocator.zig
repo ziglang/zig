@@ -4,7 +4,6 @@ const mem = std.mem;
 /// Allocator that fails after N allocations, useful for making sure out of
 /// memory conditions are handled correctly.
 pub const FailingAllocator = struct {
-    allocator: mem.Allocator,
     index: usize,
     fail_index: usize,
     internal_allocator: mem.Allocator,
@@ -22,15 +21,12 @@ pub const FailingAllocator = struct {
             .freed_bytes = 0,
             .allocations = 0,
             .deallocations = 0,
-            .allocator = mem.Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
         };
     }
 
-    fn realloc(allocator: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+    fn realloc(a: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const self = a.implCast(FailingAllocator);
+
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
@@ -54,12 +50,22 @@ pub const FailingAllocator = struct {
         return result;
     }
 
-    fn shrink(allocator: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+    fn shrink(a: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        const self = a.implCast(FailingAllocator);
+        
         const r = self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
         self.freed_bytes += old_mem.len - r.len;
         if (new_size == 0)
             self.deallocations += 1;
         return r;
+    }
+    
+    
+    pub fn allocator(self: *FailingAllocator) Allocator {
+        return Allocator {
+            .impl = mem.Allocator.ifaceCast(self),
+            .reallocFn = realloc,
+            .shrinkFn = shrink,
+        };
     }
 };
