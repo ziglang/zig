@@ -15,8 +15,11 @@ const fmt = std.fmt;
 const File = std.os.File;
 const testing = std.testing;
 
-const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
+const is_posix = switch (builtin.os) {
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => true,
+    else => false,
+};
 
 const GetStdIoErrs = os.WindowsGetStdHandleErrs;
 

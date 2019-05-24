@@ -11,8 +11,11 @@ const Os = builtin.Os;
 const windows_util = @import("windows/util.zig");
 const maxInt = std.math.maxInt;
 
-const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
+const is_posix = switch (builtin.os) {
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => true,
+    else => false,
+};
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
