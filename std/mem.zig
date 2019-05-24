@@ -9,8 +9,11 @@ const trait = meta.trait;
 const testing = std.testing;
 
 pub const Allocator = struct {
+    pub const AllocatorImpl = ?*@OpaqueType();
     pub const Error = error{OutOfMemory};
-
+    
+    impl: AllocatorImpl,
+    
     /// Realloc is used to modify the size or alignment of an existing allocation,
     /// as well as to provide the allocator with an opportunity to move an allocation
     /// to a better location.
@@ -33,7 +36,7 @@ pub const Allocator = struct {
     /// `return_value[old_mem.len..]` have undefined values.
     /// The returned slice must have its pointer aligned at least to `new_alignment` bytes.
     reallocFn: fn (
-        self: *Allocator,
+        self: Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
         /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
@@ -56,7 +59,7 @@ pub const Allocator = struct {
 
     /// This function deallocates memory. It must succeed.
     shrinkFn: fn (
-        self: *Allocator,
+        self: Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
         old_mem: []u8,
@@ -72,14 +75,14 @@ pub const Allocator = struct {
 
     /// Call `destroy` with the result.
     /// Returns undefined memory.
-    pub fn create(self: *Allocator, comptime T: type) Error!*T {
+    pub fn create(self: Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
     /// `ptr` should be the return value of `create`
-    pub fn destroy(self: *Allocator, ptr: var) void {
+    pub fn destroy(self: Allocator, ptr: var) void {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
@@ -87,12 +90,12 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
-    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
+    pub fn alloc(self: Allocator, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
     pub fn alignedAlloc(
-        self: *Allocator,
+        self: Allocator,
         comptime T: type,
         comptime alignment: u29,
         n: usize,
@@ -118,7 +121,7 @@ pub const Allocator = struct {
     /// in `std.ArrayList.shrink`.
     /// If you need guaranteed success, call `shrink`.
     /// If `new_n` is 0, this is the same as `free` and it always succeeds.
-    pub fn realloc(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn realloc(self: Allocator, old_mem: var, new_n: usize) t: {
         const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
@@ -130,7 +133,7 @@ pub const Allocator = struct {
     /// a new alignment, which can be larger, smaller, or the same as the old
     /// allocation.
     pub fn alignedRealloc(
-        self: *Allocator,
+        self: Allocator,
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
@@ -160,7 +163,7 @@ pub const Allocator = struct {
     /// Shrink always succeeds, and `new_n` must be <= `old_mem.len`.
     /// Returned slice has same alignment as old_mem.
     /// Shrinking to 0 is the same as calling `free`.
-    pub fn shrink(self: *Allocator, old_mem: var, new_n: usize) t: {
+    pub fn shrink(self: Allocator, old_mem: var, new_n: usize) t: {
         const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
         break :t []align(Slice.alignment) Slice.child;
     } {
@@ -172,7 +175,7 @@ pub const Allocator = struct {
     /// a new alignment, which must be smaller or the same as the old
     /// allocation.
     pub fn alignedShrink(
-        self: *Allocator,
+        self: Allocator,
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
@@ -198,13 +201,28 @@ pub const Allocator = struct {
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
-    pub fn free(self: *Allocator, memory: var) void {
+    pub fn free(self: Allocator, memory: var) void {
         const Slice = @typeInfo(@typeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
+    }
+    
+    /// Cast the original type to the implementation pointer
+    pub fn ifaceCast(ptr: var) AllocatorImpl {
+        const T = @typeOf(ptr);
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
+        return @ptrCast(AllocatorImpl, ptr);
+    }
+
+    /// Cast the implementation pointer back to the original type
+    pub fn implCast(allocator: Allocator, comptime T: type) *T {
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
+        debug.assert(allocator.impl != null);
+        const aligned = @alignCast(@alignOf(T), allocator.impl);
+        return @ptrCast(*T, aligned);
     }
 };
 
