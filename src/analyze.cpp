@@ -3773,7 +3773,7 @@ static void add_symbols_from_struct(CodeGen *g, AstNode *src_use_node, AstNode *
     ZigType *src_ty = use_expr->data.x_type;
     assert(src_ty);
 
-    if (src_ty->id != ZigTypeIdStruct) {
+    if (src_ty->id != ZigTypeIdStruct || is_slice(src_ty)) {
         add_node_error(g, dst_use_node,
             buf_sprintf("expected struct, found '%s'", buf_ptr(&src_ty->name)));
         decls_scope->any_imports_failed = true;
