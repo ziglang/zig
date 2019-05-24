@@ -12,9 +12,9 @@ pub const FailingAllocator = struct {
     allocations: usize,
     deallocations: usize,
 
-    pub fn init(allocator: mem.Allocator, fail_index: usize) FailingAllocator {
+    pub fn init(internal_allocator: mem.Allocator, fail_index: usize) FailingAllocator {
         return FailingAllocator{
-            .internal_allocator = allocator,
+            .internal_allocator = internal_allocator,
             .fail_index = fail_index,
             .index = 0,
             .allocated_bytes = 0,
@@ -61,8 +61,8 @@ pub const FailingAllocator = struct {
     }
     
     
-    pub fn allocator(self: *FailingAllocator) Allocator {
-        return Allocator {
+    pub fn allocator(self: *FailingAllocator) mem.Allocator {
+        return mem.Allocator {
             .impl = mem.Allocator.ifaceCast(self),
             .reallocFn = realloc,
             .shrinkFn = shrink,

@@ -2240,7 +2240,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
             return error.TestFailed;
         }
         std.testing.expect(anything_changed == changes_expected);
-        failing_allocator.allocator.free(result_source);
+        failing_allocator.allocator().free(result_source);
         break :x failing_allocator.index;
     };
 

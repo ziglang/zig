@@ -22,7 +22,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !*Tree {
         // https://github.com/ziglang/zig/commit/cb4fb14b6e66bd213575f69eec9598be8394fae6
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
-        const tree = try arena.allocator.create(ast.Tree);
+        const tree = try arena.allocator().create(ast.Tree);
         tree.* = ast.Tree{
             .source = source,
             .root_node = undefined,

@@ -682,7 +682,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         }
 
         fn realloc(a: Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
-            const self = a.impleCast(Self);
+            const self = a.implCast(Self);
             
             const in_buffer = @ptrToInt(old_mem.ptr) >= @ptrToInt(&self.buffer) and
                 @ptrToInt(old_mem.ptr) < @ptrToInt(&self.buffer) + self.buffer.len;
