@@ -327,7 +327,7 @@ test "std.event.Channel" {
     var da = std.heap.DirectAllocator.init();
     defer da.deinit();
 
-    const allocator = &da.allocator;
+    const allocator = da.allocator();
 
     var loop: Loop = undefined;
     // TODO make a multi threaded test

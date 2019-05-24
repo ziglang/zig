@@ -378,7 +378,7 @@ test "basic hash map usage" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
@@ -421,7 +421,7 @@ test "iterator hash map" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var reset_map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer reset_map.deinit();
 
     testing.expect((try reset_map.put(1, 11)) == null);
@@ -468,7 +468,7 @@ test "ensure capacity" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(direct_allocator.allocator());
     defer map.deinit();
 
     try map.ensureCapacity(20);

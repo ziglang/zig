@@ -402,7 +402,7 @@ test "io.BufferedInStream" {
     };
 
     var buf: [100]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
 
     const str = "This is a test";
     var one_byte_stream = OneByteReadInStream.init(str);
@@ -1045,7 +1045,7 @@ pub fn readLineFrom(stream: var, buf: *std.Buffer) ![]u8 {
 
 test "io.readLineFrom" {
     var bytes: [128]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var buf = try std.Buffer.initSize(allocator, 0);
     var mem_stream = SliceInStream.init(

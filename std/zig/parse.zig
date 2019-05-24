@@ -33,7 +33,7 @@ pub fn parse(allocator: Allocator, source: []const u8) !*Tree {
         break :blk tree;
     };
     errdefer tree.deinit();
-    const arena = &tree.arena_allocator.allocator;
+    const arena = tree.arena_allocator.allocator();
 
     tree.tokens = ast.Tree.TokenList.init(arena);
     tree.errors = ast.Tree.ErrorList.init(arena);

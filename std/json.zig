@@ -1167,7 +1167,7 @@ pub const Parser = struct {
         errdefer arena.deinit();
 
         while (try s.next()) |token| {
-            try p.transition(&arena.allocator, input, s.i - 1, token);
+            try p.transition(arena.allocator(), input, s.i - 1, token);
         }
 
         debug.assert(p.stack.len == 1);

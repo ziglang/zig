@@ -1317,7 +1317,7 @@ const test_tmp_dir = "std_event_fs_test";
 //    var da = std.heap.DirectAllocator.init();
 //    defer da.deinit();
 //
-//    const allocator = &da.allocator;
+//    const allocator = da.allocator();
 //
 //    // TODO move this into event loop too
 //    try os.makePath(allocator, test_tmp_dir);

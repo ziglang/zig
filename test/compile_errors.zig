@@ -1563,7 +1563,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
-        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+        \\    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
         \\    const p = (async<a> foo()) catch unreachable;
         \\    cancel p;
         \\}

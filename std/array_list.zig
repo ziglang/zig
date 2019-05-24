@@ -221,7 +221,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
 
 test "std.ArrayList.init" {
     var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();
@@ -232,7 +232,7 @@ test "std.ArrayList.init" {
 
 test "std.ArrayList.basic" {
     var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();

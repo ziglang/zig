@@ -109,7 +109,7 @@ const Context = struct {
     mode: Mode,
 
     fn a(c: *Context) std.mem.Allocator {
-        return &c.tree.arena_allocator.allocator;
+        return c.tree.arena_allocator.allocator();
     }
 
     /// Convert a null-terminated C string to a slice allocated in the arena
@@ -151,7 +151,7 @@ pub fn translate(
 
     var tree_arena = std.heap.ArenaAllocator.init(backing_allocator);
     errdefer tree_arena.deinit();
-    var arena = &tree_arena.allocator;
+    var arena = tree_arena.allocator();
 
     const root_node = try arena.create(ast.Node.Root);
     root_node.* = ast.Node.Root{
@@ -171,7 +171,7 @@ pub fn translate(
         .errors = ast.Tree.ErrorList.init(arena),
     };
     tree.arena_allocator = tree_arena;
-    arena = &tree.arena_allocator.allocator;
+    arena = tree.arena_allocator.allocator();
 
     var source_buffer = try std.Buffer.initSize(arena, 0);
 

@@ -185,10 +185,10 @@ pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(direct_allocator.allocator());
     defer arena.deinit();
 
-    global_allocator = &arena.allocator;
+    global_allocator = arena.allocator();
 
     var stdin_buf = try Buffer.initSize(global_allocator, 0);
     defer stdin_buf.deinit();

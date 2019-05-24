@@ -159,7 +159,7 @@ test "std.atomic.Queue" {
     defer direct_allocator.allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var a = fixed_buffer_allocator.allocator();
 
     var queue = Queue(i32).init();
     var context = Context{

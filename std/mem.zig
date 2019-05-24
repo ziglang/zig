@@ -1003,7 +1003,7 @@ pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const
 
 test "mem.join" {
     var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    const a = std.heap.FixedBufferAllocator.init(&buf).allocator();
     testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
     testing.expect(eql(u8, try join(a, ",", [][]const u8{"a"}), "a"));
     testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));

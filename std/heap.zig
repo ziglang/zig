@@ -11,7 +11,7 @@ const maxInt = std.math.maxInt;
 
 const Allocator = mem.Allocator;
 
-pub const c_allocator = &c_allocator_state;
+pub const c_allocator = c_allocator_state;
 var c_allocator_state = Allocator{
     .impl = null,
     .reallocFn = cRealloc,
@@ -510,7 +510,7 @@ pub const FixedBufferAllocator = struct {
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
-pub const wasm_allocator = &wasm_allocator_state.allocator();
+pub const wasm_allocator = wasm_allocator_state.allocator();
 var wasm_allocator_state = WasmAllocator{
     .start_ptr = undefined,
     .num_pages = 0,

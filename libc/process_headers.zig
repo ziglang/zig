@@ -708,8 +708,8 @@ const PathTable = std.AutoHashMap([]const u8, *TargetToHash);
 
 pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
-    const allocator = &arena.allocator;
+    var arena = std.heap.ArenaAllocator.init(direct_allocator.allocator());
+    const allocator = arena.allocator();
     const args = try std.os.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
     var opt_out_dir: ?[]const u8 = null;

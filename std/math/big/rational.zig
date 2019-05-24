@@ -589,7 +589,7 @@ fn gcdLehmer(r: *Int, xa: Int, ya: Int) !void {
 
 var buffer: [64 * 8192]u8 = undefined;
 var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-var al = &fixed.allocator;
+var al = fixed.allocator();
 
 test "big.rational gcd non-one small" {
     var a = try Int.initSet(al, 17);

@@ -62,7 +62,7 @@ fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
 
 test "std.os.getAppDataDir" {
     var buf: [512]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
+    const allocator = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
 
     // We can't actually validate the result
     _ = getAppDataDir(allocator, "zig") catch return;

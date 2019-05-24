@@ -87,7 +87,7 @@ test "std.StaticallyInitializedMutex" {
     defer direct_allocator.allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
-    var a = &fixed_buffer_allocator.allocator;
+    var a = fixed_buffer_allocator.allocator();
 
     var context = TestContext{ .data = 0 };
 

@@ -1199,7 +1199,7 @@ pub const Int = struct {
 
 var buffer: [64 * 8192]u8 = undefined;
 var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-const al = &fixed.allocator;
+const al = fixed.allocator();
 
 test "big.int comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;
