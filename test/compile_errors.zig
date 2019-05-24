@@ -4061,11 +4061,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\export fn foo() void {
-        \\    var x = List.init(&global_allocator);
+        \\    var x = List.init(global_allocator);
         \\    x.init();
         \\}
     ,
-        "tmp.zig:23:5: error: expected type 'Allocator', found '*List'",
+        "tmp.zig:23:5: error: expected type 'Allocator', found 'List'",
     );
 
     cases.add(
@@ -5122,7 +5122,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    const a = MdNode.Header {
-        \\        .text = MdText.init(&std.debug.global_allocator),
+        \\        .text = MdText.init(std.debug.global_allocator),
         \\        .weight = HeaderWeight.H1,
         \\    };
         \\}

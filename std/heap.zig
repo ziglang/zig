@@ -11,8 +11,7 @@ const maxInt = std.math.maxInt;
 
 const Allocator = mem.Allocator;
 
-pub const c_allocator = c_allocator_state;
-var c_allocator_state = Allocator{
+pub const c_allocator = comptime Allocator{
     .impl = null,
     .reallocFn = cRealloc,
     .shrinkFn = cShrink,

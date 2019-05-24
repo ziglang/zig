@@ -5840,8 +5840,8 @@ test "global assembly" {
       which has these fields:
       </p>
       <ul>
-          <li>{#syntax#}allocFn: fn (self: Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
-          <li>{#syntax#}freeFn: fn (self: Allocator, old_mem: []u8) void{#endsyntax#}</li>
+          <li>{#syntax#}allocFn: fn (self: *const Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
+          <li>{#syntax#}freeFn: fn (self: *const Allocator, old_mem: []u8) void{#endsyntax#}</li>
       </ul>
       <p>
       You may notice that this corresponds to the {#syntax#}std.mem.Allocator{#endsyntax#} interface.
@@ -5878,7 +5878,7 @@ test "create a coroutine and cancel it" {
     cancel p;
     assert(x == 2);
 }
-async<*std.mem.Allocator> fn simpleAsyncFn() void {
+async<*const std.mem.Allocator> fn simpleAsyncFn() void {
     x += 1;
 }
       {#code_end#}
