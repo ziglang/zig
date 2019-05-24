@@ -17,8 +17,7 @@ pub use switch (builtin.arch) {
     .aarch64 => @import("arm64.zig"),
     else => struct {},
 };
-pub const posix = @import("posix.zig");
-pub use posix;
+pub use @import("../bits.zig");
 
 /// See `std.os.posix.getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;

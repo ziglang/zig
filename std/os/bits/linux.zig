@@ -1,10 +1,7 @@
-// Declarations that are intended to be imported into the POSIX namespace.
-// This includes Linux-only APIs.
-
 pub use @import("errno.zig");
 pub use switch (builtin.arch) {
-    .x86_64 => @import("posix/x86_64.zig"),
-    .aarch64 => @import("posix/arm64.zig"),
+    .x86_64 => @import("linux/x86_64.zig"),
+    .aarch64 => @import("linux/arm64.zig"),
     else => struct {},
 };
 
@@ -914,4 +911,9 @@ pub const dl_phdr_info = extern struct {
     dlpi_name: ?[*]const u8,
     dlpi_phdr: [*]elf.Phdr,
     dlpi_phnum: u16,
+};
+
+pub const pthread_attr_t = extern struct {
+    __size: [56]u8,
+    __align: c_long,
 };

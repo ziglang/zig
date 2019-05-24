@@ -1,6 +1,9 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+pub const fd_t = c_int;
+pub const pid_t = c_int;
+
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
     ident: usize,

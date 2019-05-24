@@ -1,11 +1,11 @@
 // Based on https://github.com/CraneStation/wasi-sysroot/blob/wasi/libc-bottom-half/headers/public/wasi/core.h
 // and https://github.com/WebAssembly/WASI/blob/master/design/WASI-core.md
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const is_the_target = @import("builtin").os == .wasi;
-pub const posix = @import("wasi/posix.zig");
-pub use posix;
+pub const is_the_target = builtin.os == .wasi;
+pub use @import("bits/wasi.zig");
 
 comptime {
     assert(@alignOf(i8) == 1);

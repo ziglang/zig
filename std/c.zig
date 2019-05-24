@@ -1,10 +1,9 @@
 const builtin = @import("builtin");
 
-pub const posix = @import("c/posix.zig");
-pub use posix;
+pub use @import("os/bits.zig");
 
 pub use switch (builtin.os) {
-    .linux => @import("os/linux/posix.zig"),
+    .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
     .freebsd => @import("c/freebsd.zig"),

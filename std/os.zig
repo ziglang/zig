@@ -19,7 +19,7 @@ const builtin = @import("builtin");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
 comptime {
-    assert(@import("std") == std); // You have to run the std lib tests with --override-std-dir
+    assert(@import("std") == std); // std lib tests require --override-std-dir
 }
 
 pub const darwin = @import("os/darwin.zig");
@@ -42,6 +42,8 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     .zen => zen,
     else => struct {},
 };
+
+pub use @import("os/bits.zig");
 
 /// See also `getenv`.
 pub var environ: [][*]u8 = undefined;

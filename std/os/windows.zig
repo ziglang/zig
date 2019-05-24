@@ -1,12 +1,14 @@
-// This file contains the types and constants of the Windows API,
-// as well as the Windows-equivalent of "Zig-flavored POSIX" API layer.
+// This file contains thin wrappers around Windows-specific APIs, with these
+// specific goals in mind:
+// * Convert "errno"-style error codes into Zig errors.
+// * When null-terminated or UTF16LE byte buffers are required, provide APIs which accept
+//   slices as well as APIs which accept null-terminated UTF16LE byte buffers.
+
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
 pub const is_the_target = builtin.os == .windows;
-pub const posix = if (builtin.link_libc) struct {} else @import("windows/posix.zig");
-pub use posix;
 
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
@@ -565,7 +567,7 @@ pub fn CreateFile(
     share_mode: DWORD,
     creation_disposition: DWORD,
     flags_and_attrs: DWORD,
-) CreateFileError!fd_t {
+) CreateFileError!HANDLE {
     const file_path_w = try sliceToPrefixedFileW(file_path);
     return CreateFileW(&file_path_w, desired_access, share_mode, creation_disposition, flags_and_attrs);
 }
@@ -934,7 +936,7 @@ pub const GetStdHandleError = error{
     Unexpected,
 };
 
-pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!fd_t {
+pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     const handle = kernel32.GetStdHandle(handle_id) orelse return error.NoStandardHandleAttached;
     if (handle == INVALID_HANDLE_VALUE) {
         switch (kernel32.GetLastError()) {

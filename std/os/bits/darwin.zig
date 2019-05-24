@@ -1,5 +1,8 @@
-const std = @import("../std.zig");
+const std = @import("../../std.zig");
 const assert = std.debug.assert;
+
+pub const fd_t = c_int;
+pub const pid_t = c_int;
 
 pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
     assert(sig != SIGKILL);

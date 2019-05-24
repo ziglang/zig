@@ -1,3 +1,8 @@
+use @import("../windows.zig");
+
+pub const fd_t = HANDLE;
+pub const pid_t = HANDLE;
+
 pub const EPERM = 1;
 pub const ENOENT = 2;
 pub const ESRCH = 3;
