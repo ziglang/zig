@@ -1129,7 +1129,7 @@ pub const Value = union(enum) {
 
 // A non-stream JSON parser which constructs a tree of Value's.
 pub const Parser = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
@@ -1142,7 +1142,7 @@ pub const Parser = struct {
         Simple,
     };
 
-    pub fn init(allocator: *Allocator, copy_strings: bool) Parser {
+    pub fn init(allocator: Allocator, copy_strings: bool) Parser {
         return Parser{
             .allocator = allocator,
             .state = State.Simple,
@@ -1180,7 +1180,7 @@ pub const Parser = struct {
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: Token) !void {
+    fn transition(p: *Parser, allocator: Allocator, input: []const u8, i: usize, token: Token) !void {
         switch (p.state) {
             State.ObjectKey => switch (token.id) {
                 Token.Id.ObjectEnd => {
@@ -1334,7 +1334,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, token: Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: Allocator, token: Token, input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);

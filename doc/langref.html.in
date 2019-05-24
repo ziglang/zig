@@ -5840,8 +5840,8 @@ test "global assembly" {
       which has these fields:
       </p>
       <ul>
-          <li>{#syntax#}allocFn: fn (self: *Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
-          <li>{#syntax#}freeFn: fn (self: *Allocator, old_mem: []u8) void{#endsyntax#}</li>
+          <li>{#syntax#}allocFn: fn (self: Allocator, byte_count: usize, alignment: u29) Error![]u8{#endsyntax#} - where {#syntax#}Error{#endsyntax#} can be any error set.</li>
+          <li>{#syntax#}freeFn: fn (self: Allocator, old_mem: []u8) void{#endsyntax#}</li>
       </ul>
       <p>
       You may notice that this corresponds to the {#syntax#}std.mem.Allocator{#endsyntax#} interface.
@@ -8385,8 +8385,8 @@ pub fn main() void {
       C has a default allocator - <code>malloc</code>, <code>realloc</code>, and <code>free</code>.
       When linking against libc, Zig exposes this allocator with {#syntax#}std.heap.c_allocator{#endsyntax#}.
       However, by convention, there is no default allocator in Zig. Instead, functions which need to
-      allocate accept an {#syntax#}*Allocator{#endsyntax#} parameter. Likewise, data structures such as
-      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}*Allocator{#endsyntax#} parameter in
+      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, data structures such as
+      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}Allocator{#endsyntax#} parameter in
       their initialization functions:
       </p>
       {#code_begin|test|allocator#}
@@ -8401,7 +8401,7 @@ test "using an allocator" {
     assert(std.mem.eql(u8, "foobar", result));
 }
 
-fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
+fn concat(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, a.len + b.len);
     std.mem.copy(u8, result, a);
     std.mem.copy(u8, result[a.len..], b);
@@ -8429,7 +8429,7 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       </p>
       <ol>
           <li>
-              Are you making a library? In this case, best to accept an {#syntax#}*Allocator{#endsyntax#}
+              Are you making a library? In this case, best to accept an {#syntax#}Allocator{#endsyntax#}
               as a parameter and allow your library's users to decide what allocator to use.
           </li>
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
@@ -8613,7 +8613,7 @@ test "string literal to constant slice" {
       <p>
       For example, the function's documentation may say "caller owns the returned memory", in which case
       the code that calls the function must have a plan for when to free that memory. Probably in this situation,
-      the function will accept an {#syntax#}*Allocator{#endsyntax#} parameter.
+      the function will accept an {#syntax#}Allocator{#endsyntax#} parameter.
       </p>
       <p>
       Sometimes the lifetime of a pointer may be more complicated. For example, when using

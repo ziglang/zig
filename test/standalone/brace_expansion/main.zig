@@ -16,7 +16,7 @@ const Token = union(enum) {
     Eof,
 };
 
-var global_allocator: *mem.Allocator = undefined;
+var global_allocator: mem.Allocator = undefined;
 
 fn tokenize(input: []const u8) !ArrayList(Token) {
     const State = enum {

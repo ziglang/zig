@@ -12,7 +12,7 @@ const windows = os.windows;
 const maxInt = std.math.maxInt;
 
 pub const Loop = struct {
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     next_tick_queue: std.atomic.Queue(promise),
     os_data: OsData,
     final_resume_node: ResumeNode,
@@ -88,7 +88,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initSingleThreaded(self: *Loop, allocator: mem.Allocator) !void {
         return self.initInternal(allocator, 1);
     }
 
@@ -97,7 +97,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
-    pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn initMultiThreaded(self: *Loop, allocator: mem.Allocator) !void {
         if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try os.cpuCount(allocator);
         return self.initInternal(allocator, core_count);
@@ -105,7 +105,7 @@ pub const Loop = struct {
 
     /// Thread count is the total thread count. The thread pool size will be
     /// max(thread_count - 1, 0)
-    fn initInternal(self: *Loop, allocator: *mem.Allocator, thread_count: usize) !void {
+    fn initInternal(self: *Loop, allocator: mem.Allocator, thread_count: usize) !void {
         self.* = Loop{
             .pending_event_count = 1,
             .allocator = allocator,

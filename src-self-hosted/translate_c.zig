@@ -108,7 +108,7 @@ const Context = struct {
     global_scope: *Scope.Root,
     mode: Mode,
 
-    fn a(c: *Context) *std.mem.Allocator {
+    fn a(c: *Context) std.mem.Allocator {
         return &c.tree.arena_allocator.allocator;
     }
 
@@ -130,7 +130,7 @@ const Context = struct {
 };
 
 pub fn translate(
-    backing_allocator: *std.mem.Allocator,
+    backing_allocator: std.mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
     mode: Mode,

@@ -13,7 +13,7 @@ pub const Error = error{ParseError} || Allocator.Error;
 
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
+pub fn parse(allocator: Allocator, source: []const u8) !*Tree {
     const tree = blk: {
         // This block looks unnecessary, but is a "foot-shield" to prevent the SegmentedLists
         // from being initialized with a pointer to this `arena`, which is created on
@@ -53,7 +53,7 @@ pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
 }
 
 /// Root <- skip ContainerMembers eof
-fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
+fn parseRoot(arena: Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = Node.Root{
         .base = Node{ .id = .Root },
@@ -90,7 +90,7 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
 ///      / KEYWORD_pub? ContainerField COMMA ContainerMembers
 ///      / KEYWORD_pub? ContainerField
 ///      /
-fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
+fn parseContainerMembers(arena: Allocator, it: *TokenIterator, tree: *Tree) !Node.Root.DeclList {
     var list = Node.Root.DeclList.init(arena);
 
     while (true) {
@@ -163,7 +163,7 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
 }
 
 /// TestDecl <- KEYWORD_test STRINGLITERAL Block
-fn parseTestDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseTestDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const test_token = eatToken(it, .Keyword_test) orelse return null;
     const name_node = try expectNode(arena, it, tree, parseStringLiteral, AstError{
         .ExpectedStringLiteral = AstError.ExpectedStringLiteral{ .token = it.index },
@@ -184,7 +184,7 @@ fn parseTestDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// TopLevelComptime <- KEYWORD_comptime BlockExpr
-fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseTopLevelComptime(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const tok = eatToken(it, .Keyword_comptime) orelse return null;
     const block_node = try expectNode(arena, it, tree, parseBlockExpr, AstError{
         .ExpectedLabelOrLBrace = AstError.ExpectedLabelOrLBrace{ .token = it.index },
@@ -204,7 +204,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_use Expr SEMICOLON
-fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseTopLevelDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
         if (eatToken(it, .Keyword_export)) |token| break :blk token;
@@ -276,7 +276,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
-fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseFnProto(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const cc = try parseFnCC(arena, it, tree);
     const fn_token = eatToken(it, .Keyword_fn) orelse {
         if (cc == null) return null else return error.ParseError;
@@ -339,7 +339,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? LinkSection? (EQUAL Expr)? SEMICOLON
-fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseVarDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const mut_token = eatToken(it, .Keyword_const) orelse
         eatToken(it, .Keyword_var) orelse
         return null;
@@ -383,7 +383,7 @@ fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
-fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseContainerField(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const name_token = eatToken(it, .Identifier) orelse return null;
 
     const type_expr = if (eatToken(it, .Colon)) |_|
@@ -422,7 +422,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 ///      / LabeledStatement
 ///      / SwitchExpr
 ///      / AssignExpr SEMICOLON
-fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+fn parseStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
     const comptime_token = eatToken(it, .Keyword_comptime);
 
     const var_decl_node = try parseVarDecl(arena, it, tree);
@@ -493,7 +493,7 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
 /// IfStatement
 ///     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
 ///      / IfPrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
-fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIfStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const if_node = (try parseIfPrefix(arena, it, tree)) orelse return null;
     const if_prefix = if_node.cast(Node.If).?;
 
@@ -552,7 +552,7 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// LabeledStatement <- BlockLabel? (Block / LoopStatement)
-fn parseLabeledStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLabeledStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const label_token = parseBlockLabel(arena, it, tree);
 
     if (try parseBlock(arena, it, tree)) |node| {
@@ -580,7 +580,7 @@ fn parseLabeledStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 }
 
 /// LoopStatement <- KEYWORD_inline? (ForStatement / WhileStatement)
-fn parseLoopStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLoopStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const inline_token = eatToken(it, .Keyword_inline);
 
     if (try parseForStatement(arena, it, tree)) |node| {
@@ -599,7 +599,7 @@ fn parseLoopStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 /// ForStatement
 ///     <- ForPrefix BlockExpr ( KEYWORD_else Statement )?
 ///      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
-fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseForStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseForPrefix(arena, it, tree)) orelse return null;
     const for_prefix = node.cast(Node.For).?;
 
@@ -659,7 +659,7 @@ fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 /// WhileStatement
 ///     <- WhilePrefix BlockExpr ( KEYWORD_else Payload? Statement )?
 ///      / WhilePrefix AssignExpr ( SEMICOLON / KEYWORD_else Payload? Statement )
-fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseWhileStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseWhilePrefix(arena, it, tree)) orelse return null;
     const while_prefix = node.cast(Node.While).?;
 
@@ -723,7 +723,7 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// BlockExprStatement
 ///     <- BlockExpr
 ///      / AssignExpr SEMICOLON
-fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBlockExprStatement(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseBlockExpr(arena, it, tree)) |node| return node;
     if (try parseAssignExpr(arena, it, tree)) |node| {
         _ = try expectToken(it, tree, .Semicolon);
@@ -733,7 +733,7 @@ fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !
 }
 
 /// BlockExpr <- BlockLabel? Block
-fn parseBlockExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+fn parseBlockExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
     const label_token = parseBlockLabel(arena, it, tree);
     const block_node = (try parseBlock(arena, it, tree)) orelse {
         if (label_token) |label| {
@@ -747,17 +747,17 @@ fn parseBlockExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
 }
 
 /// AssignExpr <- Expr (AssignOp Expr)?
-fn parseAssignExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAssignExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseAssignOp, parseExpr, .Once);
 }
 
 /// Expr <- KEYWORD_try* BoolOrExpr
-fn parseExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+fn parseExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
     return parsePrefixOpExpr(arena, it, tree, parseTry, parseBoolOrExpr);
 }
 
 /// BoolOrExpr <- BoolAndExpr (KEYWORD_or BoolAndExpr)*
-fn parseBoolOrExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBoolOrExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(
         arena,
         it,
@@ -769,7 +769,7 @@ fn parseBoolOrExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// BoolAndExpr <- CompareExpr (KEYWORD_and CompareExpr)*
-fn parseBoolAndExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBoolAndExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(
         arena,
         it,
@@ -781,32 +781,32 @@ fn parseBoolAndExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// CompareExpr <- BitwiseExpr (CompareOp BitwiseExpr)?
-fn parseCompareExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseCompareExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseCompareOp, parseBitwiseExpr, .Once);
 }
 
 /// BitwiseExpr <- BitShiftExpr (BitwiseOp BitShiftExpr)*
-fn parseBitwiseExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBitwiseExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseBitwiseOp, parseBitShiftExpr, .Infinitely);
 }
 
 /// BitShiftExpr <- AdditionExpr (BitShiftOp AdditionExpr)*
-fn parseBitShiftExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBitShiftExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseBitShiftOp, parseAdditionExpr, .Infinitely);
 }
 
 /// AdditionExpr <- MultiplyExpr (AdditionOp MultiplyExpr)*
-fn parseAdditionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAdditionExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseAdditionOp, parseMultiplyExpr, .Infinitely);
 }
 
 /// MultiplyExpr <- PrefixExpr (MultiplyOp PrefixExpr)*
-fn parseMultiplyExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseMultiplyExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseBinOpExpr(arena, it, tree, parseMultiplyOp, parsePrefixExpr, .Infinitely);
 }
 
 /// PrefixExpr <- PrefixOp* PrimaryExpr
-fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePrefixExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parsePrefixOpExpr(arena, it, tree, parsePrefixOp, parsePrimaryExpr);
 }
 
@@ -822,7 +822,7 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / BlockLabel? LoopExpr
 ///      / Block
 ///      / CurlySuffixExpr
-fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePrimaryExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseAsmExpr(arena, it, tree)) |node| return node;
     if (try parseIfExpr(arena, it, tree)) |node| return node;
 
@@ -926,12 +926,12 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// IfExpr <- IfPrefix Expr (KEYWORD_else Payload? Expr)?
-fn parseIfExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIfExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseIf(arena, it, tree, parseExpr);
 }
 
 /// Block <- LBRACE Statement* RBRACE
-fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBlock(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lbrace = eatToken(it, .LBrace) orelse return null;
 
     var statements = Node.Block.StatementList.init(arena);
@@ -955,7 +955,7 @@ fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// LoopExpr <- KEYWORD_inline? (ForExpr / WhileExpr)
-fn parseLoopExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLoopExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const inline_token = eatToken(it, .Keyword_inline);
 
     if (try parseForExpr(arena, it, tree)) |node| {
@@ -978,7 +978,7 @@ fn parseLoopExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
-fn parseForExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseForExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseForPrefix(arena, it, tree)) orelse return null;
     const for_prefix = node.cast(Node.For).?;
 
@@ -1007,7 +1007,7 @@ fn parseForExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// WhileExpr <- WhilePrefix Expr (KEYWORD_else Payload? Expr)?
-fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseWhileExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseWhilePrefix(arena, it, tree)) orelse return null;
     const while_prefix = node.cast(Node.While).?;
 
@@ -1037,7 +1037,7 @@ fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// CurlySuffixExpr <- TypeExpr InitList?
-fn parseCurlySuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseCurlySuffixExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const type_expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
     const init_list = (try parseInitList(arena, it, tree)) orelse return type_expr;
     init_list.cast(Node.SuffixOp).?.lhs = type_expr;
@@ -1048,7 +1048,7 @@ fn parseCurlySuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
 ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
 ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
 ///      / LBRACE RBRACE
-fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseInitList(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lbrace = eatToken(it, .LBrace) orelse return null;
     var init_list = Node.SuffixOp.Op.InitList.init(arena);
 
@@ -1085,12 +1085,12 @@ fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// TypeExpr <- PrefixTypeOp* ErrorUnionExpr
-fn parseTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+fn parseTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
     return parsePrefixOpExpr(arena, it, tree, parsePrefixTypeOp, parseErrorUnionExpr);
 }
 
 /// ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
-fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseErrorUnionExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const suffix_expr = (try parseSuffixExpr(arena, it, tree)) orelse return null;
 
     if (try SimpleBinOpParseFn(.Bang, Node.InfixOp.Op.ErrorUnion)(arena, it, tree)) |node| {
@@ -1109,7 +1109,7 @@ fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 /// SuffixExpr
 ///     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
 ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
-fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSuffixExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseAsyncPrefix(arena, it, tree)) |async_node| {
         // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, AstError{
@@ -1208,7 +1208,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / KEYWORD_unreachable
 ///      / STRINGLITERAL
 ///      / SwitchExpr
-fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePrimaryTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (try parseBuiltinCall(arena, it, tree)) |node| return node;
     if (eatToken(it, .CharLiteral)) |token| {
         const node = try arena.create(Node.CharLiteral);
@@ -1277,7 +1277,7 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
 }
 
 /// ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
-fn parseContainerDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseContainerDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const layout_token = eatToken(it, .Keyword_extern) orelse
         eatToken(it, .Keyword_packed);
 
@@ -1291,7 +1291,7 @@ fn parseContainerDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 }
 
 /// ErrorSetDecl <- KEYWORD_error LBRACE IdentifierList RBRACE
-fn parseErrorSetDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseErrorSetDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const error_token = eatToken(it, .Keyword_error) orelse return null;
     if (eatToken(it, .LBrace) == null) {
         // Might parse as `KEYWORD_error DOT IDENTIFIER` later in PrimaryTypeExpr, so don't error
@@ -1312,7 +1312,7 @@ fn parseErrorSetDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// GroupedExpr <- LPAREN Expr RPAREN
-fn parseGroupedExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseGroupedExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lparen = eatToken(it, .LParen) orelse return null;
     const expr = try expectNode(arena, it, tree, parseExpr, AstError{
         .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
@@ -1330,14 +1330,14 @@ fn parseGroupedExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// IfTypeExpr <- IfPrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
-fn parseIfTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIfTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return parseIf(arena, it, tree, parseTypeExpr);
 }
 
 /// LabeledTypeExpr
 ///     <- BlockLabel Block
 ///      / BlockLabel? LoopTypeExpr
-fn parseLabeledTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLabeledTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const label = parseBlockLabel(arena, it, tree);
 
     if (label) |token| {
@@ -1367,7 +1367,7 @@ fn parseLabeledTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
 }
 
 /// LoopTypeExpr <- KEYWORD_inline? (ForTypeExpr / WhileTypeExpr)
-fn parseLoopTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLoopTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const inline_token = eatToken(it, .Keyword_inline);
 
     if (try parseForTypeExpr(arena, it, tree)) |node| {
@@ -1390,7 +1390,7 @@ fn parseLoopTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
-fn parseForTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseForTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseForPrefix(arena, it, tree)) orelse return null;
     const for_prefix = node.cast(Node.For).?;
 
@@ -1419,7 +1419,7 @@ fn parseForTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// WhileTypeExpr <- WhilePrefix TypeExpr (KEYWORD_else Payload? TypeExpr)?
-fn parseWhileTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseWhileTypeExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseWhilePrefix(arena, it, tree)) orelse return null;
     const while_prefix = node.cast(Node.While).?;
 
@@ -1450,7 +1450,7 @@ fn parseWhileTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 }
 
 /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
-fn parseSwitchExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSwitchExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const switch_token = eatToken(it, .Keyword_switch) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -1473,7 +1473,7 @@ fn parseSwitchExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// AsmExpr <- KEYWORD_asm KEYWORD_volatile? LPAREN STRINGLITERAL AsmOutput? RPAREN
-fn parseAsmExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAsmExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const asm_token = eatToken(it, .Keyword_asm) orelse return null;
     const volatile_token = eatToken(it, .Keyword_volatile);
     _ = try expectToken(it, tree, .LParen);
@@ -1499,7 +1499,7 @@ fn parseAsmExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// DOT IDENTIFIER
-fn parseEnumLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseEnumLiteral(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const dot = eatToken(it, .Period) orelse return null;
     const name = try expectToken(it, tree, .Identifier);
     const node = try arena.create(Node.EnumLiteral);
@@ -1512,14 +1512,14 @@ fn parseEnumLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// AsmOutput <- COLON AsmOutputList AsmInput?
-fn parseAsmOutput(arena: *Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
+fn parseAsmOutput(arena: Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
     if (eatToken(it, .Colon) == null) return;
     asm_node.outputs = try parseAsmOutputList(arena, it, tree);
     try parseAsmInput(arena, it, tree, asm_node);
 }
 
 /// AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
-fn parseAsmOutputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.AsmOutput {
+fn parseAsmOutputItem(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node.AsmOutput {
     const lbracket = eatToken(it, .LBracket) orelse return null;
     const name = try expectNode(arena, it, tree, parseIdentifier, AstError{
         .ExpectedIdentifier = AstError.ExpectedIdentifier{ .token = it.index },
@@ -1558,14 +1558,14 @@ fn parseAsmOutputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 }
 
 /// AsmInput <- COLON AsmInputList AsmClobbers?
-fn parseAsmInput(arena: *Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
+fn parseAsmInput(arena: Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
     if (eatToken(it, .Colon) == null) return;
     asm_node.inputs = try parseAsmInputList(arena, it, tree);
     try parseAsmClobbers(arena, it, tree, asm_node);
 }
 
 /// AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
-fn parseAsmInputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.AsmInput {
+fn parseAsmInputItem(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node.AsmInput {
     const lbracket = eatToken(it, .LBracket) orelse return null;
     const name = try expectNode(arena, it, tree, parseIdentifier, AstError{
         .ExpectedIdentifier = AstError.ExpectedIdentifier{ .token = it.index },
@@ -1596,7 +1596,7 @@ fn parseAsmInputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
 /// AsmClobbers <- COLON StringList
 /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
-fn parseAsmClobbers(arena: *Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
+fn parseAsmClobbers(arena: Allocator, it: *TokenIterator, tree: *Tree, asm_node: *Node.Asm) !void {
     if (eatToken(it, .Colon) == null) return;
     asm_node.clobbers = try ListParseFn(
         Node.Asm.ClobberList,
@@ -1605,7 +1605,7 @@ fn parseAsmClobbers(arena: *Allocator, it: *TokenIterator, tree: *Tree, asm_node
 }
 
 /// BreakLabel <- COLON IDENTIFIER
-fn parseBreakLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBreakLabel(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Colon) orelse return null;
     return try expectNode(arena, it, tree, parseIdentifier, AstError{
         .ExpectedIdentifier = AstError.ExpectedIdentifier{ .token = it.index },
@@ -1613,7 +1613,7 @@ fn parseBreakLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// BlockLabel <- IDENTIFIER COLON
-fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?TokenIndex {
+fn parseBlockLabel(arena: Allocator, it: *TokenIterator, tree: *Tree) ?TokenIndex {
     const identifier = eatToken(it, .Identifier) orelse return null;
     if (eatToken(it, .Colon) != null) return identifier;
     putBackToken(it, identifier);
@@ -1621,7 +1621,7 @@ fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?TokenInd
 }
 
 /// FieldInit <- DOT IDENTIFIER EQUAL Expr
-fn parseFieldInit(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseFieldInit(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const period_token = eatToken(it, .Period) orelse return null;
     const name_token = try expectToken(it, tree, .Identifier);
     const eq_token = eatToken(it, .Equal) orelse {
@@ -1645,7 +1645,7 @@ fn parseFieldInit(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// WhileContinueExpr <- COLON LPAREN AssignExpr RPAREN
-fn parseWhileContinueExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseWhileContinueExpr(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Colon) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const node = try expectNode(arena, it, tree, parseAssignExpr, AstError{
@@ -1656,7 +1656,7 @@ fn parseWhileContinueExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 }
 
 /// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
-fn parseLinkSection(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseLinkSection(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Keyword_linksection) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -1671,7 +1671,7 @@ fn parseLinkSection(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 ///      / KEYWORD_stdcallcc
 ///      / KEYWORD_extern
 ///      / KEYWORD_async (LARROW TypeExpr RARROW)?
-fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?FnCC {
+fn parseFnCC(arena: Allocator, it: *TokenIterator, tree: *Tree) !?FnCC {
     if (eatToken(it, .Keyword_nakedcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_stdcallcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_extern)) |token| return FnCC{ .Extern = token };
@@ -1703,7 +1703,7 @@ const FnCC = union(enum) {
 };
 
 /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
-fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseParamDecl(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const doc_comments = try parseDocComment(arena, it, tree);
     const noalias_token = eatToken(it, .Keyword_noalias);
     const comptime_token = if (noalias_token == null) eatToken(it, .Keyword_comptime) else null;
@@ -1748,7 +1748,7 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- KEYWORD_var
 ///      / DOT3
 ///      / TypeExpr
-fn parseParamType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?ParamType {
+fn parseParamType(arena: Allocator, it: *TokenIterator, tree: *Tree) !?ParamType {
     if (try parseVarType(arena, it, tree)) |node| return ParamType{ .VarType = node };
     if (eatToken(it, .Ellipsis3)) |token| return ParamType{ .VarArgs = token };
     if (try parseTypeExpr(arena, it, tree)) |node| return ParamType{ .TypeExpr = node };
@@ -1763,7 +1763,7 @@ const ParamType = union(enum) {
 };
 
 /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
-fn parseIfPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIfPrefix(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const if_token = eatToken(it, .Keyword_if) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const condition = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -1785,7 +1785,7 @@ fn parseIfPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
-fn parseWhilePrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseWhilePrefix(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const while_token = eatToken(it, .Keyword_while) orelse return null;
 
     _ = try expectToken(it, tree, .LParen);
@@ -1813,7 +1813,7 @@ fn parseWhilePrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 }
 
 /// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
-fn parseForPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseForPrefix(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const for_token = eatToken(it, .Keyword_for) orelse return null;
 
     _ = try expectToken(it, tree, .LParen);
@@ -1841,7 +1841,7 @@ fn parseForPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// Payload <- PIPE IDENTIFIER PIPE
-fn parsePayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePayload(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lpipe = eatToken(it, .Pipe) orelse return null;
     const identifier = try expectNode(arena, it, tree, parseIdentifier, AstError{
         .ExpectedIdentifier = AstError.ExpectedIdentifier{ .token = it.index },
@@ -1859,7 +1859,7 @@ fn parsePayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// PtrPayload <- PIPE ASTERISK? IDENTIFIER PIPE
-fn parsePtrPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePtrPayload(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lpipe = eatToken(it, .Pipe) orelse return null;
     const asterisk = eatToken(it, .Asterisk);
     const identifier = try expectNode(arena, it, tree, parseIdentifier, AstError{
@@ -1879,7 +1879,7 @@ fn parsePtrPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// PtrIndexPayload <- PIPE ASTERISK? IDENTIFIER (COMMA IDENTIFIER)? PIPE
-fn parsePtrIndexPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePtrIndexPayload(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lpipe = eatToken(it, .Pipe) orelse return null;
     const asterisk = eatToken(it, .Asterisk);
     const identifier = try expectNode(arena, it, tree, parseIdentifier, AstError{
@@ -1908,7 +1908,7 @@ fn parsePtrIndexPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
 }
 
 /// SwitchProng <- SwitchCase EQUALRARROW PtrPayload? AssignExpr
-fn parseSwitchProng(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSwitchProng(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseSwitchCase(arena, it, tree)) orelse return null;
     const arrow = try expectToken(it, tree, .EqualAngleBracketRight);
     const payload = try parsePtrPayload(arena, it, tree);
@@ -1927,7 +1927,7 @@ fn parseSwitchProng(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 /// SwitchCase
 ///     <- SwitchItem (COMMA SwitchItem)* COMMA?
 ///      / KEYWORD_else
-fn parseSwitchCase(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSwitchCase(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var list = Node.SwitchCase.ItemList.init(arena);
 
     if (try parseSwitchItem(arena, it, tree)) |first_item| {
@@ -1957,7 +1957,7 @@ fn parseSwitchCase(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// SwitchItem <- Expr (DOT3 Expr)?
-fn parseSwitchItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSwitchItem(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const expr = (try parseExpr(arena, it, tree)) orelse return null;
     if (eatToken(it, .Ellipsis3)) |token| {
         const range_end = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -1992,7 +1992,7 @@ fn parseSwitchItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / PLUSPERCENTEQUAL
 ///      / MINUSPERCENTEQUAL
 ///      / EQUAL
-fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAssignOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const Op = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2035,7 +2035,7 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / RARROW
 ///      / LARROWEQUAL
 ///      / RARROWEQUAL
-fn parseCompareOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseCompareOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2061,7 +2061,7 @@ fn parseCompareOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / PIPE
 ///      / KEYWORD_orelse
 ///      / KEYWORD_catch Payload?
-fn parseBitwiseOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBitwiseOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2083,7 +2083,7 @@ fn parseBitwiseOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 /// BitShiftOp
 ///     <- LARROW2
 ///      / RARROW2
-fn parseBitShiftOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBitShiftOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2105,7 +2105,7 @@ fn parseBitShiftOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / PLUS2
 ///      / PLUSPERCENT
 ///      / MINUSPERCENT
-fn parseAdditionOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAdditionOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2131,7 +2131,7 @@ fn parseAdditionOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / PERCENT
 ///      / ASTERISK2
 ///      / ASTERISKPERCENT
-fn parseMultiplyOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseMultiplyOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.InfixOp.Op;
 
     const token = nextToken(it);
@@ -2159,7 +2159,7 @@ fn parseMultiplyOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / AMPERSAND
 ///      / KEYWORD_try
 ///      / KEYWORD_await
-fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePrefixOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const ops = Node.PrefixOp.Op;
 
     const token = nextToken(it);
@@ -2199,7 +2199,7 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / KEYWORD_promise MINUSRARROW
 ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
-fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePrefixTypeOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (eatToken(it, .QuestionMark)) |token| {
         const node = try arena.create(Node.PrefixOp);
         node.* = Node.PrefixOp{
@@ -2355,7 +2355,7 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
-fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseSuffixOp(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const Op = Node.SuffixOp.Op;
     const OpAndToken = struct {
         op: Node.SuffixOp.Op,
@@ -2427,7 +2427,7 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// AsyncPrefix <- KEYWORD_async (LARROW PrefixExpr RARROW)?
-fn parseAsyncPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAsyncPrefix(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const async_token = eatToken(it, .Keyword_async) orelse return null;
     var rangle_bracket: ?TokenIndex = null;
     const expr_node = if (eatToken(it, .AngleBracketLeft)) |_| blk: {
@@ -2450,7 +2450,7 @@ fn parseAsyncPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
 /// FnCallArguments <- LPAREN ExprList RPAREN
 /// ExprList <- (Expr COMMA)* Expr?
-fn parseFnCallArguments(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?AnnotatedParamList {
+fn parseFnCallArguments(arena: Allocator, it: *TokenIterator, tree: *Tree) !?AnnotatedParamList {
     if (eatToken(it, .LParen) == null) return null;
     const list = try ListParseFn(Node.FnProto.ParamList, parseExpr)(arena, it, tree);
     const rparen = try expectToken(it, tree, .RParen);
@@ -2463,7 +2463,7 @@ const AnnotatedParamList = struct {
 };
 
 /// ArrayTypeStart <- LBRACKET Expr? RBRACKET
-fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseArrayTypeStart(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lbracket = eatToken(it, .LBracket) orelse return null;
     const expr = try parseExpr(arena, it, tree);
     const rbracket = try expectToken(it, tree, .RBracket);
@@ -2495,7 +2495,7 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 ///      / ASTERISK2
 ///      / PTRUNKNOWN
 ///      / PTRC
-fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parsePtrTypeStart(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatAnnotatedToken(it, .Asterisk) orelse
         eatAnnotatedToken(it, .AsteriskAsterisk) orelse
         eatAnnotatedToken(it, .BracketStarBracket) orelse
@@ -2540,7 +2540,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
-fn parseContainerDeclAuto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseContainerDeclAuto(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = (try parseContainerDeclType(arena, it, tree)) orelse return null;
     const lbrace = try expectToken(it, tree, .LBrace);
     const members = try parseContainerMembers(arena, it, tree);
@@ -2558,7 +2558,7 @@ fn parseContainerDeclAuto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 ///     <- KEYWORD_struct
 ///      / KEYWORD_enum (LPAREN Expr RPAREN)?
 ///      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
-fn parseContainerDeclType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseContainerDeclType(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const kind_token = nextToken(it);
 
     const init_arg_expr = switch (kind_token.ptr.id) {
@@ -2615,7 +2615,7 @@ fn parseContainerDeclType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 }
 
 /// ByteAlign <- KEYWORD_align LPAREN Expr RPAREN
-fn parseByteAlign(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseByteAlign(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Keyword_align) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const expr = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -2627,39 +2627,39 @@ fn parseByteAlign(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
 /// IdentifierList <- (IDENTIFIER COMMA)* IDENTIFIER?
 /// Only ErrorSetDecl parses an IdentifierList
-fn parseErrorTagList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.ErrorSetDecl.DeclList {
+fn parseErrorTagList(arena: Allocator, it: *TokenIterator, tree: *Tree) !Node.ErrorSetDecl.DeclList {
     return try ListParseFn(Node.ErrorSetDecl.DeclList, parseErrorTag)(arena, it, tree);
 }
 
 /// SwitchProngList <- (SwitchProng COMMA)* SwitchProng?
-fn parseSwitchProngList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.Switch.CaseList {
+fn parseSwitchProngList(arena: Allocator, it: *TokenIterator, tree: *Tree) !Node.Switch.CaseList {
     return try ListParseFn(Node.Switch.CaseList, parseSwitchProng)(arena, it, tree);
 }
 
 /// AsmOutputList <- (AsmOutputItem COMMA)* AsmOutputItem?
-fn parseAsmOutputList(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!Node.Asm.OutputList {
+fn parseAsmOutputList(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!Node.Asm.OutputList {
     return try ListParseFn(Node.Asm.OutputList, parseAsmOutputItem)(arena, it, tree);
 }
 
 /// AsmInputList <- (AsmInputItem COMMA)* AsmInputItem?
-fn parseAsmInputList(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!Node.Asm.InputList {
+fn parseAsmInputList(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!Node.Asm.InputList {
     return try ListParseFn(Node.Asm.InputList, parseAsmInputItem)(arena, it, tree);
 }
 
 /// ParamDeclList <- (ParamDecl COMMA)* ParamDecl?
-fn parseParamDeclList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !Node.FnProto.ParamList {
+fn parseParamDeclList(arena: Allocator, it: *TokenIterator, tree: *Tree) !Node.FnProto.ParamList {
     return try ListParseFn(Node.FnProto.ParamList, parseParamDecl)(arena, it, tree);
 }
 
 fn ParseFn(comptime T: type) type {
-    return fn (*Allocator, *TokenIterator, *Tree) Error!T;
+    return fn (Allocator, *TokenIterator, *Tree) Error!T;
 }
 
-const NodeParseFn = fn (*Allocator, *TokenIterator, *Tree) Error!?*Node;
+const NodeParseFn = fn (Allocator, *TokenIterator, *Tree) Error!?*Node;
 
 fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
     return struct {
-        pub fn parse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !L {
+        pub fn parse(arena: Allocator, it: *TokenIterator, tree: *Tree) !L {
             var list = L.init(arena);
             while (try nodeParseFn(arena, it, tree)) |node| {
                 try list.push(node);
@@ -2672,7 +2672,7 @@ fn ListParseFn(comptime L: type, comptime nodeParseFn: var) ParseFn(L) {
 
 fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) NodeParseFn {
     return struct {
-        pub fn parse(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
+        pub fn parse(arena: Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
             const op_token = eatToken(it, token) orelse return null;
             const node = try arena.create(Node.InfixOp);
             node.* = Node.InfixOp{
@@ -2689,7 +2689,7 @@ fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) No
 
 // Helper parsers not included in the grammar
 
-fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseBuiltinCall(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Builtin) orelse return null;
     const params = (try parseFnCallArguments(arena, it, tree)) orelse {
         try tree.errors.push(AstError{
@@ -2707,7 +2707,7 @@ fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     return &node.base;
 }
 
-fn parseErrorTag(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseErrorTag(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const doc_comments = try parseDocComment(arena, it, tree); // no need to rewind on failure
     const token = eatToken(it, .Identifier) orelse return null;
 
@@ -2720,7 +2720,7 @@ fn parseErrorTag(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-fn parseIdentifier(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIdentifier(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Identifier) orelse return null;
     const node = try arena.create(Node.Identifier);
     node.* = Node.Identifier{
@@ -2730,7 +2730,7 @@ fn parseIdentifier(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-fn parseVarType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseVarType(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_var) orelse return null;
     const node = try arena.create(Node.VarType);
     node.* = Node.VarType{
@@ -2740,7 +2740,7 @@ fn parseVarType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-fn createLiteral(arena: *Allocator, comptime T: type, token: TokenIndex) !*Node {
+fn createLiteral(arena: Allocator, comptime T: type, token: TokenIndex) !*Node {
     const result = try arena.create(T);
     result.* = T{
         .base = Node{ .id = Node.typeToId(T) },
@@ -2750,7 +2750,7 @@ fn createLiteral(arena: *Allocator, comptime T: type, token: TokenIndex) !*Node 
 }
 
 // string literal or multiline string literal
-fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseStringLiteral(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (eatToken(it, .StringLiteral)) |token| {
         const node = try arena.create(Node.StringLiteral);
         node.* = Node.StringLiteral{
@@ -2776,7 +2776,7 @@ fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
     return null;
 }
 
-fn parseIntegerLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseIntegerLiteral(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .IntegerLiteral) orelse return null;
     const node = try arena.create(Node.IntegerLiteral);
     node.* = Node.IntegerLiteral{
@@ -2786,7 +2786,7 @@ fn parseIntegerLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
     return &node.base;
 }
 
-fn parseFloatLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseFloatLiteral(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .FloatLiteral) orelse return null;
     const node = try arena.create(Node.FloatLiteral);
     node.* = Node.FloatLiteral{
@@ -2796,7 +2796,7 @@ fn parseFloatLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
     return &node.base;
 }
 
-fn parseTry(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseTry(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_try) orelse return null;
     const node = try arena.create(Node.PrefixOp);
     node.* = Node.PrefixOp{
@@ -2808,7 +2808,7 @@ fn parseTry(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseUse(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_use) orelse return null;
     const node = try arena.create(Node.Use);
     node.* = Node.Use{
@@ -2823,7 +2823,7 @@ fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// IfPrefix Body (KEYWORD_else Payload? Body)?
-fn parseIf(arena: *Allocator, it: *TokenIterator, tree: *Tree, bodyParseFn: NodeParseFn) !?*Node {
+fn parseIf(arena: Allocator, it: *TokenIterator, tree: *Tree, bodyParseFn: NodeParseFn) !?*Node {
     const node = (try parseIfPrefix(arena, it, tree)) orelse return null;
     const if_prefix = node.cast(Node.If).?;
 
@@ -2849,7 +2849,7 @@ fn parseIf(arena: *Allocator, it: *TokenIterator, tree: *Tree, bodyParseFn: Node
 }
 
 /// Eat a multiline doc comment
-fn parseDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.DocComment {
+fn parseDocComment(arena: Allocator, it: *TokenIterator, tree: *Tree) !?*Node.DocComment {
     var lines = Node.DocComment.LineList.init(arena);
     while (eatToken(it, .DocComment)) |line| {
         try lines.push(line);
@@ -2866,7 +2866,7 @@ fn parseDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.D
 }
 
 /// Eat a single-line doc comment on the same line as another node
-fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) !?*Node.DocComment {
+fn parseAppendedDocComment(arena: Allocator, it: *TokenIterator, tree: *Tree, after_token: TokenIndex) !?*Node.DocComment {
     const comment_token = eatToken(it, .DocComment) orelse return null;
     if (tree.tokensOnSameLine(after_token, comment_token)) {
         const node = try arena.create(Node.DocComment);
@@ -2883,7 +2883,7 @@ fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, a
 
 /// Op* Child
 fn parsePrefixOpExpr(
-    arena: *Allocator,
+    arena: Allocator,
     it: *TokenIterator,
     tree: *Tree,
     opParseFn: NodeParseFn,
@@ -2943,7 +2943,7 @@ fn parsePrefixOpExpr(
 /// Child (Op Child)*
 /// Child (Op Child)?
 fn parseBinOpExpr(
-    arena: *Allocator,
+    arena: Allocator,
     it: *TokenIterator,
     tree: *Tree,
     opParseFn: NodeParseFn,
@@ -2975,7 +2975,7 @@ fn parseBinOpExpr(
     return res;
 }
 
-fn createInfixOp(arena: *Allocator, index: TokenIndex, op: Node.InfixOp.Op) !*Node {
+fn createInfixOp(arena: Allocator, index: TokenIndex, op: Node.InfixOp.Op) !*Node {
     const node = try arena.create(Node.InfixOp);
     node.* = Node.InfixOp{
         .base = Node{ .id = .InfixOp },
@@ -3035,7 +3035,7 @@ const AnnotatedToken = struct {
 };
 
 fn expectNode(
-    arena: *Allocator,
+    arena: Allocator,
     it: *TokenIterator,
     tree: *Tree,
     parseFn: NodeParseFn,

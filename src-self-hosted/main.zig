@@ -45,7 +45,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) anyerror!void,
+    exec: fn (Allocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {
@@ -250,7 +250,7 @@ const args_build_generic = []Flag{
     Flag.Arg1("--ver-patch"),
 };
 
-fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
+fn buildOutputType(allocator: Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
     var flags = try Args.parse(allocator, args_build_generic, args);
     defer flags.deinit();
 
@@ -494,15 +494,15 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     }
 }
 
-fn cmdBuildExe(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdBuildExe(allocator: Allocator, args: []const []const u8) !void {
     return buildOutputType(allocator, args, Compilation.Kind.Exe);
 }
 
-fn cmdBuildLib(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdBuildLib(allocator: Allocator, args: []const []const u8) !void {
     return buildOutputType(allocator, args, Compilation.Kind.Lib);
 }
 
-fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdBuildObj(allocator: Allocator, args: []const []const u8) !void {
     return buildOutputType(allocator, args, Compilation.Kind.Obj);
 }
 
@@ -543,7 +543,7 @@ const Fmt = struct {
     const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 };
 
-fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
+fn parseLibcPaths(allocator: Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
     libc.parse(allocator, libc_paths_file, stderr) catch |err| {
         stderr.print(
             "Unable to parse libc path file '{}': {}.\n" ++
@@ -555,7 +555,7 @@ fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_fil
     };
 }
 
-fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdLibC(allocator: Allocator, args: []const []const u8) !void {
     switch (args.len) {
         0 => {},
         1 => {
@@ -590,7 +590,7 @@ async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
     libc.render(stdout) catch os.exit(1);
 }
 
-fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdFmt(allocator: Allocator, args: []const []const u8) !void {
     var flags = try Args.parse(allocator, args_fmt_spec, args);
     defer flags.deinit();
 
@@ -808,7 +808,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
 // cmd:targets /////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdTargets(allocator: Allocator, args: []const []const u8) !void {
     try stdout.write("Architectures:\n");
     {
         comptime var i: usize = 0;
@@ -848,13 +848,13 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     }
 }
 
-fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdVersion(allocator: Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
 }
 
 const args_test_spec = []Flag{Flag.Bool("--help")};
 
-fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdHelp(allocator: Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
 }
 
@@ -875,7 +875,7 @@ pub const info_zen =
     \\
 ;
 
-fn cmdZen(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdZen(allocator: Allocator, args: []const []const u8) !void {
     try stdout.write(info_zen);
 }
 
@@ -888,7 +888,7 @@ const usage_internal =
     \\
 ;
 
-fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdInternal(allocator: Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try stderr.write(usage_internal);
         os.exit(1);
@@ -910,7 +910,7 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
     try stderr.write(usage_internal);
 }
 
-fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
+fn cmdInternalBuildInfo(allocator: Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}
@@ -939,7 +939,7 @@ const CliPkg = struct {
     children: ArrayList(*CliPkg),
     parent: ?*CliPkg,
 
-    pub fn init(allocator: *mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
+    pub fn init(allocator: mem.Allocator, name: []const u8, path: []const u8, parent: ?*CliPkg) !*CliPkg {
         var pkg = try allocator.create(CliPkg);
         pkg.* = CliPkg{
             .name = name,

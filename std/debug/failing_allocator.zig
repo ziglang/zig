@@ -7,13 +7,13 @@ pub const FailingAllocator = struct {
     allocator: mem.Allocator,
     index: usize,
     fail_index: usize,
-    internal_allocator: *mem.Allocator,
+    internal_allocator: mem.Allocator,
     allocated_bytes: usize,
     freed_bytes: usize,
     allocations: usize,
     deallocations: usize,
 
-    pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
+    pub fn init(allocator: mem.Allocator, fail_index: usize) FailingAllocator {
         return FailingAllocator{
             .internal_allocator = allocator,
             .fail_index = fail_index,
@@ -29,7 +29,7 @@ pub const FailingAllocator = struct {
         };
     }
 
-    fn realloc(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(allocator: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
@@ -54,7 +54,7 @@ pub const FailingAllocator = struct {
         return result;
     }
 
-    fn shrink(allocator: *mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(allocator: mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         const r = self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
         self.freed_bytes += old_mem.len - r.len;

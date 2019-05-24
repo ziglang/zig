@@ -76,7 +76,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: *Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: *Self, allocator: mem.Allocator, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -110,7 +110,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readUntilDelimiterAlloc(self: *Self, allocator: *mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
+        pub fn readUntilDelimiterAlloc(self: *Self, allocator: mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -282,12 +282,12 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
+pub fn readFileAlloc(allocator: mem.Allocator, path: []const u8) ![]u8 {
     return readFileAllocAligned(allocator, path, @alignOf(u8));
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
+pub fn readFileAllocAligned(allocator: mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
     var file = try File.openRead(path);
     defer file.close();
 
@@ -982,9 +982,9 @@ pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
     file_stream: os.File.OutStream,
     buffered_stream: BufferedOutStream(os.File.WriteError),
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
-    pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
+    pub fn create(allocator: mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
         // TODO with well defined copy elision we don't need this allocation
         var self = try allocator.create(BufferedAtomicFile);
         self.* = BufferedAtomicFile{

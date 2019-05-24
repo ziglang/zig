@@ -13,7 +13,7 @@ pub const Error = error{
 };
 
 /// Returns whether anything changed
-pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
+pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).Child.Error || Error)!bool {
     comptime assert(@typeId(@typeOf(stream)) == builtin.TypeId.Pointer);
 
     var anything_changed: bool = false;
@@ -67,7 +67,7 @@ pub fn render(allocator: *mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(
 }
 
 fn renderRoot(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     stream: var,
     tree: *ast.Tree,
 ) (@typeOf(stream).Child.Error || Error)!void {
@@ -146,7 +146,7 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     }
 }
 
-fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@typeOf(stream).Child.Error || Error)!void {
+fn renderTopLevelDecl(allocator: mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@typeOf(stream).Child.Error || Error)!void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -226,7 +226,7 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
 }
 
 fn renderExpression(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
@@ -1707,7 +1707,7 @@ fn renderExpression(
 }
 
 fn renderVarDecl(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
@@ -1779,7 +1779,7 @@ fn renderVarDecl(
 }
 
 fn renderParamDecl(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     stream: var,
     tree: *ast.Tree,
     indent: usize,
@@ -1809,7 +1809,7 @@ fn renderParamDecl(
 }
 
 fn renderStatement(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     stream: var,
     tree: *ast.Tree,
     indent: usize,

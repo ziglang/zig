@@ -89,7 +89,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         prealloc_segment: [prealloc_item_count]T,
         dynamic_segments: [][*]T,
-        allocator: *Allocator,
+        allocator: Allocator,
         len: usize,
 
         pub const prealloc_count = prealloc_item_count;
@@ -103,7 +103,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         /// Deinitialize with `deinit`
-        pub fn init(allocator: *Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .allocator = allocator,
                 .len = 0,
@@ -346,7 +346,7 @@ test "std.SegmentedList" {
     try testSegmentedList(16, a);
 }
 
-fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
+fn testSegmentedList(comptime prealloc: usize, allocator: Allocator) !void {
     var list = SegmentedList(i32, prealloc).init(allocator);
     defer list.deinit();
 

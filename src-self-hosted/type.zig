@@ -50,7 +50,7 @@ pub const Type = struct {
 
     pub fn getLlvmType(
         base: *Type,
-        allocator: *Allocator,
+        allocator: Allocator,
         llvm_context: *llvm.Context,
     ) (error{OutOfMemory}!*llvm.Type) {
         switch (base.id) {
@@ -218,7 +218,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Struct, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Struct, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -496,7 +496,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Fn, allocator: *Allocator, llvm_context: *llvm.Context) !*llvm.Type {
+        pub fn getLlvmType(self: *Fn, allocator: Allocator, llvm_context: *llvm.Context) !*llvm.Type {
             const normal = &self.key.data.Normal;
             const llvm_return_type = switch (normal.return_type.id) {
                 Type.Id.Void => llvm.VoidTypeInContext(llvm_context) orelse return error.OutOfMemory,
@@ -559,7 +559,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Bool, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Bool, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -658,7 +658,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Int, allocator: *Allocator, llvm_context: *llvm.Context) !*llvm.Type {
+        pub fn getLlvmType(self: *Int, allocator: Allocator, llvm_context: *llvm.Context) !*llvm.Type {
             return llvm.IntTypeInContext(llvm_context, self.key.bit_count) orelse return error.OutOfMemory;
         }
     };
@@ -670,7 +670,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Float, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Float, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -836,7 +836,7 @@ pub const Type = struct {
             return self;
         }
 
-        pub fn getLlvmType(self: *Pointer, allocator: *Allocator, llvm_context: *llvm.Context) !*llvm.Type {
+        pub fn getLlvmType(self: *Pointer, allocator: Allocator, llvm_context: *llvm.Context) !*llvm.Type {
             const elem_llvm_type = try self.key.child_type.getLlvmType(allocator, llvm_context);
             return llvm.PointerType(elem_llvm_type, 0) orelse return error.OutOfMemory;
         }
@@ -904,7 +904,7 @@ pub const Type = struct {
             return self;
         }
 
-        pub fn getLlvmType(self: *Array, allocator: *Allocator, llvm_context: *llvm.Context) !*llvm.Type {
+        pub fn getLlvmType(self: *Array, allocator: Allocator, llvm_context: *llvm.Context) !*llvm.Type {
             const elem_llvm_type = try self.key.elem_type.getLlvmType(allocator, llvm_context);
             return llvm.ArrayType(elem_llvm_type, @intCast(c_uint, self.key.len)) orelse return error.OutOfMemory;
         }
@@ -917,7 +917,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Vector, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Vector, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -981,7 +981,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Optional, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Optional, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -993,7 +993,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *ErrorUnion, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *ErrorUnion, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1005,7 +1005,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *ErrorSet, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *ErrorSet, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1017,7 +1017,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Enum, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Enum, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1029,7 +1029,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Union, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Union, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1041,7 +1041,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *BoundFn, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *BoundFn, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1061,7 +1061,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Opaque, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Opaque, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
@@ -1073,7 +1073,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Promise, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Promise, allocator: Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };

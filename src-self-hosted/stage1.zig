@@ -319,13 +319,13 @@ const Fmt = struct {
     seen: SeenMap,
     any_error: bool,
     color: errmsg.Color,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
 };
 
 fn printErrMsgToFile(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     parse_error: *const ast.Error,
     tree: *ast.Tree,
     path: []const u8,

@@ -70,7 +70,7 @@ pub fn Stack(comptime T: type) type {
 
 const std = @import("../std.zig");
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     stack: *Stack(i32),
     put_sum: isize,
     get_sum: isize,

@@ -36,7 +36,7 @@ pub fn isSep(byte: u8) bool {
 
 /// This is different from mem.join in that the separator will not be repeated if
 /// it is found at the end or beginning of a pair of consecutive paths.
-fn joinSep(allocator: *Allocator, separator: u8, paths: []const []const u8) ![]u8 {
+fn joinSep(allocator: Allocator, separator: u8, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) return (([*]u8)(undefined))[0..0];
 
     const total_len = blk: {
@@ -81,13 +81,13 @@ pub const join = if (is_windows) joinWindows else joinPosix;
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn joinWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+pub fn joinWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     return joinSep(allocator, sep_windows, paths);
 }
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn joinPosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+pub fn joinPosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
     return joinSep(allocator, sep_posix, paths);
 }
 
@@ -377,7 +377,7 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 }
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
-pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (is_windows) {
         return resolveWindows(allocator, paths);
     } else {
@@ -393,7 +393,7 @@ pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
 /// Note: all usage of this function should be audited due to the existence of symlinks.
 /// Without performing actual syscalls, resolving `..` could be incorrect.
-pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
         return os.getCwdAlloc(allocator);
@@ -574,7 +574,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// If all paths are relative it uses the current working directory as a starting point.
 /// Note: all usage of this function should be audited due to the existence of symlinks.
 /// Without performing actual syscalls, resolving `..` could be incorrect.
-pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
+pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
         assert(!is_windows); // resolvePosix called on windows can't use getCwd
         return os.getCwdAlloc(allocator);
@@ -964,7 +964,7 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
 /// resolve to the same path (after calling `resolve` on each), a zero-length
 /// string is returned.
 /// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
-pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
+pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
     if (is_windows) {
         return relativeWindows(allocator, from, to);
     } else {
@@ -972,7 +972,7 @@ pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
     }
 }
 
-pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
+pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
     const resolved_from = try resolveWindows(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
@@ -1045,7 +1045,7 @@ pub fn relativeWindows(allocator: *Allocator, from: []const u8, to: []const u8) 
     return []u8{};
 }
 
-pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
+pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
     const resolved_from = try resolvePosix(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
@@ -1276,7 +1276,7 @@ pub fn real(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: []const u8) RealError!
 }
 
 /// `real`, except caller must free the returned memory.
-pub fn realAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+pub fn realAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
     var buf: [os.MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try real(&buf, pathname));
 }

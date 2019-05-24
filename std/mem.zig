@@ -366,7 +366,7 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
-pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
+pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
@@ -975,7 +975,7 @@ pub const SplitIterator = struct {
 
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
+pub fn join(allocator: Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
     if (slices.len == 0) return (([*]u8)(undefined))[0..0];
 
     const total_len = blk: {

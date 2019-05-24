@@ -135,7 +135,7 @@ pub fn Queue(comptime T: type) type {
 }
 
 const Context = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     queue: *Queue(i32),
     put_sum: isize,
     get_sum: isize,

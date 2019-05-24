@@ -211,7 +211,7 @@ const RESET = "\x1b[0m";
 pub fn writeStackTrace(
     stack_trace: builtin.StackTrace,
     out_stream: var,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     debug_info: *DebugInfo,
     tty_color: bool,
 ) !void {
@@ -774,7 +774,7 @@ pub const OpenSelfDebugInfoError = error{
     UnsupportedOperatingSystem,
 };
 
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
+pub fn openSelfDebugInfo(allocator: mem.Allocator) !DebugInfo {
     switch (builtin.os) {
         builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => return openSelfDebugInfoLinux(allocator),
         builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
@@ -783,7 +783,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     }
 }
 
-fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
+fn openSelfDebugInfoWindows(allocator: mem.Allocator) !DebugInfo {
     const self_file = try os.openSelfExe();
     defer self_file.close();
 
@@ -938,7 +938,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     return di;
 }
 
-fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
+fn readSparseBitVector(stream: var, allocator: mem.Allocator) ![]usize {
     const num_words = try stream.readIntLittle(u32);
     var word_i: usize = 0;
     var list = ArrayList(usize).init(allocator);
@@ -967,7 +967,7 @@ fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DwarfInfo.Sec
 /// the DwarfInfo fields before calling. These fields can be left undefined:
 /// * abbrev_table_list
 /// * compile_unit_list
-pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
+pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
     di.abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator);
     di.compile_unit_list = ArrayList(CompileUnit).init(allocator);
     di.func_list = ArrayList(Func).init(allocator);
@@ -976,7 +976,7 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
 }
 
 pub fn openElfDebugInfo(
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     elf_seekable_stream: *DwarfSeekableStream,
     elf_in_stream: *DwarfInStream,
 ) !DwarfInfo {
@@ -1001,7 +1001,7 @@ pub fn openElfDebugInfo(
     return di;
 }
 
-fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
+fn openSelfDebugInfoLinux(allocator: mem.Allocator) !DwarfInfo {
     const S = struct {
         var self_exe_file: os.File = undefined;
         var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
@@ -1034,7 +1034,7 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
     );
 }
 
-fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
+fn openSelfDebugInfoMacOs(allocator: mem.Allocator) !DebugInfo {
     const hdr = &std.c._mh_execute_header;
     assert(hdr.magic == std.macho.MH_MAGIC_64);
 
@@ -1185,7 +1185,7 @@ pub const DwarfInfo = struct {
         size: u64,
     };
 
-    pub fn allocator(self: DwarfInfo) *mem.Allocator {
+    pub fn allocator(self: DwarfInfo) mem.Allocator {
         return self.abbrev_table_list.allocator;
     }
 
@@ -1207,7 +1207,7 @@ pub const DebugInfo = switch (builtin.os) {
             std.hash_map.getTrivialEqlFn(*macho.nlist_64),
         );
 
-        pub fn allocator(self: DebugInfo) *mem.Allocator {
+        pub fn allocator(self: DebugInfo) mem.Allocator {
             return self.ofiles.allocator;
         }
     },
@@ -1347,7 +1347,7 @@ pub const LineInfo = struct {
     line: u64,
     column: u64,
     file_name: []const u8,
-    allocator: ?*mem.Allocator,
+    allocator: ?mem.Allocator,
 
     fn deinit(self: LineInfo) void {
         const allocator = self.allocator orelse return;
@@ -1432,7 +1432,7 @@ const LineNumberProgram = struct {
     }
 };
 
-fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
+fn readStringRaw(allocator: mem.Allocator, in_stream: var) ![]u8 {
     var buf = ArrayList(u8).init(allocator);
     while (true) {
         const byte = try in_stream.readByte();
@@ -1448,24 +1448,24 @@ fn getString(di: *DwarfInfo, offset: u64) ![]u8 {
     return di.readString();
 }
 
-fn readAllocBytes(allocator: *mem.Allocator, in_stream: var, size: usize) ![]u8 {
+fn readAllocBytes(allocator: mem.Allocator, in_stream: var, size: usize) ![]u8 {
     const buf = try allocator.alloc(u8, size);
     errdefer allocator.free(buf);
     if ((try in_stream.read(buf)) < size) return error.EndOfFile;
     return buf;
 }
 
-fn parseFormValueBlockLen(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
+fn parseFormValueBlockLen(allocator: mem.Allocator, in_stream: var, size: usize) !FormValue {
     const buf = try readAllocBytes(allocator, in_stream, size);
     return FormValue{ .Block = buf };
 }
 
-fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !FormValue {
+fn parseFormValueBlock(allocator: mem.Allocator, in_stream: var, size: usize) !FormValue {
     const block_len = try in_stream.readVarInt(usize, builtin.Endian.Little, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, comptime size: i32) !FormValue {
+fn parseFormValueConstant(allocator: mem.Allocator, in_stream: var, signed: bool, comptime size: i32) !FormValue {
     return FormValue{
         .Const = Constant{
             .signed = signed,
@@ -1489,7 +1489,7 @@ fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     return if (@sizeOf(usize) == 4) u64(try in_stream.readIntLittle(u32)) else if (@sizeOf(usize) == 8) try in_stream.readIntLittle(u64) else unreachable;
 }
 
-fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !FormValue {
+fn parseFormValueRef(allocator: mem.Allocator, in_stream: var, size: i32) !FormValue {
     return FormValue{
         .Ref = switch (size) {
             1 => try in_stream.readIntLittle(u8),
@@ -1502,7 +1502,7 @@ fn parseFormValueRef(allocator: *mem.Allocator, in_stream: var, size: i32) !Form
     };
 }
 
-fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
+fn parseFormValue(allocator: mem.Allocator, in_stream: var, form_id: u64, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         DW.FORM_addr => FormValue{ .Address = try parseFormValueTargetAddrSize(in_stream) },
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
@@ -2271,10 +2271,10 @@ var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global
 var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 /// TODO multithreaded awareness
-var debug_info_allocator: ?*mem.Allocator = null;
+var debug_info_allocator: ?mem.Allocator = null;
 var debug_info_direct_allocator: std.heap.DirectAllocator = undefined;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
-fn getDebugInfoAllocator() *mem.Allocator {
+fn getDebugInfoAllocator() mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
     debug_info_direct_allocator = std.heap.DirectAllocator.init();

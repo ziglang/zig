@@ -86,7 +86,7 @@ test "zig fmt: doc comments on param decl" {
     try testCanonical(
         \\pub const Allocator = struct {
         \\    shrinkFn: fn (
-        \\        self: *Allocator,
+        \\        self: Allocator,
         \\        /// Guaranteed to be the same as what was returned from most recent call to
         \\        /// `allocFn`, `reallocFn`, or `shrinkFn`.
         \\        old_mem: []u8,
@@ -2178,7 +2178,7 @@ const maxInt = std.math.maxInt;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
+fn testParse(source: []const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
     var stderr_file = try io.getStdErr();
     var stderr = &stderr_file.outStream().stream;
 

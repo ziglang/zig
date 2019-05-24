@@ -4042,9 +4042,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "method call with first arg type wrong container",
         \\pub const List = struct {
         \\    len: usize,
-        \\    allocator: *Allocator,
+        \\    allocator: Allocator,
         \\
-        \\    pub fn init(allocator: *Allocator) List {
+        \\    pub fn init(allocator: Allocator) List {
         \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
@@ -4065,7 +4065,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.init();
         \\}
     ,
-        "tmp.zig:23:5: error: expected type '*Allocator', found '*List'",
+        "tmp.zig:23:5: error: expected type 'Allocator', found '*List'",
     );
 
     cases.add(

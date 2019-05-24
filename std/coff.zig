@@ -29,7 +29,7 @@ pub const CoffError = error{
 
 pub const Coff = struct {
     in_file: os.File,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     coff_header: CoffHeader,
     pe_header: OptionalHeader,

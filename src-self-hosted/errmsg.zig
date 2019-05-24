@@ -46,7 +46,7 @@ pub const Msg = struct {
     const PathAndTree = struct {
         span: Span,
         tree: *ast.Tree,
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
     };
 
     const ScopeAndComp = struct {
@@ -56,7 +56,7 @@ pub const Msg = struct {
     };
 
     const Cli = struct {
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
     };
 
     pub fn destroy(self: *Msg) void {
@@ -80,7 +80,7 @@ pub const Msg = struct {
         }
     }
 
-    fn getAllocator(self: *const Msg) *mem.Allocator {
+    fn getAllocator(self: *const Msg) mem.Allocator {
         switch (self.data) {
             Data.Cli => |cli| return cli.allocator,
             Data.PathAndTree => |path_and_tree| {
@@ -191,7 +191,7 @@ pub const Msg = struct {
     /// Caller owns returned Msg and must free with `allocator`
     /// allocator will additionally be used for printing messages later.
     pub fn createFromParseError(
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         parse_error: *const ast.Error,
         tree: *ast.Tree,
         realpath: []const u8,

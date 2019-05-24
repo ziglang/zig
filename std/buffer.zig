@@ -11,14 +11,14 @@ pub const Buffer = struct {
     list: ArrayList(u8),
 
     /// Must deinitialize with deinit.
-    pub fn init(allocator: *Allocator, m: []const u8) !Buffer {
+    pub fn init(allocator: Allocator, m: []const u8) !Buffer {
         var self = try initSize(allocator, m.len);
         mem.copy(u8, self.list.items, m);
         return self;
     }
 
     /// Must deinitialize with deinit.
-    pub fn initSize(allocator: *Allocator, size: usize) !Buffer {
+    pub fn initSize(allocator: Allocator, size: usize) !Buffer {
         var self = initNull(allocator);
         try self.resize(size);
         return self;
@@ -28,7 +28,7 @@ pub const Buffer = struct {
     /// None of the other operations are valid until you do one of these:
     /// * ::replaceContents
     /// * ::resize
-    pub fn initNull(allocator: *Allocator) Buffer {
+    pub fn initNull(allocator: Allocator) Buffer {
         return Buffer{ .list = ArrayList(u8).init(allocator) };
     }
 
@@ -40,7 +40,7 @@ pub const Buffer = struct {
     /// Buffer takes ownership of the passed in slice. The slice must have been
     /// allocated with `allocator`.
     /// Must deinitialize with deinit.
-    pub fn fromOwnedSlice(allocator: *Allocator, slice: []u8) !Buffer {
+    pub fn fromOwnedSlice(allocator: Allocator, slice: []u8) !Buffer {
         var self = Buffer{ .list = ArrayList(u8).fromOwnedSlice(allocator, slice) };
         try self.list.append(0);
         return self;
@@ -55,7 +55,7 @@ pub const Buffer = struct {
         return result;
     }
 
-    pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
+    pub fn allocPrint(allocator: Allocator, comptime format: []const u8, args: ...) !Buffer {
         const countSize = struct {
             fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
                 size.* += bytes.len;
