@@ -486,12 +486,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const p = nonFailing();
         \\    resume p;
-        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
+        \\    const p2 = async<&std.debug.global_allocator> printTrace(p) catch unreachable;
         \\    cancel p2;
         \\}
         \\
         \\fn nonFailing() promise->anyerror!void {
-        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\    return async<&std.debug.global_allocator> failing() catch unreachable;
         \\}
         \\
         \\async fn failing() anyerror!void {

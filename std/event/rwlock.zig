@@ -227,7 +227,7 @@ test "std.event.RwLock" {
     var lock = RwLock.init(&loop);
     defer lock.deinit();
 
-    const handle = try async<allocator> testLock(&loop, &lock);
+    const handle = try async<&allocator> testLock(&loop, &lock);
     defer cancel handle;
     loop.run();
 

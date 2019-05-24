@@ -216,13 +216,13 @@ test "error return trace across suspend points - early return" {
 
 test "error return trace across suspend points - async return" {
     const p = nonFailing();
-    const p2 = try async<std.debug.global_allocator> printTrace(p);
+    const p2 = try async<&std.debug.global_allocator> printTrace(p);
     resume p;
     cancel p2;
 }
 
 fn nonFailing() (promise->anyerror!void) {
-    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
+    return async<&std.debug.global_allocator> suspendThenFail() catch unreachable;
 }
 async fn suspendThenFail() anyerror!void {
     suspend;
@@ -244,7 +244,7 @@ test "break from suspend" {
     var buf: [500]u8 = undefined;
     var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
     var my_result: i32 = 1;
-    const p = try async<a> testBreakFromSuspend(&my_result);
+    const p = try async<&a> testBreakFromSuspend(&my_result);
     cancel p;
     std.testing.expect(my_result == 2);
 }

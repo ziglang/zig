@@ -594,7 +594,7 @@ pub const Loop = struct {
             }
         };
         var handle: promise->@typeOf(func).ReturnType = undefined;
-        return async<self.allocator> S.asyncFunc(self, &handle, args);
+        return async<&self.allocator> S.asyncFunc(self, &handle, args);
     }
 
     /// Awaiting a yield lets the event loop run, starting any unstarted async operations.

@@ -52,7 +52,7 @@ pub const Server = struct {
         try os.posixListen(sockfd, posix.SOMAXCONN);
         self.listen_address = std.net.Address.initPosix(try os.posixGetSockName(sockfd));
 
-        self.accept_coro = try async<self.loop.allocator> Server.handler(self);
+        self.accept_coro = try async<&self.loop.allocator> Server.handler(self);
         errdefer cancel self.accept_coro.?;
 
         self.listen_resume_node.handle = self.accept_coro.?;
@@ -82,7 +82,7 @@ pub const Server = struct {
                     continue;
                 }
                 var socket = os.File.openHandle(accepted_fd);
-                _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
+                _ = async<&self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
                         continue;
@@ -312,7 +312,7 @@ test "listen on a port, send bytes, receive bytes" {
     defer server.tcp_server.deinit();
     try server.tcp_server.listen(&addr, MyServer.handler);
 
-    const p = try async<std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
+    const p = try async<&std.debug.global_allocator> doAsyncTest(&loop, &server.tcp_server.listen_address, &server.tcp_server);
     defer cancel p;
     loop.run();
 }

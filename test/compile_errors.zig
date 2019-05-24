@@ -1564,7 +1564,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var buf: [500]u8 = undefined;
         \\    var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
-        \\    const p = (async<a> foo()) catch unreachable;
+        \\    const p = (async<&a> foo()) catch unreachable;
         \\    cancel p;
         \\}
         \\
@@ -1619,7 +1619,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "returning error from void async function",
         \\const std = @import("std",);
         \\export fn entry() void {
-        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
+        \\    const p = async<&std.debug.global_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;

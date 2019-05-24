@@ -464,7 +464,7 @@ fn buildOutputType(allocator: Allocator, args: []const []const u8, out_type: Com
     comp.link_objects = link_objects;
 
     comp.start();
-    const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
+    const process_build_events_handle = try async<&loop.allocator> processBuildEvents(comp, color);
     defer cancel process_build_events_handle;
     loop.run();
 }
@@ -576,7 +576,7 @@ fn cmdLibC(allocator: Allocator, args: []const []const u8) !void {
     var zig_compiler = try ZigCompiler.init(&loop);
     defer zig_compiler.deinit();
 
-    const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
+    const handle = try async<&loop.allocator> findLibCAsync(&zig_compiler);
     defer cancel handle;
 
     loop.run();
@@ -661,7 +661,7 @@ fn cmdFmt(allocator: Allocator, args: []const []const u8) !void {
     defer loop.deinit();
 
     var result: FmtError!void = undefined;
-    const main_handle = try async<allocator> asyncFmtMainChecked(
+    const main_handle = try async<&allocator> asyncFmtMainChecked(
         &result,
         &loop,
         &flags,

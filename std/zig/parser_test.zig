@@ -159,7 +159,7 @@ test "zig fmt: spaces around slice operator" {
 test "zig fmt: async call in if condition" {
     try testCanonical(
         \\comptime {
-        \\    if (async<a> b()) {
+        \\    if (async<&a> b()) {
         \\        a();
         \\    }
         \\}
@@ -2065,7 +2065,7 @@ test "zig fmt: coroutines" {
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    const p: promise = try async<&std.debug.global_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}

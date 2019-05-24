@@ -97,7 +97,7 @@ test "std.event.Future" {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    const handle = try async<allocator> testFuture(&loop);
+    const handle = try async<&allocator> testFuture(&loop);
     defer cancel handle;
 
     loop.run();

@@ -348,7 +348,7 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        const handle = try async<zig_compiler.loop.allocator> createAsync(
+        const handle = try async<&zig_compiler.loop.allocator> createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -1471,7 +1471,7 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 // TODO these are hacks which should probably be solved by the language
 fn getAwaitResult(allocator: Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
     var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
-    cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
+    cancel (async<&allocator> getAwaitResultAsync(handle, &result) catch unreachable);
     return result.?;
 }
 

@@ -432,7 +432,7 @@ pub const Type = struct {
                     self.non_key = NonKey{ .Generic = {} };
                     switch (generic.cc) {
                         CallingConvention.Async => |async_allocator_type| {
-                            try name_stream.print("async<{}> ", async_allocator_type.name);
+                            try name_stream.print("async<&{}> ", async_allocator_type.name);
                         },
                         else => {
                             const cc_str = ccFnTypeStr(generic.cc);

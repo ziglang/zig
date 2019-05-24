@@ -5873,7 +5873,7 @@ const assert = std.debug.assert;
 var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
-    const p = try async<std.debug.global_allocator> simpleAsyncFn();
+    const p = try async<&std.debug.global_allocator> simpleAsyncFn();
     comptime assert(@typeOf(p) == promise->void);
     cancel p;
     assert(x == 2);
@@ -5895,7 +5895,7 @@ const assert = std.debug.assert;
 
 test "coroutine suspend, resume, cancel" {
     seq('a');
-    const p = try async<std.debug.global_allocator> testAsyncSeq();
+    const p = try async<&std.debug.global_allocator> testAsyncSeq();
     seq('c');
     resume p;
     seq('f');
@@ -5930,7 +5930,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "coroutine suspend with block" {
-    const p = try async<std.debug.global_allocator> testSuspendBlock();
+    const p = try async<&std.debug.global_allocator> testSuspendBlock();
     std.debug.assert(!result);
     resume a_promise;
     std.debug.assert(result);
@@ -5975,7 +5975,7 @@ test "resume from suspend" {
     var buf: [500]u8 = undefined;
     var a = std.heap.FixedBufferAllocator.init(buf[0..]).allocator();
     var my_result: i32 = 1;
-    const p = try async<a> testResumeFromSuspend(&my_result);
+    const p = try async<&a> testResumeFromSuspend(&my_result);
     cancel p;
     std.debug.assert(my_result == 2);
 }
@@ -6025,7 +6025,7 @@ var final_result: i32 = 0;
 
 test "coroutine await" {
     seq('a');
-    const p = async<std.debug.global_allocator> amain() catch unreachable;
+    const p = async<&std.debug.global_allocator> amain() catch unreachable;
     seq('f');
     resume a_promise;
     seq('i');

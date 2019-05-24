@@ -791,7 +791,7 @@ pub fn Watch(comptime V: type) type {
                     errdefer os.close(inotify_fd);
 
                     var result: *Self = undefined;
-                    _ = try async<loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
+                    _ = try async<&loop.allocator> linuxEventPutter(inotify_fd, channel, &result);
                     return result;
                 },
 
@@ -1328,7 +1328,7 @@ const test_tmp_dir = "std_event_fs_test";
 //    defer loop.deinit();
 //
 //    var result: anyerror!void = error.ResultNeverWritten;
-//    const handle = try async<allocator> testFsWatchCantFail(&loop, &result);
+//    const handle = try async<&allocator> testFsWatchCantFail(&loop, &result);
 //    defer cancel handle;
 //
 //    loop.run();

@@ -138,7 +138,7 @@ test "std.event.Lock" {
     var lock = Lock.init(&loop);
     defer lock.deinit();
 
-    const handle = try async<allocator> testLock(&loop, &lock);
+    const handle = try async<&allocator> testLock(&loop, &lock);
     defer cancel handle;
     loop.run();
 
