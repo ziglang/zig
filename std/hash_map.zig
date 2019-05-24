@@ -502,7 +502,7 @@ pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(0);
-            return autoHash(key, comptime &rng.random(), u32);
+            return autoHash(key, comptime rng.random(), u32);
         }
     }.hash;
 }
@@ -516,7 +516,7 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
 }
 
 // TODO improve these hash functions
-pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type) HashInt {
+pub fn autoHash(key: var, comptime rng: std.rand.Random, comptime HashInt: type) HashInt {
     switch (@typeInfo(@typeOf(key))) {
         builtin.TypeId.NoReturn,
         builtin.TypeId.Opaque,
