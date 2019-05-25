@@ -428,7 +428,7 @@ test "io.BufferedInStream" {
         }
 
         fn readFn(in_stream: Stream, dest: []u8) Error!usize {
-            const self = in_stream.implCast(OneByteReadInStream);
+            const self = in_stream.implCast(@This());
             if (self.str.len <= self.curr or dest.len == 0)
                 return 0;
 
@@ -437,7 +437,7 @@ test "io.BufferedInStream" {
             return 1;
         }
         
-        pub fn inStream(self: *OneByteReadInStream) Stream {
+        pub fn inStream(self: *@This()) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
                 .readFn = readFn,
@@ -1065,7 +1065,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
-    file_stream: os.File.OutStream,
+    file_stream: os.File.OutStreamAdapter,
     buffered_stream: BufferedOutStream(os.File.WriteError),
     allocator: mem.Allocator,
 

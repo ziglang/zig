@@ -37,7 +37,7 @@ const Module = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: os.File = undefined;
-var stderr_file_out_stream: os.File.OutStream = undefined;
+var stderr_file_out_stream: os.File.OutStreamAdapter = undefined;
 
 var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
