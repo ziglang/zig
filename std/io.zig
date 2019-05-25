@@ -345,7 +345,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         const Self = @This();
         const Stream = InStream(Error);
         
-        unbuffered_in_stream: *Stream,
+        unbuffered_in_stream: Stream,
 
         buffer: [buffer_size]u8,
         start_index: usize,
@@ -858,7 +858,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         buffer: [buffer_size]u8,
         index: usize,
 
-        pub fn init(unbuffered_out_stream: *Stream) Self {
+        pub fn init(unbuffered_out_stream: Stream) Self {
             return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
@@ -1196,11 +1196,11 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
     return struct {
         const Self = @This();
 
-        in_stream: if (packing == .Bit) BitInStream(endian, Stream.Error) else *Stream,
+        in_stream: if (packing == .Bit) BitInStream(endian, Stream.Error) else Stream,
 
         pub const Stream = InStream(Error);
 
-        pub fn init(in_stream: *Stream) Self {
+        pub fn init(in_stream: Stream) Self {
             return Self{
                 .in_stream = switch (packing) {
                     .Bit => BitInStream(endian, Stream.Error).init(in_stream),
@@ -1407,11 +1407,11 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
     return struct {
         const Self = @This();
 
-        out_stream: if (packing == .Bit) BitOutStream(endian, Stream.Error) else *Stream,
+        out_stream: if (packing == .Bit) BitOutStream(endian, Stream.Error) else Stream,
 
         pub const Stream = OutStream(Error);
 
-        pub fn init(out_stream: *Stream) Self {
+        pub fn init(out_stream: Stream) Self {
             return Self{
                 .out_stream = switch (packing) {
                     .Bit => BitOutStream(endian, Stream.Error).init(out_stream),

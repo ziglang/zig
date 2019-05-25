@@ -1435,7 +1435,7 @@ pub const InStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
+    async<*mem.Allocator> fn readFn(in_stream: Stream, bytes: []u8) Error!usize {
         const self = in_stream.implCast(InStream);
         const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
         self.offset += amt;
