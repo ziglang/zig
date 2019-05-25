@@ -382,7 +382,7 @@ pub const Elf = struct {
     pub fn openStream(
         elf: *Elf,
         allocator: mem.Allocator,
-        seekable_stream: *io.SeekableStream(anyerror, anyerror),
+        seekable_stream: io.SeekableStream(anyerror, anyerror),
         in: io.InStream(anyerror),
     ) !void {
         elf.auto_close_stream = false;

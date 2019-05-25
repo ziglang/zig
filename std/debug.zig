@@ -977,8 +977,8 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
 
 pub fn openElfDebugInfo(
     allocator: mem.Allocator,
-    elf_seekable_stream: *DwarfSeekableStream,
-    elf_in_stream: *DwarfInStream,
+    elf_seekable_stream: DwarfSeekableStream,
+    elf_in_stream: DwarfInStream,
 ) !DwarfInfo {
     var efile: elf.Elf = undefined;
     try efile.openStream(allocator, elf_seekable_stream, elf_in_stream);
@@ -1028,9 +1028,9 @@ fn openSelfDebugInfoLinux(allocator: mem.Allocator) !DwarfInfo {
     return openElfDebugInfo(
         allocator,
         // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfSeekableStream, &S.self_exe_mmap_seekable.seekable_stream),
+        @bitCast(DwarfSeekableStream, S.self_exe_mmap_seekable.seekableStream()),
         // TODO https://github.com/ziglang/zig/issues/764
-        @ptrCast(*DwarfInStream, &S.self_exe_mmap_seekable.stream),
+        @bitCast(DwarfInStream, S.self_exe_mmap_seekable.inStream()),
     );
 }
 
@@ -1168,8 +1168,8 @@ pub const DwarfSeekableStream = io.SeekableStream(anyerror, anyerror);
 pub const DwarfInStream = io.InStream(anyerror);
 
 pub const DwarfInfo = struct {
-    dwarf_seekable_stream: *DwarfSeekableStream,
-    dwarf_in_stream: *DwarfInStream,
+    dwarf_seekable_stream: DwarfSeekableStream,
+    dwarf_in_stream: DwarfInStream,
     endian: builtin.Endian,
     debug_info: Section,
     debug_abbrev: Section,

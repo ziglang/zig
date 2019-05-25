@@ -222,7 +222,7 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         /// Cast the implementation pointer back to the original type
-        pub fn implCast(in: InStreamImpl, comptime T: type) *T {
+        pub fn implCast(in: Self, comptime T: type) *T {
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
             assert(in.impl != null);
             const aligned = @alignCast(@alignOf(T), in.impl);
@@ -302,7 +302,7 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Cast the implementation pointer back to the original type
-        pub fn implCast(out: OutStreamImpl, comptime T: type) *T {
+        pub fn implCast(out: Self, comptime T: type) *T {
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
             assert(out.impl != null);
             const aligned = @alignCast(@alignOf(T), out.impl);
@@ -759,7 +759,7 @@ pub const SliceOutStream = struct {
     pub fn outStream(self: *SliceOutStream) Stream {
         return Stream {
             .impl = Stream.ifaceCast(self),
-            .readFn = readFn,
+            .writeFn = writeFn,
         };
     }
 };
@@ -790,7 +790,7 @@ pub const NullOutStream = struct {
     pub fn outStream(self: *NullOutStream) Stream {
         return Stream {
             .impl = null,
-            .readFn = readFn,
+            .writeFn = writeFn,
         };
     }
 };
@@ -827,7 +827,7 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub fn outStream(self: *Self) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
-                .readFn = readFn,
+                .writeFn = writeFn,
             };
         }
     };
@@ -905,7 +905,6 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 /// Implementation of OutStream trait for Buffer
 pub const BufferOutStream = struct {
     buffer: *Buffer,
-    stream: Stream,
 
     pub const Error = error{OutOfMemory};
     pub const Stream = OutStream(Error);

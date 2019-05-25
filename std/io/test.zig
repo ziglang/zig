@@ -49,7 +49,7 @@ test "write a file, read it, then delete it" {
 
         var file_in_stream = file.inStreamAdapter();
         var buf_stream = io.BufferedInStream(os.File.ReadError).init(file_in_stream.inStream());
-        const st = buf_stream.outStream();
+        const st = buf_stream.inStream();
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
         defer allocator.free(contents);
 
