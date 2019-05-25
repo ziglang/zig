@@ -4,6 +4,7 @@ const testing = std.testing;
 const expect = std.testing.expect;
 const io = std.io;
 const mem = std.mem;
+const File = std.fs.File;
 
 const a = std.debug.global_allocator;
 
@@ -25,14 +26,14 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try os.makePath(a, "os_test_tmp");
-    if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
+    if (File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
     }
 
     try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
-    try os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt");
+    try File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt");
     try os.deleteTree(a, "os_test_tmp");
 }
 
@@ -102,7 +103,7 @@ test "AtomicFile" {
         \\ this is a test file
     ;
     {
-        var af = try os.AtomicFile.init(test_out_file, os.File.default_mode);
+        var af = try os.AtomicFile.init(test_out_file, File.default_mode);
         defer af.deinit();
         try af.file.write(test_content);
         try af.finish();

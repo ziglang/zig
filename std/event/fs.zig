@@ -9,6 +9,7 @@ const posix = os.posix;
 const windows = os.windows;
 const Loop = event.Loop;
 const fd_t = posix.fd_t;
+const File = std.fs.File;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
@@ -52,20 +53,20 @@ pub const Request = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
             flags: u32,
-            mode: os.File.Mode,
+            mode: File.Mode,
             result: Error!fd_t,
 
-            pub const Error = os.File.OpenError;
+            pub const Error = File.OpenError;
         };
 
         pub const WriteFile = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
             contents: []const u8,
-            mode: os.File.Mode,
+            mode: File.Mode,
             result: Error!void,
 
-            pub const Error = os.File.OpenError || os.File.WriteError;
+            pub const Error = File.OpenError || File.WriteError;
         };
 
         pub const Close = struct {
@@ -74,7 +75,7 @@ pub const Request = struct {
     };
 };
 
-pub const PWriteVError = error{OutOfMemory} || os.File.WriteError;
+pub const PWriteVError = error{OutOfMemory} || File.WriteError;
 
 /// data - just the inner references - must live until pwritev promise completes.
 pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
@@ -209,7 +210,7 @@ pub async fn pwritevPosix(
     return req_node.data.msg.PWriteV.result;
 }
 
-pub const PReadVError = error{OutOfMemory} || os.File.ReadError;
+pub const PReadVError = error{OutOfMemory} || File.ReadError;
 
 /// data - just the inner references - must live until preadv promise completes.
 pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
@@ -361,8 +362,8 @@ pub async fn openPosix(
     loop: *Loop,
     path: []const u8,
     flags: u32,
-    mode: os.File.Mode,
-) os.File.OpenError!fd_t {
+    mode: File.Mode,
+) File.OpenError!fd_t {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -401,11 +402,11 @@ pub async fn openPosix(
     return req_node.data.msg.Open.result;
 }
 
-pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!fd_t {
+pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
             const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
-            return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
 
         builtin.Os.windows => return os.windowsOpen(
@@ -422,12 +423,12 @@ pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!fd_t {
 
 /// Creates if does not exist. Truncates the file if it exists.
 /// Uses the default mode.
-pub async fn openWrite(loop: *Loop, path: []const u8) os.File.OpenError!fd_t {
-    return await (async openWriteMode(loop, path, os.File.default_mode) catch unreachable);
+pub async fn openWrite(loop: *Loop, path: []const u8) File.OpenError!fd_t {
+    return await (async openWriteMode(loop, path, File.default_mode) catch unreachable);
 }
 
 /// Creates if does not exist. Truncates the file if it exists.
-pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os.File.OpenError!fd_t {
+pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx,
         builtin.Os.linux,
@@ -435,7 +436,7 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os
         builtin.Os.netbsd,
         => {
             const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
-            return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
         builtin.Os.windows => return os.windowsOpen(
             path,
@@ -452,8 +453,8 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os
 pub async fn openReadWrite(
     loop: *Loop,
     path: []const u8,
-    mode: os.File.Mode,
-) os.File.OpenError!fd_t {
+    mode: File.Mode,
+) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
             const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
@@ -605,11 +606,11 @@ pub const CloseOperation = struct {
 /// contents must remain alive until writeFile completes.
 /// TODO make this atomic or provide writeFileAtomic and rename this one to writeFileTruncate
 pub async fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !void {
-    return await (async writeFileMode(loop, path, contents, os.File.default_mode) catch unreachable);
+    return await (async writeFileMode(loop, path, contents, File.default_mode) catch unreachable);
 }
 
 /// contents must remain alive until writeFile completes.
-pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     switch (builtin.os) {
         builtin.Os.linux,
         builtin.Os.macosx,
@@ -634,7 +635,7 @@ async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !
     try await (async pwriteWindows(loop, handle, contents, 0) catch unreachable);
 }
 
-async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -1363,7 +1364,7 @@ async fn testFsWatch(loop: *Loop) !void {
     defer if (!ev_consumed) cancel ev;
 
     // overwrite line 2
-    const fd = try await try async openReadWrite(loop, file_path, os.File.default_mode);
+    const fd = try await try async openReadWrite(loop, file_path, File.default_mode);
     {
         defer os.close(fd);
 
@@ -1390,7 +1391,7 @@ pub const OutStream = struct {
     loop: *Loop,
     offset: usize,
 
-    pub const Error = os.File.WriteError;
+    pub const Error = File.WriteError;
     pub const Stream = event.io.OutStream(Error);
 
     pub fn init(loop: *Loop, fd: fd_t, offset: usize) OutStream {

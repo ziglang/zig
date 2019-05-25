@@ -1,4 +1,4 @@
-pub use @import("errno.zig");
+pub use @import("linux/errno.zig");
 pub use switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
@@ -742,16 +742,6 @@ pub const sockaddr_in6 = extern struct {
 pub const sockaddr_un = extern struct {
     family: sa_family_t,
     path: [108]u8,
-};
-
-pub const iovec = extern struct {
-    iov_base: [*]u8,
-    iov_len: usize,
-};
-
-pub const iovec_const = extern struct {
-    iov_base: [*]const u8,
-    iov_len: usize,
 };
 
 pub const mmsghdr = extern struct {

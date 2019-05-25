@@ -12,7 +12,7 @@ const meta = std.meta;
 const trait = meta.trait;
 const Buffer = std.Buffer;
 const fmt = std.fmt;
-const File = std.os.File;
+const File = std.fs.File;
 const testing = std.testing;
 
 const is_posix = builtin.os != builtin.Os.windows;
@@ -963,8 +963,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 
 pub const BufferedAtomicFile = struct {
     atomic_file: os.AtomicFile,
-    file_stream: os.File.OutStream,
-    buffered_stream: BufferedOutStream(os.File.WriteError),
+    file_stream: File.OutStream,
+    buffered_stream: BufferedOutStream(File.WriteError),
     allocator: *mem.Allocator,
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
@@ -978,11 +978,11 @@ pub const BufferedAtomicFile = struct {
         };
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
+        self.atomic_file = try os.AtomicFile.init(dest_path, File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = BufferedOutStream(os.File.WriteError).init(&self.file_stream.stream);
+        self.buffered_stream = BufferedOutStream(File.WriteError).init(&self.file_stream.stream);
         return self;
     }
 
@@ -997,7 +997,7 @@ pub const BufferedAtomicFile = struct {
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: *BufferedAtomicFile) *OutStream(os.File.WriteError) {
+    pub fn stream(self: *BufferedAtomicFile) *OutStream(File.WriteError) {
         return &self.buffered_stream.stream;
     }
 };

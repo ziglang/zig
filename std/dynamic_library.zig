@@ -1,5 +1,4 @@
 const builtin = @import("builtin");
-const Os = builtin.Os;
 
 const std = @import("std.zig");
 const mem = std.mem;
@@ -8,14 +7,13 @@ const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
-const linux = os.linux;
 const windows = os.windows;
 const win_util = @import("os/windows/util.zig");
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
-    Os.linux => LinuxDynLib,
-    Os.windows => WindowsDynLib,
+    .linux => LinuxDynLib,
+    .windows => WindowsDynLib,
     else => void,
 };
 
@@ -110,20 +108,20 @@ pub const LinuxDynLib = struct {
 
     /// Trusts the file
     pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
-        const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
+        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
         errdefer std.os.close(fd);
 
         const size = @intCast(usize, (try std.os.posixFStat(fd)).size);
 
-        const addr = linux.mmap(
+        const addr = os.mmap(
             null,
             size,
-            linux.PROT_READ | linux.PROT_EXEC,
-            linux.MAP_PRIVATE | linux.MAP_LOCKED,
+            os.PROT_READ | os.PROT_EXEC,
+            os.MAP_PRIVATE | os.MAP_LOCKED,
             fd,
             0,
         );
-        errdefer _ = linux.munmap(addr, size);
+        errdefer os.munmap(addr, size);
 
         const bytes = @intToPtr([*]align(mem.page_size) u8, addr)[0..size];
 
@@ -136,7 +134,7 @@ pub const LinuxDynLib = struct {
     }
 
     pub fn close(self: *DynLib) void {
-        _ = linux.munmap(self.map_addr, self.map_size);
+        os.munmap(self.map_addr, self.map_size);
         std.os.close(self.fd);
         self.* = undefined;
     }
@@ -149,7 +147,7 @@ pub const LinuxDynLib = struct {
 pub const ElfLib = struct {
     strings: [*]u8,
     syms: [*]elf.Sym,
-    hashtab: [*]linux.Elf_Symndx,
+    hashtab: [*]os.Elf_Symndx,
     versym: ?[*]u16,
     verdef: ?*elf.Verdef,
     base: usize,
@@ -184,7 +182,7 @@ pub const ElfLib = struct {
 
         var maybe_strings: ?[*]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
-        var maybe_hashtab: ?[*]linux.Elf_Symndx = null;
+        var maybe_hashtab: ?[*]os.Elf_Symndx = null;
         var maybe_versym: ?[*]u16 = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
@@ -195,7 +193,7 @@ pub const ElfLib = struct {
                 switch (dynv[i]) {
                     elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
                     elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
-                    elf.DT_HASH => maybe_hashtab = @intToPtr([*]linux.Elf_Symndx, p),
+                    elf.DT_HASH => maybe_hashtab = @intToPtr([*]os.Elf_Symndx, p),
                     elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
                     elf.DT_VERDEF => maybe_verdef = @intToPtr(*elf.Verdef, p),
                     else => {},
@@ -283,8 +281,8 @@ pub const WindowsDynLib = struct {
 
 test "dynamic_library" {
     const libname = switch (builtin.os) {
-        Os.linux => "invalid_so.so",
-        Os.windows => "invalid_dll.dll",
+        .linux => "invalid_so.so",
+        .windows => "invalid_dll.dll",
         else => return,
     };
 

@@ -753,6 +753,10 @@ pub fn CloseHandle(hObject: HANDLE) void {
     assert(kernel32.CloseHandle(hObject) != 0);
 }
 
+pub fn FindClose(hFindFile: HANDLE) void {
+    assert(kernel32.FindClose(hFindFile) != 0);
+}
+
 pub const ReadFileError = error{Unexpected};
 
 pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
@@ -1061,6 +1065,28 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
         }
     }
     return rc;
+}
+
+const GetModuleFileNameError = error{Unexpected};
+
+pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
+    const rc = kernel32.GetModuleFileNameW(hModule, buf_ptr, buf_len);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return buf_ptr[0..rc];
+}
+
+pub const TerminateProcessError = error{Unexpected};
+
+pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
+    if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
 }
 
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {

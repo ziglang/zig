@@ -6,11 +6,12 @@ const mem = std.mem;
 const os = std.os;
 const posix = os.posix;
 const Loop = std.event.Loop;
+const File = std.fs.File;
 
 const fd_t = posix.fd_t;
 
 pub const Server = struct {
-    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+    handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, File) void,
 
     loop: *Loop,
     sockfd: ?i32,
@@ -42,7 +43,7 @@ pub const Server = struct {
     pub fn listen(
         self: *Server,
         address: *const std.net.Address,
-        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, os.File) void,
+        handleRequestFn: async<*mem.Allocator> fn (*Server, *const std.net.Address, File) void,
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
@@ -83,7 +84,7 @@ pub const Server = struct {
                     suspend; // we will get resumed by epoll_wait in the event loop
                     continue;
                 }
-                var socket = os.File.openHandle(accepted_fd);
+                var socket = File.openHandle(accepted_fd);
                 _ = async<self.loop.allocator> self.handleRequestFn(self, &accepted_addr, socket) catch |err| switch (err) {
                     error.OutOfMemory => {
                         socket.close();
@@ -250,7 +251,7 @@ pub async fn readv(loop: *Loop, fd: fd_t, data: []const []u8) !usize {
     return await (async readvPosix(loop, fd, iovecs.ptr, data.len) catch unreachable);
 }
 
-pub async fn connect(loop: *Loop, _address: *const std.net.Address) !os.File {
+pub async fn connect(loop: *Loop, _address: *const std.net.Address) !File {
     var address = _address.*; // TODO https://github.com/ziglang/zig/issues/1592
 
     const sockfd = try os.posixSocket(posix.AF_INET, posix.SOCK_STREAM | posix.SOCK_CLOEXEC | posix.SOCK_NONBLOCK, posix.PROTO_tcp);
@@ -260,7 +261,7 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !os.File {
     try await try async loop.linuxWaitFd(sockfd, posix.EPOLLIN | posix.EPOLLOUT | posix.EPOLLET);
     try os.posixGetSockOptConnectError(sockfd);
 
-    return os.File.openHandle(sockfd);
+    return File.openHandle(sockfd);
 }
 
 test "listen on a port, send bytes, receive bytes" {
@@ -276,7 +277,7 @@ test "listen on a port, send bytes, receive bytes" {
         tcp_server: Server,
 
         const Self = @This();
-        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: os.File) void {
+        async<*mem.Allocator> fn handler(tcp_server: *Server, _addr: *const std.net.Address, _socket: File) void {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
@@ -289,7 +290,7 @@ test "listen on a port, send bytes, receive bytes" {
                 cancel @handle();
             }
         }
-        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: os.File) !void {
+        async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/1592
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
 

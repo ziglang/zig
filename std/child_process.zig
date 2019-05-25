@@ -3,7 +3,7 @@ const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;
 const os = std.os;
-const posix = os.posix;
+const File = std.fs.File;
 const windows = os.windows;
 const mem = std.mem;
 const debug = std.debug;
@@ -23,9 +23,9 @@ pub const ChildProcess = struct {
 
     pub allocator: *mem.Allocator,
 
-    pub stdin: ?os.File,
-    pub stdout: ?os.File,
-    pub stderr: ?os.File,
+    pub stdin: ?File,
+    pub stdout: ?File,
+    pub stderr: ?File,
 
     pub term: ?(SpawnError!Term),
 
@@ -148,12 +148,7 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        if (!windows.TerminateProcess(self.handle, exit_code)) {
-            const err = windows.GetLastError();
-            return switch (err) {
-                else => os.unexpectedErrorWindows(err),
-            };
-        }
+        try windows.TerminateProcess(self.handle, exit_code);
         try self.waitUnwrappedWindows();
         return self.term.?;
     }
@@ -163,16 +158,7 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        const ret = posix.kill(self.pid, posix.SIGTERM);
-        const err = posix.getErrno(ret);
-        if (err > 0) {
-            return switch (err) {
-                posix.EINVAL => unreachable,
-                posix.EPERM => error.PermissionDenied,
-                posix.ESRCH => error.ProcessNotFound,
-                else => os.unexpectedErrorPosix(err),
-            };
-        }
+        try os.kill(self.pid, os.SIGTERM);
         self.waitUnwrapped();
         return self.term.?;
     }
@@ -267,19 +253,9 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrapped(self: *ChildProcess) void {
-        var status: i32 = undefined;
-        while (true) {
-            const err = posix.getErrno(posix.waitpid(self.pid, &status, 0));
-            if (err > 0) {
-                switch (err) {
-                    posix.EINTR => continue,
-                    else => unreachable,
-                }
-            }
-            self.cleanupStreams();
-            self.handleWaitResult(status);
-            return;
-        }
+        const status = os.waitpid(self.pid, 0);
+        self.cleanupStreams();
+        self.handleWaitResult(status);
     }
 
     fn handleWaitResult(self: *ChildProcess, status: i32) void {
@@ -324,34 +300,34 @@ pub const ChildProcess = struct {
     }
 
     fn statusToTerm(status: i32) Term {
-        return if (posix.WIFEXITED(status))
-            Term{ .Exited = posix.WEXITSTATUS(status) }
-        else if (posix.WIFSIGNALED(status))
-            Term{ .Signal = posix.WTERMSIG(status) }
-        else if (posix.WIFSTOPPED(status))
-            Term{ .Stopped = posix.WSTOPSIG(status) }
+        return if (os.WIFEXITED(status))
+            Term{ .Exited = os.WEXITSTATUS(status) }
+        else if (os.WIFSIGNALED(status))
+            Term{ .Signal = os.WTERMSIG(status) }
+        else if (os.WIFSTOPPED(status))
+            Term{ .Stopped = os.WSTOPSIG(status) }
         else
             Term{ .Unknown = status };
     }
 
     fn spawnPosix(self: *ChildProcess) !void {
-        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try makePipe() else undefined;
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe() else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
         };
 
-        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try makePipe() else undefined;
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe() else undefined;
         errdefer if (self.stdout_behavior == StdIo.Pipe) {
             destroyPipe(stdout_pipe);
         };
 
-        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try makePipe() else undefined;
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe() else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
         };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
-        const dev_null_fd = if (any_ignore) try os.posixOpenC(c"/dev/null", posix.O_RDWR, 0) else undefined;
+        const dev_null_fd = if (any_ignore) try os.openC(c"/dev/null", os.O_RDWR, 0) else undefined;
         defer {
             if (any_ignore) os.close(dev_null_fd);
         }
@@ -372,7 +348,7 @@ pub const ChildProcess = struct {
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
-        const err_pipe = try makePipe();
+        const err_pipe = try os.pipe();
         errdefer destroyPipe(err_pipe);
 
         const pid_result = try posix.fork();
@@ -413,17 +389,17 @@ pub const ChildProcess = struct {
         // we are the parent
         const pid = @intCast(i32, pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = os.File.openHandle(stdin_pipe[1]);
+            self.stdin = File.openHandle(stdin_pipe[1]);
         } else {
             self.stdin = null;
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = os.File.openHandle(stdout_pipe[0]);
+            self.stdout = File.openHandle(stdout_pipe[0]);
         } else {
             self.stdout = null;
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = os.File.openHandle(stderr_pipe[0]);
+            self.stderr = File.openHandle(stderr_pipe[0]);
         } else {
             self.stderr = null;
         }
@@ -608,17 +584,17 @@ pub const ChildProcess = struct {
         };
 
         if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = os.File.openHandle(h);
+            self.stdin = File.openHandle(h);
         } else {
             self.stdin = null;
         }
         if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = os.File.openHandle(h);
+            self.stdout = File.openHandle(h);
         } else {
             self.stdout = null;
         }
         if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = os.File.openHandle(h);
+            self.stderr = File.openHandle(h);
         } else {
             self.stderr = null;
         }
@@ -751,18 +727,6 @@ fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const 
     wr.* = wr_h;
 }
 
-fn makePipe() ![2]i32 {
-    var fds: [2]i32 = undefined;
-    const err = posix.getErrno(posix.pipe(&fds));
-    if (err > 0) {
-        return switch (err) {
-            posix.EMFILE, posix.ENFILE => error.SystemResources,
-            else => os.unexpectedErrorPosix(err),
-        };
-    }
-    return fds;
-}
-
 fn destroyPipe(pipe: [2]i32) void {
     os.close(pipe[0]);
     os.close(pipe[1]);
@@ -778,12 +742,12 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const stream = &os.File.openHandle(fd).outStream().stream;
+    const stream = &File.openHandle(fd).outStream().stream;
     stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &os.File.openHandle(fd).inStream().stream;
+    const stream = &File.openHandle(fd).inStream().stream;
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }
 

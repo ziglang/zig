@@ -10,7 +10,7 @@ var fixed_buffer_mem: [10 * 1024 * 1024]u8 = undefined;
 
 pub fn main() !void {
     var i: usize = 0;
-    var timer = try std.os.time.Timer.start();
+    var timer = try std.time.Timer.start();
     const start = timer.lap();
     const iterations = 100;
     var memory_used: usize = 0;
@@ -19,7 +19,7 @@ pub fn main() !void {
     }
     const end = timer.read();
     memory_used /= iterations;
-    const elapsed_s = @intToFloat(f64, end - start) / std.os.time.ns_per_s;
+    const elapsed_s = @intToFloat(f64, end - start) / std.time.ns_per_s;
     const bytes_per_sec = @intToFloat(f64, source.len * iterations) / elapsed_s;
     const mb_per_sec = bytes_per_sec / (1024 * 1024);
 

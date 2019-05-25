@@ -12,6 +12,7 @@ const windows = os.windows;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const File = std.fs.File;
 
 const leb = @import("debug/leb128.zig");
 
@@ -36,10 +37,10 @@ const Module = struct {
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
-var stderr_file: os.File = undefined;
-var stderr_file_out_stream: os.File.OutStream = undefined;
+var stderr_file: File = undefined;
+var stderr_file_out_stream: File.OutStream = undefined;
 
-var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
+var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
@@ -48,7 +49,7 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
+pub fn getStderrStream() !*io.OutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
@@ -1003,7 +1004,7 @@ pub fn openElfDebugInfo(
 
 fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
     const S = struct {
-        var self_exe_file: os.File = undefined;
+        var self_exe_file: File = undefined;
         var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
     };
 
@@ -1112,7 +1113,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
 }
 
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
-    var f = try os.File.openRead(line_info.file_name);
+    var f = try File.openRead(line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 

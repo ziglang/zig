@@ -16,6 +16,7 @@
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
+const math = std.math;
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
 comptime {
@@ -114,7 +115,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
-    const stream = &os.File.openHandle(fd).inStream().stream;
+    const stream = &std.fs.File.openHandle(fd).inStream().stream;
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -173,6 +174,21 @@ pub fn raise(sig: u8) RaiseError!void {
     system.restoreSignals(&set);
     switch (errno(rc)) {
         0 => return,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const KillError = error{
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn kill(pid: pid_t, sig: u8) KillError!void {
+    switch (errno(system.kill(pid, sig))) {
+        0 => return,
+        EINVAL => unreachable, // invalid signal
+        EPERM => return error.PermissionDenied,
+        ESRCH => unreachable, // always a race condition
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -885,8 +901,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (windows.is_the_target and !builtin.link_libc) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
-        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-        return windows.MoveFileExW(&old_path_w, &new_path_w, flags);
+        return renameW(&old_path_w, &new_path_w);
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);
@@ -899,8 +914,7 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
     if (windows.is_the_target and !builtin.link_libc) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
-        const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-        return windows.MoveFileExW(&old_path_w, &new_path_w, flags);
+        return renameW(&old_path_w, &new_path_w);
     }
     switch (errno(system.rename(old_path, new_path))) {
         0 => return,
@@ -924,6 +938,13 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
         EXDEV => return error.RenameAcrossMountPoints,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+/// Same as `rename` except the parameters are null-terminated UTF16LE encoded byte arrays.
+/// Assumes target is Windows.
+pub fn renameW(old_path: [*]const u16, new_path: [*]const u16) RenameError!void {
+    const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
+    return windows.MoveFileExW(old_path_w, new_path_w, flags);
 }
 
 pub const MakeDirError = error{
@@ -1684,10 +1705,10 @@ pub fn getsockoptError(sockfd: i32) ConnectError!void {
     }
 }
 
-pub fn waitpid(pid: i32) i32 {
+pub fn waitpid(pid: i32, flags: u32) i32 {
     var status: i32 = undefined;
     while (true) {
-        switch (errno(system.waitpid(pid, &status, 0))) {
+        switch (errno(system.waitpid(pid, &status, flags))) {
             0 => return status,
             EINTR => continue,
             ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
@@ -1988,9 +2009,10 @@ pub const PipeError = error{
 };
 
 /// Creates a unidirectional data channel that can be used for interprocess communication.
-pub fn pipe(fds: *[2]fd_t) PipeError!void {
-    switch (errno(system.pipe(fds))) {
-        0 => return,
+pub fn pipe() PipeError![2]fd_t {
+    var fds: [2]i32 = undefined;
+    switch (errno(system.pipe(&fds))) {
+        0 => return fds,
         EINVAL => unreachable, // Invalid parameters to pipe()
         EFAULT => unreachable, // Invalid fds pointer
         ENFILE => return error.SystemFdQuotaExceeded,
@@ -1999,9 +2021,10 @@ pub fn pipe(fds: *[2]fd_t) PipeError!void {
     }
 }
 
-pub fn pipe2(fds: *[2]fd_t, flags: u32) PipeError!void {
-    switch (errno(system.pipe2(fds, flags))) {
-        0 => return,
+pub fn pipe2(flags: u32) PipeError![2]fd_t {
+    var fds: [2]i32 = undefined;
+    switch (errno(system.pipe2(&fds, flags))) {
+        0 => return fds,
         EINVAL => unreachable, // Invalid flags
         EFAULT => unreachable, // Invalid fds pointer
         ENFILE => return error.SystemFdQuotaExceeded,
@@ -2279,6 +2302,67 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
     // Trust that Windows gives us valid UTF-16LE.
     const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;
     return out_buffer[0..end_index];
+}
+
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
+    if (windows.is_the_target and !builtin.link_libc) {
+        // TODO https://github.com/ziglang/zig/issues/1284
+        const small_s = math.cast(windows.DWORD, seconds) catch math.maxInt(windows.DWORD);
+        const ms_from_s = math.mul(small_s, std.time.ms_per_s) catch math.maxInt(windows.DWORD);
+
+        const ns_per_ms = std.time.ns_per_s / std.time.ms_per_s;
+        const big_ms_from_ns = nanoseconds / ns_per_ms;
+        const ms_from_ns = math.cast(windows.DWORD, big_ms_from_ns) catch math.maxInt(windows.DWORD);
+
+        const ms = math.add(ms_from_s, ms_from_ns) catch math.maxInt(windows.DWORD);
+        windows.kernel32.Sleep(ms);
+        return;
+    }
+    var req = timespec{
+        .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
+        .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
+    };
+    var rem: timespec = undefined;
+    while (true) {
+        switch (errno(system.nanosleep(&req, &rem))) {
+            EFAULT => unreachable,
+            EINVAL => {
+                // Sometimes Darwin returns EINVAL for no reason.
+                // We treat it as a spurious wakeup.
+                return;
+            },
+            EINTR => {
+                req = rem;
+                continue;
+            },
+            // This prong handles success as well as unexpected errors.
+            else => return,
+        }
+    }
+}
+
+pub const ClockGetTimeError = error{
+    UnsupportedClock,
+    Unexpected,
+};
+
+pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
+    switch (errno(system.clock_gettime(clk_id, tp))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => return error.UnsupportedClock,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
+    switch (errno(system.clock_getres(clk_id, tp))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => return error.UnsupportedClock,
+        else => |err| return unexpectedErrno(err),
+    }
 }
 
 /// Used to convert a slice to a null terminated slice on the stack.

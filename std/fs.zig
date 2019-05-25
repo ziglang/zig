@@ -11,6 +11,7 @@ pub const deleteFile = os.unlink;
 pub const deleteFileC = os.unlinkC;
 pub const rename = os.rename;
 pub const renameC = os.renameC;
+pub const renameW = os.renameW;
 pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
 pub const realpath = os.realpath;
@@ -25,24 +26,24 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// fit into a UTF-8 encoded array of this length.
 /// path being too long if it is this 0long
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    .linux, .macosx, .ios, .freebsd, .netbsd => posix.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
     // +1 for the null byte at the end, which can be encoded in 1 byte.
-    .windows => posix.PATH_MAX_WIDE * 3 + 1,
+    .windows => os.windows.PATH_MAX_WIDE * 3 + 1,
     else => @compileError("Unsupported OS"),
 };
 
 /// The result is a slice of `out_buffer`, from index `0`.
 pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
-    return posix.getcwd(out_buffer);
+    return os.getcwd(out_buffer);
 }
 
 /// Caller must free the returned memory.
 pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try posix.getcwd(&buf));
+    return mem.dupe(allocator, u8, try os.getcwd(&buf));
 }
 
 test "getCwdAlloc" {
@@ -90,7 +91,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
 pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
-    var in_file = try os.File.openRead(source_path);
+    var in_file = try File.openRead(source_path);
     defer in_file.close();
 
     const mode = try in_file.mode();
@@ -113,7 +114,7 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
-    var in_file = try os.File.openRead(source_path);
+    var in_file = try File.openRead(source_path);
     defer in_file.close();
 
     var atomic_file = try AtomicFile.init(dest_path, mode);
@@ -130,12 +131,12 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
 }
 
 pub const AtomicFile = struct {
-    file: os.File,
+    file: File,
     tmp_path_buf: [MAX_PATH_BYTES]u8,
     dest_path: []const u8,
     finished: bool,
 
-    const InitError = os.File.OpenError;
+    const InitError = File.OpenError;
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
@@ -161,7 +162,7 @@ pub const AtomicFile = struct {
             try getRandomBytes(rand_buf[0..]);
             b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], rand_buf);
 
-            const file = os.File.openWriteNoClobberC(&tmp_path_buf, mode) catch |err| switch (err) {
+            const file = File.openWriteNoClobberC(&tmp_path_buf, mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
                 // TODO zig should figure out that this error set does not include PathAlreadyExists since
                 // it is handled in the above switch
@@ -190,16 +191,13 @@ pub const AtomicFile = struct {
         assert(!self.finished);
         self.file.close();
         self.finished = true;
-        if (is_posix) {
-            const dest_path_c = try toPosixPath(self.dest_path);
-            return renameC(&self.tmp_path_buf, &dest_path_c);
-        } else if (is_windows) {
-            const dest_path_w = try posix.sliceToPrefixedFileW(self.dest_path);
-            const tmp_path_w = try posix.cStrToPrefixedFileW(&self.tmp_path_buf);
-            return renameW(&tmp_path_w, &dest_path_w);
-        } else {
-            @compileError("Unsupported OS");
+        if (os.windows.is_the_target) {
+            const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_path);
+            const tmp_path_w = try os.windows.cStrToPrefixedFileW(&self.tmp_path_buf);
+            return os.renameW(&tmp_path_w, &dest_path_w);
         }
+        const dest_path_c = try os.toPosixPath(self.dest_path);
+        return os.renameC(&self.tmp_path_buf, &dest_path_c);
     }
 };
 
@@ -207,17 +205,17 @@ const default_new_dir_mode = 0o755;
 
 /// Create a new directory.
 pub fn makeDir(dir_path: []const u8) !void {
-    return posix.mkdir(dir_path, default_new_dir_mode);
+    return os.mkdir(dir_path, default_new_dir_mode);
 }
 
 /// Same as `makeDir` except the parameter is a null-terminated UTF8-encoded string.
 pub fn makeDirC(dir_path: [*]const u8) !void {
-    return posix.mkdirC(dir_path, default_new_dir_mode);
+    return os.mkdirC(dir_path, default_new_dir_mode);
 }
 
 /// Same as `makeDir` except the parameter is a null-terminated UTF16LE-encoded string.
 pub fn makeDirW(dir_path: [*]const u16) !void {
-    return posix.mkdirW(dir_path, default_new_dir_mode);
+    return os.mkdirW(dir_path, default_new_dir_mode);
 }
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
@@ -260,17 +258,17 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
 pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
-    return posix.rmdir(dir_path);
+    return os.rmdir(dir_path);
 }
 
 /// Same as `deleteDir` except the parameter is a null-terminated UTF8-encoded string.
 pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
-    return posix.rmdirC(dir_path);
+    return os.rmdirC(dir_path);
 }
 
 /// Same as `deleteDir` except the parameter is a null-terminated UTF16LE-encoded string.
 pub fn deleteDirW(dir_path: [*]const u16) DeleteDirError!void {
-    return posix.rmdirW(dir_path);
+    return os.rmdirW(dir_path);
 }
 
 /// Whether ::full_path describes a symlink, file, or directory, this function
@@ -383,22 +381,22 @@ pub const Dir = struct {
     allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
-        Os.macosx, Os.ios, Os.freebsd, Os.netbsd => struct {
+        .macosx, .ios, .freebsd, .netbsd => struct {
             fd: i32,
             seek: i64,
             buf: []u8,
             index: usize,
             end_index: usize,
         },
-        Os.linux => struct {
+        .linux => struct {
             fd: i32,
             buf: []u8,
             index: usize,
             end_index: usize,
         },
-        Os.windows => struct {
-            handle: windows.HANDLE,
-            find_file_data: windows.WIN32_FIND_DATAW,
+        .windows => struct {
+            handle: os.windows.HANDLE,
+            find_file_data: os.windows.WIN32_FIND_DATAW,
             first: bool,
             name_data: [256]u8,
         },
@@ -449,9 +447,9 @@ pub const Dir = struct {
         return Dir{
             .allocator = allocator,
             .handle = switch (builtin.os) {
-                Os.windows => blk: {
-                    var find_file_data: windows.WIN32_FIND_DATAW = undefined;
-                    const handle = try windows_util.windowsFindFirstFile(dir_path, &find_file_data);
+                .windows => blk: {
+                    var find_file_data: os.windows.WIN32_FIND_DATAW = undefined;
+                    const handle = try os.windows.FindFirstFile(dir_path, &find_file_data);
                     break :blk Handle{
                         .handle = handle,
                         .find_file_data = find_file_data, // TODO guaranteed copy elision
@@ -459,23 +457,15 @@ pub const Dir = struct {
                         .name_data = undefined,
                     };
                 },
-                Os.macosx, Os.ios, Os.freebsd, Os.netbsd => Handle{
-                    .fd = try posixOpen(
-                        dir_path,
-                        posix.O_RDONLY | posix.O_NONBLOCK | posix.O_DIRECTORY | posix.O_CLOEXEC,
-                        0,
-                    ),
+                .macosx, .ios, .freebsd, .netbsd => Handle{
+                    .fd = try os.open(dir_path, os.O_RDONLY | os.O_NONBLOCK | os.O_DIRECTORY | os.O_CLOEXEC, 0),
                     .seek = 0,
                     .index = 0,
                     .end_index = 0,
                     .buf = []u8{},
                 },
-                Os.linux => Handle{
-                    .fd = try posixOpen(
-                        dir_path,
-                        posix.O_RDONLY | posix.O_DIRECTORY | posix.O_CLOEXEC,
-                        0,
-                    ),
+                .linux => Handle{
+                    .fd = try os.open(dir_path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, 0),
                     .index = 0,
                     .end_index = 0,
                     .buf = []u8{},
@@ -486,27 +476,22 @@ pub const Dir = struct {
     }
 
     pub fn close(self: *Dir) void {
-        switch (builtin.os) {
-            Os.windows => {
-                _ = windows.FindClose(self.handle.handle);
-            },
-            Os.macosx, Os.ios, Os.linux, Os.freebsd, Os.netbsd => {
-                self.allocator.free(self.handle.buf);
-                os.close(self.handle.fd);
-            },
-            else => @compileError("unimplemented"),
+        if (os.windows.is_the_target) {
+            return os.windows.FindClose(self.handle.handle);
         }
+        self.allocator.free(self.handle.buf);
+        os.close(self.handle.fd);
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this `Dir` is deinitialized.
     pub fn next(self: *Dir) !?Entry {
         switch (builtin.os) {
-            Os.linux => return self.nextLinux(),
-            Os.macosx, Os.ios => return self.nextDarwin(),
-            Os.windows => return self.nextWindows(),
-            Os.freebsd => return self.nextFreebsd(),
-            Os.netbsd => return self.nextFreebsd(),
+            .linux => return self.nextLinux(),
+            .macosx, .ios => return self.nextDarwin(),
+            .windows => return self.nextWindows(),
+            .freebsd => return self.nextBsd(),
+            .netbsd => return self.nextBsd(),
             else => @compileError("unimplemented"),
         }
     }
@@ -519,18 +504,23 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = system.__getdirentries64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
-                    if (result == 0) return null;
-                    if (result < 0) {
-                        switch (system.getErrno(result)) {
-                            posix.EBADF => unreachable,
-                            posix.EFAULT => unreachable,
-                            posix.ENOTDIR => unreachable,
-                            posix.EINVAL => {
+                    const rc = os.system.__getdirentries64(
+                        self.handle.fd,
+                        self.handle.buf.ptr,
+                        self.handle.buf.len,
+                        &self.handle.seek,
+                    );
+                    if (rc == 0) return null;
+                    if (rc < 0) {
+                        switch (os.errno(rc)) {
+                            os.EBADF => unreachable,
+                            os.EFAULT => unreachable,
+                            os.ENOTDIR => unreachable,
+                            os.EINVAL => {
                                 self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
                                 continue;
                             },
-                            else => return unexpectedErrorPosix(err),
+                            else => |err| return os.unexpectedErrno(err),
                         }
                     }
                     self.handle.index = 0;
@@ -538,7 +528,7 @@ pub const Dir = struct {
                     break;
                 }
             }
-            const darwin_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const darwin_entry = @ptrCast(*align(1) os.dirent, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + darwin_entry.d_reclen;
             self.handle.index = next_index;
 
@@ -549,14 +539,14 @@ pub const Dir = struct {
             }
 
             const entry_kind = switch (darwin_entry.d_type) {
-                posix.DT_BLK => Entry.Kind.BlockDevice,
-                posix.DT_CHR => Entry.Kind.CharacterDevice,
-                posix.DT_DIR => Entry.Kind.Directory,
-                posix.DT_FIFO => Entry.Kind.NamedPipe,
-                posix.DT_LNK => Entry.Kind.SymLink,
-                posix.DT_REG => Entry.Kind.File,
-                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                posix.DT_WHT => Entry.Kind.Whiteout,
+                os.DT_BLK => Entry.Kind.BlockDevice,
+                os.DT_CHR => Entry.Kind.CharacterDevice,
+                os.DT_DIR => Entry.Kind.Directory,
+                os.DT_FIFO => Entry.Kind.NamedPipe,
+                os.DT_LNK => Entry.Kind.SymLink,
+                os.DT_REG => Entry.Kind.File,
+                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                os.DT_WHT => Entry.Kind.Whiteout,
                 else => Entry.Kind.Unknown,
             };
             return Entry{
@@ -571,7 +561,7 @@ pub const Dir = struct {
             if (self.handle.first) {
                 self.handle.first = false;
             } else {
-                if (!try posix.FindNextFile(self.handle.handle, &self.handle.find_file_data))
+                if (!try os.windows.FindNextFile(self.handle.handle, &self.handle.find_file_data))
                     return null;
             }
             const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
@@ -582,9 +572,9 @@ pub const Dir = struct {
             const name_utf8 = self.handle.name_data[0..name_utf8_len];
             const kind = blk: {
                 const attrs = self.handle.find_file_data.dwFileAttributes;
-                if (attrs & windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
-                if (attrs & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                if (attrs & windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
+                if (attrs & os.windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
+                if (attrs & os.windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
+                if (attrs & os.windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
                 break :blk Entry.Kind.Unknown;
             };
             return Entry{
@@ -602,25 +592,25 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = posix.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
-                    const err = posix.getErrno(result);
-                    if (err > 0) {
-                        switch (err) {
-                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
-                            posix.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
-                                continue;
-                            },
-                            else => return unexpectedErrorPosix(err),
-                        }
+                    const rc = os.system.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
+                    switch (os.errno(rc)) {
+                        0 => {},
+                        os.EBADF => unreachable,
+                        os.EFAULT => unreachable,
+                        os.ENOTDIR => unreachable,
+                        os.EINVAL => {
+                            self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
+                            continue;
+                        },
+                        else => |err| return os.unexpectedErrno(err),
                     }
-                    if (result == 0) return null;
+                    if (rc == 0) return null;
                     self.handle.index = 0;
-                    self.handle.end_index = result;
+                    self.handle.end_index = rc;
                     break;
                 }
             }
-            const linux_entry = @ptrCast(*align(1) posix.dirent64, &self.handle.buf[self.handle.index]);
+            const linux_entry = @ptrCast(*align(1) os.dirent64, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + linux_entry.d_reclen;
             self.handle.index = next_index;
 
@@ -632,13 +622,13 @@ pub const Dir = struct {
             }
 
             const entry_kind = switch (linux_entry.d_type) {
-                posix.DT_BLK => Entry.Kind.BlockDevice,
-                posix.DT_CHR => Entry.Kind.CharacterDevice,
-                posix.DT_DIR => Entry.Kind.Directory,
-                posix.DT_FIFO => Entry.Kind.NamedPipe,
-                posix.DT_LNK => Entry.Kind.SymLink,
-                posix.DT_REG => Entry.Kind.File,
-                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                os.DT_BLK => Entry.Kind.BlockDevice,
+                os.DT_CHR => Entry.Kind.CharacterDevice,
+                os.DT_DIR => Entry.Kind.Directory,
+                os.DT_FIFO => Entry.Kind.NamedPipe,
+                os.DT_LNK => Entry.Kind.SymLink,
+                os.DT_REG => Entry.Kind.File,
+                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
                 else => Entry.Kind.Unknown,
             };
             return Entry{
@@ -648,7 +638,7 @@ pub const Dir = struct {
         }
     }
 
-    fn nextFreebsd(self: *Dir) !?Entry {
+    fn nextBsd(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.handle.index >= self.handle.end_index) {
                 if (self.handle.buf.len == 0) {
@@ -656,25 +646,30 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const result = posix.getdirentries(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len, &self.handle.seek);
-                    const err = posix.getErrno(result);
-                    if (err > 0) {
-                        switch (err) {
-                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
-                            posix.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
-                                continue;
-                            },
-                            else => return unexpectedErrorPosix(err),
-                        }
+                    const rc = os.system.getdirentries(
+                        self.handle.fd,
+                        self.handle.buf.ptr,
+                        self.handle.buf.len,
+                        &self.handle.seek,
+                    );
+                    switch (os.errno(rc)) {
+                        0 => {},
+                        os.EBADF => unreachable,
+                        os.EFAULT => unreachable,
+                        os.ENOTDIR => unreachable,
+                        os.EINVAL => {
+                            self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
+                            continue;
+                        },
+                        else => |err| return os.unexpectedErrno(err),
                     }
-                    if (result == 0) return null;
+                    if (rc == 0) return null;
                     self.handle.index = 0;
-                    self.handle.end_index = result;
+                    self.handle.end_index = @intCast(usize, rc);
                     break;
                 }
             }
-            const freebsd_entry = @ptrCast(*align(1) posix.dirent, &self.handle.buf[self.handle.index]);
+            const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.handle.buf[self.handle.index]);
             const next_index = self.handle.index + freebsd_entry.d_reclen;
             self.handle.index = next_index;
 
@@ -685,14 +680,14 @@ pub const Dir = struct {
             }
 
             const entry_kind = switch (freebsd_entry.d_type) {
-                posix.DT_BLK => Entry.Kind.BlockDevice,
-                posix.DT_CHR => Entry.Kind.CharacterDevice,
-                posix.DT_DIR => Entry.Kind.Directory,
-                posix.DT_FIFO => Entry.Kind.NamedPipe,
-                posix.DT_LNK => Entry.Kind.SymLink,
-                posix.DT_REG => Entry.Kind.File,
-                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                posix.DT_WHT => Entry.Kind.Whiteout,
+                os.DT_BLK => Entry.Kind.BlockDevice,
+                os.DT_CHR => Entry.Kind.CharacterDevice,
+                os.DT_DIR => Entry.Kind.Directory,
+                os.DT_FIFO => Entry.Kind.NamedPipe,
+                os.DT_LNK => Entry.Kind.SymLink,
+                os.DT_REG => Entry.Kind.File,
+                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                os.DT_WHT => Entry.Kind.Whiteout,
                 else => Entry.Kind.Unknown,
             };
             return Entry{
@@ -705,52 +700,40 @@ pub const Dir = struct {
 
 /// Read value of a symbolic link.
 /// The return value is a slice of buffer, from index `0`.
-pub fn readLink(buffer: *[posix.PATH_MAX]u8, pathname: []const u8) ![]u8 {
-    return posix.readlink(pathname, buffer);
+pub fn readLink(pathname: []const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
+    return os.readlink(pathname, buffer);
 }
 
 /// Same as `readLink`, except the `pathname` parameter is null-terminated.
-pub fn readLinkC(buffer: *[posix.PATH_MAX]u8, pathname: [*]const u8) ![]u8 {
-    return posix.readlinkC(pathname, buffer);
+pub fn readLinkC(pathname: [*]const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
+    return os.readlinkC(pathname, buffer);
 }
 
-pub fn openSelfExe() !os.File {
-    switch (builtin.os) {
-        Os.linux => return os.File.openReadC(c"/proc/self/exe"),
-        Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
-            var buf: [MAX_PATH_BYTES]u8 = undefined;
-            const self_exe_path = try selfExePath(&buf);
-            buf[self_exe_path.len] = 0;
-            return os.File.openReadC(self_exe_path.ptr);
-        },
-        Os.windows => {
-            var buf: [posix.PATH_MAX_WIDE]u16 = undefined;
-            const wide_slice = try selfExePathW(&buf);
-            return os.File.openReadW(wide_slice.ptr);
-        },
-        else => @compileError("Unsupported OS"),
+pub const OpenSelfExeError = error{};
+
+pub fn openSelfExe() OpenSelfExeError!File {
+    if (os.linux.is_the_target) {
+        return File.openReadC(c"/proc/self/exe");
     }
+    if (os.windows.is_the_target) {
+        var buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
+        const wide_slice = try selfExePathW(&buf);
+        return File.openReadW(wide_slice.ptr);
+    }
+    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    const self_exe_path = try selfExePath(&buf);
+    buf[self_exe_path.len] = 0;
+    return File.openReadC(self_exe_path.ptr);
 }
 
 test "openSelfExe" {
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.windows, Os.freebsd => (try openSelfExe()).close(),
+        .linux, .macosx, .ios, .windows, .freebsd => (try openSelfExe()).close(),
         else => return error.SkipZigTest, // Unsupported OS.
     }
 }
 
-pub fn selfExePathW(out_buffer: *[posix.PATH_MAX_WIDE]u16) ![]u16 {
-    const casted_len = @intCast(windows.DWORD, out_buffer.len); // TODO shouldn't need this cast
-    const rc = windows.GetModuleFileNameW(null, out_buffer, casted_len);
-    assert(rc <= out_buffer.len);
-    if (rc == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
-            else => return windows.unexpectedError(err),
-        }
-    }
-    return out_buffer[0..rc];
-}
+pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 
 /// Get the path to the current executable.
 /// If you only need the directory, use selfExeDirPath.
@@ -763,37 +746,42 @@ pub fn selfExePathW(out_buffer: *[posix.PATH_MAX_WIDE]u16) ![]u16 {
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    if (os.darwin.is_the_target) {
+        var u32_len: u32 = out_buffer.len;
+        const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
+        if (rc != 0) return error.NameTooLong;
+        return mem.toSlice(u8, out_buffer);
+    }
     switch (builtin.os) {
-        Os.linux => return readLink(out_buffer, "/proc/self/exe"),
-        Os.freebsd => {
-            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC, posix.KERN_PROC_PATHNAME, -1 };
+        .linux => return os.readlinkC(c"/proc/self/exe", out_buffer),
+        .freebsd => {
+            var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
-            try posix.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.toSlice(u8, out_buffer);
         },
-        Os.netbsd => {
-            var mib = [4]c_int{ posix.CTL_KERN, posix.KERN_PROC_ARGS, -1, posix.KERN_PROC_PATHNAME };
+        .netbsd => {
+            var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
-            try posix.sysctl(&mib, out_buffer, &out_len, null, 0);
+            try os.sysctl(&mib, out_buffer, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
             return mem.toSlice(u8, out_buffer);
         },
-        Os.windows => {
-            var utf16le_buf: [posix.PATH_MAX_WIDE]u16 = undefined;
+        .windows => {
+            var utf16le_buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
             const utf16le_slice = try selfExePathW(&utf16le_buf);
             // Trust that Windows gives us valid UTF-16LE.
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
-        Os.macosx, Os.ios => {
-            var u32_len: u32 = @intCast(u32, out_buffer.len); // TODO shouldn't need this cast
-            const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
-            if (rc != 0) return error.NameTooLong;
-            return mem.toSlice(u8, out_buffer);
-        },
-        else => @compileError("Unsupported OS"),
+        else => @compileError("std.fs.selfExePath not supported for this target"),
     }
+}
+
+/// Same as `selfExePath` except the result is UTF16LE-encoded.
+pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) ![]u16 {
+    return os.windows.GetModuleFileNameW(null, out_buffer, out_buffer.len);
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.
@@ -806,31 +794,26 @@ pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
 pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
-    switch (builtin.os) {
-        Os.linux => {
-            // If the currently executing binary has been deleted,
-            // the file path looks something like `/a/b/c/exe (deleted)`
-            // This path cannot be opened, but it's valid for determining the directory
-            // the executable was in when it was run.
-            const full_exe_path = try readLinkC(out_buffer, c"/proc/self/exe");
-            // Assume that /proc/self/exe has an absolute path, and therefore dirname
-            // will not return null.
-            return path.dirname(full_exe_path).?;
-        },
-        Os.windows, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
-            const self_exe_path = try selfExePath(out_buffer);
-            // Assume that the OS APIs return absolute paths, and therefore dirname
-            // will not return null.
-            return path.dirname(self_exe_path).?;
-        },
-        else => @compileError("Unsupported OS"),
+    if (os.linux.is_the_target) {
+        // If the currently executing binary has been deleted,
+        // the file path looks something like `/a/b/c/exe (deleted)`
+        // This path cannot be opened, but it's valid for determining the directory
+        // the executable was in when it was run.
+        const full_exe_path = try os.readlinkC(c"/proc/self/exe", out_buffer);
+        // Assume that /proc/self/exe has an absolute path, and therefore dirname
+        // will not return null.
+        return path.dirname(full_exe_path).?;
     }
+    const self_exe_path = try selfExePath(out_buffer);
+    // Assume that the OS APIs return absolute paths, and therefore dirname
+    // will not return null.
+    return path.dirname(self_exe_path).?;
 }
 
 /// `realpath`, except caller must free the returned memory.
-pub fn realAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
+pub fn realpathAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try realpath(pathname, &buf));
+    return mem.dupe(allocator, u8, try os.realpath(pathname, &buf));
 }
 
 test "" {

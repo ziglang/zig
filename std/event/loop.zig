@@ -789,13 +789,13 @@ pub const Loop = struct {
                         msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
                     },
                     @TagType(fs.Request.Msg).Open => |*msg| {
-                        msg.result = os.posixOpenC(msg.path.ptr, msg.flags, msg.mode);
+                        msg.result = os.openC(msg.path.ptr, msg.flags, msg.mode);
                     },
                     @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
                     @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
                         const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT |
                             posix.O_CLOEXEC | posix.O_TRUNC;
-                        const fd = os.posixOpenC(msg.path.ptr, flags, msg.mode) catch |err| {
+                        const fd = os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
                             msg.result = err;
                             break :blk;
                         };

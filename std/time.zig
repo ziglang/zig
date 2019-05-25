@@ -1,116 +1,61 @@
-const std = @import("../std.zig");
 const builtin = @import("builtin");
-const Os = builtin.Os;
-const debug = std.debug;
+const std = @import("std.zig");
+const assert = std.debug.assert;
 const testing = std.testing;
-const math = std.math;
-
-const windows = std.os.windows;
-const linux = std.os.linux;
-const darwin = std.os.darwin;
-const wasi = std.os.wasi;
-const posix = std.os.posix;
+const os = std.os;
 
 pub const epoch = @import("epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
-    switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios, Os.freebsd, Os.netbsd => {
-            const s = nanoseconds / ns_per_s;
-            const ns = nanoseconds % ns_per_s;
-            posixSleep(s, ns);
-        },
-        Os.windows => {
-            const ns_per_ms = ns_per_s / ms_per_s;
-            const milliseconds = nanoseconds / ns_per_ms;
-            const ms_that_will_fit = std.math.cast(windows.DWORD, milliseconds) catch std.math.maxInt(windows.DWORD);
-            windows.Sleep(ms_that_will_fit);
-        },
-        else => @compileError("Unsupported OS"),
-    }
-}
-
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
-pub fn posixSleep(seconds: u64, nanoseconds: u64) void {
-    var req = posix.timespec{
-        .tv_sec = std.math.cast(isize, seconds) catch std.math.maxInt(isize),
-        .tv_nsec = std.math.cast(isize, nanoseconds) catch std.math.maxInt(isize),
-    };
-    var rem: posix.timespec = undefined;
-    while (true) {
-        const ret_val = posix.nanosleep(&req, &rem);
-        const err = posix.getErrno(ret_val);
-        switch (err) {
-            posix.EFAULT => unreachable,
-            posix.EINVAL => {
-                // Sometimes Darwin returns EINVAL for no reason.
-                // We treat it as a spurious wakeup.
-                return;
-            },
-            posix.EINTR => {
-                req = rem;
-                continue;
-            },
-            // This prong handles success as well as unexpected errors.
-            else => return,
-        }
-    }
+    const s = nanoseconds / ns_per_s;
+    const ns = nanoseconds % ns_per_s;
+    std.os.nanosleep(s, ns);
 }
 
 /// Get the posix timestamp, UTC, in seconds
+/// TODO audit this function. is it possible to return an error?
 pub fn timestamp() u64 {
     return @divFloor(milliTimestamp(), ms_per_s);
 }
 
 /// Get the posix timestamp, UTC, in milliseconds
-pub const milliTimestamp = switch (builtin.os) {
-    Os.windows => milliTimestampWindows,
-    Os.linux, Os.freebsd, Os.netbsd => milliTimestampPosix,
-    Os.macosx, Os.ios => milliTimestampDarwin,
-    Os.wasi => milliTimestampWasi,
-    else => @compileError("Unsupported OS"),
-};
+/// TODO audit this function. is it possible to return an error?
+pub fn milliTimestamp() u64 {
+    if (os.windows.is_the_target and !builtin.link_libc) {
+        //FileTime has a granularity of 100 nanoseconds
+        //  and uses the NTFS/Windows epoch
+        var ft: os.windows.FILETIME = undefined;
+        os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
+        const hns_per_ms = (ns_per_s / 100) / ms_per_s;
+        const epoch_adj = epoch.windows * ms_per_s;
 
-fn milliTimestampWasi() u64 {
-    var ns: wasi.timestamp_t = undefined;
+        const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+        return @divFloor(ft64, hns_per_ms) - -epoch_adj;
+    }
+    if (os.wasi.is_the_target and !builtin.link_libc) {
+        var ns: os.wasi.timestamp_t = undefined;
 
-    // TODO: Verify that precision is ignored
-    const err = wasi.clock_time_get(wasi.CLOCK_REALTIME, 1, &ns);
-    debug.assert(err == wasi.ESUCCESS);
+        // TODO: Verify that precision is ignored
+        const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
+        assert(err == os.wasi.ESUCCESS);
 
-    const ns_per_ms = 1000;
-    return @divFloor(ns, ns_per_ms);
-}
-
-fn milliTimestampWindows() u64 {
-    //FileTime has a granularity of 100 nanoseconds
-    //  and uses the NTFS/Windows epoch
-    var ft: windows.FILETIME = undefined;
-    windows.GetSystemTimeAsFileTime(&ft);
-    const hns_per_ms = (ns_per_s / 100) / ms_per_s;
-    const epoch_adj = epoch.windows * ms_per_s;
-
-    const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return @divFloor(ft64, hns_per_ms) - -epoch_adj;
-}
-
-fn milliTimestampDarwin() u64 {
-    var tv: darwin.timeval = undefined;
-    var err = darwin.gettimeofday(&tv, null);
-    debug.assert(err == 0);
-    const sec_ms = tv.tv_sec * ms_per_s;
-    const usec_ms = @divFloor(tv.tv_usec, us_per_s / ms_per_s);
-    return @intCast(u64, sec_ms + usec_ms);
-}
-
-fn milliTimestampPosix() u64 {
+        const ns_per_ms = 1000;
+        return @divFloor(ns, ns_per_ms);
+    }
+    if (os.darwin.is_the_target) {
+        var tv: os.darwin.timeval = undefined;
+        var err = os.darwin.gettimeofday(&tv, null);
+        assert(err == 0);
+        const sec_ms = tv.tv_sec * ms_per_s;
+        const usec_ms = @divFloor(tv.tv_usec, us_per_s / ms_per_s);
+        return @intCast(u64, sec_ms + usec_ms);
+    }
+    var ts: os.timespec = undefined;
     //From what I can tell there's no reason clock_gettime
     //  should ever fail for us with CLOCK_REALTIME,
     //  seccomp aside.
-    var ts: posix.timespec = undefined;
-    const err = posix.clock_gettime(posix.CLOCK_REALTIME, &ts);
-    debug.assert(err == 0);
+    os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
     const sec_ms = @intCast(u64, ts.tv_sec) * ms_per_s;
     const nsec_ms = @divFloor(@intCast(u64, ts.tv_nsec), ns_per_s / ms_per_s);
     return sec_ms + nsec_ms;
@@ -145,27 +90,23 @@ pub const s_per_week = s_per_day * 7;
 ///   depends on the OS. On Windows and Darwin it is a hardware counter
 ///   value that requires calculation to convert to a meaninful unit.
 pub const Timer = struct {
-
-    //if we used resolution's value when performing the
-    //  performance counter calc on windows/darwin, it would
-    //  be less precise
+    ///if we used resolution's value when performing the
+    ///  performance counter calc on windows/darwin, it would
+    ///  be less precise
     frequency: switch (builtin.os) {
-        Os.windows => u64,
-        Os.macosx, Os.ios => darwin.mach_timebase_info_data,
+        .windows => u64,
+        .macosx, .ios, .tvos, .watchos => darwin.mach_timebase_info_data,
         else => void,
     },
     resolution: u64,
     start_time: u64,
 
-    //At some point we may change our minds on RAW, but for now we're
-    //  sticking with posix standard MONOTONIC. For more information, see:
-    //  https://github.com/ziglang/zig/pull/933
-    //
-    //const monotonic_clock_id = switch(builtin.os) {
-    //    Os.linux => linux.CLOCK_MONOTONIC_RAW,
-    //    else => posix.CLOCK_MONOTONIC,
-    //};
-    const monotonic_clock_id = posix.CLOCK_MONOTONIC;
+    const Error = error{TimerUnsupported};
+
+    ///At some point we may change our minds on RAW, but for now we're
+    ///  sticking with posix standard MONOTONIC. For more information, see:
+    ///  https://github.com/ziglang/zig/pull/933
+    const monotonic_clock_id = os.CLOCK_MONOTONIC;
     /// Initialize the timer structure.
     //This gives us an opportunity to grab the counter frequency in windows.
     //On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
@@ -174,66 +115,51 @@ pub const Timer = struct {
     //  impossible here barring cosmic rays or other such occurrences of
     //  incredibly bad luck.
     //On Darwin: This cannot fail, as far as I am able to tell.
-    const TimerError = error{
-        TimerUnsupported,
-        Unexpected,
-    };
-    pub fn start() TimerError!Timer {
+    pub fn start() Error!Timer {
         var self: Timer = undefined;
 
-        switch (builtin.os) {
-            Os.windows => {
-                var freq: i64 = undefined;
-                var err = windows.QueryPerformanceFrequency(&freq);
-                if (err == windows.FALSE) return error.TimerUnsupported;
-                self.frequency = @intCast(u64, freq);
-                self.resolution = @divFloor(ns_per_s, self.frequency);
+        if (os.windows.is_the_target) {
+            var freq: i64 = undefined;
+            var err = windows.QueryPerformanceFrequency(&freq);
+            if (err == windows.FALSE) return error.TimerUnsupported;
+            self.frequency = @intCast(u64, freq);
+            self.resolution = @divFloor(ns_per_s, self.frequency);
 
-                var start_time: i64 = undefined;
-                err = windows.QueryPerformanceCounter(&start_time);
-                debug.assert(err != windows.FALSE);
-                self.start_time = @intCast(u64, start_time);
-            },
-            Os.linux, Os.freebsd, Os.netbsd => {
-                //On Linux, seccomp can do arbitrary things to our ability to call
-                //  syscalls, including return any errno value it wants and
-                //  inconsistently throwing errors. Since we can't account for
-                //  abuses of seccomp in a reasonable way, we'll assume that if
-                //  seccomp is going to block us it will at least do so consistently
-                var ts: posix.timespec = undefined;
-                var result = posix.clock_getres(monotonic_clock_id, &ts);
-                var errno = posix.getErrno(result);
-                switch (errno) {
-                    0 => {},
-                    posix.EINVAL => return error.TimerUnsupported,
-                    else => return std.os.unexpectedErrorPosix(errno),
-                }
-                self.resolution = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
+            var start_time: i64 = undefined;
+            err = windows.QueryPerformanceCounter(&start_time);
+            assert(err != windows.FALSE);
+            self.start_time = @intCast(u64, start_time);
+        } else if (os.darwin.is_the_target) {
+            darwin.mach_timebase_info(&self.frequency);
+            self.resolution = @divFloor(self.frequency.numer, self.frequency.denom);
+            self.start_time = darwin.mach_absolute_time();
+        } else {
+            //On Linux, seccomp can do arbitrary things to our ability to call
+            //  syscalls, including return any errno value it wants and
+            //  inconsistently throwing errors. Since we can't account for
+            //  abuses of seccomp in a reasonable way, we'll assume that if
+            //  seccomp is going to block us it will at least do so consistently
+            var ts: os.timespec = undefined;
+            os.clock_getres(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
+            self.resolution = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
 
-                result = posix.clock_gettime(monotonic_clock_id, &ts);
-                errno = posix.getErrno(result);
-                if (errno != 0) return std.os.unexpectedErrorPosix(errno);
-                self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-            },
-            Os.macosx, Os.ios => {
-                darwin.mach_timebase_info(&self.frequency);
-                self.resolution = @divFloor(self.frequency.numer, self.frequency.denom);
-                self.start_time = darwin.mach_absolute_time();
-            },
-            else => @compileError("Unsupported OS"),
+            os.clock_gettime(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
+            self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
         }
+
         return self;
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
     pub fn read(self: *Timer) u64 {
         var clock = clockNative() - self.start_time;
-        return switch (builtin.os) {
-            Os.windows => @divFloor(clock * ns_per_s, self.frequency),
-            Os.linux, Os.freebsd, Os.netbsd => clock,
-            Os.macosx, Os.ios => @divFloor(clock * self.frequency.numer, self.frequency.denom),
-            else => @compileError("Unsupported OS"),
-        };
+        if (os.windows.is_the_target) {
+            return @divFloor(clock * ns_per_s, self.frequency);
+        }
+        if (os.darwin.is_the_target) {
+            return @divFloor(clock * self.frequency.numer, self.frequency.denom);
+        }
+        return clock;
     }
 
     /// Resets the timer value to 0/now.
@@ -249,37 +175,27 @@ pub const Timer = struct {
         return lap_time;
     }
 
-    const clockNative = switch (builtin.os) {
-        Os.windows => clockWindows,
-        Os.linux, Os.freebsd, Os.netbsd => clockLinux,
-        Os.macosx, Os.ios => clockDarwin,
-        else => @compileError("Unsupported OS"),
-    };
-
-    fn clockWindows() u64 {
-        var result: i64 = undefined;
-        var err = windows.QueryPerformanceCounter(&result);
-        debug.assert(err != windows.FALSE);
-        return @intCast(u64, result);
-    }
-
-    fn clockDarwin() u64 {
-        return darwin.mach_absolute_time();
-    }
-
-    fn clockLinux() u64 {
-        var ts: posix.timespec = undefined;
-        var result = posix.clock_gettime(monotonic_clock_id, &ts);
-        debug.assert(posix.getErrno(result) == 0);
+    fn clockNative() u64 {
+        if (os.windows.is_the_target) {
+            var result: i64 = undefined;
+            var err = windows.QueryPerformanceCounter(&result);
+            assert(err != windows.FALSE);
+            return @intCast(u64, result);
+        }
+        if (os.darwin.is_the_target) {
+            return darwin.mach_absolute_time();
+        }
+        var ts: os.timespec = undefined;
+        os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;
         return @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
     }
 };
 
-test "os.time.sleep" {
+test "sleep" {
     sleep(1);
 }
 
-test "os.time.timestamp" {
+test "timestamp" {
     const ns_per_ms = (ns_per_s / ms_per_s);
     const margin = 50;
 
@@ -290,7 +206,7 @@ test "os.time.timestamp" {
     testing.expect(interval > 0 and interval < margin);
 }
 
-test "os.time.Timer" {
+test "Timer" {
     const ns_per_ms = (ns_per_s / ms_per_s);
     const margin = ns_per_ms * 150;
 
