@@ -353,7 +353,7 @@ fn printErrMsgToFile(
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
-    const stream = &file.outStreamAdapter().stream;
+    const stream = file.outStreamAdapter().outStream();
     if (!color_on) {
         try stream.print(
             "{}:{}:{}: error: {}\n",

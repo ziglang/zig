@@ -19,7 +19,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() void {
             \\    privateFunction();
-            \\    const stdout = &(getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\    const stdout = (getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\    stdout.print("OK 2\n") catch unreachable;
             \\}
             \\
@@ -34,7 +34,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
             \\fn privateFunction() void {
-            \\    const stdout = &(getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\    const stdout = (getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\    stdout.print("OK 1\n") catch unreachable;
             \\}
             \\
@@ -60,7 +60,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         tc.addSourceFile("foo.zig",
             \\use @import("std").io;
             \\pub fn foo_function() void {
-            \\    const stdout = &(getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\    const stdout = (getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\    stdout.print("OK\n") catch unreachable;
             \\}
         );
@@ -71,7 +71,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn bar_function() void {
             \\    if (foo_function()) {
-            \\        const stdout = &(getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\        const stdout = (getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\        stdout.print("OK\n") catch unreachable;
             \\    }
             \\}
@@ -103,7 +103,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub const a_text = "OK\n";
             \\
             \\pub fn ok() void {
-            \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\    stdout.print(b_text) catch unreachable;
             \\}
         );
@@ -121,7 +121,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
         \\}
     , "Hello, world!\n0012 012 a\n");
@@ -264,7 +264,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    var x_local : i32 = print_ok(x);
         \\}
         \\fn print_ok(val: @typeOf(x)) @typeOf(foo) {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("OK\n") catch unreachable;
         \\    return 0;
         \\}
@@ -346,7 +346,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const bar = Bar {.field2 = 13,};
         \\    const foo = Foo {.field1 = bar,};
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    if (!foo.method()) {
         \\        stdout.print("BAD\n") catch unreachable;
         \\    }
@@ -360,7 +360,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("defer with only fallthrough",
         \\const io = @import("std").io;
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
         \\    defer stdout.print("defer2\n") catch unreachable;
@@ -373,7 +373,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\const os = @import("std").os;
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
         \\    defer stdout.print("defer2\n") catch unreachable;
@@ -390,7 +390,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
         \\    errdefer stdout.print("deferErr\n") catch unreachable;
@@ -409,7 +409,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+        \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
         \\    errdefer stdout.print("deferErr\n") catch unreachable;
@@ -426,7 +426,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const io = @import("std").io;
             \\
             \\pub fn main() void {
-            \\    const stdout = &(io.getStdOut() catch unreachable).outStreamAdapter().stream;
+            \\    const stdout = (io.getStdOut() catch unreachable).outStreamAdapter().outStream();
             \\    stdout.print(foo_txt) catch unreachable;
             \\}
         , "1234\nabcd\n");

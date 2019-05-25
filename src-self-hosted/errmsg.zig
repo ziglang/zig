@@ -282,7 +282,7 @@ pub const Msg = struct {
             Color.On => true,
             Color.Off => false,
         };
-        var stream = &file.outStreamAdapter().stream;
+        var stream = file.outStreamAdapter().outStream();
         return msg.printToStream(stream, color_on);
     }
 };
