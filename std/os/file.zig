@@ -428,19 +428,19 @@ pub const File = struct {
         }
     }
 
-    pub fn inStreamHandle(file: File) InStream {
+    pub fn inStreamAdapter(file: File) InStream {
         return InStream{
             .file = file,
         };
     }
 
-    pub fn outStreamHandle(file: File) OutStream {
+    pub fn outStreamAdapter(file: File) OutStream {
         return OutStream{
             .file = file,
         };
     }
 
-    pub fn seekableStreamHandle(file: File) SeekableStream {
+    pub fn seekableStreamAdapter(file: File) SeekableStream {
         return SeekableStream{
             .file = file,
         };
@@ -478,7 +478,7 @@ pub const File = struct {
             return self.file.write(bytes);
         }
         
-        pub fn inStream(self: *OutStream) Stream {
+        pub fn outStream(self: *OutStream) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
                 .writeFn = writeFn,
