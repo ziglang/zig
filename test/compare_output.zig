@@ -447,7 +447,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    var args_it = os.args();
             \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStreamAdapter();
-            \\    const stdout = &stdout_adapter.stream;
+            \\    const stdout = stdout_adapter.outStream();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
@@ -488,7 +488,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    var args_it = os.args();
             \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStreamAdapter();
-            \\    const stdout = &stdout_adapter.stream;
+            \\    const stdout = stdout_adapter.outStream();
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {

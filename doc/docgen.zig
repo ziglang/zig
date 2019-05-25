@@ -46,7 +46,7 @@ pub fn main() !void {
     const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = out_file.outStreamAdapter();
-    var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(&file_out_stream.stream);
+    var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(file_out_stream.outStream());
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -54,7 +54,7 @@ pub fn main() !void {
     try os.makePath(allocator, tmp_dir_name);
     defer os.deleteTree(allocator, tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
+    try genHtml(allocator, &tokenizer, &toc, buffered_out_stream.outStream(), zig_exe);
     try buffered_out_stream.flush();
 }
 
@@ -574,7 +574,7 @@ fn urlize(allocator: mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     for (input) |c| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_', '-', '0'...'9' => {
@@ -594,7 +594,7 @@ fn escapeHtml(allocator: mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     try writeEscaped(out, input);
     return buf.toOwnedSlice();
 }
@@ -640,7 +640,7 @@ fn termColor(allocator: mem.Allocator, input: []const u8) ![]u8 {
     defer buf.deinit();
 
     var buf_adapter = io.BufferOutStream.init(&buf);
-    var out = &buf_adapter.stream;
+    var out = buf_adapter.outStream();
     var number_start_index: usize = undefined;
     var first_number: usize = undefined;
     var second_number: usize = undefined;

@@ -44,7 +44,7 @@ pub fn InStream(comptime ReadError: type) type {
         const Self = @This();
         pub const Error = ReadError;
         pub const InStreamImpl = ?*@OpaqueType();
-        
+
         impl: InStreamImpl,
 
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
@@ -213,14 +213,14 @@ pub fn InStream(comptime ReadError: type) type {
             try self.readNoEof(@sliceToBytes(res[0..]));
             return res[0];
         }
-        
+
         /// Cast the original type to the implementation pointer
         pub fn ifaceCast(ptr: var) InStreamImpl {
             const T = @typeOf(ptr);
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
             return @ptrCast(InStreamImpl, ptr);
         }
-        
+
         /// Cast the implementation pointer back to the original type
         pub fn implCast(in: InStreamImpl, comptime T: type) *T {
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
@@ -236,7 +236,7 @@ pub fn OutStream(comptime WriteError: type) type {
         const Self = @This();
         pub const Error = WriteError;
         pub const OutStreamImpl = ?*@OpaqueType();
-        
+
         impl: OutStreamImpl,
 
         writeFn: fn (self: Self, bytes: []const u8) Error!void,
@@ -293,14 +293,14 @@ pub fn OutStream(comptime WriteError: type) type {
             mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
         }
-        
+
         /// Cast the original type to the implementation pointer
         pub fn ifaceCast(ptr: var) OutStreamImpl {
             const T = @typeOf(ptr);
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
             return @ptrCast(OutStreamImpl, ptr);
         }
-        
+
         /// Cast the implementation pointer back to the original type
         pub fn implCast(out: OutStreamImpl, comptime T: type) *T {
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
@@ -442,8 +442,8 @@ test "io.BufferedInStream" {
 
     const str = "This is a test";
     var one_byte_stream = OneByteReadInStream.init(str);
-    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
-    const stream = &buf_in_stream.stream;
+    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(one_byte_stream.inStream());
+    const stream = buf_in_stream.inStream();
 
     const res = try stream.readAllAlloc(allocator, str.len + 1);
     testing.expectEqualSlices(u8, str, res);
@@ -748,7 +748,7 @@ test "io.SliceOutStream" {
 }
 
 var null_out_stream_state = NullOutStream.init();
-pub const null_out_stream = &null_out_stream_state.stream;
+pub const null_out_stream = null_out_stream_state.outStream();
 
 /// An OutStream that doesn't write to anything.
 pub const NullOutStream = struct {
@@ -1058,7 +1058,7 @@ pub const BufferedAtomicFile = struct {
 pub fn readLine(buf: *std.Buffer) ![]u8 {
     var stdin = try getStdIn();
     var stdin_stream = stdin.inStreamAdapter();
-    return readLineFrom(&stdin_stream.stream, buf);
+    return readLineFrom(stdin_stream.inStream(), buf);
 }
 
 /// Reads all characters until the next newline into buf, and returns
@@ -1100,7 +1100,7 @@ test "io.readLineFrom" {
 pub fn readLineSlice(slice: []u8) ![]u8 {
     var stdin = try getStdIn();
     var stdin_stream = stdin.inStreamAdapter();
-    return readLineSliceFrom(&stdin_stream.stream, slice);
+    return readLineSliceFrom(stdin_stream.inStream(), slice);
 }
 
 /// Reads all characters until the next newline into slice, and returns

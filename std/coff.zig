@@ -42,7 +42,7 @@ pub const Coff = struct {
         const pe_pointer_offset = 0x3C;
 
         var file_stream = self.in_file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
 
         var magic: [2]u8 = undefined;
         try in.readNoEof(magic[0..]);
@@ -78,7 +78,7 @@ pub const Coff = struct {
     }
 
     fn loadOptionalHeader(self: *Coff, file_stream: *os.File.InStream) !void {
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
         self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,
         // so we'll skip most of this header, which size is different in 32
@@ -116,7 +116,7 @@ pub const Coff = struct {
         try self.in_file.seekTo(file_offset + debug_dir.size);
 
         var file_stream = self.in_file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try in.readNoEof(cv_signature[0..]);
@@ -147,7 +147,7 @@ pub const Coff = struct {
         self.sections = ArrayList(Section).init(self.allocator);
 
         var file_stream = self.in_file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
 
         var name: [8]u8 = undefined;
 

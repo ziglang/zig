@@ -494,7 +494,7 @@ const Msf = struct {
 
     fn openFile(self: *Msf, allocator: mem.Allocator, file: os.File) !void {
         var file_stream = file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
 
         const superblock = try in.readStruct(SuperBlock);
 
@@ -608,7 +608,7 @@ const MsfStream = struct {
         };
 
         var file_stream = file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
         try file.seekTo(pos);
 
         var i: u32 = 0;
@@ -638,7 +638,7 @@ const MsfStream = struct {
 
         try self.in_file.seekTo(block * self.block_size + offset);
         var file_stream = self.in_file.inStreamAdapter();
-        const in = &file_stream.stream;
+        const in = file_stream.inStream();
 
         var size: usize = 0;
         for (buffer) |*byte| {

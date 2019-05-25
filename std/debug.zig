@@ -54,7 +54,7 @@ pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
     } else {
         stderr_file = try io.getStdErr();
         stderr_file_out_stream = stderr_file.outStreamAdapter();
-        const st = &stderr_file_out_stream.stream;
+        const st = stderr_file_out_stream.outStream();
         stderr_stream = st;
         return st;
     }
@@ -845,10 +845,10 @@ fn openSelfDebugInfoWindows(allocator: mem.Allocator) !DebugInfo {
         if (hash_tbl_hdr.Size > HashTableHeader.maxLoad(hash_tbl_hdr.Capacity))
             return error.InvalidDebugInfo;
 
-        const present = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const present = try readSparseBitVector(pdb_stream.inStream(), allocator);
         if (present.len != hash_tbl_hdr.Size)
             return error.InvalidDebugInfo;
-        const deleted = try readSparseBitVector(&pdb_stream.stream, allocator);
+        const deleted = try readSparseBitVector(pdb_stream.inStream(), allocator);
 
         const Bucket = struct {
             first: u32,

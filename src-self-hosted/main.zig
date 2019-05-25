@@ -56,11 +56,11 @@ pub fn main() !void {
 
     var stdout_file = try std.io.getStdOut();
     var stdout_out_stream = stdout_file.outStreamAdapter();
-    stdout = &stdout_out_stream.stream;
+    stdout = stdout_out_stream.outStream();
 
     stderr_file = try std.io.getStdErr();
     var stderr_out_stream = stderr_file.outStreamAdapter();
-    stderr = &stderr_out_stream.stream;
+    stderr = stderr_out_stream.outStream();
 
     const args = try os.argsAlloc(allocator);
     // TODO I'm getting  unreachable code here, which shouldn't happen

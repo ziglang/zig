@@ -2215,7 +2215,7 @@ fn testParse(source: []const u8, allocator: mem.Allocator, anything_changed: *bo
     errdefer buffer.deinit();
 
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    anything_changed.* = try std.zig.render(allocator, &buffer_out_stream.stream, tree);
+    anything_changed.* = try std.zig.render(allocator, buffer_out_stream.outStream(), tree);
     return buffer.toOwnedSlice();
 }
 

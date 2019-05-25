@@ -58,7 +58,7 @@ pub fn main() !void {
     var stdout_file_stream: os.File.OutStream = undefined;
     var stdout_stream = if (stdout_file) |f| x: {
         stdout_file_stream = f.outStreamAdapter();
-        break :x &stdout_file_stream.stream;
+        break :x stdout_file_stream.outStream();
     } else |err| err;
 
     while (arg_it.next(allocator)) |err_or_arg| {

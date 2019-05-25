@@ -105,7 +105,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 }
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
-    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    const c_out_stream = std.io.COutStream.init(output_file).outStream();
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.SystemResources => return Error.SystemResources,
         error.OperationAborted => return Error.OperationAborted,
@@ -145,11 +145,11 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
 
     var stdout_file = try std.io.getStdOut();
     var stdout_out_stream = stdout_file.outStreamAdapter();
-    stdout = &stdout_out_stream.stream;
+    stdout = stdout_out_stream.outStream();
 
     stderr_file = try std.io.getStdErr();
     var stderr_out_stream = stderr_file.outStreamAdapter();
-    stderr = &stderr_out_stream.stream;
+    stderr = stderr_out_stream.outStream();
 
     const args = args_list.toSliceConst();
     var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[2..]);
@@ -349,7 +349,7 @@ fn printErrMsgToFile(
     const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
 
     var text_buf = try std.Buffer.initSize(allocator, 0);
-    var out_stream = &std.io.BufferOutStream.init(&text_buf).stream;
+    var out_stream = &std.io.BufferOutStream.init(text_buf).outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
