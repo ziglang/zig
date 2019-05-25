@@ -349,7 +349,7 @@ fn printErrMsgToFile(
     const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
 
     var text_buf = try std.Buffer.initSize(allocator, 0);
-    var out_stream = &std.io.BufferOutStream.init(text_buf).outStream();
+    var out_stream = std.io.BufferOutStream.init(&text_buf).outStream();
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 

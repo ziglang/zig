@@ -77,7 +77,7 @@ pub const Coff = struct {
         try self.loadOptionalHeader(&file_stream);
     }
 
-    fn loadOptionalHeader(self: *Coff, file_stream: os.File.InStreamAdapter) !void {
+    fn loadOptionalHeader(self: *Coff, file_stream: *os.File.InStreamAdapter) !void {
         const in = file_stream.inStream();
         self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,

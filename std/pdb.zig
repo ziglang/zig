@@ -522,7 +522,7 @@ const Msf = struct {
 
         const stream_sizes = try allocator.alloc(u32, stream_count);
         for (stream_sizes) |*s| {
-            const size = try self.directory.stream.readIntLittle(u32);
+            const size = try self.directory.inStream().readIntLittle(u32);
             s.* = blockCountFromSize(size, superblock.BlockSize);
         }
 
@@ -691,7 +691,7 @@ const MsfStream = struct {
     pub fn inStream(self: *MsfStream) Stream {
         return Stream {
             .impl = Stream.ifaceCast(self),
-            .writeFn = writeFn,
+            .readFn = readFn,
         };
     }
 };
