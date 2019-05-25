@@ -353,7 +353,7 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    seekable_stream: *io.SeekableStream(anyerror, anyerror),
+    seekable_stream: io.SeekableStream(anyerror, anyerror),
     in_stream: io.InStream(anyerror),
     auto_close_stream: bool,
     is_64: bool,

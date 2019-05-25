@@ -819,7 +819,7 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         }
 
         fn writeFn(out_stream: Stream, bytes: []const u8) OutStreamError!void {
-            const self = out_stream.implCast(CountingOutStream);
+            const self = out_stream.implCast(Self);
             try self.child_stream.write(bytes);
             self.bytes_written += bytes.len;
         }
@@ -896,7 +896,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         pub fn outStream(self: *Self) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
-                .readFn = readFn,
+                .writeFn = writeFn,
             };
         }
     };
@@ -923,7 +923,7 @@ pub const BufferOutStream = struct {
     pub fn outStream(self: *BufferOutStream) Stream {
         return Stream {
             .impl = Stream.ifaceCast(self),
-            .readFn = readFn,
+            .writeFn = writeFn,
         };
     }
 };

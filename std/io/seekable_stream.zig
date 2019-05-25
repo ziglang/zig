@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const InStream = std.io.InStream;
+const assert = std.debug.assert;
 
 pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType: type) type {
     return struct {
@@ -8,6 +9,8 @@ pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType
         pub const GetSeekPosError = GetSeekPosErrorType;
         pub const SeekableStreamImpl = ?*@OpaqueType();
 
+        impl: SeekableStreamImpl,
+        
         seekToFn: fn (self: Self, pos: u64) SeekError!void,
         seekForwardFn: fn (self: Self, pos: i64) SeekError!void,
 
@@ -38,7 +41,7 @@ pub fn SeekableStream(comptime SeekErrorType: type, comptime GetSeekPosErrorType
         }
         
         /// Cast the implementation pointer back to the original type
-        pub fn implCast(seek: SeekableStreamImpl, comptime T: type) *T {
+        pub fn implCast(seek: Self, comptime T: type) *T {
             if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
             assert(seek.impl != null);
             const aligned = @alignCast(@alignOf(T), seek.impl);
@@ -114,9 +117,9 @@ pub const SliceSeekableInStream = struct {
         };
     }
     
-    pub fn seekableStream(self: Self) SeekableInStream {
+    pub fn seekableStream(self: *Self) SeekableInStream {
         return SeekableInStream {
-            .impl = Stream.ifaceCast(self),
+            .impl = SeekableInStream.ifaceCast(self),
             .seekToFn = seekToFn,
             .seekForwardFn = seekForwardFn,
             .getPosFn = getPosFn,
