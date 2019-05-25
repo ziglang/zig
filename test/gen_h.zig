@@ -11,7 +11,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    C = 2
         \\};
         \\
-        \\TEST_EXPORT void entry(enum Foo foo);
+        \\TEST_EXTERN_C void entry(enum Foo foo);
         \\
     );
 
@@ -35,7 +35,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    uint64_t F;
         \\};
         \\
-        \\TEST_EXPORT void entry(struct Foo foo);
+        \\TEST_EXTERN_C void entry(struct Foo foo);
         \\
     );
 
@@ -70,7 +70,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    struct Big D;
         \\};
         \\
-        \\TEST_EXPORT void entry(union Foo foo);
+        \\TEST_EXTERN_C void entry(union Foo foo);
         \\
     );
 
@@ -81,7 +81,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     ,
         \\struct Foo;
         \\
-        \\TEST_EXPORT void entry(struct Foo * foo);
+        \\TEST_EXTERN_C void entry(struct Foo * foo);
     );
 
     cases.add("array field-type",
@@ -96,7 +96,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    uint32_t * B[4];
         \\};
         \\
-        \\TEST_EXPORT void entry(struct Foo foo, uint8_t bar[]);
+        \\TEST_EXTERN_C void entry(struct Foo foo, uint8_t bar[]);
         \\
     );
 
@@ -110,7 +110,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\struct S;
-        \\TEST_EXPORT uint8_t a(struct S * s);
+        \\TEST_EXTERN_C uint8_t a(struct S * s);
         \\
     );
 
@@ -125,7 +125,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\union U;
-        \\TEST_EXPORT uint8_t a(union U * s);
+        \\TEST_EXTERN_C uint8_t a(union U * s);
         \\
     );
 
@@ -140,7 +140,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\enum E;
-        \\TEST_EXPORT uint8_t a(enum E * s);
+        \\TEST_EXTERN_C uint8_t a(enum E * s);
         \\
     );
 }

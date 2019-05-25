@@ -9075,8 +9075,11 @@ static void gen_h_file(CodeGen *g) {
     if (!out_h)
         zig_panic("unable to open %s: %s\n", buf_ptr(out_h_path), strerror(errno));
 
-    Buf *export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
-    buf_upcase(export_macro);
+    Buf *export_macro = nullptr;
+    if (g->is_dynamic) {
+        export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
+        buf_upcase(export_macro);
+    }
 
     Buf *extern_c_macro = preprocessor_mangle(buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name)));
     buf_upcase(extern_c_macro);
@@ -9101,10 +9104,11 @@ static void gen_h_file(CodeGen *g) {
             FnExport *fn_export = &fn_table_entry->export_list.items[0];
             symbol_name = &fn_export->name;
         }
+
         buf_appendf(&h_buf, "%s %s %s(",
-                buf_ptr(export_macro),
-                buf_ptr(&return_type_c),
-                buf_ptr(symbol_name));
+            buf_ptr(g->is_dynamic ? export_macro : extern_c_macro),
+            buf_ptr(&return_type_c),
+            buf_ptr(symbol_name));
 
         Buf param_type_c = BUF_INIT;
         if (fn_type_id->param_count > 0) {
@@ -9154,13 +9158,16 @@ static void gen_h_file(CodeGen *g) {
     fprintf(out_h, "#define %s\n", buf_ptr(extern_c_macro));
     fprintf(out_h, "#endif\n");
     fprintf(out_h, "\n");
-    fprintf(out_h, "#if defined(_WIN32)\n");
-    fprintf(out_h, "#define %s %s __declspec(dllimport)\n", buf_ptr(export_macro), buf_ptr(extern_c_macro));
-    fprintf(out_h, "#else\n");
-    fprintf(out_h, "#define %s %s __attribute__((visibility (\"default\")))\n",
+
+    if (g->is_dynamic) {
+        fprintf(out_h, "#if defined(_WIN32)\n");
+        fprintf(out_h, "#define %s %s __declspec(dllimport)\n", buf_ptr(export_macro), buf_ptr(extern_c_macro));
+        fprintf(out_h, "#else\n");
+        fprintf(out_h, "#define %s %s __attribute__((visibility (\"default\")))\n",
             buf_ptr(export_macro), buf_ptr(extern_c_macro));
-    fprintf(out_h, "#endif\n");
-    fprintf(out_h, "\n");
+        fprintf(out_h, "#endif\n");
+        fprintf(out_h, "\n");
+    }
 
     for (size_t type_i = 0; type_i < gen_h->types_to_declare.length; type_i += 1) {
         ZigType *type_entry = gen_h->types_to_declare.at(type_i);
