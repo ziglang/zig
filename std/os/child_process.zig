@@ -703,7 +703,7 @@ fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) 
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
-    var buf_stream = &io.BufferOutStream.init(&buf).stream;
+    var buf_stream = io.BufferOutStream.init(&buf).ouStream();
 
     for (argv) |arg, arg_i| {
         if (arg_i != 0) try buf.appendByte(' ');
