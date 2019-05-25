@@ -111,9 +111,9 @@ pub fn Queue(comptime T: type) type {
             self.dumpToStream(Error, stderr) catch return;
         }
 
-        pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
+        pub fn dumpToStream(self: *Self, comptime Error: type, stream: std.io.OutStream(Error)) Error!void {
             const S = struct {
-                fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
+                fn dumpRecursive(s: std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
                         try s.print("0x{x}={}\n", @ptrToInt(node), node.data);

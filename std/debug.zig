@@ -39,7 +39,7 @@ const Module = struct {
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: os.File.OutStreamAdapter = undefined;
 
-var stderr_stream: ?*io.OutStream(os.File.WriteError) = null;
+var stderr_stream: ?io.OutStream(os.File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
@@ -48,7 +48,7 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
+pub fn getStderrStream() !io.OutStream(os.File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
@@ -2254,7 +2254,7 @@ fn readStringMem(ptr: *[*]const u8) []const u8 {
     return result;
 }
 
-fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool) !u64 {
+fn readInitialLength(comptime E: type, in_stream: io.InStream(E), is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readIntLittle(u32);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {
