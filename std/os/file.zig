@@ -428,85 +428,98 @@ pub const File = struct {
         }
     }
 
-    pub fn inStream(file: File) InStream {
+    pub fn inStreamHandle(file: File) InStream {
         return InStream{
             .file = file,
-            .stream = InStream.Stream{ .readFn = InStream.readFn },
         };
     }
 
-    pub fn outStream(file: File) OutStream {
+    pub fn outStreamHandle(file: File) OutStream {
         return OutStream{
             .file = file,
-            .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
         };
     }
 
-    pub fn seekableStream(file: File) SeekableStream {
+    pub fn seekableStreamHandle(file: File) SeekableStream {
         return SeekableStream{
             .file = file,
-            .stream = SeekableStream.Stream{
-                .seekToFn = SeekableStream.seekToFn,
-                .seekForwardFn = SeekableStream.seekForwardFn,
-                .getPosFn = SeekableStream.getPosFn,
-                .getEndPosFn = SeekableStream.getEndPosFn,
-            },
         };
     }
 
     /// Implementation of io.InStream trait for File
     pub const InStream = struct {
         file: File,
-        stream: Stream,
 
         pub const Error = ReadError;
         pub const Stream = io.InStream(Error);
 
-        fn readFn(in_stream: *Stream, buffer: []u8) Error!usize {
-            const self = @fieldParentPtr(InStream, "stream", in_stream);
+        fn readFn(in_stream: Stream, buffer: []u8) Error!usize {
+            const self = in_stream.implCast(InStream);
             return self.file.read(buffer);
+        }
+        
+        pub fn inStream(self: *InStream) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
         }
     };
 
     /// Implementation of io.OutStream trait for File
     pub const OutStream = struct {
         file: File,
-        stream: Stream,
 
         pub const Error = WriteError;
         pub const Stream = io.OutStream(Error);
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-            const self = @fieldParentPtr(OutStream, "stream", out_stream);
+        fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+            const self = out_stream.implCast(OutStream);
             return self.file.write(bytes);
+        }
+        
+        pub fn inStream(self: *OutStream) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .writeFn = writeFn,
+            };
         }
     };
 
     /// Implementation of io.SeekableStream trait for File
     pub const SeekableStream = struct {
         file: File,
-        stream: Stream,
 
         pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
 
-        pub fn seekToFn(seekable_stream: *Stream, pos: u64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn seekToFn(seekable_stream: Stream, pos: u64) SeekError!void {
+            const self = seekable_stream.implCast(SeekableStream);
             return self.file.seekTo(pos);
         }
 
-        pub fn seekForwardFn(seekable_stream: *Stream, amt: i64) SeekError!void {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn seekForwardFn(seekable_stream: Stream, amt: i64) SeekError!void {
+            const self = seekable_stream.implCast(SeekableStream);
             return self.file.seekForward(amt);
         }
 
-        pub fn getEndPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn getEndPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
+            const self = seekable_stream.implCast(SeekableStream);
             return self.file.getEndPos();
         }
 
-        pub fn getPosFn(seekable_stream: *Stream) GetSeekPosError!u64 {
-            const self = @fieldParentPtr(SeekableStream, "stream", seekable_stream);
+        pub fn getPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
+            const self = seekable_stream.implCast(SeekableStream);
             return self.file.getPos();
+        }
+        
+        pub fn seekableStream(self: *SeekableStream) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .seekToFn = SeekableStream.seekToFn,
+                .seekForwardFn = SeekableStream.seekForwardFn,
+                .getPosFn = SeekableStream.getPosFn,
+                .getEndPosFn = SeekableStream.getEndPosFn,
+            };
         }
     };
 };
