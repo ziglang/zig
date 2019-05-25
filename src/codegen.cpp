@@ -7998,7 +7998,7 @@ static void init(CodeGen *g) {
     }
 
     if (g->is_test_build) {
-        g->subsystem = TargetSubsystemConsole;
+        g->subsystem = g->subsystem == TargetSubsystemAuto ? TargetSubsystemConsole : g->subsystem;
     }
 
     assert(g->root_out_name);
