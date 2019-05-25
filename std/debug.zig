@@ -53,7 +53,7 @@ pub fn getStderrStream() !*io.OutStream(os.File.WriteError) {
         return st;
     } else {
         stderr_file = try io.getStdErr();
-        stderr_file_out_stream = stderr_file.outStream();
+        stderr_file_out_stream = stderr_file.outStreamAdapter();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;

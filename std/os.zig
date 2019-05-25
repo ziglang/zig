@@ -168,7 +168,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY | posix.O_CLOEXEC, 0);
     defer close(fd);
 
-    const stream = &File.openHandle(fd).inStream().stream;
+    const stream = &File.openHandle(fd).inStreamAdapter().stream;
     stream.readNoEof(buf) catch |err| switch (err) {
         error.EndOfStream => unreachable,
         error.OperationAborted => unreachable,
@@ -1136,7 +1136,7 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     defer in_file.close();
 
     const mode = try in_file.mode();
-    const in_stream = &in_file.inStream().stream;
+    const in_stream = &in_file.inStreamAdapter().stream;
 
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();

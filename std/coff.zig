@@ -41,7 +41,7 @@ pub const Coff = struct {
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
-        var file_stream = self.in_file.inStream();
+        var file_stream = self.in_file.inStreamAdapter();
         const in = &file_stream.stream;
 
         var magic: [2]u8 = undefined;
@@ -115,7 +115,7 @@ pub const Coff = struct {
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
         try self.in_file.seekTo(file_offset + debug_dir.size);
 
-        var file_stream = self.in_file.inStream();
+        var file_stream = self.in_file.inStreamAdapter();
         const in = &file_stream.stream;
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
@@ -146,7 +146,7 @@ pub const Coff = struct {
 
         self.sections = ArrayList(Section).init(self.allocator);
 
-        var file_stream = self.in_file.inStream();
+        var file_stream = self.in_file.inStreamAdapter();
         const in = &file_stream.stream;
 
         var name: [8]u8 = undefined;

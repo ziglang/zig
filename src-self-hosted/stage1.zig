@@ -144,11 +144,11 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
     }
 
     var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
+    var stdout_out_stream = stdout_file.outStreamAdapter();
     stdout = &stdout_out_stream.stream;
 
     stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = stderr_file.outStream();
+    var stderr_out_stream = stderr_file.outStreamAdapter();
     stderr = &stderr_out_stream.stream;
 
     const args = args_list.toSliceConst();
@@ -181,7 +181,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         }
 
         var stdin_file = try io.getStdIn();
-        var stdin = stdin_file.inStream();
+        var stdin = stdin_file.inStreamAdapter();
 
         const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
@@ -353,7 +353,7 @@ fn printErrMsgToFile(
     try parse_error.render(&tree.tokens, out_stream);
     const text = text_buf.toOwnedSlice();
 
-    const stream = &file.outStream().stream;
+    const stream = &file.outStreamAdapter().stream;
     if (!color_on) {
         try stream.print(
             "{}:{}:{}: error: {}\n",

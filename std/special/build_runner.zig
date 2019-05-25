@@ -50,14 +50,14 @@ pub fn main() !void {
     var stderr_file = io.getStdErr();
     var stderr_file_stream: os.File.OutStream = undefined;
     var stderr_stream = if (stderr_file) |f| x: {
-        stderr_file_stream = f.outStream();
+        stderr_file_stream = f.outStreamAdapter();
         break :x &stderr_file_stream.stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
     var stdout_file_stream: os.File.OutStream = undefined;
     var stdout_stream = if (stdout_file) |f| x: {
-        stdout_file_stream = f.outStream();
+        stdout_file_stream = f.outStreamAdapter();
         break :x &stdout_file_stream.stream;
     } else |err| err;
 

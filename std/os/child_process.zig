@@ -212,8 +212,8 @@ pub const ChildProcess = struct {
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
-        var stderr_file_in_stream = child.stderr.?.inStream();
+        var stdout_file_in_stream = child.stdout.?.inStreamAdapter();
+        var stderr_file_in_stream = child.stderr.?.inStreamAdapter();
 
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
         try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
@@ -809,11 +809,11 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const stream = &os.File.openHandle(fd).outStream().stream;
+    const stream = &os.File.openHandle(fd).outStreamAdapter().stream;
     stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &os.File.openHandle(fd).inStream().stream;
+    const stream = &os.File.openHandle(fd).inStreamAdapter().stream;
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }

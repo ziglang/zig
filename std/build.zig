@@ -760,7 +760,7 @@ pub const Builder = struct {
         var stdout = std.Buffer.initNull(self.allocator);
         defer std.Buffer.deinit(&stdout);
 
-        var stdout_file_in_stream = child.stdout.?.inStream();
+        var stdout_file_in_stream = child.stdout.?.inStreamAdapter();
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
 
         const term = child.wait() catch |err| std.debug.panic("unable to spawn {}: {}", argv[0], err);

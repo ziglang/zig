@@ -331,7 +331,7 @@ pub fn readFileAllocAligned(allocator: mem.Allocator, path: []const u8, comptime
     const buf = try allocator.alignedAlloc(u8, A, size);
     errdefer allocator.free(buf);
 
-    var adapter = file.inStream();
+    var adapter = file.inStreamAdapter();
     try adapter.stream.readNoEof(buf[0..size]);
     return buf;
 }
@@ -1034,7 +1034,7 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
         errdefer self.atomic_file.deinit();
 
-        self.file_stream = self.atomic_file.file.outStream();
+        self.file_stream = self.atomic_file.file.outStreamAdapter();
         self.buffered_stream = BufferedOutStream(os.File.WriteError).init(&self.file_stream.stream);
         return self;
     }
@@ -1057,7 +1057,7 @@ pub const BufferedAtomicFile = struct {
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
     var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = stdin.inStreamAdapter();
     return readLineFrom(&stdin_stream.stream, buf);
 }
 
@@ -1099,7 +1099,7 @@ test "io.readLineFrom" {
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
     var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = stdin.inStreamAdapter();
     return readLineSliceFrom(&stdin_stream.stream, slice);
 }
 
