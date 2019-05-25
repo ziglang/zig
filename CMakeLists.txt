@@ -620,7 +620,6 @@ set(ZIG_STD_FILES
     "os/freebsd.zig"
     "os/linux.zig"
     "os/linux/arm64.zig"
-    "os/linux/sys.zig"
     "os/linux/tls.zig"
     "os/linux/vdso.zig"
     "os/linux/x86_64.zig"

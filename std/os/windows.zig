@@ -591,7 +591,7 @@ pub fn CreateFileW(
             ERROR.ACCESS_DENIED => return error.AccessDenied,
             ERROR.PIPE_BUSY => return error.PipeBusy,
             ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
-            else => |err| return unexpectedErrorWindows(err),
+            else => |err| return unexpectedError(err),
         }
     }
 
@@ -1087,6 +1087,20 @@ pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub const VirtualAllocError = error{Unexpected};
+
+pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DWORD) VirtualAllocError!LPVOID {
+    return kernel32.VirtualAlloc(addr, size, alloc_type, flProtect) orelse {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    };
+}
+
+pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
+    assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {

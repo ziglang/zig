@@ -1466,17 +1466,17 @@ test "std.mem.alignForward" {
 pub fn getBaseAddress() usize {
     switch (builtin.os) {
         .linux => {
-            const base = std.os.posix.getauxval(std.elf.AT_BASE);
+            const base = std.os.system.getauxval(std.elf.AT_BASE);
             if (base != 0) {
                 return base;
             }
-            const phdr = std.os.posix.getauxval(std.elf.AT_PHDR);
+            const phdr = std.os.system.getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macosx, .freebsd, .netbsd => {
             return @ptrToInt(&std.c._mh_execute_header);
         },
-        .windows => return @ptrToInt(windows.GetModuleHandleW(null)),
+        .windows => return @ptrToInt(windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }

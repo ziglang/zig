@@ -9,24 +9,21 @@ const fmt = std.fmt;
 const Allocator = mem.Allocator;
 const os = std.os;
 const math = std.math;
-const posix = os.posix;
 const windows = os.windows;
 const cstr = std.cstr;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (is_windows) sep_windows else sep_posix;
+pub const sep = if (windows.is_the_target) sep_windows else sep_posix;
 
 pub const sep_str = [1]u8{sep};
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
-pub const delimiter = if (is_windows) delimiter_windows else delimiter_posix;
-
-const is_windows = builtin.os == builtin.Os.windows;
+pub const delimiter = if (windows.is_the_target) delimiter_windows else delimiter_posix;
 
 pub fn isSep(byte: u8) bool {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return byte == '/' or byte == '\\';
     } else {
         return byte == '/';
@@ -76,7 +73,7 @@ fn joinSep(allocator: *Allocator, separator: u8, paths: []const []const u8) ![]u
     return buf;
 }
 
-pub const join = if (is_windows) joinWindows else joinPosix;
+pub const join = if (windows.is_the_target) joinWindows else joinPosix;
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
@@ -133,7 +130,7 @@ test "join" {
 }
 
 pub fn isAbsolute(path: []const u8) bool {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return isAbsoluteWindows(path);
     } else {
         return isAbsolutePosix(path);
@@ -312,7 +309,7 @@ test "windowsParsePath" {
 }
 
 pub fn diskDesignator(path: []const u8) []const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return diskDesignatorWindows(path);
     } else {
         return "";
@@ -377,7 +374,7 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
 pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return resolveWindows(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
@@ -394,7 +391,7 @@ pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(is_windows); // resolveWindows called on non windows can't use getCwd
+        assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
         return os.getCwdAlloc(allocator);
     }
 
@@ -489,7 +486,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
                 result_disk_designator = result[0..result_index];
             },
             WindowsPath.Kind.None => {
-                assert(is_windows); // resolveWindows called on non windows can't use getCwd
+                assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
                 const cwd = try os.getCwdAlloc(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
@@ -504,7 +501,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
         }
     } else {
-        assert(is_windows); // resolveWindows called on non windows can't use getCwd
+        assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
         const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
@@ -575,7 +572,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(!is_windows); // resolvePosix called on windows can't use getCwd
+        assert(!windows.is_the_target); // resolvePosix called on windows can't use getCwd
         return os.getCwdAlloc(allocator);
     }
 
@@ -597,7 +594,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (have_abs) {
         result = try allocator.alloc(u8, max_size);
     } else {
-        assert(!is_windows); // resolvePosix called on windows can't use getCwd
+        assert(!windows.is_the_target); // resolvePosix called on windows can't use getCwd
         const cwd = try os.getCwdAlloc(allocator);
         defer allocator.free(cwd);
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
@@ -638,7 +635,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 
 test "resolve" {
     const cwd = try os.getCwdAlloc(debug.global_allocator);
-    if (is_windows) {
+    if (windows.is_the_target) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
@@ -650,7 +647,7 @@ test "resolve" {
 }
 
 test "resolveWindows" {
-    if (is_windows) {
+    if (windows.is_the_target) {
         const cwd = try os.getCwdAlloc(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
@@ -716,7 +713,7 @@ fn testResolvePosix(paths: []const []const u8) []u8 {
 /// If the path is a file in the current directory (no directory component)
 /// then returns null
 pub fn dirname(path: []const u8) ?[]const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return dirnameWindows(path);
     } else {
         return dirnamePosix(path);
@@ -848,7 +845,7 @@ fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) void {
 }
 
 pub fn basename(path: []const u8) []const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return basenameWindows(path);
     } else {
         return basenamePosix(path);
@@ -964,7 +961,7 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
 /// string is returned.
 /// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
 pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return relativeWindows(allocator, from, to);
     } else {
         return relativePosix(allocator, from, to);

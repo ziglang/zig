@@ -1,3 +1,5 @@
+const std = @import("../../std.zig");
+
 pub use @import("linux/errno.zig");
 pub use switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
@@ -907,3 +909,26 @@ pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
 };
+
+pub const CPU_SETSIZE = 128;
+pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
+pub const cpu_count_t = @IntType(false, std.math.log2(CPU_SETSIZE * 8));
+
+pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
+    var sum: cpu_count_t = 0;
+    for (set) |x| {
+        sum += @popCount(usize, x);
+    }
+    return sum;
+}
+
+// TODO port these over
+//#define CPU_SET(i, set) CPU_SET_S(i,sizeof(cpu_set_t),set)
+//#define CPU_CLR(i, set) CPU_CLR_S(i,sizeof(cpu_set_t),set)
+//#define CPU_ISSET(i, set) CPU_ISSET_S(i,sizeof(cpu_set_t),set)
+//#define CPU_AND(d,s1,s2) CPU_AND_S(sizeof(cpu_set_t),d,s1,s2)
+//#define CPU_OR(d,s1,s2) CPU_OR_S(sizeof(cpu_set_t),d,s1,s2)
+//#define CPU_XOR(d,s1,s2) CPU_XOR_S(sizeof(cpu_set_t),d,s1,s2)
+//#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t),set)
+//#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
+//#define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)

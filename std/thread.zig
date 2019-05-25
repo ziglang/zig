@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
+const os = std.os;
 const windows = std.os.windows;
+const c = std.c;
 
 pub const Thread = struct {
     data: Data,
@@ -13,8 +15,8 @@ pub const Thread = struct {
     pub const Handle = if (use_pthreads)
         c.pthread_t
     else switch (builtin.os) {
-        builtin.Os.linux => i32,
-        builtin.Os.windows => windows.HANDLE,
+        .linux => i32,
+        .windows => windows.HANDLE,
         else => @compileError("Unsupported OS"),
     };
 
@@ -22,7 +24,7 @@ pub const Thread = struct {
     /// May be an integer or pointer depending on the platform.
     /// On Linux and POSIX, this is the same as Handle.
     pub const Id = switch (builtin.os) {
-        builtin.Os.windows => windows.DWORD,
+        .windows => windows.DWORD,
         else => Handle,
     };
 
@@ -33,12 +35,12 @@ pub const Thread = struct {
             mmap_len: usize,
         }
     else switch (builtin.os) {
-        builtin.Os.linux => struct {
+        .linux => struct {
             handle: Thread.Handle,
             mmap_addr: usize,
             mmap_len: usize,
         },
-        builtin.Os.windows => struct {
+        .windows => struct {
             handle: Thread.Handle,
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
@@ -54,8 +56,8 @@ pub const Thread = struct {
             return c.pthread_self();
         } else
             return switch (builtin.os) {
-            builtin.Os.linux => linux.gettid(),
-            builtin.Os.windows => windows.GetCurrentThreadId(),
+            .linux => linux.gettid(),
+            .windows => windows.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
         };
     }
@@ -75,28 +77,28 @@ pub const Thread = struct {
             const err = c.pthread_join(self.data.handle, null);
             switch (err) {
                 0 => {},
-                posix.EINVAL => unreachable,
-                posix.ESRCH => unreachable,
-                posix.EDEADLK => unreachable,
+                os.EINVAL => unreachable,
+                os.ESRCH => unreachable,
+                os.EDEADLK => unreachable,
                 else => unreachable,
             }
-            assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
+            os.munmap(self.data.mmap_addr, self.data.mmap_len);
         } else switch (builtin.os) {
-            builtin.Os.linux => {
+            .linux => {
                 while (true) {
                     const pid_value = @atomicLoad(i32, &self.data.handle, .SeqCst);
                     if (pid_value == 0) break;
                     const rc = linux.futex_wait(&self.data.handle, linux.FUTEX_WAIT, pid_value, null);
                     switch (linux.getErrno(rc)) {
                         0 => continue,
-                        posix.EINTR => continue,
-                        posix.EAGAIN => continue,
+                        os.EINTR => continue,
+                        os.EAGAIN => continue,
                         else => unreachable,
                     }
                 }
-                assert(posix.munmap(self.data.mmap_addr, self.data.mmap_len) == 0);
+                os.munmap(self.data.mmap_addr, self.data.mmap_len);
             },
-            builtin.Os.windows => {
+            .windows => {
                 assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
                 assert(windows.CloseHandle(self.data.handle) != 0);
                 assert(windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start) != 0);
@@ -153,10 +155,10 @@ pub const Thread = struct {
                 extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
                     switch (@typeId(@typeOf(startFn).ReturnType)) {
-                        builtin.TypeId.Int => {
+                        .Int => {
                             return startFn(arg);
                         },
-                        builtin.TypeId.Void => {
+                        .Void => {
                             startFn(arg);
                             return 0;
                         },
@@ -196,10 +198,10 @@ pub const Thread = struct {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
                 switch (@typeId(@typeOf(startFn).ReturnType)) {
-                    builtin.TypeId.Int => {
+                    .Int => {
                         return startFn(arg);
                     },
-                    builtin.TypeId.Void => {
+                    .Void => {
                         startFn(arg);
                         return 0;
                     },
@@ -217,7 +219,7 @@ pub const Thread = struct {
             }
         };
 
-        const MAP_GROWSDOWN = if (builtin.os == builtin.Os.linux) linux.MAP_GROWSDOWN else 0;
+        const MAP_GROWSDOWN = if (builtin.os == .linux) linux.MAP_GROWSDOWN else 0;
 
         var stack_end_offset: usize = undefined;
         var thread_start_offset: usize = undefined;
@@ -247,9 +249,8 @@ pub const Thread = struct {
             }
             break :blk l;
         };
-        const mmap_addr = posix.mmap(null, mmap_len, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-        if (mmap_addr == posix.MAP_FAILED) return error.OutOfMemory;
-        errdefer assert(posix.munmap(mmap_addr, mmap_len) == 0);
+        const mmap_addr = try os.mmap(null, mmap_len, os.PROT_READ | os.PROT_WRITE, os.MAP_PRIVATE | os.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+        errdefer os.munmap(mmap_addr, mmap_len);
 
         const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, mmap_addr + thread_start_offset));
         thread_ptr.data.mmap_addr = mmap_addr;
@@ -273,31 +274,30 @@ pub const Thread = struct {
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
                 0 => return thread_ptr,
-                posix.EAGAIN => return error.SystemResources,
-                posix.EPERM => unreachable,
-                posix.EINVAL => unreachable,
-                else => return unexpectedErrorPosix(@intCast(usize, err)),
+                os.EAGAIN => return error.SystemResources,
+                os.EPERM => unreachable,
+                os.EINVAL => unreachable,
+                else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (builtin.os == builtin.Os.linux) {
-            var flags: u32 = posix.CLONE_VM | posix.CLONE_FS | posix.CLONE_FILES | posix.CLONE_SIGHAND |
-                posix.CLONE_THREAD | posix.CLONE_SYSVSEM | posix.CLONE_PARENT_SETTID | posix.CLONE_CHILD_CLEARTID |
-                posix.CLONE_DETACHED;
+        } else if (builtin.os == .linux) {
+            var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
+                os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
+                os.CLONE_DETACHED;
             var newtls: usize = undefined;
             if (linux.tls.tls_image) |tls_img| {
                 newtls = linux.tls.copyTLS(mmap_addr + tls_start_offset);
-                flags |= posix.CLONE_SETTLS;
+                flags |= os.CLONE_SETTLS;
             }
-            const rc = posix.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
-            const err = posix.getErrno(rc);
-            switch (err) {
+            const rc = os.linux.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
+            switch (os.errno(rc)) {
                 0 => return thread_ptr,
-                posix.EAGAIN => return error.ThreadQuotaExceeded,
-                posix.EINVAL => unreachable,
-                posix.ENOMEM => return error.SystemResources,
-                posix.ENOSPC => unreachable,
-                posix.EPERM => unreachable,
-                posix.EUSERS => unreachable,
-                else => return unexpectedErrorPosix(err),
+                os.EAGAIN => return error.ThreadQuotaExceeded,
+                os.EINVAL => unreachable,
+                os.ENOMEM => return error.SystemResources,
+                os.ENOSPC => unreachable,
+                os.EPERM => unreachable,
+                os.EUSERS => unreachable,
+                else => |err| return os.unexpectedErrno(err),
             }
         } else {
             @compileError("Unsupported OS");
@@ -310,56 +310,20 @@ pub const Thread = struct {
         Unexpected,
     };
 
-    pub fn cpuCount(fallback_allocator: *mem.Allocator) CpuCountError!usize {
-        switch (builtin.os) {
-            .macosx, .freebsd, .netbsd => {
-                var count: c_int = undefined;
-                var count_len: usize = @sizeOf(c_int);
-                const name = switch (builtin.os) {
-                    builtin.Os.macosx => c"hw.logicalcpu",
-                    else => c"hw.ncpu",
-                };
-                try posix.sysctlbyname(name, @ptrCast(*c_void, &count), &count_len, null, 0);
-                return @intCast(usize, count);
-            },
-            .linux => {
-                const usize_count = 16;
-                const allocator = std.heap.stackFallback(usize_count * @sizeOf(usize), fallback_allocator).get();
-
-                var set = try allocator.alloc(usize, usize_count);
-                defer allocator.free(set);
-
-                while (true) {
-                    const rc = posix.sched_getaffinity(0, set);
-                    const err = posix.getErrno(rc);
-                    switch (err) {
-                        0 => {
-                            if (rc < set.len * @sizeOf(usize)) {
-                                const result = set[0 .. rc / @sizeOf(usize)];
-                                var sum: usize = 0;
-                                for (result) |x| {
-                                    sum += @popCount(usize, x);
-                                }
-                                return sum;
-                            } else {
-                                set = try allocator.realloc(set, set.len * 2);
-                                continue;
-                            }
-                        },
-                        posix.EFAULT => unreachable,
-                        posix.EINVAL => unreachable,
-                        posix.EPERM => return CpuCountError.PermissionDenied,
-                        posix.ESRCH => unreachable,
-                        else => return os.unexpectedErrorPosix(err),
-                    }
-                }
-            },
-            .windows => {
-                var system_info: windows.SYSTEM_INFO = undefined;
-                windows.GetSystemInfo(&system_info);
-                return @intCast(usize, system_info.dwNumberOfProcessors);
-            },
-            else => @compileError("unsupported OS"),
+    pub fn cpuCount() CpuCountError!usize {
+        if (os.linux.is_the_target) {
+            const cpu_set = try os.sched_getaffinity(0);
+            return os.CPU_COUNT(cpu_set);
         }
+        if (os.windows.is_the_target) {
+            var system_info: windows.SYSTEM_INFO = undefined;
+            windows.GetSystemInfo(&system_info);
+            return @intCast(usize, system_info.dwNumberOfProcessors);
+        }
+        var count: c_int = undefined;
+        var count_len: usize = @sizeOf(c_int);
+        const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
+        try os.sysctlbyname(name, @ptrCast(*c_void, &count), &count_len, null, 0);
+        return @intCast(usize, count);
     }
 };

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const macho = std.macho;
 
-use @import("posix/darwin.zig");
+use @import("../os/bits.zig");
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;

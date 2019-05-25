@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 const io = std.io;
 const mem = std.mem;
 const File = std.fs.File;
+const Thread = std.Thread;
 
 const a = std.debug.global_allocator;
 
@@ -37,25 +38,25 @@ test "access file" {
     try os.deleteTree(a, "os_test_tmp");
 }
 
-fn testThreadIdFn(thread_id: *os.Thread.Id) void {
-    thread_id.* = os.Thread.getCurrentId();
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
 }
 
-test "std.os.Thread.getCurrentId" {
+test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    var thread_current_id: os.Thread.Id = undefined;
-    const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(&thread_current_id, testThreadIdFn);
     const thread_id = thread.handle();
     thread.wait();
-    if (os.Thread.use_pthreads) {
+    if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
     } else {
         switch (builtin.os) {
-            builtin.Os.windows => expect(os.Thread.getCurrentId() != thread_current_id),
+            builtin.Os.windows => expect(Thread.getCurrentId() != thread_current_id),
             else => {
                 // If the thread completes very quickly, then thread_id can be 0. See the
-                // documentation comments for `std.os.Thread.handle`.
+                // documentation comments for `std.Thread.handle`.
                 expect(thread_id == 0 or thread_current_id == thread_id);
             },
         }
@@ -67,10 +68,10 @@ test "spawn threads" {
 
     var shared_ctx: i32 = 1;
 
-    const thread1 = try std.os.spawnThread({}, start1);
-    const thread2 = try std.os.spawnThread(&shared_ctx, start2);
-    const thread3 = try std.os.spawnThread(&shared_ctx, start2);
-    const thread4 = try std.os.spawnThread(&shared_ctx, start2);
+    const thread1 = try Thread.spawn({}, start1);
+    const thread2 = try Thread.spawn(&shared_ctx, start2);
+    const thread3 = try Thread.spawn(&shared_ctx, start2);
+    const thread4 = try Thread.spawn(&shared_ctx, start2);
 
     thread1.wait();
     thread2.wait();
@@ -116,8 +117,8 @@ test "AtomicFile" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-    const thread1 = try std.os.spawnThread({}, testTls);
-    const thread2 = try std.os.spawnThread({}, testTls);
+    const thread1 = try Thread.spawn({}, testTls);
+    const thread2 = try Thread.spawn({}, testTls);
     testTls({});
     thread1.wait();
     thread2.wait();

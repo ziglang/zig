@@ -152,9 +152,9 @@ test "std.Mutex" {
         testing.expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
-        var threads: [thread_count]*std.os.Thread = undefined;
+        var threads: [thread_count]*std.Thread = undefined;
         for (threads) |*t| {
-            t.* = try std.os.spawnThread(&context, worker);
+            t.* = try std.Thread.spawn(&context, worker);
         }
         for (threads) |t|
             t.wait();

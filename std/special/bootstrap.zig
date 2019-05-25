@@ -92,14 +92,14 @@ fn posixCallMainAndExit() noreturn {
         }
     }
 
-    std.os.posix.exit(callMainWithArgs(argc, argv, envp));
+    std.os.exit(callMainWithArgs(argc, argv, envp));
 }
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
-    std.os.posix.environ = envp;
+    std.os.environ = envp;
     return callMain();
 }
 

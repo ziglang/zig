@@ -96,9 +96,9 @@ test "std.StaticallyInitializedMutex" {
         expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
-        var threads: [thread_count]*std.os.Thread = undefined;
+        var threads: [thread_count]*std.Thread = undefined;
         for (threads) |*t| {
-            t.* = try std.os.spawnThread(&context, TestContext.worker);
+            t.* = try std.Thread.spawn(&context, TestContext.worker);
         }
         for (threads) |t|
             t.wait();

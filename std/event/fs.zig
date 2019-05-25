@@ -5,10 +5,9 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 const mem = std.mem;
-const posix = os.posix;
 const windows = os.windows;
 const Loop = event.Loop;
-const fd_t = posix.fd_t;
+const fd_t = os.fd_t;
 const File = std.fs.File;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
@@ -33,7 +32,7 @@ pub const Request = struct {
 
         pub const PWriteV = struct {
             fd: fd_t,
-            iov: []const os.posix.iovec_const,
+            iov: []const os.iovec_const,
             offset: usize,
             result: Error!void,
 
@@ -42,7 +41,7 @@ pub const Request = struct {
 
         pub const PReadV = struct {
             fd: fd_t,
-            iov: []const os.posix.iovec,
+            iov: []const os.iovec,
             offset: usize,
             result: Error!usize,
 
@@ -89,11 +88,11 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
+            const iovecs = try loop.allocator.alloc(os.iovec_const, data.len);
             defer loop.allocator.free(iovecs);
 
             for (data) |buf, i| {
-                iovecs[i] = os.posix.iovec_const{
+                iovecs[i] = os.iovec_const{
                     .iov_base = buf.ptr,
                     .iov_len = buf.len,
                 };
@@ -171,7 +170,7 @@ pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64)
 pub async fn pwritevPosix(
     loop: *Loop,
     fd: fd_t,
-    iovecs: []const posix.iovec_const,
+    iovecs: []const os.iovec_const,
     offset: usize,
 ) os.PosixWriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
@@ -226,11 +225,11 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
+            const iovecs = try loop.allocator.alloc(os.iovec, data.len);
             defer loop.allocator.free(iovecs);
 
             for (data) |buf, i| {
-                iovecs[i] = os.posix.iovec{
+                iovecs[i] = os.iovec{
                     .iov_base = buf.ptr,
                     .iov_len = buf.len,
                 };
@@ -319,7 +318,7 @@ pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize
 pub async fn preadvPosix(
     loop: *Loop,
     fd: fd_t,
-    iovecs: []const posix.iovec,
+    iovecs: []const os.iovec,
     offset: usize,
 ) os.PosixReadError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
@@ -405,7 +404,7 @@ pub async fn openPosix(
 pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
-            const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
+            const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
 
@@ -435,7 +434,7 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
+            const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
         builtin.Os.windows => return os.windowsOpen(
@@ -457,7 +456,7 @@ pub async fn openReadWrite(
 ) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
-            const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+            const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, mode) catch unreachable);
         },
 
@@ -888,10 +887,7 @@ pub fn Watch(comptime V: type) type {
             var close_op_consumed = false;
             defer if (!close_op_consumed) close_op.finish();
 
-            const flags = switch (builtin.os) {
-                builtin.Os.macosx => posix.O_SYMLINK | posix.O_EVTONLY,
-                else => 0,
-            };
+            const flags = if (os.darwin.is_the_target) os.O_SYMLINK | os.O_EVTONLY else 0;
             const mode = 0;
             const fd = try await (async openPosix(self.channel.loop, resolved_path, flags, mode) catch unreachable);
             close_op.setHandle(fd);
@@ -943,16 +939,16 @@ pub fn Watch(comptime V: type) type {
             while (true) {
                 if (await (async self.channel.loop.bsdWaitKev(
                     @intCast(usize, close_op.getHandle()),
-                    posix.EVFILT_VNODE,
-                    posix.NOTE_WRITE | posix.NOTE_DELETE,
+                    os.EVFILT_VNODE,
+                    os.NOTE_WRITE | os.NOTE_DELETE,
                 ) catch unreachable)) |kev| {
                     // TODO handle EV_ERROR
-                    if (kev.fflags & posix.NOTE_DELETE != 0) {
+                    if (kev.fflags & os.NOTE_DELETE != 0) {
                         await (async self.channel.put(Self.Event{
                             .id = Event.Id.Delete,
                             .data = value_copy,
                         }) catch unreachable);
-                    } else if (kev.fflags & posix.NOTE_WRITE != 0) {
+                    } else if (kev.fflags & os.NOTE_WRITE != 0) {
                         await (async self.channel.put(Self.Event{
                             .id = Event.Id.CloseWrite,
                             .data = value_copy,

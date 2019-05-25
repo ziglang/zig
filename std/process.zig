@@ -1,13 +1,13 @@
 const std = @import("std.zig");
-const posix = std.os.posix;
+const os = std.os;
 const BufMap = std.BufMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const abort = posix.abort;
-pub const exit = posix.exit;
+pub const abort = os.abort;
+pub const exit = os.exit;
 
 /// Caller must free result when done.
 /// TODO make this go through libc when we have it
@@ -42,13 +42,13 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
-    } else if (builtin.os == Os.wasi) {
+    } else if (builtin.os == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
-        const environ_sizes_get_ret = std.os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
+        const environ_sizes_get_ret = os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
         if (environ_sizes_get_ret != os.wasi.ESUCCESS) {
-            return unexpectedErrorPosix(environ_sizes_get_ret);
+            return os.unexpectedErrno(environ_sizes_get_ret);
         }
 
         // TODO: Verify that the documentation is incorrect
@@ -58,9 +58,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
-        const environ_get_ret = std.os.wasi.environ_get(environ.ptr, environ_buf.ptr);
+        const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
         if (environ_get_ret != os.wasi.ESUCCESS) {
-            return unexpectedErrorPosix(environ_get_ret);
+            return os.unexpectedErrno(environ_get_ret);
         }
 
         for (environ) |env| {
@@ -74,7 +74,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     } else {
-        for (posix.environ) |ptr| {
+        for (os.environ) |ptr| {
             var line_i: usize = 0;
             while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
             const key = ptr[0..line_i];
@@ -331,12 +331,12 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    const InnerType = if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix;
+    const InnerType = if (builtin.os == .windows) ArgIteratorWindows else ArgIteratorPosix;
 
     inner: InnerType,
 
     pub fn init() ArgIterator {
-        if (builtin.os == Os.wasi) {
+        if (builtin.os == .wasi) {
             // TODO: Figure out a compatible interface accomodating WASI
             @compileError("ArgIterator is not yet supported in WASI. Use argsAlloc and argsFree instead.");
         }
@@ -348,7 +348,7 @@ pub const ArgIterator = struct {
 
     /// You must free the returned memory when done.
     pub fn next(self: *ArgIterator, allocator: *Allocator) ?(NextError![]u8) {
-        if (builtin.os == Os.windows) {
+        if (builtin.os == .windows) {
             return self.inner.next(allocator);
         } else {
             return mem.dupe(allocator, u8, self.inner.next() orelse return null);
@@ -373,13 +373,13 @@ pub fn args() ArgIterator {
 
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
-    if (builtin.os == Os.wasi) {
+    if (builtin.os == .wasi) {
         var count: usize = undefined;
         var buf_size: usize = undefined;
 
         const args_sizes_get_ret = os.wasi.args_sizes_get(&count, &buf_size);
         if (args_sizes_get_ret != os.wasi.ESUCCESS) {
-            return unexpectedErrorPosix(args_sizes_get_ret);
+            return os.unexpectedErrno(args_sizes_get_ret);
         }
 
         var argv = try allocator.alloc([*]u8, count);
@@ -388,7 +388,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
         var argv_buf = try allocator.alloc(u8, buf_size);
         const args_get_ret = os.wasi.args_get(argv.ptr, argv_buf.ptr);
         if (args_get_ret != os.wasi.ESUCCESS) {
-            return unexpectedErrorPosix(args_get_ret);
+            return os.unexpectedErrno(args_get_ret);
         }
 
         var result_slice = try allocator.alloc([]u8, count);
@@ -438,7 +438,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
 }
 
 pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
-    if (builtin.os == Os.wasi) {
+    if (builtin.os == .wasi) {
         const last_item = args_alloc[args_alloc.len - 1];
         const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = args_alloc[0].ptr;
@@ -491,7 +491,7 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os) {
-        .linux, .macosx, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
+        .linux, .macosx, .watchos, .tvos, .ios, .freebsd, .netbsd => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }

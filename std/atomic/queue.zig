@@ -186,13 +186,13 @@ test "std.atomic.Queue" {
             }
         }
     } else {
-        var putters: [put_thread_count]*std.os.Thread = undefined;
+        var putters: [put_thread_count]*std.Thread = undefined;
         for (putters) |*t| {
-            t.* = try std.os.spawnThread(&context, startPuts);
+            t.* = try std.Thread.spawn(&context, startPuts);
         }
-        var getters: [put_thread_count]*std.os.Thread = undefined;
+        var getters: [put_thread_count]*std.Thread = undefined;
         for (getters) |*t| {
-            t.* = try std.os.spawnThread(&context, startGets);
+            t.* = try std.Thread.spawn(&context, startGets);
         }
 
         for (putters) |t|

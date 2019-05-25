@@ -164,7 +164,7 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (windows.is_the_target) {
-        @compileError("TODO implement std.posix.raise for Windows");
+        @compileError("TODO implement std.os.raise for Windows");
     }
 
     var set: system.sigset_t = undefined;
@@ -690,20 +690,6 @@ pub fn getenvC(key: [*]const u8) ?[]const u8 {
     return getenv(mem.toSliceConst(u8, key));
 }
 
-/// See std.elf for the constants.
-pub fn getauxval(index: usize) usize {
-    if (builtin.link_libc) {
-        return usize(system.getauxval(index));
-    } else if (linux.elf_aux_maybe) |auxv| {
-        var i: usize = 0;
-        while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
-            if (auxv[i].a_type == index)
-                return auxv[i].a_un.a_val;
-        }
-    }
-    return 0;
-}
-
 pub const GetCwdError = error{
     NameTooLong,
     CurrentWorkingDirectoryUnlinked,
@@ -1198,7 +1184,7 @@ pub fn isatty(handle: fd_t) bool {
         return windows.kernel32.GetConsoleMode(handle, &out) != 0;
     }
     if (wasi.is_the_target) {
-        @compileError("TODO implement std.os.posix.isatty for WASI");
+        @compileError("TODO implement std.os.isatty for WASI");
     }
     if (linux.is_the_target) {
         var wsz: system.winsize = undefined;
@@ -2361,6 +2347,23 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
         0 => return,
         EFAULT => unreachable,
         EINVAL => return error.UnsupportedClock,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const SchedGetAffinityError = error{
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
+    var set: cpu_set_t = undefined;
+    switch (errno(system.sched_getaffinity(pid, &set))) {
+        0 => return set,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        ESRCH => unreachable,
+        EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }

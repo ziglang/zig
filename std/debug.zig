@@ -1012,16 +1012,15 @@ fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
     errdefer S.self_exe_file.close();
 
     const self_exe_mmap_len = try S.self_exe_file.getEndPos();
-    const self_exe_mmap = os.posix.mmap(
+    const self_exe_mmap = try os.mmap(
         null,
         self_exe_mmap_len,
-        os.posix.PROT_READ,
-        os.posix.MAP_SHARED,
+        os.PROT_READ,
+        os.MAP_SHARED,
         S.self_exe_file.handle,
         0,
     );
-    if (self_exe_mmap == os.posix.MAP_FAILED) return error.OutOfMemory;
-    errdefer assert(os.posix.munmap(self_exe_mmap, self_exe_mmap_len) == 0);
+    errdefer os.munmap(self_exe_mmap, self_exe_mmap_len);
 
     const file_mmap_slice = @intToPtr([*]const u8, self_exe_mmap)[0..self_exe_mmap_len];
     S.self_exe_mmap_seekable = io.SliceSeekableInStream.init(file_mmap_slice);

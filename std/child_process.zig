@@ -351,22 +351,22 @@ pub const ChildProcess = struct {
         const err_pipe = try os.pipe();
         errdefer destroyPipe(err_pipe);
 
-        const pid_result = try posix.fork();
+        const pid_result = try os.fork();
         if (pid_result == 0) {
             // we are the child
-            setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stdin_behavior, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stdout_behavior, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stderr_behavior, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
 
-            if (self.stdin_behavior == StdIo.Pipe) {
+            if (self.stdin_behavior == .Pipe) {
                 os.close(stdin_pipe[0]);
                 os.close(stdin_pipe[1]);
             }
-            if (self.stdout_behavior == StdIo.Pipe) {
+            if (self.stdout_behavior == .Pipe) {
                 os.close(stdout_pipe[0]);
                 os.close(stdout_pipe[1]);
             }
-            if (self.stderr_behavior == StdIo.Pipe) {
+            if (self.stderr_behavior == .Pipe) {
                 os.close(stderr_pipe[0]);
                 os.close(stderr_pipe[1]);
             }
@@ -383,7 +383,7 @@ pub const ChildProcess = struct {
                 os.posix_setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            os.posix.execve(self.allocator, self.argv, env_map) catch |err| forkChildErrReport(err_pipe[1], err);
+            os.execve(self.allocator, self.argv, env_map) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
         // we are the parent
@@ -736,7 +736,7 @@ fn destroyPipe(pipe: [2]i32) void {
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     writeIntFd(fd, ErrInt(@errorToInt(err))) catch {};
-    posix.exit(1);
+    os.exit(1);
 }
 
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
