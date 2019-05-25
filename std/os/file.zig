@@ -428,37 +428,37 @@ pub const File = struct {
         }
     }
 
-    pub fn inStreamAdapter(file: File) InStream {
-        return InStream{
+    pub fn inStreamAdapter(file: File) InStreamAdapter {
+        return InStreamAdapter{
             .file = file,
         };
     }
 
-    pub fn outStreamAdapter(file: File) OutStream {
-        return OutStream{
+    pub fn outStreamAdapter(file: File) OutStreamAdapter {
+        return OutStreamAdapter{
             .file = file,
         };
     }
 
-    pub fn seekableStreamAdapter(file: File) SeekableStream {
-        return SeekableStream{
+    pub fn seekableStreamAdapter(file: File) SeekableStreamAdapter {
+        return SeekableStreamAdapter{
             .file = file,
         };
     }
 
     /// Implementation of io.InStream trait for File
-    pub const InStream = struct {
+    pub const InStreamAdapter = struct {
         file: File,
 
         pub const Error = ReadError;
         pub const Stream = io.InStream(Error);
 
         fn readFn(in_stream: Stream, buffer: []u8) Error!usize {
-            const self = in_stream.implCast(InStream);
+            const self = in_stream.implCast(InStreamAdapter);
             return self.file.read(buffer);
         }
         
-        pub fn inStream(self: *InStream) Stream {
+        pub fn inStream(self: *InStreamAdapter) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
                 .readFn = readFn,
@@ -467,18 +467,18 @@ pub const File = struct {
     };
 
     /// Implementation of io.OutStream trait for File
-    pub const OutStream = struct {
+    pub const OutStreamAdapter = struct {
         file: File,
 
         pub const Error = WriteError;
         pub const Stream = io.OutStream(Error);
 
         fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
-            const self = out_stream.implCast(OutStream);
+            const self = out_stream.implCast(OutStreamAdapter);
             return self.file.write(bytes);
         }
         
-        pub fn outStream(self: *OutStream) Stream {
+        pub fn outStream(self: *OutStreamAdapter) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
                 .writeFn = writeFn,
@@ -487,32 +487,32 @@ pub const File = struct {
     };
 
     /// Implementation of io.SeekableStream trait for File
-    pub const SeekableStream = struct {
+    pub const SeekableStreamAdapter = struct {
         file: File,
 
         pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
 
         pub fn seekToFn(seekable_stream: Stream, pos: u64) SeekError!void {
-            const self = seekable_stream.implCast(SeekableStream);
+            const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.seekTo(pos);
         }
 
         pub fn seekForwardFn(seekable_stream: Stream, amt: i64) SeekError!void {
-            const self = seekable_stream.implCast(SeekableStream);
+            const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.seekForward(amt);
         }
 
         pub fn getEndPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
-            const self = seekable_stream.implCast(SeekableStream);
+            const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.getEndPos();
         }
 
         pub fn getPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
-            const self = seekable_stream.implCast(SeekableStream);
+            const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.getPos();
         }
         
-        pub fn seekableStream(self: *SeekableStream) Stream {
+        pub fn seekableStream(self: *SeekableStreamAdapter) Stream {
             return Stream {
                 .impl = Stream.ifaceCast(self),
                 .seekToFn = SeekableStream.seekToFn,
