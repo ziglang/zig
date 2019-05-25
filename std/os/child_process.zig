@@ -814,6 +814,6 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &os.File.openHandle(fd).inStreamAdapter().stream;
+    const stream = os.File.openHandle(fd).inStreamAdapter().inStream();
     return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }
