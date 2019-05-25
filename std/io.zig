@@ -344,16 +344,14 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
     return struct {
         const Self = @This();
         const Stream = InStream(Error);
-
-        pub stream: Stream,
-
+        
         unbuffered_in_stream: *Stream,
 
         buffer: [buffer_size]u8,
         start_index: usize,
         end_index: usize,
 
-        pub fn init(unbuffered_in_stream: *Stream) Self {
+        pub fn init(unbuffered_in_stream: Stream) Self {
             return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
@@ -364,13 +362,11 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 // and 0, the code would think we already hit EOF.
                 .start_index = buffer_size,
                 .end_index = buffer_size,
-
-                .stream = Stream{ .readFn = readFn },
             };
         }
 
-        fn readFn(in_stream: *Stream, dest: []u8) !usize {
-            const self = @fieldParentPtr(Self, "stream", in_stream);
+        fn readFn(in_stream: Stream, dest: []u8) !usize {
+            const self = in_stream.implCast(Self);
 
             var dest_index: usize = 0;
             while (true) {
@@ -406,6 +402,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                 dest_index += copy_amount;
             }
         }
+        
+        pub fn inStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
+        }
     };
 }
 
@@ -414,26 +417,31 @@ test "io.BufferedInStream" {
         const Error = error{NoError};
         const Stream = InStream(Error);
 
-        stream: Stream,
         str: []const u8,
         curr: usize,
 
         fn init(str: []const u8) @This() {
             return @This(){
-                .stream = Stream{ .readFn = readFn },
                 .str = str,
                 .curr = 0,
             };
         }
 
-        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-            const self = @fieldParentPtr(@This(), "stream", in_stream);
+        fn readFn(in_stream: Stream, dest: []u8) Error!usize {
+            const self = in_stream.implCast(OneByteReadInStream);
             if (self.str.len <= self.curr or dest.len == 0)
                 return 0;
 
             dest[0] = self.str[self.curr];
             self.curr += 1;
             return 1;
+        }
+        
+        pub fn inStream(self: *OneByteReadInStream) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
         }
     };
 
@@ -457,8 +465,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         pub const Error = InStreamError;
         pub const Stream = InStream(Error);
 
-        pub stream: Stream,
-        base: *Stream,
+        base: Stream,
 
         // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
         // is not too difficult to derive from this.
@@ -466,13 +473,12 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         index: usize,
         at_end: bool,
 
-        pub fn init(base: *Stream) Self {
+        pub fn init(base: Stream) Self {
             return Self{
                 .base = base,
                 .buffer = undefined,
                 .index = 0,
                 .at_end = false,
-                .stream = Stream{ .readFn = readFn },
             };
         }
 
@@ -489,8 +495,8 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
             }
         }
 
-        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-            const self = @fieldParentPtr(Self, "stream", in_stream);
+        fn readFn(in_stream: Stream, dest: []u8) Error!usize {
+            const self = in_stream.implCast(Self);
 
             // copy over anything putBack()'d
             var pos: usize = 0;
@@ -512,6 +518,13 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
             self.at_end = (read < left);
             return pos + read;
         }
+        
+        pub fn inStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
+        }
     };
 }
 
@@ -520,8 +533,6 @@ pub const SliceInStream = struct {
     pub const Error = error{};
     pub const Stream = InStream(Error);
 
-    pub stream: Stream,
-
     pos: usize,
     slice: []const u8,
 
@@ -529,12 +540,11 @@ pub const SliceInStream = struct {
         return Self{
             .slice = slice,
             .pos = 0,
-            .stream = Stream{ .readFn = readFn },
         };
     }
 
-    fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-        const self = @fieldParentPtr(Self, "stream", in_stream);
+    fn readFn(in_stream: Stream, dest: []u8) Error!usize {
+        const self = in_stream.implCast(Self);
         const size = math.min(dest.len, self.slice.len - self.pos);
         const end = self.pos + size;
 
@@ -543,6 +553,13 @@ pub const SliceInStream = struct {
 
         return size;
     }
+    
+    pub fn inStream(self: *Self) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .readFn = readFn,
+        };
+    }
 };
 
 /// Creates a stream which allows for reading bit fields from another stream
@@ -550,22 +567,20 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     return struct {
         const Self = @This();
 
-        in_stream: *Stream,
+        in_stream: Stream,
         bit_buffer: u7,
         bit_count: u3,
-        stream: Stream,
 
         pub const Stream = InStream(Error);
         const u8_bit_count = comptime meta.bitCount(u8);
         const u7_bit_count = comptime meta.bitCount(u7);
         const u4_bit_count = comptime meta.bitCount(u4);
 
-        pub fn init(in_stream: *Stream) Self {
+        pub fn init(in_stream: Stream) Self {
             return Self{
                 .in_stream = in_stream,
                 .bit_buffer = 0,
                 .bit_count = 0,
-                .stream = Stream{ .readFn = read },
             };
         }
 
@@ -672,8 +687,8 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             self.bit_count = 0;
         }
 
-        pub fn read(self_stream: *Stream, buffer: []u8) Error!usize {
-            var self = @fieldParentPtr(Self, "stream", self_stream);
+        pub fn read(self_stream: Stream, buffer: []u8) Error!usize {
+            var self = self_stream.implCast(Self);
 
             var out_bits: usize = undefined;
             var out_bits_total = usize(0);
@@ -689,6 +704,13 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
 
             return self.in_stream.read(buffer);
         }
+        
+        pub fn inStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
+        }
     };
 }
 
@@ -698,8 +720,6 @@ pub const SliceOutStream = struct {
     pub const Error = error{OutOfSpace};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
-
     pub pos: usize,
     slice: []u8,
 
@@ -707,7 +727,6 @@ pub const SliceOutStream = struct {
         return SliceOutStream{
             .slice = slice,
             .pos = 0,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
@@ -719,8 +738,8 @@ pub const SliceOutStream = struct {
         self.pos = 0;
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(SliceOutStream, "stream", out_stream);
+    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+        const self = out_stream.implCast(SliceOutStream);
 
         assert(self.pos <= self.slice.len);
 
@@ -736,12 +755,19 @@ pub const SliceOutStream = struct {
             return Error.OutOfSpace;
         }
     }
+    
+    pub fn outStream(self: *SliceOutStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .readFn = readFn,
+        };
+    }
 };
 
 test "io.SliceOutStream" {
     var buf: [255]u8 = undefined;
     var slice_stream = SliceOutStream.init(buf[0..]);
-    const stream = &slice_stream.stream;
+    const stream = slice_stream.outStream();
 
     try stream.print("{}{}!", "Hello", "World");
     testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
@@ -755,20 +781,23 @@ pub const NullOutStream = struct {
     pub const Error = error{};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
-
     pub fn init() NullOutStream {
-        return NullOutStream{
-            .stream = Stream{ .writeFn = writeFn },
-        };
+        return NullOutStream{};
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {}
+    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {}
+    
+    pub fn outStream(self: *NullOutStream) Stream {
+        return Stream {
+            .impl = null,
+            .readFn = readFn,
+        };
+    }
 };
 
 test "io.NullOutStream" {
     var null_stream = NullOutStream.init();
-    const stream = &null_stream.stream;
+    const stream = null_stream.outStream();
     stream.write("yay" ** 10000) catch unreachable;
 }
 
@@ -779,30 +808,35 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
         pub bytes_written: u64,
-        child_stream: *Stream,
+        child_stream: Stream,
 
-        pub fn init(child_stream: *Stream) Self {
+        pub fn init(child_stream: Stream) Self {
             return Self{
-                .stream = Stream{ .writeFn = writeFn },
                 .bytes_written = 0,
                 .child_stream = child_stream,
             };
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) OutStreamError!void {
-            const self = @fieldParentPtr(Self, "stream", out_stream);
+        fn writeFn(out_stream: Stream, bytes: []const u8) OutStreamError!void {
+            const self = out_stream.implCast(CountingOutStream);
             try self.child_stream.write(bytes);
             self.bytes_written += bytes.len;
+        }
+        
+        pub fn outStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
         }
     };
 }
 
 test "io.CountingOutStream" {
     var null_stream = NullOutStream.init();
-    var counting_stream = CountingOutStream(NullOutStream.Error).init(&null_stream.stream);
-    const stream = &counting_stream.stream;
+    var counting_stream = CountingOutStream(NullOutStream.Error).init(null_stream.outStream());
+    const stream = counting_stream.outStream();
 
     const bytes = "yay" ** 10000;
     stream.write(bytes) catch unreachable;
@@ -819,9 +853,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
-
-        unbuffered_out_stream: *Stream,
+        unbuffered_out_stream: Stream,
 
         buffer: [buffer_size]u8,
         index: usize,
@@ -831,7 +863,6 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
                 .index = 0,
-                .stream = Stream{ .writeFn = writeFn },
             };
         }
 
@@ -840,8 +871,8 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             self.index = 0;
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
-            const self = @fieldParentPtr(Self, "stream", out_stream);
+        fn writeFn(out_stream: Stream, bytes: []const u8) !void {
+            const self = out_stream.implCast(Self);
 
             if (bytes.len >= self.buffer.len) {
                 try self.flush();
@@ -861,6 +892,13 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
                 src_index += copy_amt;
             }
         }
+        
+        pub fn outStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
+        }
     };
 }
 
@@ -875,13 +913,19 @@ pub const BufferOutStream = struct {
     pub fn init(buffer: *Buffer) BufferOutStream {
         return BufferOutStream{
             .buffer = buffer,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
-        const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
+    fn writeFn(out_stream: Stream, bytes: []const u8) !void {
+        const self = out_stream.implCast(BufferOutStream);
         return self.buffer.append(bytes);
+    }
+    
+    pub fn outStream(self: *BufferOutStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .readFn = readFn,
+        };
     }
 };
 
@@ -890,21 +934,19 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
     return struct {
         const Self = @This();
 
-        out_stream: *Stream,
+        out_stream: Stream,
         bit_buffer: u8,
         bit_count: u4,
-        stream: Stream,
 
         pub const Stream = OutStream(Error);
         const u8_bit_count = comptime meta.bitCount(u8);
         const u4_bit_count = comptime meta.bitCount(u4);
 
-        pub fn init(out_stream: *Stream) Self {
+        pub fn init(out_stream: Stream) Self {
             return Self{
                 .out_stream = out_stream,
                 .bit_buffer = 0,
                 .bit_count = 0,
-                .stream = Stream{ .writeFn = write },
             };
         }
 
@@ -999,8 +1041,8 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             self.bit_count = 0;
         }
 
-        pub fn write(self_stream: *Stream, buffer: []const u8) Error!void {
-            var self = @fieldParentPtr(Self, "stream", self_stream);
+        pub fn write(self_stream: Stream, buffer: []const u8) Error!void {
+            var self = self_stream.implCast(Self);
 
             //@NOTE: I'm not sure this is a good idea, maybe flushBits should be forced
             if (self.bit_count > 0) {
@@ -1010,6 +1052,13 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
             }
 
             return self.out_stream.write(buffer);
+        }
+        
+        pub fn outStream(self: *Self) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .readFn = readFn,
+            };
         }
     };
 }
@@ -1050,8 +1099,8 @@ pub const BufferedAtomicFile = struct {
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: *BufferedAtomicFile) *OutStream(os.File.WriteError) {
-        return &self.buffered_stream.stream;
+    pub fn outStream(self: *BufferedAtomicFile) OutStream(os.File.WriteError) {
+        return self.buffered_stream.outStream();
     }
 };
 
