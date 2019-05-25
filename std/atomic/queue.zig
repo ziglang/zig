@@ -311,7 +311,7 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.outStream());
+    try queue.dumpToStream(SliceOutStream.Error, sos.outStream());
     expect(mem.eql(u8, buffer[0..sos.pos],
         \\head: (null)
         \\tail: (null)
