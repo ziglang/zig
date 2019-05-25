@@ -10,18 +10,16 @@ pub const COutStream = struct {
     pub const Error = std.os.File.WriteError;
     pub const Stream = OutStream(Error);
 
-    stream: Stream,
     c_file: *std.c.FILE,
 
     pub fn init(c_file: *std.c.FILE) COutStream {
         return COutStream{
             .c_file = c_file,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(COutStream, "stream", out_stream);
+    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+        const self = out_stream.implCast(COutStream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
         // TODO errno on windows. should we have a posix layer for windows?
@@ -44,5 +42,12 @@ pub const COutStream = struct {
             posix.EPIPE => return error.BrokenPipe,
             else => return std.os.unexpectedErrorPosix(@intCast(usize, errno)),
         }
+    }
+    
+    pub fn outStream(self: *COutStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .writeFn = writeFn,
+        };
     }
 };

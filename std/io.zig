@@ -43,16 +43,19 @@ pub fn InStream(comptime ReadError: type) type {
     return struct {
         const Self = @This();
         pub const Error = ReadError;
+        pub const InStreamImpl = ?*@OpaqueType();
+        
+        impl: InStreamImpl,
 
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        readFn: fn (self: *Self, buffer: []u8) Error!usize,
+        readFn: fn (self: Self, buffer: []u8) Error!usize,
 
         /// Replaces `buffer` contents by reading from the stream until it is finished.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
         /// the contents read from the stream are lost.
-        pub fn readAllBuffer(self: *Self, buffer: *Buffer, max_size: usize) !void {
+        pub fn readAllBuffer(self: Self, buffer: *Buffer, max_size: usize) !void {
             try buffer.resize(0);
 
             var actual_buf_len: usize = 0;
@@ -76,7 +79,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readAllAlloc(self: *Self, allocator: mem.Allocator, max_size: usize) ![]u8 {
+        pub fn readAllAlloc(self: Self, allocator: mem.Allocator, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -88,7 +91,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// Does not include the delimiter in the result.
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
         /// read from the stream so far are lost.
-        pub fn readUntilDelimiterBuffer(self: *Self, buffer: *Buffer, delimiter: u8, max_size: usize) !void {
+        pub fn readUntilDelimiterBuffer(self: Self, buffer: *Buffer, delimiter: u8, max_size: usize) !void {
             try buffer.resize(0);
 
             while (true) {
@@ -110,7 +113,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
-        pub fn readUntilDelimiterAlloc(self: *Self, allocator: mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
+        pub fn readUntilDelimiterAlloc(self: Self, allocator: mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
             var buf = Buffer.initNull(allocator);
             defer buf.deinit();
 
@@ -121,14 +124,14 @@ pub fn InStream(comptime ReadError: type) type {
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        pub fn read(self: *Self, buffer: []u8) Error!usize {
+        pub fn read(self: Self, buffer: []u8) Error!usize {
             return self.readFn(self, buffer);
         }
 
         /// Returns the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
-        pub fn readFull(self: *Self, buffer: []u8) Error!usize {
+        pub fn readFull(self: Self, buffer: []u8) Error!usize {
             var index: usize = 0;
             while (index != buffer.len) {
                 const amt = try self.read(buffer[index..]);
@@ -139,56 +142,56 @@ pub fn InStream(comptime ReadError: type) type {
         }
 
         /// Same as `readFull` but end of stream returns `error.EndOfStream`.
-        pub fn readNoEof(self: *Self, buf: []u8) !void {
+        pub fn readNoEof(self: Self, buf: []u8) !void {
             const amt_read = try self.read(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
 
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-        pub fn readByte(self: *Self) !u8 {
+        pub fn readByte(self: Self) !u8 {
             var result: [1]u8 = undefined;
             try self.readNoEof(result[0..]);
             return result[0];
         }
 
         /// Same as `readByte` except the returned byte is signed.
-        pub fn readByteSigned(self: *Self) !i8 {
+        pub fn readByteSigned(self: Self) !i8 {
             return @bitCast(i8, try self.readByte());
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNative(self: *Self, comptime T: type) !T {
+        pub fn readIntNative(self: Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
-        pub fn readIntForeign(self: *Self, comptime T: type) !T {
+        pub fn readIntForeign(self: Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntForeign(T, &bytes);
         }
 
-        pub fn readIntLittle(self: *Self, comptime T: type) !T {
+        pub fn readIntLittle(self: Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntLittle(T, &bytes);
         }
 
-        pub fn readIntBig(self: *Self, comptime T: type) !T {
+        pub fn readIntBig(self: Self, comptime T: type) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntBig(T, &bytes);
         }
 
-        pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
+        pub fn readInt(self: Self, comptime T: type, endian: builtin.Endian) !T {
             var bytes: [@sizeOf(T)]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readInt(T, &bytes, endian);
         }
 
-        pub fn readVarInt(self: *Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
+        pub fn readVarInt(self: Self, comptime ReturnType: type, endian: builtin.Endian, size: usize) !ReturnType {
             assert(size <= @sizeOf(ReturnType));
             var bytes_buf: [@sizeOf(ReturnType)]u8 = undefined;
             const bytes = bytes_buf[0..size];
@@ -196,19 +199,34 @@ pub fn InStream(comptime ReadError: type) type {
             return mem.readVarInt(ReturnType, bytes, endian);
         }
 
-        pub fn skipBytes(self: *Self, num_bytes: u64) !void {
+        pub fn skipBytes(self: Self, num_bytes: u64) !void {
             var i: u64 = 0;
             while (i < num_bytes) : (i += 1) {
                 _ = try self.readByte();
             }
         }
 
-        pub fn readStruct(self: *Self, comptime T: type) !T {
+        pub fn readStruct(self: Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);
             var res: [1]T = undefined;
             try self.readNoEof(@sliceToBytes(res[0..]));
             return res[0];
+        }
+        
+        /// Cast the original type to the implementation pointer
+        pub fn ifaceCast(ptr: var) InStreamImpl {
+            const T = @typeOf(ptr);
+            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
+            return @ptrCast(InStreamImpl, ptr);
+        }
+        
+        /// Cast the implementation pointer back to the original type
+        pub fn implCast(in: InStreamImpl, comptime T: type) *T {
+            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
+            assert(in.impl != null);
+            const aligned = @alignCast(@alignOf(T), in.impl);
+            return @ptrCast(*T, aligned);
         }
     };
 }
@@ -217,23 +235,26 @@ pub fn OutStream(comptime WriteError: type) type {
     return struct {
         const Self = @This();
         pub const Error = WriteError;
+        pub const OutStreamImpl = ?*@OpaqueType();
+        
+        impl: OutStreamImpl,
 
-        writeFn: fn (self: *Self, bytes: []const u8) Error!void,
+        writeFn: fn (self: Self, bytes: []const u8) Error!void,
 
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
+        pub fn print(self: Self, comptime format: []const u8, args: ...) Error!void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
-        pub fn write(self: *Self, bytes: []const u8) Error!void {
+        pub fn write(self: Self, bytes: []const u8) Error!void {
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeByte(self: *Self, byte: u8) Error!void {
+        pub fn writeByte(self: Self, byte: u8) Error!void {
             const slice = (*const [1]u8)(&byte)[0..];
             return self.writeFn(self, slice);
         }
 
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
+        pub fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
             const slice = (*const [1]u8)(&byte)[0..];
             var i: usize = 0;
             while (i < n) : (i += 1) {
@@ -242,35 +263,50 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         /// Write a native-endian integer.
-        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntNative(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
         /// Write a foreign-endian integer.
-        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntForeign(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntLittle(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntLittle(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
+        pub fn writeIntBig(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeIntBig(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
-        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
+        pub fn writeInt(self: Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
             var bytes: [@sizeOf(T)]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
+        }
+        
+        /// Cast the original type to the implementation pointer
+        pub fn ifaceCast(ptr: var) OutStreamImpl {
+            const T = @typeOf(ptr);
+            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
+            return @ptrCast(OutStreamImpl, ptr);
+        }
+        
+        /// Cast the implementation pointer back to the original type
+        pub fn implCast(out: OutStreamImpl, comptime T: type) *T {
+            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
+            assert(out.impl != null);
+            const aligned = @alignCast(@alignOf(T), out.impl);
+            return @ptrCast(*T, aligned);
         }
     };
 }
