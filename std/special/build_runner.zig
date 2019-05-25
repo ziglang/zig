@@ -51,7 +51,7 @@ pub fn main() !void {
     var stderr_file_stream: os.File.OutStream = undefined;
     var stderr_stream = if (stderr_file) |f| x: {
         stderr_file_stream = f.outStreamAdapter();
-        break :x &stderr_file_stream.stream;
+        break :x stderr_file_stream.outStream();
     } else |err| err;
 
     var stdout_file = io.getStdOut();

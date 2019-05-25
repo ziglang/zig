@@ -251,7 +251,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStream();
             try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
 
             const stdlib_path = try std.os.path.join(
@@ -278,7 +278,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStream();
             try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86"),
@@ -356,7 +356,7 @@ pub const LibCInstallation = struct {
 
         for (searches) |search| {
             result_buf.shrink(0);
-            const stream = &std.io.BufferOutStream.init(&result_buf).stream;
+            const stream = std.io.BufferOutStream.init(&result_buf).outStream();
             try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
             switch (builtin.arch) {
                 builtin.Arch.i386 => try stream.write("x86\\"),

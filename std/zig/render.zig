@@ -26,12 +26,11 @@ pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(s
 
         anything_changed_ptr: *bool,
         child_stream: @typeOf(stream),
-        stream: Stream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: *Stream, bytes: []const u8) StreamError!void {
-            const self = @fieldParentPtr(MyStream, "stream", iface_stream);
+        fn write(iface_stream: Stream, bytes: []const u8) StreamError!void {
+            const self = iface_stream.implCast(MyStream);
 
             if (!self.anything_changed_ptr.*) {
                 const end = self.source_index + bytes.len;
@@ -48,16 +47,22 @@ pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(s
 
             try self.child_stream.write(bytes);
         }
+        
+        pub fn outStream(self: *MyStream) Stream {
+            return Stream {
+                .impl = Stream.ifaceCast(self),
+                .writeFn = write,
+            };
+        }
     };
     var my_stream = MyStream{
-        .stream = MyStream.Stream{ .writeFn = MyStream.write },
         .child_stream = stream,
         .anything_changed_ptr = &anything_changed,
         .source_index = 0,
         .source = tree.source,
     };
 
-    try renderRoot(allocator, &my_stream.stream, tree);
+    try renderRoot(allocator, my_stream.outStream(), tree);
 
     if (!anything_changed and my_stream.source_index != my_stream.source.len) {
         anything_changed = true;
@@ -577,7 +582,7 @@ fn renderExpression(
                         while (it.next()) |field_init| {
                             var find_stream = FindByteOutStream.init('\n');
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &find_stream.stream, tree, 0, &dummy_col, field_init.*, Space.None);
+                            try renderExpression(allocator, find_stream.outStream(), tree, 0, &dummy_col, field_init.*, Space.None);
                             if (find_stream.byte_found) break :blk false;
                         }
                         break :blk true;
@@ -709,7 +714,7 @@ fn renderExpression(
 
                         // Null stream for counting the printed length of each expression
                         var null_stream = std.io.NullOutStream.init();
-                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(&null_stream.stream);
+                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(null_stream.outStream());
 
                         var it = exprs.iterator(0);
                         var i: usize = 0;
@@ -717,7 +722,7 @@ fn renderExpression(
                         while (it.next()) |expr| : (i += 1) {
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
+                            try renderExpression(allocator, counting_stream.outStream(), tree, 0, &dummy_col, expr.*, Space.None);
                             const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
@@ -2080,25 +2085,30 @@ const FindByteOutStream = struct {
     pub const Error = error{};
     pub const Stream = std.io.OutStream(Error);
 
-    pub stream: Stream,
     pub byte_found: bool,
     byte: u8,
 
     pub fn init(byte: u8) Self {
         return Self{
-            .stream = Stream{ .writeFn = writeFn },
             .byte = byte,
             .byte_found = false,
         };
     }
 
-    fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(Self, "stream", out_stream);
+    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+        const self = out_stream.implCast(Self);
         if (self.byte_found) return;
         self.byte_found = blk: {
             for (bytes) |b|
                 if (b == self.byte) break :blk true;
             break :blk false;
+        };
+    }
+    
+    pub fn outStream(self: *Self) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .writeFn = writeFn,
         };
     }
 };

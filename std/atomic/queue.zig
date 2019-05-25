@@ -311,7 +311,7 @@ test "std.atomic.Queue dump" {
 
     // Test empty stream
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, &sos.outStream());
     expect(mem.eql(u8, buffer[0..sos.pos],
         \\head: (null)
         \\tail: (null)
@@ -327,7 +327,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_0);
 
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, sos.outStream());
 
     var expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
@@ -347,7 +347,7 @@ test "std.atomic.Queue dump" {
     queue.put(&node_1);
 
     sos.reset();
-    try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
+    try queue.dumpToStream(SliceOutStream.Error, sos.outStream());
 
     expected = try std.fmt.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1

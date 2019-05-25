@@ -622,7 +622,7 @@ fn cmdFmt(allocator: Allocator, args: []const []const u8) !void {
         var stdin_file = try io.getStdIn();
         var stdin = stdin_file.inStreamAdapter();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
+        const source_code = try stdin.inStream().readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -798,7 +798,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), tree);
+        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.outStream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();

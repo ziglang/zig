@@ -43,7 +43,7 @@ pub fn main() !void {
 
     var file_in_stream = in_file.inStreamAdapter();
 
-    const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
+    const input_file_bytes = try file_in_stream.inStream().readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = out_file.outStreamAdapter();
     var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(file_out_stream.outStream());
@@ -327,7 +327,7 @@ fn genToc(allocator: mem.Allocator, tokenizer: *Tokenizer) !Toc {
     defer toc_buf.deinit();
 
     var toc_buf_adapter = io.BufferOutStream.init(&toc_buf);
-    var toc = &toc_buf_adapter.stream;
+    var toc = toc_buf_adapter.outStream();
 
     var nodes = std.ArrayList(Node).init(allocator);
     defer nodes.deinit();

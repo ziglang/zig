@@ -332,7 +332,6 @@ async fn doAsyncTest(loop: *Loop, address: *const std.net.Address, server: *Serv
 
 pub const OutStream = struct {
     fd: os.FileHandle,
-    stream: Stream,
     loop: *Loop,
 
     pub const Error = WriteError;
@@ -342,19 +341,24 @@ pub const OutStream = struct {
         return OutStream{
             .fd = fd,
             .loop = loop,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
     async<*mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(OutStream, "stream", out_stream);
+        const self = out_stream.implCast(OutStream);
         return await (async write(self.loop, self.fd, bytes) catch unreachable);
+    }
+    
+    pub fn outStream(self: *OutStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .writeFn = writeFn,
+        };
     }
 };
 
 pub const InStream = struct {
     fd: os.FileHandle,
-    stream: Stream,
     loop: *Loop,
 
     pub const Error = ReadError;
@@ -364,12 +368,18 @@ pub const InStream = struct {
         return InStream{
             .fd = fd,
             .loop = loop,
-            .stream = Stream{ .readFn = readFn },
         };
     }
 
     async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
-        const self = @fieldParentPtr(InStream, "stream", in_stream);
+        const self = in_stream.implCast(InStream);
         return await (async read(self.loop, self.fd, bytes) catch unreachable);
+    }
+    
+    pub fn outStream(self: *InStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .readFn = readFn,
+        };
     }
 };

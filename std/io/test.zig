@@ -23,7 +23,7 @@ test "write a file, read it, then delete it" {
 
         var file_out_stream = file.outStreamAdapter();
         var buf_stream = io.BufferedOutStream(os.File.WriteError).init(file_out_stream.outStream());
-        const st = &buf_stream.stream;
+        const st = buf_stream.outStream();
         try st.print("begin");
         try st.write(data[0..]);
         try st.print("end");
@@ -49,7 +49,7 @@ test "write a file, read it, then delete it" {
 
         var file_in_stream = file.inStreamAdapter();
         var buf_stream = io.BufferedInStream(os.File.ReadError).init(file_in_stream.inStream());
-        const st = &buf_stream.stream;
+        const st = buf_stream.outStream();
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
         defer allocator.free(contents);
 
@@ -65,7 +65,7 @@ test "BufferOutStream" {
     var allocator = std.heap.FixedBufferAllocator.init(bytes[0..]).allocator();
 
     var buffer = try std.Buffer.initSize(allocator, 0);
-    var buf_stream = &std.io.BufferOutStream.init(&buffer).stream;
+    var buf_stream = std.io.BufferOutStream.init(&buffer).outStream();
 
     const x: i32 = 42;
     const y: i32 = 1234;
@@ -80,46 +80,46 @@ test "SliceInStream" {
 
     var dest: [4]u8 = undefined;
 
-    var read = try ss.stream.read(dest[0..4]);
+    var read = try ss.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(mem.eql(u8, dest[0..4], bytes[0..4]));
 
-    read = try ss.stream.read(dest[0..4]);
+    read = try ss.inStream().read(dest[0..4]);
     expect(read == 3);
     expect(mem.eql(u8, dest[0..3], bytes[4..7]));
 
-    read = try ss.stream.read(dest[0..4]);
+    read = try ss.inStream().read(dest[0..4]);
     expect(read == 0);
 }
 
 test "PeekStream" {
     const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(bytes);
-    var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
+    var ps = io.PeekStream(2, io.SliceInStream.Error).init(ss.inStream());
 
     var dest: [4]u8 = undefined;
 
     ps.putBackByte(9);
     ps.putBackByte(10);
 
-    var read = try ps.stream.read(dest[0..4]);
+    var read = try ps.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(dest[0] == 10);
     expect(dest[1] == 9);
     expect(mem.eql(u8, dest[2..4], bytes[0..2]));
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 4);
     expect(mem.eql(u8, dest[0..4], bytes[2..6]));
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 2);
     expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
     ps.putBackByte(11);
     ps.putBackByte(12);
 
-    read = try ps.stream.read(dest[0..4]);
+    read = try ps.inStream().read(dest[0..4]);
     expect(read == 2);
     expect(dest[0] == 12);
     expect(dest[1] == 11);
@@ -129,19 +129,19 @@ test "SliceOutStream" {
     var buffer: [10]u8 = undefined;
     var ss = io.SliceOutStream.init(buffer[0..]);
 
-    try ss.stream.write("Hello");
+    try ss.outStream().write("Hello");
     expect(mem.eql(u8, ss.getWritten(), "Hello"));
 
-    try ss.stream.write("world");
+    try ss.outStream().write("world");
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
-    expectError(error.OutOfSpace, ss.stream.write("!"));
+    expectError(error.OutOfSpace, ss.outStream().write("!"));
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
     ss.reset();
     expect(ss.getWritten().len == 0);
 
-    expectError(error.OutOfSpace, ss.stream.write("Hello world!"));
+    expectError(error.OutOfSpace, ss.outStream().write("Hello world!"));
     expect(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
 

@@ -425,7 +425,7 @@ pub const Type = struct {
             var name_buf = try std.Buffer.initSize(comp.gpa(), 0);
             defer name_buf.deinit();
 
-            const name_stream = &std.io.BufferOutStream.init(&name_buf).stream;
+            const name_stream = std.io.BufferOutStream.init(&name_buf).outStream();
 
             switch (key.data) {
                 Kind.Generic => |generic| {

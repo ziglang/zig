@@ -1389,7 +1389,6 @@ async fn testFsWatch(loop: *Loop) !void {
 
 pub const OutStream = struct {
     fd: os.FileHandle,
-    stream: Stream,
     loop: *Loop,
     offset: usize,
 
@@ -1401,21 +1400,26 @@ pub const OutStream = struct {
             .fd = fd,
             .loop = loop,
             .offset = offset,
-            .stream = Stream{ .writeFn = writeFn },
         };
     }
 
-    async<*mem.Allocator> fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
-        const self = @fieldParentPtr(OutStream, "stream", out_stream);
+    async<*mem.Allocator> fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+        const self = out_stream.implCast(OutStream);
         const offset = self.offset;
         self.offset += bytes.len;
         return await (async pwritev(self.loop, self.fd, [][]const u8{bytes}, offset) catch unreachable);
+    }
+    
+    pub fn outStream(self: *OutStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .writeFn = writeFn,
+        };
     }
 };
 
 pub const InStream = struct {
     fd: os.FileHandle,
-    stream: Stream,
     loop: *Loop,
     offset: usize,
 
@@ -1432,9 +1436,16 @@ pub const InStream = struct {
     }
 
     async<*mem.Allocator> fn readFn(in_stream: *Stream, bytes: []u8) Error!usize {
-        const self = @fieldParentPtr(InStream, "stream", in_stream);
+        const self = in_stream.implCast(InStream);
         const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
         self.offset += amt;
         return amt;
+    }
+    
+    pub fn inStream(self: *InStream) Stream {
+        return Stream {
+            .impl = Stream.ifaceCast(self),
+            .readFn = readFn,
+        };
     }
 };

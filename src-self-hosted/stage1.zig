@@ -183,7 +183,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         var stdin_file = try io.getStdIn();
         var stdin = stdin_file.inStreamAdapter();
 
-        const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
+        const source_code = try stdin.inStream().readAllAlloc(allocator, self_hosted_main.max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
@@ -307,7 +307,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
         const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
+        const anything_changed = try std.zig.render(fmt.allocator, baf.outStream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();

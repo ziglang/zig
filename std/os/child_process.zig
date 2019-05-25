@@ -215,8 +215,8 @@ pub const ChildProcess = struct {
         var stdout_file_in_stream = child.stdout.?.inStreamAdapter();
         var stderr_file_in_stream = child.stderr.?.inStreamAdapter();
 
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
-        try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+        try stdout_file_in_stream.inStream().readAllBuffer(&stdout, max_output_size);
+        try stderr_file_in_stream.inStream().readAllBuffer(&stderr, max_output_size);
 
         return ExecResult{
             .term = try child.wait(),
