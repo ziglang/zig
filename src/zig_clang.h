@@ -105,6 +105,7 @@ struct ZigClangFunctionType;
 struct ZigClangPredefinedExpr;
 
 typedef struct ZigClangStmt *const * ZigClangCompoundStmt_const_body_iterator;
+typedef struct ZigClangDecl *const * ZigClangDeclStmt_const_decl_iterator;
 
 enum ZigClangBO {
     ZigClangBO_PtrMemD,
@@ -754,7 +755,7 @@ ZIG_EXTERN_C void ZigClangErrorMsg_delete(struct Stage2ErrorMsg *ptr, size_t len
 
 ZIG_EXTERN_C struct ZigClangASTContext *ZigClangASTUnit_getASTContext(struct ZigClangASTUnit *);
 ZIG_EXTERN_C struct ZigClangSourceManager *ZigClangASTUnit_getSourceManager(struct ZigClangASTUnit *);
-ZIG_EXTERN_C bool ZigClangASTUnit_visitLocalTopLevelDecls(struct ZigClangASTUnit *, void *context, 
+ZIG_EXTERN_C bool ZigClangASTUnit_visitLocalTopLevelDecls(struct ZigClangASTUnit *, void *context,
     bool (*Fn)(void *context, const struct ZigClangDecl *decl));
 
 ZIG_EXTERN_C const struct ZigClangRecordDecl *ZigClangRecordType_getDecl(const struct ZigClangRecordType *record_ty);
@@ -845,6 +846,9 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionProtoType_getParamType(cons
 
 ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const struct ZigClangCompoundStmt *self);
 ZIG_EXTERN_C ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self);
+
+ZIG_EXTERN_C ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_begin(const struct ZigClangDeclStmt *self);
+ZIG_EXTERN_C ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_end(const struct ZigClangDeclStmt *self);
 
 ZIG_EXTERN_C unsigned ZigClangAPFloat_convertToHexString(const struct ZigClangAPFloat *self, char *DST,
         unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM);

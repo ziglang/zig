@@ -1331,6 +1331,12 @@ static ZigClangCompoundStmt_const_body_iterator bitcast(clang::CompoundStmt::con
     return dest;
 }
 
+static_assert(sizeof(ZigClangDeclStmt_const_decl_iterator) == sizeof(clang::DeclStmt::const_decl_iterator), "");
+static ZigClangDeclStmt_const_decl_iterator bitcast(clang::DeclStmt::const_decl_iterator src) {
+    ZigClangDeclStmt_const_decl_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangDeclStmt_const_decl_iterator));
+    return dest;
+}
 
 ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
@@ -1381,7 +1387,7 @@ ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *self) {
     return reinterpret_cast<ZigClangSourceManager *>(result);
 }
 
-bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *context, 
+bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *context,
     bool (*Fn)(void *context, const ZigClangDecl *decl))
 {
     return reinterpret_cast<clang::ASTUnit *>(self)->visitLocalTopLevelDecls(context,
@@ -1860,6 +1866,16 @@ ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_begin(const s
 ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const struct ZigClangCompoundStmt *self) {
     auto casted = reinterpret_cast<const clang::CompoundStmt *>(self);
     return bitcast(casted->body_end());
+}
+
+ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_begin(const struct ZigClangDeclStmt *self) {
+    auto casted = reinterpret_cast<const clang::DeclStmt *>(self);
+    return bitcast(casted->decl_begin());
+}
+
+ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_end(const struct ZigClangDeclStmt *self) {
+    auto casted = reinterpret_cast<const clang::DeclStmt *>(self);
+    return bitcast(casted->decl_end());
 }
 
 unsigned ZigClangAPFloat_convertToHexString(const ZigClangAPFloat *self, char *DST,

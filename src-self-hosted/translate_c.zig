@@ -323,6 +323,7 @@ fn transStmt(
     const sc = ZigClangStmt_getStmtClass(stmt);
     switch (sc) {
         .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
+        .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
         else => {
             return revertAndWarn(
                 rp,
@@ -366,6 +367,84 @@ fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompo
         .node_scope = inline_result.node_scope,
         .child_scope = inline_result.child_scope,
     };
+}
+
+fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) !TransResult {
+    const c = rp.c;
+    const block_scope = findBlockScope(scope);
+    var it = ZigClangDeclStmt_decl_begin(stmt);
+    const end_it = ZigClangDeclStmt_decl_end(stmt);
+    while (it != end_it) : (it += 1) {
+        switch (ZigClangDecl_getKind(it.*)) {
+            .Var => {
+                const var_decl = @ptrCast(*const ZigClangVarDecl, it.*);
+
+                // TODO:
+                // const thread_local_token = if (ZigClangVarDecl_getTLSKind() == .None)
+                //     null
+                // else
+                //     try appendToken(c, .Keyword_threadlocal, "threadlocal");
+                const thread_local_token: ?ast.TokenIndex = null;
+                // TODO:
+                // const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
+                //     try appendToken(c, .Keyword_const, "const")
+                // else
+                //     try appendToken(c, .Keyword_var, "var");
+                const mut_token = try appendToken(c, .Keyword_var, "var");
+                const name_token = blk: {
+                    const name = try c.str(ZigClangDecl_getName_bytes_begin(
+                        @ptrCast(*const ZigClangDecl, var_decl),
+                    ));
+                    break :blk try appendToken(c, .Identifier, name);
+                };
+                const eq_token = try appendToken(c, .Equal, "=");
+                // TODO: init_node
+                const init_node: ?*ast.Node = null;
+                const semicolon_token = try appendToken(c, .Semicolon, ";");
+
+                const node = try rp.c.a().create(ast.Node.VarDecl);
+                node.* = ast.Node.VarDecl{
+                    .base = ast.Node{ .id = .VarDecl },
+                    .doc_comments = null,
+                    .visib_token = null,
+                    .thread_local_token = thread_local_token,
+                    .name_token = name_token,
+                    .eq_token = eq_token,
+                    .mut_token = mut_token,
+                    .comptime_token = null, // TODO IsConstexpr ?
+                    .extern_export_token = null, // TODO ?TokenIndex,
+                    .lib_name = null, // TODO ?*Node,
+                    .type_node = null, // TODO ?*Node,
+                    .align_node = null, // TODO ?*Node,
+                    .section_node = null, // TODO ?*Node,
+                    .init_node = init_node,
+                    .semicolon_token = semicolon_token,
+                };
+                try block_scope.block_node.statements.push(&node.base);
+            },
+
+            else => |kind| return revertAndWarn(
+                rp,
+                error.UnsupportedTranslation,
+                ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)),
+                "TODO implement translation of DeclStmt kind {}",
+                @tagName(kind),
+            ),
+        }
+    }
+
+    return TransResult{
+        .node = &block_scope.block_node.base,
+        .node_scope = scope,
+        .child_scope = scope,
+    };
+}
+
+fn findBlockScope(inner: *Scope) *Scope.Block {
+    var scope = inner;
+    while (true) : (scope = scope.parent orelse unreachable) {
+        if (scope.id == .Block) return @fieldParentPtr(Scope.Block, "base", scope);
+    }
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {

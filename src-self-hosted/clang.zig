@@ -864,3 +864,8 @@ pub const ZigClangCompoundStmt_const_body_iterator = [*c]const *struct_ZigClangS
 
 pub extern fn ZigClangCompoundStmt_body_begin(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 pub extern fn ZigClangCompoundStmt_body_end(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
+
+pub const ZigClangDeclStmt_const_decl_iterator = [*c]const *struct_ZigClangDecl;
+
+pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
+pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
