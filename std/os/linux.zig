@@ -382,8 +382,8 @@ pub fn unlinkat(dirfd: i32, path: [*]const u8, flags: u32) usize {
     return syscall3(SYS_unlinkat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), flags);
 }
 
-pub fn waitpid(pid: i32, status: *i32, options: i32) usize {
-    return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
+pub fn waitpid(pid: i32, status: *i32, flags: u32) usize {
+    return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), flags, 0);
 }
 
 var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);

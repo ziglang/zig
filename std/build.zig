@@ -846,7 +846,7 @@ pub const Target = union(enum) {
     }
 
     pub fn oFileExt(self: Target) []const u8 {
-        const abi = switch (self.*) {
+        const abi = switch (self) {
             Target.Native => builtin.abi,
             Target.Cross => |t| t.abi,
         };

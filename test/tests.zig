@@ -112,7 +112,7 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     const exe = b.addExecutable("test-cli", "test/cli.zig");
     const run_cmd = exe.run();
     run_cmd.addArgs([][]const u8{
-        fs.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
+        fs.realpathAlloc(b.allocator, b.zig_exe) catch unreachable,
         b.pathFromRoot(b.cache_root),
     });
 

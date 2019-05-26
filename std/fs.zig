@@ -2,7 +2,10 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
 const mem = std.mem;
+const base64 = std.base64;
+const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
@@ -73,7 +76,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     mem.copy(u8, tmp_path[0..], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
-        try getRandomBytes(rand_buf[0..]);
+        try crypto.randomBytes(rand_buf[0..]);
         b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
 
         if (symLink(existing_path, tmp_path)) {
@@ -159,7 +162,7 @@ pub const AtomicFile = struct {
         tmp_path_buf[tmp_path_len] = 0;
 
         while (true) {
-            try getRandomBytes(rand_buf[0..]);
+            try crypto.randomBytes(rand_buf[0..]);
             b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], rand_buf);
 
             const file = File.openWriteNoClobberC(&tmp_path_buf, mode) catch |err| switch (err) {

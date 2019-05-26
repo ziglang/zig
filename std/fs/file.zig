@@ -137,17 +137,17 @@ pub const File = struct {
 
     /// Test for the existence of `path`.
     /// `path` is UTF8-encoded.
-    pub fn exists(path: []const u8) AccessError!void {
+    pub fn exists(path: []const u8) !void {
         return os.access(path, os.F_OK);
     }
 
     /// Same as `exists` except the parameter is null-terminated.
-    pub fn existsC(path: [*]const u8) AccessError!void {
+    pub fn existsC(path: [*]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
     /// Same as `exists` except the parameter is null-terminated UTF16LE-encoded.
-    pub fn existsW(path: [*]const u16) AccessError!void {
+    pub fn existsW(path: [*]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
 

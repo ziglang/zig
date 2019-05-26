@@ -1,10 +1,10 @@
-// The engines provided here should be initialized from an external source. For now, getRandomBytes
-// from the os package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
+// The engines provided here should be initialized from an external source. For now, randomBytes
+// from the crypto package is the most suitable. Be sure to use a CSPRNG when required, otherwise using
 // a normal PRNG will be faster and use substantially less stack space.
 //
 // ```
 // var buf: [8]u8 = undefined;
-// try std.os.getRandomBytes(buf[0..]);
+// try std.crypto.randomBytes(buf[0..]);
 // const seed = mem.readIntSliceLittle(u64, buf[0..8]);
 //
 // var r = DefaultPrng.init(seed);

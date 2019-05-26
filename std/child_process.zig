@@ -50,24 +50,8 @@ pub const ChildProcess = struct {
     err_pipe: if (os.windows.is_the_target) void else [2]i32,
     llnode: if (os.windows.is_the_target) void else LinkedList(*ChildProcess).Node,
 
-    pub const SpawnError = error{
-        ProcessFdQuotaExceeded,
-        Unexpected,
-        NotDir,
-        SystemResources,
-        FileNotFound,
-        NameTooLong,
-        SymLinkLoop,
-        FileSystem,
-        OutOfMemory,
-        AccessDenied,
-        PermissionDenied,
-        InvalidUserId,
-        ResourceLimitReached,
-        InvalidExe,
-        IsDir,
-        FileBusy,
-    };
+    pub const SpawnError = error{OutOfMemory} || os.ExecveError || os.SetIdError ||
+        os.ChangeCurDirError || windows.CreateProcessError;
 
     pub const Term = union(enum) {
         Exited: i32,
@@ -640,7 +624,7 @@ fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, c
     // However this would imply that programs compiled with -DUNICODE could not pass
     // environment variables to programs that were not, which seems unlikely.
     // More investigation is needed.
-    if (windows.CreateProcessW(
+    return windows.CreateProcessW(
         app_name,
         cmd_line,
         null,
@@ -651,15 +635,7 @@ fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, c
         cwd_ptr,
         lpStartupInfo,
         lpProcessInformation,
-    ) == 0) {
-        switch (windows.GetLastError()) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.INVALID_PARAMETER => unreachable,
-            windows.ERROR.INVALID_NAME => return error.InvalidName,
-            else => |err| return windows.unexpectedError(err),
-        }
-    }
+    );
 }
 
 /// Caller must dealloc.

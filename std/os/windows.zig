@@ -1140,6 +1140,46 @@ pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) G
     return rc;
 }
 
+pub const CreateProcessError = error{
+    FileNotFound,
+    InvalidName,
+    Unexpected,
+};
+
+pub fn CreateProcessW(
+    lpApplicationName: ?LPWSTR,
+    lpCommandLine: LPWSTR,
+    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
+    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
+    bInheritHandles: BOOL,
+    dwCreationFlags: DWORD,
+    lpEnvironment: ?*c_void,
+    lpCurrentDirectory: ?LPWSTR,
+    lpStartupInfo: *STARTUPINFOW,
+    lpProcessInformation: *PROCESS_INFORMATION,
+) CreateProcessError!void {
+    if (kernel32.CreateProcessW(
+        lpApplicationName,
+        lpCommandLine,
+        lpProcessAttributes,
+        lpThreadAttributes,
+        bInheritHandle,
+        dwCreationFlags,
+        lpEnvironment,
+        lpCurrentDirectory,
+        lpStartupInfo,
+        lpProcessInformation,
+    ) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            ERROR.INVALID_PARAMETER => unreachable,
+            ERROR.INVALID_NAME => return error.InvalidName,
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }

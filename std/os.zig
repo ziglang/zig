@@ -86,7 +86,7 @@ pub fn close(fd: fd_t) void {
     }
 }
 
-pub const GetRandomError = error{};
+pub const GetRandomError = OpenError;
 
 /// Obtain a series of random bytes. These bytes can be used to seed user-space
 /// random number generators or for cryptographic purposes.
@@ -641,6 +641,7 @@ pub const ExecveError = error{
     NotDir,
     FileBusy,
     ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
     NameTooLong,
 
     Unexpected,
