@@ -2,11 +2,9 @@ const std = @import("std");
 const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
-const os = std.os;
-const StdIo = os.ChildProcess.StdIo;
-const Term = os.ChildProcess.Term;
 const Buffer = std.Buffer;
 const io = std.io;
+const fs = std.fs;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
@@ -30,19 +28,19 @@ const TestTarget = struct {
 
 const test_targets = []TestTarget{
     TestTarget{
-        .os = builtin.Os.linux,
-        .arch = builtin.Arch.x86_64,
-        .abi = builtin.Abi.gnu,
+        .os = .linux,
+        .arch = .x86_64,
+        .abi = .gnu,
     },
     TestTarget{
-        .os = builtin.Os.macosx,
-        .arch = builtin.Arch.x86_64,
-        .abi = builtin.Abi.gnu,
+        .os = .macosx,
+        .arch = .x86_64,
+        .abi = .gnu,
     },
     TestTarget{
-        .os = builtin.Os.windows,
-        .arch = builtin.Arch.x86_64,
-        .abi = builtin.Abi.msvc,
+        .os = .windows,
+        .arch = .x86_64,
+        .abi = .msvc,
     },
 };
 
@@ -114,7 +112,7 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     const exe = b.addExecutable("test-cli", "test/cli.zig");
     const run_cmd = exe.run();
     run_cmd.addArgs([][]const u8{
-        os.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
+        fs.path.realAlloc(b.allocator, b.zig_exe) catch unreachable,
         b.pathFromRoot(b.cache_root),
     });
 
@@ -301,12 +299,12 @@ pub const CompareOutputContext = struct {
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
 
-            const child = os.ChildProcess.init(args.toSliceConst(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(args.toSliceConst(), b.allocator) catch unreachable;
             defer child.deinit();
 
-            child.stdin_behavior = StdIo.Ignore;
-            child.stdout_behavior = StdIo.Pipe;
-            child.stderr_behavior = StdIo.Pipe;
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Pipe;
+            child.stderr_behavior = .Pipe;
             child.env_map = b.env_map;
 
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -324,7 +322,7 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
             switch (term) {
-                Term.Exited => |code| {
+                .Exited => |code| {
                     if (code != 0) {
                         warn("Process {} exited with error code {}\n", full_exe_path, code);
                         printInvocation(args.toSliceConst());
@@ -383,13 +381,13 @@ pub const CompareOutputContext = struct {
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
 
-            const child = os.ChildProcess.init([][]const u8{full_exe_path}, b.allocator) catch unreachable;
+            const child = std.ChildProcess.init([][]const u8{full_exe_path}, b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
-            child.stdin_behavior = StdIo.Ignore;
-            child.stdout_behavior = StdIo.Ignore;
-            child.stderr_behavior = StdIo.Ignore;
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Ignore;
 
             const term = child.spawnAndWait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -397,13 +395,13 @@ pub const CompareOutputContext = struct {
 
             const expected_exit_code: i32 = 126;
             switch (term) {
-                Term.Exited => |code| {
+                .Exited => |code| {
                     if (code != expected_exit_code) {
                         warn("\nProgram expected to exit with code {} " ++ "but exited with code {}\n", expected_exit_code, code);
                         return error.TestFailed;
                     }
                 },
-                Term.Signal => |sig| {
+                .Signal => |sig| {
                     warn("\nProgram expected to exit with code {} " ++ "but instead signaled {}\n", expected_exit_code, sig);
                     return error.TestFailed;
                 },
@@ -459,7 +457,7 @@ pub const CompareOutputContext = struct {
     pub fn addCase(self: *CompareOutputContext, case: TestCase) void {
         const b = self.b;
 
-        const root_src = os.path.join(
+        const root_src = fs.path.join(
             b.allocator,
             [][]const u8{ b.cache_root, case.sources.items[0].filename },
         ) catch unreachable;
@@ -475,7 +473,7 @@ pub const CompareOutputContext = struct {
                 exe.addAssemblyFile(root_src);
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(
+                    const expanded_src_path = fs.path.join(
                         b.allocator,
                         [][]const u8{ b.cache_root, src_file.filename },
                     ) catch unreachable;
@@ -507,7 +505,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     for (case.sources.toSliceConst()) |src_file| {
-                        const expanded_src_path = os.path.join(
+                        const expanded_src_path = fs.path.join(
                             b.allocator,
                             [][]const u8{ b.cache_root, src_file.filename },
                         ) catch unreachable;
@@ -538,7 +536,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = os.path.join(
+                    const expanded_src_path = fs.path.join(
                         b.allocator,
                         [][]const u8{ b.cache_root, src_file.filename },
                     ) catch unreachable;
@@ -633,7 +631,7 @@ pub const CompileErrorContext = struct {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(
+            const root_src = fs.path.join(
                 b.allocator,
                 [][]const u8{ b.cache_root, self.case.sources.items[0].filename },
             ) catch unreachable;
@@ -669,13 +667,13 @@ pub const CompileErrorContext = struct {
                 printInvocation(zig_args.toSliceConst());
             }
 
-            const child = os.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
-            child.stdin_behavior = StdIo.Ignore;
-            child.stdout_behavior = StdIo.Pipe;
-            child.stderr_behavior = StdIo.Pipe;
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Pipe;
+            child.stderr_behavior = .Pipe;
 
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
 
@@ -692,7 +690,7 @@ pub const CompileErrorContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
             };
             switch (term) {
-                Term.Exited => |code| {
+                .Exited => |code| {
                     if (code == 0) {
                         printInvocation(zig_args.toSliceConst());
                         return error.CompilationIncorrectlySucceeded;
@@ -823,7 +821,7 @@ pub const CompileErrorContext = struct {
             self.step.dependOn(&compile_and_cmp_errors.step);
 
             for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = os.path.join(
+                const expanded_src_path = fs.path.join(
                     b.allocator,
                     [][]const u8{ b.cache_root, src_file.filename },
                 ) catch unreachable;
@@ -858,7 +856,7 @@ pub const BuildExamplesContext = struct {
         }
 
         var zig_args = ArrayList([]const u8).init(b.allocator);
-        const rel_zig_exe = os.path.relative(b.allocator, b.build_root, b.zig_exe) catch unreachable;
+        const rel_zig_exe = fs.path.relative(b.allocator, b.build_root, b.zig_exe) catch unreachable;
         zig_args.append(rel_zig_exe) catch unreachable;
         zig_args.append("build") catch unreachable;
 
@@ -958,7 +956,7 @@ pub const TranslateCContext = struct {
             const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = os.path.join(
+            const root_src = fs.path.join(
                 b.allocator,
                 [][]const u8{ b.cache_root, self.case.sources.items[0].filename },
             ) catch unreachable;
@@ -976,13 +974,13 @@ pub const TranslateCContext = struct {
                 printInvocation(zig_args.toSliceConst());
             }
 
-            const child = os.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
-            child.stdin_behavior = StdIo.Ignore;
-            child.stdout_behavior = StdIo.Pipe;
-            child.stderr_behavior = StdIo.Pipe;
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Pipe;
+            child.stderr_behavior = .Pipe;
 
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
 
@@ -999,14 +997,14 @@ pub const TranslateCContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
             };
             switch (term) {
-                Term.Exited => |code| {
+                .Exited => |code| {
                     if (code != 0) {
                         warn("Compilation failed with exit code {}\n", code);
                         printInvocation(zig_args.toSliceConst());
                         return error.TestFailed;
                     }
                 },
-                Term.Signal => |code| {
+                .Signal => |code| {
                     warn("Compilation failed with signal {}\n", code);
                     printInvocation(zig_args.toSliceConst());
                     return error.TestFailed;
@@ -1131,7 +1129,7 @@ pub const TranslateCContext = struct {
         self.step.dependOn(&translate_c_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(
+            const expanded_src_path = fs.path.join(
                 b.allocator,
                 [][]const u8{ b.cache_root, src_file.filename },
             ) catch unreachable;
@@ -1254,7 +1252,7 @@ pub const GenHContext = struct {
 
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
-        const root_src = os.path.join(
+        const root_src = fs.path.join(
             b.allocator,
             [][]const u8{ b.cache_root, case.sources.items[0].filename },
         ) catch unreachable;
@@ -1269,7 +1267,7 @@ pub const GenHContext = struct {
         obj.setBuildMode(mode);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = os.path.join(
+            const expanded_src_path = fs.path.join(
                 b.allocator,
                 [][]const u8{ b.cache_root, src_file.filename },
             ) catch unreachable;

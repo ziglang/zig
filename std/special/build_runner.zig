@@ -3,15 +3,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
 const fmt = std.fmt;
-const os = std.os;
 const Builder = std.build.Builder;
 const mem = std.mem;
+const process = std.process;
 const ArrayList = std.ArrayList;
 const warn = std.debug.warn;
 const File = std.fs.File;
 
 pub fn main() !void {
-    var arg_it = os.args();
+    var arg_it = process.args();
 
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
@@ -139,7 +139,7 @@ pub fn main() !void {
             error.InvalidStepName => {
                 return usageAndErr(&builder, true, try stderr_stream);
             },
-            error.UncleanExit => os.exit(1),
+            error.UncleanExit => process.exit(1),
             else => return err,
         }
     };
@@ -215,7 +215,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
 
 fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) void {
     usage(builder, already_ran_build, out_stream) catch {};
-    os.exit(1);
+    process.exit(1);
 }
 
 const UnwrapArgError = error{OutOfMemory};

@@ -1,6 +1,8 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
 const mem = std.mem;
+const Allocator = std.mem.Allocator;
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
@@ -12,8 +14,6 @@ pub const deleteFileC = os.unlinkC;
 pub const rename = os.rename;
 pub const renameC = os.renameC;
 pub const renameW = os.renameW;
-pub const changeCurDir = os.chdir;
-pub const changeCurDirC = os.chdirC;
 pub const realpath = os.realpath;
 pub const realpathC = os.realpathC;
 pub const realpathW = os.realpathW;
@@ -65,13 +65,13 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
         else => return err, // TODO zig should know this set does not include PathAlreadyExists
     }
 
-    const dirname = os.path.dirname(new_path) orelse ".";
+    const dirname = path.dirname(new_path) orelse ".";
 
     var rand_buf: [12]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], dirname);
-    tmp_path[dirname.len] = os.path.sep;
+    tmp_path[dirname.len] = path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
         b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
@@ -143,7 +143,7 @@ pub const AtomicFile = struct {
     /// TODO once we have null terminated pointers, use the
     /// openWriteNoClobberN function
     pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
-        const dirname = os.path.dirname(dest_path);
+        const dirname = path.dirname(dest_path);
         var rand_buf: [12]u8 = undefined;
         const dirname_component_len = if (dirname) |d| d.len + 1 else 0;
         const encoded_rand_len = comptime base64.Base64Encoder.calcSize(rand_buf.len);
@@ -153,7 +153,7 @@ pub const AtomicFile = struct {
 
         if (dirname) |dir| {
             mem.copy(u8, tmp_path_buf[0..], dir);
-            tmp_path_buf[dir.len] = os.path.sep;
+            tmp_path_buf[dir.len] = path.sep;
         }
 
         tmp_path_buf[tmp_path_len] = 0;
@@ -240,7 +240,7 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (os.path.isSep(resolved_path[end_index])) break;
+                    if (path.isSep(resolved_path[end_index])) break;
                 }
                 continue;
             },
@@ -250,7 +250,7 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == resolved_path.len or os.path.isSep(resolved_path[end_index])) break;
+            if (end_index == resolved_path.len or path.isSep(resolved_path[end_index])) break;
         }
     }
 }
@@ -614,7 +614,7 @@ pub const Dir = struct {
             const next_index = self.handle.index + linux_entry.d_reclen;
             self.handle.index = next_index;
 
-            const name = cstr.toSlice(@ptrCast([*]u8, &linux_entry.d_name));
+            const name = mem.toSlice(u8, @ptrCast([*]u8, &linux_entry.d_name));
 
             // skip . and .. entries
             if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
@@ -709,7 +709,7 @@ pub fn readLinkC(pathname: [*]const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
     return os.readlinkC(pathname, buffer);
 }
 
-pub const OpenSelfExeError = error{};
+pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (os.linux.is_the_target) {

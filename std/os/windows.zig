@@ -4,6 +4,7 @@
 // * When null-terminated or UTF16LE byte buffers are required, provide APIs which accept
 //   slices as well as APIs which accept null-terminated UTF16LE byte buffers.
 
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
@@ -1103,6 +1104,42 @@ pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
 }
 
+pub const SetConsoleTextAttributeError = error{Unexpected};
+
+pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetConsoleTextAttributeError!void {
+    if (kernel32.SetConsoleTextAttribute(hConsoleOutput, wAttributes) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+pub const GetEnvironmentStringsError = error{OutOfMemory};
+
+pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*]u16 {
+    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
+}
+
+pub fn FreeEnvironmentStringsW(penv: [*]u16) void {
+    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
+}
+
+pub const GetEnvironmentVariableError = error{
+    EnvironmentVariableNotFound,
+    Unexpected,
+};
+
+pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) GetEnvironmentVariableError!DWORD {
+    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR.ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return rc;
+}
+
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
@@ -1127,7 +1164,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
             else => {},
         }
     }
-    const start_index = if (mem.startsWith(u8, s, "\\\\") or !os.path.isAbsolute(s)) 0 else blk: {
+    const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = []u16{ '\\', '\\', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;

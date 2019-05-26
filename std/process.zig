@@ -1,13 +1,17 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
 const BufMap = std.BufMap;
 const mem = std.mem;
+const math = std.math;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
 
 pub const abort = os.abort;
 pub const exit = os.exit;
+pub const changeCurDir = os.chdir;
+pub const changeCurDirC = os.chdirC;
 
 /// Caller must free result when done.
 /// TODO make this go through libc when we have it
@@ -15,9 +19,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
-    if (is_windows) {
-        const ptr = windows.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsW(ptr) != 0);
+    if (os.windows.is_the_target) {
+        const ptr = try os.windows.GetEnvironmentStringsW();
+        defer os.windows.FreeEnvironmentStringsW(ptr);
 
         var i: usize = 0;
         while (true) {
@@ -105,7 +109,7 @@ pub const GetEnvVarOwnedError = error{
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
-    if (is_windows) {
+    if (os.windows.is_the_target) {
         const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 
@@ -113,19 +117,15 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
         defer allocator.free(buf);
 
         while (true) {
-            const windows_buf_len = math.cast(windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = windows.GetEnvironmentVariableW(key_with_null.ptr, buf.ptr, windows_buf_len);
-
-            if (result == 0) {
-                const err = windows.GetLastError();
-                return switch (err) {
-                    windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
-                    else => {
-                        windows.unexpectedError(err) catch {};
-                        return error.EnvironmentVariableNotFound;
-                    },
-                };
-            }
+            const windows_buf_len = math.cast(os.windows.DWORD, buf.len) catch return error.OutOfMemory;
+            const result = os.windows.GetEnvironmentVariableW(
+                key_with_null.ptr,
+                buf.ptr,
+                windows_buf_len,
+            ) catch |err| switch (err) {
+                error.Unexpected => return error.EnvironmentVariableNotFound,
+                else => return err,
+            };
 
             if (result > buf.len) {
                 buf = try allocator.realloc(buf, result);
@@ -136,11 +136,11 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 error.DanglingSurrogateHalf => return error.InvalidUtf8,
                 error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
                 error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.OutOfMemory => return error.OutOfMemory,
+                else => return err,
             };
         }
     } else {
-        const result = getEnvPosix(key) orelse return error.EnvironmentVariableNotFound;
+        const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);
     }
 }
@@ -157,16 +157,16 @@ pub const ArgIteratorPosix = struct {
     pub fn init() ArgIteratorPosix {
         return ArgIteratorPosix{
             .index = 0,
-            .count = raw.len,
+            .count = os.argv.len,
         };
     }
 
     pub fn next(self: *ArgIteratorPosix) ?[]const u8 {
         if (self.index == self.count) return null;
 
-        const s = raw[self.index];
+        const s = os.argv[self.index];
         self.index += 1;
-        return cstr.toSlice(s);
+        return mem.toSlice(u8, s);
     }
 
     pub fn skip(self: *ArgIteratorPosix) bool {
@@ -175,10 +175,6 @@ pub const ArgIteratorPosix = struct {
         self.index += 1;
         return true;
     }
-
-    /// This is marked as public but actually it's only meant to be used
-    /// internally by zig's startup code.
-    pub var raw: [][*]u8 = undefined;
 };
 
 pub const ArgIteratorWindows = struct {
@@ -191,7 +187,7 @@ pub const ArgIteratorWindows = struct {
     pub const NextError = error{OutOfMemory};
 
     pub fn init() ArgIteratorWindows {
-        return initWithCmdLine(windows.GetCommandLineA());
+        return initWithCmdLine(os.windows.kernel32.GetCommandLineA());
     }
 
     pub fn initWithCmdLine(cmd_line: [*]const u8) ArgIteratorWindows {
@@ -579,5 +575,23 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
             }
         }
         if (amt_read < buf.len) return error.UserNotFound;
+    }
+}
+
+pub fn getBaseAddress() usize {
+    switch (builtin.os) {
+        .linux => {
+            const base = os.system.getauxval(std.elf.AT_BASE);
+            if (base != 0) {
+                return base;
+            }
+            const phdr = os.system.getauxval(std.elf.AT_PHDR);
+            return phdr - @sizeOf(std.elf.Ehdr);
+        },
+        .macosx, .freebsd, .netbsd => {
+            return @ptrToInt(&std.c._mh_execute_header);
+        },
+        .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
+        else => @compileError("Unsupported OS"),
     }
 }

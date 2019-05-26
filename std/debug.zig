@@ -3,16 +3,18 @@ const math = std.math;
 const mem = std.mem;
 const io = std.io;
 const os = std.os;
+const fs = std.fs;
+const process = std.process;
 const elf = std.elf;
 const DW = std.dwarf;
 const macho = std.macho;
 const coff = std.coff;
 const pdb = std.pdb;
-const windows = os.windows;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
+const windows = std.os.windows;
 
 const leb = @import("debug/leb128.zig");
 
@@ -20,8 +22,8 @@ pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAlloc
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
 
 pub const runtime_safety = switch (builtin.mode) {
-    builtin.Mode.Debug, builtin.Mode.ReleaseSafe => true,
-    builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => false,
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
 };
 
 const Module = struct {
@@ -76,7 +78,7 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 fn wantTtyColor() bool {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    return if (std.os.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| true else |_| stderr_file.isTty();
+    return if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| true else |_| stderr_file.isTty();
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
@@ -100,47 +102,44 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    switch (builtin.os) {
-        builtin.Os.windows => {
-            const addrs = stack_trace.instruction_addresses;
-            const u32_addrs_len = @intCast(u32, addrs.len);
-            const first_addr = first_address orelse {
-                stack_trace.index = windows.RtlCaptureStackBackTrace(
-                    0,
-                    u32_addrs_len,
-                    @ptrCast(**c_void, addrs.ptr),
-                    null,
-                );
+    if (windows.is_the_target) {
+        const addrs = stack_trace.instruction_addresses;
+        const u32_addrs_len = @intCast(u32, addrs.len);
+        const first_addr = first_address orelse {
+            stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
+                0,
+                u32_addrs_len,
+                @ptrCast(**c_void, addrs.ptr),
+                null,
+            );
+            return;
+        };
+        var addr_buf_stack: [32]usize = undefined;
+        const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
+        const n = windows.ntdll.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**c_void, addr_buf.ptr), null);
+        const first_index = for (addr_buf[0..n]) |addr, i| {
+            if (addr == first_addr) {
+                break i;
+            }
+        } else {
+            stack_trace.index = 0;
+            return;
+        };
+        const slice = addr_buf[first_index..n];
+        // We use a for loop here because slice and addrs may alias.
+        for (slice) |addr, i| {
+            addrs[i] = addr;
+        }
+        stack_trace.index = slice.len;
+    } else {
+        var it = StackIterator.init(first_address);
+        for (stack_trace.instruction_addresses) |*addr, i| {
+            addr.* = it.next() orelse {
+                stack_trace.index = i;
                 return;
             };
-            var addr_buf_stack: [32]usize = undefined;
-            const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-            const n = windows.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**c_void, addr_buf.ptr), null);
-            const first_index = for (addr_buf[0..n]) |addr, i| {
-                if (addr == first_addr) {
-                    break i;
-                }
-            } else {
-                stack_trace.index = 0;
-                return;
-            };
-            const slice = addr_buf[first_index..n];
-            // We use a for loop here because slice and addrs may alias.
-            for (slice) |addr, i| {
-                addrs[i] = addr;
-            }
-            stack_trace.index = slice.len;
-        },
-        else => {
-            var it = StackIterator.init(first_address);
-            for (stack_trace.instruction_addresses) |*addr, i| {
-                addr.* = it.next() orelse {
-                    stack_trace.index = i;
-                    return;
-                };
-            }
-            stack_trace.index = stack_trace.instruction_addresses.len;
-        },
+        }
+        stack_trace.index = stack_trace.instruction_addresses.len;
     }
 }
 
@@ -260,9 +259,8 @@ pub const StackIterator = struct {
 };
 
 pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
-    switch (builtin.os) {
-        builtin.Os.windows => return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr),
-        else => {},
+    if (windows.is_the_target) {
+        return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr);
     }
     var it = StackIterator.init(start_addr);
     while (it.next()) |return_address| {
@@ -277,7 +275,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = windows.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
+    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**c_void, &addr_buf), null);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
@@ -291,17 +289,18 @@ pub fn writeCurrentStackTraceWindows(
 }
 
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    switch (builtin.os) {
-        builtin.Os.macosx => return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color),
-        builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => return printSourceAtAddressLinux(debug_info, out_stream, address, tty_color),
-        builtin.Os.windows => return printSourceAtAddressWindows(debug_info, out_stream, address, tty_color),
-        else => return error.UnsupportedOperatingSystem,
+    if (windows.is_the_target) {
+        return printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
     }
+    if (os.darwin.is_the_target) {
+        return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
+    }
+    return printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
 }
 
 fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_address: usize, tty_color: bool) !void {
     const allocator = getDebugInfoAllocator();
-    const base_address = os.getBaseAddress();
+    const base_address = process.getBaseAddress();
     const relative_address = relocated_address - base_address;
 
     var coff_section: *coff.Section = undefined;
@@ -331,7 +330,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
 
     const mod = &di.modules[mod_index];
     try populateModule(di, mod);
-    const obj_basename = os.path.basename(mod.obj_file_name);
+    const obj_basename = fs.path.basename(mod.obj_file_name);
 
     var symbol_i: usize = 0;
     const symbol_name = while (symbol_i != mod.symbols.len) {
@@ -634,7 +633,7 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
 }
 
 fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    const base_addr = std.os.getBaseAddress();
+    const base_addr = process.getBaseAddress();
     const adjusted_addr = 0x100000000 + (address - base_addr);
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
@@ -649,7 +648,7 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
     const symbol_name = mem.toSliceConst(u8, di.strings.ptr + symbol.nlist.n_strx);
     const compile_unit_name = if (symbol.ofile) |ofile| blk: {
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
-        break :blk os.path.basename(ofile_path);
+        break :blk fs.path.basename(ofile_path);
     } else "???";
     if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
         defer line_info.deinit();
@@ -716,7 +715,7 @@ pub fn printSourceAtAddressDwarf(
     }
 }
 
-pub fn printSourceAtAddressLinux(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     return printSourceAtAddressDwarf(debug_info, out_stream, address, tty_color, printLineFromFileAnyOs);
 }
 
@@ -776,16 +775,17 @@ pub const OpenSelfDebugInfoError = error{
 };
 
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
-    switch (builtin.os) {
-        builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => return openSelfDebugInfoLinux(allocator),
-        builtin.Os.macosx, builtin.Os.ios => return openSelfDebugInfoMacOs(allocator),
-        builtin.Os.windows => return openSelfDebugInfoWindows(allocator),
-        else => return error.UnsupportedOperatingSystem,
+    if (windows.is_the_target) {
+        return openSelfDebugInfoWindows(allocator);
     }
+    if (os.darwin.is_the_target) {
+        return openSelfDebugInfoMacOs(allocator);
+    }
+    return openSelfDebugInfoPosix(allocator);
 }
 
 fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
-    const self_file = try os.openSelfExe();
+    const self_file = try fs.openSelfExe();
     defer self_file.close();
 
     const coff_obj = try allocator.create(coff.Coff);
@@ -812,7 +812,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
 
-    const path = try os.path.resolve(allocator, [][]const u8{raw_path});
+    const path = try fs.path.resolve(allocator, [][]const u8{raw_path});
 
     try di.pdb.openFile(di.coff, path);
 
@@ -1002,13 +1002,13 @@ pub fn openElfDebugInfo(
     return di;
 }
 
-fn openSelfDebugInfoLinux(allocator: *mem.Allocator) !DwarfInfo {
+fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     const S = struct {
         var self_exe_file: File = undefined;
         var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
     };
 
-    S.self_exe_file = try os.openSelfExe();
+    S.self_exe_file = try fs.openSelfExe();
     errdefer S.self_exe_file.close();
 
     const self_exe_mmap_len = try S.self_exe_file.getEndPos();
@@ -1195,7 +1195,7 @@ pub const DwarfInfo = struct {
 };
 
 pub const DebugInfo = switch (builtin.os) {
-    builtin.Os.macosx, builtin.Os.ios => struct {
+    .macosx, .ios, .watchos, .tvos => struct {
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,
@@ -1211,13 +1211,13 @@ pub const DebugInfo = switch (builtin.os) {
             return self.ofiles.allocator;
         }
     },
-    builtin.Os.uefi, builtin.Os.windows => struct {
+    .uefi, .windows => struct {
         pdb: pdb.Pdb,
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => DwarfInfo,
+    .linux, .freebsd, .netbsd => DwarfInfo,
     else => @compileError("Unsupported OS"),
 };
 
@@ -1411,7 +1411,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else
                 self.include_dirs[file_entry.dir_index];
-            const file_name = try os.path.join(self.file_entries.allocator, [][]const u8{ dir_name, file_entry.file_name });
+            const file_name = try fs.path.join(self.file_entries.allocator, [][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,

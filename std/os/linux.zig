@@ -20,6 +20,7 @@ pub use switch (builtin.arch) {
     else => struct {},
 };
 pub use @import("bits.zig");
+pub const tls = @import("linux/tls.zig");
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
@@ -539,15 +540,15 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return 0;
 }
 
-fn blockAllSignals(set: *sigset_t) void {
+pub fn blockAllSignals(set: *sigset_t) void {
     _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG / 8);
 }
 
-fn blockAppSignals(set: *sigset_t) void {
+pub fn blockAppSignals(set: *sigset_t) void {
     _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG / 8);
 }
 
-fn restoreSignals(set: *sigset_t) void {
+pub fn restoreSignals(set: *sigset_t) void {
     _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG / 8);
 }
 

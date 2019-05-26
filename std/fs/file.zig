@@ -307,28 +307,4 @@ pub const File = struct {
             return self.file.getPos();
         }
     };
-
-    pub fn stdout() !File {
-        if (windows.is_the_target) {
-            const handle = try windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
-            return openHandle(handle);
-        }
-        return openHandle(os.STDOUT_FILENO);
-    }
-
-    pub fn stderr() !File {
-        if (windows.is_the_target) {
-            const handle = try windows.GetStdHandle(windows.STD_ERROR_HANDLE);
-            return openHandle(handle);
-        }
-        return openHandle(os.STDERR_FILENO);
-    }
-
-    pub fn stdin() !File {
-        if (windows.is_the_target) {
-            const handle = try windows.GetStdHandle(windows.STD_INPUT_HANDLE);
-            return openHandle(handle);
-        }
-        return openHandle(os.STDIN_FILENO);
-    }
 };

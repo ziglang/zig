@@ -879,7 +879,7 @@ pub fn Watch(comptime V: type) type {
         }
 
         async fn addFileKEvent(self: *Self, file_path: []const u8, value: V) !?V {
-            const resolved_path = try os.path.resolve(self.channel.loop.allocator, [][]const u8{file_path});
+            const resolved_path = try std.fs.path.resolve(self.channel.loop.allocator, [][]const u8{file_path});
             var resolved_path_consumed = false;
             defer if (!resolved_path_consumed) self.channel.loop.allocator.free(resolved_path);
 
@@ -967,12 +967,12 @@ pub fn Watch(comptime V: type) type {
         async fn addFileLinux(self: *Self, file_path: []const u8, value: V) !?V {
             const value_copy = value;
 
-            const dirname = os.path.dirname(file_path) orelse ".";
+            const dirname = std.fs.path.dirname(file_path) orelse ".";
             const dirname_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, dirname);
             var dirname_with_null_consumed = false;
             defer if (!dirname_with_null_consumed) self.channel.loop.allocator.free(dirname_with_null);
 
-            const basename = os.path.basename(file_path);
+            const basename = std.fs.path.basename(file_path);
             const basename_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, basename);
             var basename_with_null_consumed = false;
             defer if (!basename_with_null_consumed) self.channel.loop.allocator.free(basename_with_null);
@@ -1013,7 +1013,7 @@ pub fn Watch(comptime V: type) type {
             const value_copy = value;
             // TODO we might need to convert dirname and basename to canonical file paths ("short"?)
 
-            const dirname = try std.mem.dupe(self.channel.loop.allocator, u8, os.path.dirname(file_path) orelse ".");
+            const dirname = try std.mem.dupe(self.channel.loop.allocator, u8, std.fs.path.dirname(file_path) orelse ".");
             var dirname_consumed = false;
             defer if (!dirname_consumed) self.channel.loop.allocator.free(dirname);
 
@@ -1021,7 +1021,7 @@ pub fn Watch(comptime V: type) type {
             defer self.channel.loop.allocator.free(dirname_utf16le);
 
             // TODO https://github.com/ziglang/zig/issues/265
-            const basename = os.path.basename(file_path);
+            const basename = std.fs.path.basename(file_path);
             const basename_utf16le_null = try std.unicode.utf8ToUtf16LeWithNull(self.channel.loop.allocator, basename);
             var basename_utf16le_null_consumed = false;
             defer if (!basename_utf16le_null_consumed) self.channel.loop.allocator.free(basename_utf16le_null);
@@ -1334,7 +1334,7 @@ async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
 }
 
 async fn testFsWatch(loop: *Loop) !void {
-    const file_path = try os.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
+    const file_path = try std.fs.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
     defer loop.allocator.free(file_path);
 
     const contents =

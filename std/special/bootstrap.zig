@@ -78,7 +78,7 @@ fn posixCallMainAndExit() noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
 
-    if (builtin.os == builtin.Os.linux) {
+    if (builtin.os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
         std.os.linux.elf_aux_maybe = auxv;
@@ -98,7 +98,7 @@ fn posixCallMainAndExit() noreturn {
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
-    std.os.ArgIteratorPosix.raw = argv[0..argc];
+    std.os.argv = argv[0..argc];
     std.os.environ = envp;
     return callMain();
 }

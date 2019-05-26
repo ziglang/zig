@@ -2,7 +2,9 @@ const std = @import("std.zig");
 const cstr = std.cstr;
 const unicode = std.unicode;
 const io = std.io;
+const fs = std.fs;
 const os = std.os;
+const process = std.process;
 const File = std.fs.File;
 const windows = os.windows;
 const mem = std.mem;
@@ -14,12 +16,10 @@ const Os = builtin.Os;
 const LinkedList = std.LinkedList;
 const maxInt = std.math.maxInt;
 
-const is_windows = builtin.os == .windows;
-
 pub const ChildProcess = struct {
-    pub pid: if (is_windows) void else i32,
-    pub handle: if (is_windows) windows.HANDLE else void,
-    pub thread_handle: if (is_windows) windows.HANDLE else void,
+    pub pid: if (os.windows.is_the_target) void else i32,
+    pub handle: if (os.windows.is_the_target) windows.HANDLE else void,
+    pub thread_handle: if (os.windows.is_the_target) windows.HANDLE else void,
 
     pub allocator: *mem.Allocator,
 
@@ -39,16 +39,16 @@ pub const ChildProcess = struct {
     pub stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    pub uid: if (is_windows) void else ?u32,
+    pub uid: if (os.windows.is_the_target) void else ?u32,
 
     /// Set to change the group id when spawning the child process.
-    pub gid: if (is_windows) void else ?u32,
+    pub gid: if (os.windows.is_the_target) void else ?u32,
 
     /// Set to change the current working directory when spawning the child process.
     pub cwd: ?[]const u8,
 
-    err_pipe: if (is_windows) void else [2]i32,
-    llnode: if (is_windows) void else LinkedList(*ChildProcess).Node,
+    err_pipe: if (os.windows.is_the_target) void else [2]i32,
+    llnode: if (os.windows.is_the_target) void else LinkedList(*ChildProcess).Node,
 
     pub const SpawnError = error{
         ProcessFdQuotaExceeded,
@@ -98,10 +98,8 @@ pub const ChildProcess = struct {
             .term = null,
             .env_map = null,
             .cwd = null,
-            .uid = if (is_windows) {} else
-                null,
-            .gid = if (is_windows) {} else
-                null,
+            .uid = if (os.windows.is_the_target) {} else null,
+            .gid = if (os.windows.is_the_target) {} else null,
             .stdin = null,
             .stdout = null,
             .stderr = null,
@@ -121,7 +119,7 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) !void {
-        if (is_windows) {
+        if (os.windows.is_the_target) {
             return self.spawnWindows();
         } else {
             return self.spawnPosix();
@@ -135,7 +133,7 @@ pub const ChildProcess = struct {
 
     /// Forcibly terminates child process and then cleans up all resources.
     pub fn kill(self: *ChildProcess) !Term {
-        if (is_windows) {
+        if (os.windows.is_the_target) {
             return self.killWindows(1);
         } else {
             return self.killPosix();
@@ -165,7 +163,7 @@ pub const ChildProcess = struct {
 
     /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: *ChildProcess) !Term {
-        if (is_windows) {
+        if (os.windows.is_the_target) {
             return self.waitWindows();
         } else {
             return self.waitPosix();
@@ -339,7 +337,7 @@ pub const ChildProcess = struct {
             break :x env_map;
         } else x: {
             we_own_env_map = true;
-            env_map_owned = try os.getEnvMap(self.allocator);
+            env_map_owned = try process.getEnvMap(self.allocator);
             break :x &env_map_owned;
         };
         defer {
@@ -372,15 +370,15 @@ pub const ChildProcess = struct {
             }
 
             if (self.cwd) |cwd| {
-                os.changeCurDir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.gid) |gid| {
-                os.posix_setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.uid) |uid| {
-                os.posix_setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             os.execve(self.allocator, self.argv, env_map) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -541,7 +539,7 @@ pub const ChildProcess = struct {
         // to match posix semantics
         const app_name = x: {
             if (self.cwd) |cwd| {
-                const resolved = try os.path.resolve(self.allocator, [][]const u8{ cwd, self.argv[0] });
+                const resolved = try fs.path.resolve(self.allocator, [][]const u8{ cwd, self.argv[0] });
                 defer self.allocator.free(resolved);
                 break :x try cstr.addNullByte(self.allocator, resolved);
             } else {
@@ -559,12 +557,12 @@ pub const ChildProcess = struct {
         windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
-            const PATH = try os.getEnvVarOwned(self.allocator, "PATH");
+            const PATH = try process.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
 
             var it = mem.tokenize(PATH, ";");
             while (it.next()) |search_path| {
-                const joined_path = try os.path.join(self.allocator, [][]const u8{ search_path, app_name });
+                const joined_path = try fs.path.join(self.allocator, [][]const u8{ search_path, app_name });
                 defer self.allocator.free(joined_path);
 
                 const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
@@ -616,10 +614,10 @@ pub const ChildProcess = struct {
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
         switch (stdio) {
-            StdIo.Pipe => try os.posixDup2(pipe_fd, std_fileno),
+            StdIo.Pipe => try os.dup2(pipe_fd, std_fileno),
             StdIo.Close => os.close(std_fileno),
             StdIo.Inherit => {},
-            StdIo.Ignore => try os.posixDup2(dev_null_fd, std_fileno),
+            StdIo.Ignore => try os.dup2(dev_null_fd, std_fileno),
         }
     }
 };

@@ -8,7 +8,7 @@
 //   cross platform abstracting.
 // * When there exists a corresponding libc function and linking libc, the libc
 //   implementation is used. Exceptions are made for known buggy areas of libc.
-//   On Linux libc can be side-stepped by using `std.os.linux.sys`.
+//   On Linux libc can be side-stepped by using `std.os.linux` directly.
 // * For Windows, this file represents the API that libc would provide for
 //   Windows. For thin wrappers around Windows-specific APIs, see `std.os.windows`.
 // Note: The Zig standard library does not support POSIX thread cancellation, and
@@ -16,7 +16,9 @@
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const math = std.math;
+const mem = std.mem;
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
 comptime {
@@ -46,8 +48,13 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
 
 pub use @import("os/bits.zig");
 
-/// See also `getenv`.
+/// See also `getenv`. Populated by startup code before main().
 pub var environ: [][*]u8 = undefined;
+
+/// Populated by startup code before main().
+/// Not available on Windows. See `std.process.args`
+/// for obtaining the process arguments.
+pub var argv: [][*]u8 = undefined;
 
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
@@ -103,7 +110,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
         }
     }
     if (wasi.is_the_target) {
-        switch (os.wasi.random_get(buf.ptr, buf.len)) {
+        switch (wasi.random_get(buf.ptr, buf.len)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
         }
@@ -138,15 +145,15 @@ pub fn abort() noreturn {
         while (true) {}
     }
 
-    raise(SIGABRT);
+    raise(SIGABRT) catch {};
 
     // TODO the rest of the implementation of abort() from musl libc here
 
-    raise(SIGKILL);
+    raise(SIGKILL) catch {};
     exit(127);
 }
 
-pub const RaiseError = error{};
+pub const RaiseError = error{Unexpected};
 
 pub fn raise(sig: u8) RaiseError!void {
     if (builtin.link_libc) {
@@ -163,19 +170,19 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    if (windows.is_the_target) {
-        @compileError("TODO implement std.os.raise for Windows");
+    if (linux.is_the_target) {
+        var set: linux.sigset_t = undefined;
+        linux.blockAppSignals(&set);
+        const tid = linux.syscall0(linux.SYS_gettid);
+        const rc = linux.syscall2(linux.SYS_tkill, tid, sig);
+        linux.restoreSignals(&set);
+        switch (errno(rc)) {
+            0 => return,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 
-    var set: system.sigset_t = undefined;
-    system.blockAppSignals(&set);
-    const tid = system.syscall0(system.SYS_gettid);
-    const rc = system.syscall2(system.SYS_tkill, tid, sig);
-    system.restoreSignals(&set);
-    switch (errno(rc)) {
-        0 => return,
-        else => |err| return unexpectedErrno(err),
-    }
+    @compileError("std.os.raise unimplemented for this target");
 }
 
 pub const KillError = error{
@@ -229,13 +236,13 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     }
 
     if (wasi.is_the_target and !builtin.link_libc) {
-        const iovs = [1]was.iovec_t{wasi.iovec_t{
-            .buf = buf.ptr,
-            .buf_len = buf.len,
+        const iovs = [1]iovec{iovec{
+            .iov_base = buf.ptr,
+            .iov_len = buf.len,
         }};
 
         var nread: usize = undefined;
-        switch (fd_read(fd, &iovs, iovs.len, &nread)) {
+        switch (wasi.fd_read(fd, &iovs, iovs.len, &nread)) {
             0 => return nread,
             else => |err| return unexpectedErrno(err),
         }
@@ -277,7 +284,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// This function is for blocking file descriptors only. For non-blocking, see
 /// `preadvAsync`.
 pub fn preadv(fd: fd_t, iov: [*]const iovec, count: usize, offset: u64) ReadError!usize {
-    if (os.darwin.is_the_target) {
+    if (darwin.is_the_target) {
         // Darwin does not have preadv but it does have pread.
         var off: usize = 0;
         var iov_i: usize = 0;
@@ -353,12 +360,12 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     }
 
     if (wasi.is_the_target and !builtin.link_libc) {
-        const ciovs = [1]wasi.ciovec_t{wasi.ciovec_t{
-            .buf = bytes.ptr,
-            .buf_len = bytes.len,
+        const ciovs = [1]iovec_const{iovec_const{
+            .iov_base = bytes.ptr,
+            .iov_len = bytes.len,
         }};
         var nwritten: usize = undefined;
-        switch (fd_write(fd, &ciovs, ciovs.len, &nwritten)) {
+        switch (wasi.fd_write(fd, &ciovs, ciovs.len, &nwritten)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
         }
@@ -538,29 +545,29 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// TODO provide execveC which does not take an allocator
-pub fn execve(allocator: *Allocator, argv: []const []const u8, env_map: *const BufMap) !void {
-    const argv_buf = try allocator.alloc(?[*]u8, argv.len + 1);
+pub fn execve(allocator: *mem.Allocator, argv_slice: []const []const u8, env_map: *const std.BufMap) !void {
+    const argv_buf = try allocator.alloc(?[*]u8, argv_slice.len + 1);
     mem.set(?[*]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = if (arg) |ptr| cstr.toSlice(ptr) else break;
+            const arg_buf = if (arg) |ptr| mem.toSlice(u8, ptr) else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
     }
-    for (argv) |arg, i| {
+    for (argv_slice) |arg, i| {
         const arg_buf = try allocator.alloc(u8, arg.len + 1);
         @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
         argv_buf[i] = arg_buf.ptr;
     }
-    argv_buf[argv.len] = null;
+    argv_buf[argv_slice.len] = null;
 
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    const exe_path = argv[0];
+    const exe_path = argv_slice[0];
     if (mem.indexOfScalar(u8, exe_path, '/') != null) {
         return execveErrnoToErr(errno(system.execve(argv_buf[0].?, argv_buf.ptr, envp_buf.ptr)));
     }
@@ -593,7 +600,7 @@ pub fn execve(allocator: *Allocator, argv: []const []const u8, env_map: *const B
     return execveErrnoToErr(err);
 }
 
-pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) ![]?[*]u8 {
+pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*]u8 {
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
     mem.set(?[*]u8, envp_buf, null);
@@ -616,9 +623,9 @@ pub fn createNullDelimitedEnvMap(allocator: *Allocator, env_map: *const BufMap) 
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: *Allocator, envp_buf: []?[*]u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*]u8) void {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
+        const env_buf = if (env) |ptr| ptr[0 .. mem.len(u8, ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
@@ -633,6 +640,8 @@ pub const ExecveError = error{
     FileNotFound,
     NotDir,
     FileBusy,
+    ProcessFdQuotaExceeded,
+    NameTooLong,
 
     Unexpected,
 };
@@ -703,17 +712,17 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     }
 
     const err = if (builtin.link_libc) blk: {
-        break :blk if (system.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else system._errno().*;
+        break :blk if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else std.c._errno().*;
     } else blk: {
-        break :blk errno(system.getcwd(out_buffer, out_buffer.len));
+        break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.toSlice(u8, out_buffer),
+        0 => return mem.toSlice(u8, out_buffer.ptr),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
         ERANGE => return error.NameTooLong,
-        else => |err| return unexpectedErrno(err),
+        else => return unexpectedErrno(err),
     }
 }
 
@@ -1711,8 +1720,8 @@ pub const FStatError = error{
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
-    if (os.darwin.is_the_target) {
-        switch (errno(system.@"fstat$INODE64"(fd, buf))) {
+    if (darwin.is_the_target) {
+        switch (errno(system.@"fstat$INODE64"(fd, &stat))) {
             0 => return stat,
             EBADF => unreachable, // Always a race condition.
             ENOMEM => return error.SystemResources,
@@ -1877,7 +1886,7 @@ pub const ForkError = error{
 pub fn fork() ForkError!pid_t {
     const rc = system.fork();
     switch (errno(rc)) {
-        0 => return rc,
+        0 => return @intCast(pid_t, rc),
         EAGAIN => return error.SystemResources,
         ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
@@ -1891,6 +1900,7 @@ pub const MMapError = error{
     SystemFdQuotaExceeded,
     MemoryMappingNotSupported,
     OutOfMemory,
+    Unexpected,
 };
 
 /// Map files or devices into memory.
@@ -1992,6 +2002,7 @@ pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
 pub const PipeError = error{
     SystemFdQuotaExceeded,
     ProcessFdQuotaExceeded,
+    Unexpected,
 };
 
 /// Creates a unidirectional data channel that can be used for interprocess communication.
@@ -2062,18 +2073,6 @@ pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
         0 => return,
         EINVAL => unreachable,
         else => unreachable,
-    }
-}
-
-pub fn nanosleep(req: timespec) void {
-    var rem = req;
-    while (true) {
-        switch (errno(system.nanosleep(&rem, &rem))) {
-            0 => return,
-            EINVAL => unreachable, // Invalid parameters.
-            EFAULT => unreachable,
-            EINTR => continue,
-        }
     }
 }
 

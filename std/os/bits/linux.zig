@@ -692,12 +692,12 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
-const NSIG = 65;
-const sigset_t = [128 / @sizeOf(usize)]usize;
-const all_mask = []u32{ 0xffffffff, 0xffffffff };
-const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
+pub const NSIG = 65;
+pub const sigset_t = [128 / @sizeOf(usize)]usize;
+pub const all_mask = []u32{ 0xffffffff, 0xffffffff };
+pub const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
 
-const k_sigaction = extern struct {
+pub const k_sigaction = extern struct {
     handler: extern fn (i32) void,
     flags: usize,
     restorer: extern fn () void,

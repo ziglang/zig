@@ -103,7 +103,7 @@ pub const DirectAllocator = struct {
             return @ptrCast([*]u8, final_addr)[0..n];
         }
 
-        const alloc_size = if (alignment <= os.page_size) n else n + alignment;
+        const alloc_size = if (alignment <= mem.page_size) n else n + alignment;
         const addr = os.mmap(
             null,
             alloc_size,
@@ -123,7 +123,7 @@ pub const DirectAllocator = struct {
         if (unused_start_len != 0) {
             os.munmap(addr, unused_start_len);
         }
-        const aligned_end_addr = std.mem.alignForward(aligned_addr + n, os.page_size);
+        const aligned_end_addr = std.mem.alignForward(aligned_addr + n, mem.page_size);
         const unused_end_len = addr + alloc_size - aligned_end_addr;
         if (unused_end_len != 0) {
             os.munmap(aligned_end_addr, unused_end_len);
@@ -147,7 +147,7 @@ pub const DirectAllocator = struct {
                 const base_addr = @ptrToInt(old_mem.ptr);
                 const old_addr_end = base_addr + old_mem.len;
                 const new_addr_end = base_addr + new_size;
-                const new_addr_end_rounded = mem.alignForward(new_addr_end, os.page_size);
+                const new_addr_end_rounded = mem.alignForward(new_addr_end, mem.page_size);
                 if (old_addr_end > new_addr_end_rounded) {
                     // For shrinking that is not releasing, we will only
                     // decommit the pages not needed anymore.
@@ -163,7 +163,7 @@ pub const DirectAllocator = struct {
         const base_addr = @ptrToInt(old_mem.ptr);
         const old_addr_end = base_addr + old_mem.len;
         const new_addr_end = base_addr + new_size;
-        const new_addr_end_rounded = mem.alignForward(new_addr_end, os.page_size);
+        const new_addr_end_rounded = mem.alignForward(new_addr_end, mem.page_size);
         if (old_addr_end > new_addr_end_rounded) {
             os.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
         }
@@ -196,9 +196,9 @@ pub const DirectAllocator = struct {
             }
 
             const old_addr_end = base_addr + old_mem.len;
-            const old_addr_end_rounded = mem.alignForward(old_addr_end, os.page_size);
+            const old_addr_end_rounded = mem.alignForward(old_addr_end, mem.page_size);
             const new_addr_end = base_addr + new_size;
-            const new_addr_end_rounded = mem.alignForward(new_addr_end, os.page_size);
+            const new_addr_end_rounded = mem.alignForward(new_addr_end, mem.page_size);
             if (new_addr_end_rounded == old_addr_end_rounded) {
                 // The reallocation fits in the already allocated pages.
                 return @ptrCast([*]u8, old_mem.ptr)[0..new_size];
@@ -374,7 +374,7 @@ pub const ArenaAllocator = struct {
         var len = prev_len;
         while (true) {
             len += len / 2;
-            len += os.page_size - @rem(len, os.page_size);
+            len += mem.page_size - @rem(len, mem.page_size);
             if (len >= actual_min_size) break;
         }
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
@@ -520,11 +520,11 @@ const WasmAllocator = struct {
         const adjusted_index = self.end_index + (adjusted_addr - addr);
         const new_end_index = adjusted_index + size;
 
-        if (new_end_index > self.num_pages * os.page_size) {
-            const required_memory = new_end_index - (self.num_pages * os.page_size);
+        if (new_end_index > self.num_pages * mem.page_size) {
+            const required_memory = new_end_index - (self.num_pages * mem.page_size);
 
-            var num_pages: usize = required_memory / os.page_size;
-            if (required_memory % os.page_size != 0) {
+            var num_pages: usize = required_memory / mem.page_size;
+            if (required_memory % mem.page_size != 0) {
                 num_pages += 1;
             }
 
@@ -553,14 +553,14 @@ const WasmAllocator = struct {
 
         // Initialize start_ptr at the first realloc
         if (self.num_pages == 0) {
-            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * os.page_size);
+            self.start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * mem.page_size);
         }
 
         if (is_last_item(allocator, old_mem, new_align)) {
             const start_index = self.end_index - old_mem.len;
             const new_end_index = start_index + new_size;
 
-            if (new_end_index > self.num_pages * os.page_size) {
+            if (new_end_index > self.num_pages * mem.page_size) {
                 _ = try alloc(allocator, new_end_index - self.end_index, new_align);
             }
             const result = self.start_ptr[start_index..new_end_index];
@@ -876,10 +876,10 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    if (os.page_size << 2 > maxInt(usize)) return;
+    if (mem.page_size << 2 > maxInt(usize)) return;
 
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
-    const large_align = u29(os.page_size << 2);
+    const large_align = u29(mem.page_size << 2);
 
     var align_mask: usize = undefined;
     _ = @shlWithOverflow(usize, ~usize(0), USizeShift(@ctz(u29, large_align)), &align_mask);
@@ -906,7 +906,7 @@ fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!voi
     var debug_buffer: [1000]u8 = undefined;
     const debug_allocator = &FixedBufferAllocator.init(&debug_buffer).allocator;
 
-    const alloc_size = os.page_size * 2 + 50;
+    const alloc_size = mem.page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
@@ -915,7 +915,7 @@ fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!voi
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
-    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), os.page_size * 32)) {
+    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), mem.page_size * 32)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }
@@ -926,7 +926,7 @@ fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!voi
     slice[60] = 0x34;
 
     // realloc to a smaller size but with a larger alignment
-    slice = try allocator.alignedRealloc(slice, os.page_size * 32, alloc_size / 2);
+    slice = try allocator.alignedRealloc(slice, mem.page_size * 32, alloc_size / 2);
     testing.expect(slice[0] == 0x12);
     testing.expect(slice[60] == 0x34);
 }

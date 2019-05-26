@@ -227,7 +227,7 @@ pub const Thread = struct {
         var tls_start_offset: usize = undefined;
         const mmap_len = blk: {
             // First in memory will be the stack, which grows downwards.
-            var l: usize = mem.alignForward(default_stack_size, os.page_size);
+            var l: usize = mem.alignForward(default_stack_size, mem.page_size);
             stack_end_offset = l;
             // Above the stack, so that it can be in the same mmap call, put the Thread object.
             l = mem.alignForward(l, @alignOf(Thread));

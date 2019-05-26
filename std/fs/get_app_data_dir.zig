@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const unicode = std.unicode;
 const mem = std.mem;
+const fs = std.fs;
 const os = std.os;
 
 pub const GetAppDataDirError = error{
@@ -15,7 +16,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
     switch (builtin.os) {
         .windows => {
             var dir_path_ptr: [*]u16 = undefined;
-            switch (os.windows.SHGetKnownFolderPath(
+            switch (os.windows.shell32.SHGetKnownFolderPath(
                 &os.windows.FOLDERID_LocalAppData,
                 os.windows.KF_FLAG_CREATE,
                 null,
@@ -30,25 +31,25 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                         error.OutOfMemory => return error.OutOfMemory,
                     };
                     defer allocator.free(global_dir);
-                    return os.path.join(allocator, [][]const u8{ global_dir, appname });
+                    return fs.path.join(allocator, [][]const u8{ global_dir, appname });
                 },
                 os.windows.E_OUTOFMEMORY => return error.OutOfMemory,
                 else => return error.AppDataDirUnavailable,
             }
         },
         .macosx => {
-            const home_dir = os.getEnvPosix("HOME") orelse {
+            const home_dir = os.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
             };
-            return os.path.join(allocator, [][]const u8{ home_dir, "Library", "Application Support", appname });
+            return fs.path.join(allocator, [][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd => {
-            const home_dir = os.getEnvPosix("HOME") orelse {
+            const home_dir = os.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
             };
-            return os.path.join(allocator, [][]const u8{ home_dir, ".local", "share", appname });
+            return fs.path.join(allocator, [][]const u8{ home_dir, ".local", "share", appname });
         },
         else => @compileError("Unsupported OS"),
     }

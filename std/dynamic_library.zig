@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 
 const std = @import("std.zig");
 const mem = std.mem;
-const cstr = std.cstr;
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -223,7 +222,7 @@ pub const ElfLib = struct {
             if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
             if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
-            if (!mem.eql(u8, name, cstr.toSliceConst(self.strings + self.syms[i].st_name))) continue;
+            if (!mem.eql(u8, name, mem.toSliceConst(u8, self.strings + self.syms[i].st_name))) continue;
             if (maybe_versym) |versym| {
                 if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                     continue;
@@ -246,7 +245,7 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
+    return mem.eql(u8, vername, mem.toSliceConst(u8, strings + aux.vda_name));
 }
 
 pub const WindowsDynLib = struct {
