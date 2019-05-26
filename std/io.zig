@@ -1,12 +1,12 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const Os = builtin.Os;
 const c = std.c;
 
 const math = std.math;
 const debug = std.debug;
 const assert = debug.assert;
 const os = std.os;
+const fs = std.fs;
 const mem = std.mem;
 const meta = std.meta;
 const trait = meta.trait;
@@ -985,7 +985,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 }
 
 pub const BufferedAtomicFile = struct {
-    atomic_file: os.AtomicFile,
+    atomic_file: fs.AtomicFile,
     file_stream: File.OutStream,
     buffered_stream: BufferedOutStream(File.WriteError),
     allocator: *mem.Allocator,
@@ -1001,7 +1001,7 @@ pub const BufferedAtomicFile = struct {
         };
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(dest_path, File.default_mode);
+        self.atomic_file = try fs.AtomicFile.init(dest_path, File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();

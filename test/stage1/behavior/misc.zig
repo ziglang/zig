@@ -2,7 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
-const cstr = std.cstr;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 
@@ -210,7 +209,7 @@ test "multiline C string" {
         c\\three
     ;
     const s2 = c"one\ntwo)\nthree";
-    expect(cstr.cmp(s1, s2) == 0);
+    expect(std.cstr.cmp(s1, s2) == 0);
 }
 
 test "type equality" {
@@ -363,7 +362,7 @@ test "C string concatenation" {
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
-    const len = cstr.len(b);
+    const len = mem.len(u8, b);
     const len_with_null = len + 1;
     {
         var i: u32 = 0;

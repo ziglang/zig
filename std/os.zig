@@ -251,7 +251,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     // Linux can return EINVAL when read amount is > 0x7ffff000
     // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
     // TODO audit this. Shawn Landden says that this is not actually true.
-    // if this logic should stay, move it to std.os.linux.sys
+    // if this logic should stay, move it to std.os.linux
     const max_buf_len = 0x7ffff000;
 
     var index: usize = 0;
@@ -260,8 +260,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
         const rc = system.read(fd, buf.ptr + index, want_to_read);
         switch (errno(rc)) {
             0 => {
-                index += rc;
-                if (rc == want_to_read) continue;
+                const amt_read = @intCast(usize, rc);
+                index += amt_read;
+                if (amt_read == want_to_read) continue;
                 // Read returned less than buf.len.
                 return index;
             },
@@ -374,7 +375,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     // Linux can return EINVAL when write amount is > 0x7ffff000
     // See https://github.com/ziglang/zig/pull/743#issuecomment-363165856
     // TODO audit this. Shawn Landden says that this is not actually true.
-    // if this logic should stay, move it to std.os.linux.sys
+    // if this logic should stay, move it to std.os.linux
     const max_bytes_len = 0x7ffff000;
 
     var index: usize = 0;
@@ -383,7 +384,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
         const rc = system.write(fd, bytes.ptr + index, amt_to_write);
         switch (errno(rc)) {
             0 => {
-                index += rc;
+                index += @intCast(usize, rc);
                 continue;
             },
             EINTR => continue,
@@ -1863,14 +1864,10 @@ pub const MProtectError = error{
     Unexpected,
 };
 
-/// address and length must be page-aligned
-pub fn mprotect(address: usize, length: usize, protection: u32) MProtectError!void {
-    const negative_page_size = @bitCast(usize, -isize(mem.page_size));
-    const aligned_address = address & negative_page_size;
-    const aligned_end = (address + length + mem.page_size - 1) & negative_page_size;
-    assert(address == aligned_address);
-    assert(length == aligned_end - aligned_address);
-    switch (errno(system.mprotect(address, length, protection))) {
+/// `memory.len` must be page-aligned.
+pub fn mprotect(memory: [*]align(mem.page_size) u8, protection: u32) MProtectError!void {
+    assert(mem.isAligned(memory.len, mem.page_size));
+    switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
         0 => return,
         EINVAL => unreachable,
         EACCES => return error.AccessDenied,
@@ -1906,17 +1903,26 @@ pub const MMapError = error{
 
 /// Map files or devices into memory.
 /// Use of a mapped region can result in these signals:
+/// `length` must be page-aligned.
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
-pub fn mmap(address: ?[*]u8, length: usize, prot: u32, flags: u32, fd: fd_t, offset: isize) MMapError!usize {
+pub fn mmap(
+    ptr: ?[*]align(mem.page_size) u8,
+    length: usize,
+    prot: u32,
+    flags: u32,
+    fd: fd_t,
+    offset: isize,
+) MMapError![]align(mem.page_size) u8 {
+    assert(mem.isAligned(length, mem.page_size));
     const err = if (builtin.link_libc) blk: {
-        const rc = system.mmap(address, length, prot, flags, fd, offset);
-        if (rc != system.MMAP_FAILED) return rc;
-        break :blk system._errno().*;
+        const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
+        if (rc != MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
+        break :blk @intCast(usize, system._errno().*);
     } else blk: {
-        const rc = system.mmap(address, length, prot, flags, fd, offset);
+        const rc = system.mmap(ptr, length, prot, flags, fd, offset);
         const err = errno(rc);
-        if (err == 0) return rc;
+        if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..length];
         break :blk err;
     };
     switch (err) {
@@ -1940,8 +1946,8 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: u32, flags: u32, fd: fd_t, off
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(address: usize, length: usize) void {
-    switch (errno(system.munmap(address, length))) {
+pub fn munmap(memory: []align(mem.page_size) u8) void {
+    switch (errno(system.munmap(memory.ptr, memory.len))) {
         0 => return,
         EINVAL => unreachable, // Invalid parameters.
         ENOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.

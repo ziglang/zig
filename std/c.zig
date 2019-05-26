@@ -1,4 +1,6 @@
 const builtin = @import("builtin");
+const std = @import("std");
+const page_size = std.mem.page_size;
 
 pub use @import("os/bits.zig");
 
@@ -33,7 +35,7 @@ pub extern "c" fn close(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: isize, whence: c_int) isize;
-pub extern "c" fn open(path: [*]const u8, oflag: c_int, ...) c_int;
+pub extern "c" fn open(path: [*]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: u64) isize;
@@ -42,8 +44,9 @@ pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec, iovcnt: c_int, offset:
 pub extern "c" fn stat(noalias path: [*]const u8, noalias buf: *Stat) c_int;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: u64) isize;
-pub extern "c" fn mmap(addr: ?*c_void, len: usize, prot: c_int, flags: c_int, fd: fd_t, offset: isize) usize;
-pub extern "c" fn munmap(addr: ?*c_void, len: usize) c_int;
+pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: isize) *c_void;
+pub extern "c" fn munmap(addr: *align(page_size) c_void, len: usize) c_int;
+pub extern "c" fn mprotect(addr: *align(page_size) c_void, len: usize, prot: c_uint) c_int;
 pub extern "c" fn unlink(path: [*]const u8) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
 pub extern "c" fn waitpid(pid: c_int, stat_loc: *c_int, options: c_int) c_int;

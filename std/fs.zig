@@ -595,8 +595,8 @@ pub const Dir = struct {
                 }
 
                 while (true) {
-                    const rc = os.system.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
-                    switch (os.errno(rc)) {
+                    const rc = os.linux.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
+                    switch (os.linux.getErrno(rc)) {
                         0 => {},
                         os.EBADF => unreachable,
                         os.EFAULT => unreachable,

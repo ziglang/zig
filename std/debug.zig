@@ -1011,7 +1011,7 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     S.self_exe_file = try fs.openSelfExe();
     errdefer S.self_exe_file.close();
 
-    const self_exe_mmap_len = try S.self_exe_file.getEndPos();
+    const self_exe_mmap_len = mem.alignForward(try S.self_exe_file.getEndPos(), mem.page_size);
     const self_exe_mmap = try os.mmap(
         null,
         self_exe_mmap_len,
@@ -1020,10 +1020,9 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
         S.self_exe_file.handle,
         0,
     );
-    errdefer os.munmap(self_exe_mmap, self_exe_mmap_len);
+    errdefer os.munmap(self_exe_mmap);
 
-    const file_mmap_slice = @intToPtr([*]const u8, self_exe_mmap)[0..self_exe_mmap_len];
-    S.self_exe_mmap_seekable = io.SliceSeekableInStream.init(file_mmap_slice);
+    S.self_exe_mmap_seekable = io.SliceSeekableInStream.init(self_exe_mmap);
 
     return openElfDebugInfo(
         allocator,

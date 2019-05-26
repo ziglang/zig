@@ -37,7 +37,7 @@ pub const COutStream = struct {
             os.ENOSPC => return error.NoSpaceLeft,
             os.EPERM => return error.AccessDenied,
             os.EPIPE => return error.BrokenPipe,
-            else => return os.unexpectedErrno(@intCast(usize, errno)),
+            else => |err| return os.unexpectedErrno(@intCast(usize, err)),
         }
     }
 };

@@ -237,7 +237,7 @@ pub fn allocateTLS(size: usize) usize {
         return @ptrToInt(&main_thread_tls_buffer);
     }
 
-    const addr = os.mmap(
+    const slice = os.mmap(
         null,
         size,
         os.PROT_READ | os.PROT_WRITE,
@@ -246,5 +246,5 @@ pub fn allocateTLS(size: usize) usize {
         0,
     ) catch @panic("out of memory");
 
-    return addr;
+    return @ptrToInt(slice.ptr);
 }

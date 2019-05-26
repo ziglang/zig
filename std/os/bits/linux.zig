@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const maxInt = std.math.maxInt;
 
 pub use @import("linux/errno.zig");
 pub use switch (builtin.arch) {
@@ -39,7 +40,7 @@ pub const PROT_EXEC = 4;
 pub const PROT_GROWSDOWN = 0x01000000;
 pub const PROT_GROWSUP = 0x02000000;
 
-pub const MAP_FAILED = maxInt(usize);
+pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 pub const MAP_SHARED = 0x01;
 pub const MAP_PRIVATE = 0x02;
 pub const MAP_TYPE = 0x0f;

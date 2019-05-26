@@ -104,35 +104,36 @@ pub const DirectAllocator = struct {
         }
 
         const alloc_size = if (alignment <= mem.page_size) n else n + alignment;
-        const addr = os.mmap(
+        const slice = os.mmap(
             null,
-            alloc_size,
+            mem.alignForward(alloc_size, mem.page_size),
             os.PROT_READ | os.PROT_WRITE,
             os.MAP_PRIVATE | os.MAP_ANONYMOUS,
             -1,
             0,
         ) catch return error.OutOfMemory;
-        if (alloc_size == n) return @intToPtr([*]u8, addr)[0..n];
+        if (alloc_size == n) return slice;
 
-        const aligned_addr = mem.alignForward(addr, alignment);
+        const aligned_addr = mem.alignForward(@ptrToInt(slice.ptr), alignment);
 
         // Unmap the extra bytes that were only requested in order to guarantee
         // that the range of memory we were provided had a proper alignment in
         // it somewhere. The extra bytes could be at the beginning, or end, or both.
-        const unused_start_len = aligned_addr - addr;
+        const unused_start_len = aligned_addr - @ptrToInt(slice.ptr);
         if (unused_start_len != 0) {
-            os.munmap(addr, unused_start_len);
+            os.munmap(slice[0..unused_start_len]);
         }
-        const aligned_end_addr = std.mem.alignForward(aligned_addr + n, mem.page_size);
-        const unused_end_len = addr + alloc_size - aligned_end_addr;
+        const aligned_end_addr = mem.alignForward(aligned_addr + n, mem.page_size);
+        const unused_end_len = @ptrToInt(slice.ptr) + slice.len - aligned_end_addr;
         if (unused_end_len != 0) {
-            os.munmap(aligned_end_addr, unused_end_len);
+            os.munmap(@intToPtr([*]align(mem.page_size) u8, aligned_end_addr)[0..unused_end_len]);
         }
 
         return @intToPtr([*]u8, aligned_addr)[0..n];
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
         if (os.windows.is_the_target) {
             const w = os.windows;
             if (new_size == 0) {
@@ -165,12 +166,14 @@ pub const DirectAllocator = struct {
         const new_addr_end = base_addr + new_size;
         const new_addr_end_rounded = mem.alignForward(new_addr_end, mem.page_size);
         if (old_addr_end > new_addr_end_rounded) {
-            os.munmap(new_addr_end_rounded, old_addr_end - new_addr_end_rounded);
+            const ptr = @intToPtr([*]align(mem.page_size) u8, new_addr_end_rounded);
+            os.munmap(ptr[0 .. old_addr_end - new_addr_end_rounded]);
         }
         return old_mem[0..new_size];
     }
 
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
         if (os.windows.is_the_target) {
             if (old_mem.len == 0) {
                 return alloc(allocator, new_size, new_align);
@@ -231,7 +234,7 @@ pub const DirectAllocator = struct {
         const result = try alloc(allocator, new_size, new_align);
         if (old_mem.len != 0) {
             @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            os.munmap(@ptrToInt(old_mem.ptr), old_mem.len);
+            os.munmap(old_mem);
         }
         return result;
     }

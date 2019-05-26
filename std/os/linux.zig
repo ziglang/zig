@@ -173,12 +173,12 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
 }
 
-pub fn mprotect(address: usize, length: usize, protection: usize) usize {
-    return syscall3(SYS_mprotect, address, length, protection);
+pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
+    return syscall3(SYS_mprotect, @ptrToInt(address), length, protection);
 }
 
-pub fn munmap(address: usize, length: usize) usize {
-    return syscall2(SYS_munmap, address, length);
+pub fn munmap(address: [*]const u8, length: usize) usize {
+    return syscall2(SYS_munmap, @ptrToInt(address), length);
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
