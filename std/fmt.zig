@@ -145,23 +145,7 @@ pub fn formatType(
             return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
         },
         builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-            const has_cust_fmt = comptime cf: {
-                const info = @typeInfo(T);
-                const defs = switch (info) {
-                    builtin.TypeId.Struct => |s| s.defs,
-                    builtin.TypeId.Union => |u| u.defs,
-                    builtin.TypeId.Enum => |e| e.defs,
-                    else => unreachable,
-                };
-
-                for (defs) |def| {
-                    if (mem.eql(u8, def.name, "format")) {
-                        break :cf true;
-                    }
-                }
-                break :cf false;
-            };
-            if (has_cust_fmt) return value.format(fmt, context, Errors, output);
+            if (comptime std.meta.trait.hasFn("format")(T)) return value.format(fmt, context, Errors, output);
 
             try output(context, @typeName(T));
             switch (comptime @typeId(T)) {
