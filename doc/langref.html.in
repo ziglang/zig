@@ -7545,7 +7545,7 @@ pub const TypeInfo = union(TypeId) {
     pub const Struct = struct {
         layout: ContainerLayout,
         fields: []StructField,
-        defs: []Definition,
+        decls: []Declaration,
     };
 
     pub const Optional = struct {
@@ -7573,7 +7573,7 @@ pub const TypeInfo = union(TypeId) {
         layout: ContainerLayout,
         tag_type: type,
         fields: []EnumField,
-        defs: []Definition,
+        decls: []Declaration,
     };
 
     pub const UnionField = struct {
@@ -7586,7 +7586,7 @@ pub const TypeInfo = union(TypeId) {
         layout: ContainerLayout,
         tag_type: ?type,
         fields: []UnionField,
-        defs: []Definition,
+        decls: []Declaration,
     };
 
     pub const CallingConvention = enum {
@@ -7622,7 +7622,7 @@ pub const TypeInfo = union(TypeId) {
         child: type,
     };
 
-    pub const Definition = struct {
+    pub const Declaration = struct {
         name: []const u8,
         is_pub: bool,
         data: Data,
@@ -7630,9 +7630,9 @@ pub const TypeInfo = union(TypeId) {
         pub const Data = union(enum) {
             Type: type,
             Var: type,
-            Fn: FnDef,
+            Fn: FnDecl,
 
-            pub const FnDef = struct {
+            pub const FnDecl = struct {
                 fn_type: type,
                 inline_type: Inline,
                 calling_convention: CallingConvention,

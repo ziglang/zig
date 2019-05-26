@@ -56,52 +56,14 @@ test "std.meta.trait.multiTrait" {
 }
 
 ///
-pub fn hasDef(comptime name: []const u8) TraitFn {
-    const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            const info = @typeInfo(T);
-            const defs = switch (info) {
-                builtin.TypeId.Struct => |s| s.defs,
-                builtin.TypeId.Union => |u| u.defs,
-                builtin.TypeId.Enum => |e| e.defs,
-                else => return false,
-            };
-
-            inline for (defs) |def| {
-                if (mem.eql(u8, def.name, name)) return def.is_pub;
-            }
-
-            return false;
-        }
-    };
-    return Closure.trait;
-}
-
-test "std.meta.trait.hasDef" {
-    const TestStruct = struct {
-        pub const value = u8(16);
-    };
-
-    const TestStructFail = struct {
-        const value = u8(16);
-    };
-
-    testing.expect(hasDef("value")(TestStruct));
-    testing.expect(!hasDef("value")(TestStructFail));
-    testing.expect(!hasDef("value")(*TestStruct));
-    testing.expect(!hasDef("value")(**TestStructFail));
-    testing.expect(!hasDef("x")(TestStruct));
-    testing.expect(!hasDef("value")(u8));
-}
-
-///
 pub fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
-            if (!comptime hasDef(name)(T)) return false;
-            const DefType = @typeOf(@field(T, name));
-            const def_type_id = @typeId(DefType);
-            return def_type_id == builtin.TypeId.Fn;
+            if (!comptime isContainer(T)) return false;
+            if (!comptime @hasDecl(T, name)) return false;
+            const DeclType = @typeOf(@field(T, name));
+            const decl_type_id = @typeId(DeclType);
+            return decl_type_id == builtin.TypeId.Fn;
         }
     };
     return Closure.trait;
