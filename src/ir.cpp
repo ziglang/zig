@@ -11521,6 +11521,19 @@ static IrInstruction *ir_analyze_int_to_c_ptr(IrAnalyze *ira, IrInstruction *sou
     return ir_analyze_int_to_ptr(ira, source_instr, unsigned_integer, dest_type);
 }
 
+static bool is_pointery_and_elem_is_not_pointery(ZigType *ty) {
+    if (ty->id == ZigTypeIdPointer) return ty->data.pointer.child_type->id != ZigTypeIdPointer;
+    if (ty->id == ZigTypeIdFn) return true;
+    if (ty->id == ZigTypeIdPromise) return true;
+    if (ty->id == ZigTypeIdOptional) {
+        ZigType *ptr_ty = ty->data.maybe.child_type;
+        if (ptr_ty->id == ZigTypeIdPointer) return ptr_ty->data.pointer.child_type->id != ZigTypeIdPointer;
+        if (ptr_ty->id == ZigTypeIdFn) return true;
+        if (ptr_ty->id == ZigTypeIdPromise) return true;
+    }
+    return false;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     ZigType *wanted_type, IrInstruction *value)
 {
@@ -11895,27 +11908,19 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // cast from *T and [*]T to *c_void and ?*c_void
     // but don't do it if the actual type is a double pointer
-    if (actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.child_type->id != ZigTypeIdPointer) {
+    if (is_pointery_and_elem_is_not_pointery(actual_type)) {
         ZigType *dest_ptr_type = nullptr;
         if (wanted_type->id == ZigTypeIdPointer &&
-            wanted_type->data.pointer.ptr_len == PtrLenSingle &&
             wanted_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
         {
             dest_ptr_type = wanted_type;
         } else if (wanted_type->id == ZigTypeIdOptional &&
             wanted_type->data.maybe.child_type->id == ZigTypeIdPointer &&
-            wanted_type->data.maybe.child_type->data.pointer.ptr_len == PtrLenSingle &&
             wanted_type->data.maybe.child_type->data.pointer.child_type == ira->codegen->builtin_types.entry_c_void)
         {
             dest_ptr_type = wanted_type->data.maybe.child_type;
         }
-        if (dest_ptr_type != nullptr &&
-            (!actual_type->data.pointer.is_const || dest_ptr_type->data.pointer.is_const) &&
-            (!actual_type->data.pointer.is_volatile || dest_ptr_type->data.pointer.is_volatile) &&
-            actual_type->data.pointer.bit_offset_in_host == dest_ptr_type->data.pointer.bit_offset_in_host &&
-            actual_type->data.pointer.host_int_bytes == dest_ptr_type->data.pointer.host_int_bytes &&
-            get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, dest_ptr_type))
-        {
+        if (dest_ptr_type != nullptr) {
             return ir_analyze_ptr_cast(ira, source_instr, value, wanted_type, source_instr, true);
         }
     }

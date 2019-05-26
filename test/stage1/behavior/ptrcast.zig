@@ -58,3 +58,11 @@ test "comptime ptrcast keeps larger alignment" {
         std.debug.assert(@typeOf(p) == [*]align(@alignOf(u32)) const u8);
     }
 }
+
+test "implicit optional pointer to optional c_void pointer" {
+    var buf: [4]u8 = "aoeu";
+    var x: ?[*]u8 = &buf;
+    var y: ?*c_void = x;
+    var z = @ptrCast(*[4]u8, y);
+    expect(std.mem.eql(u8, z, "aoeu"));
+}
