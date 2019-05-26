@@ -1011,6 +1011,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertNonNull *)
     return IrInstructionIdAssertNonNull;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionHasDecl *) {
+    return IrInstructionIdHasDecl;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3010,6 +3014,19 @@ static IrInstruction *ir_build_sqrt(IrBuilder *irb, Scope *scope, AstNode *sourc
 
     if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
     ir_ref_instruction(op, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_has_decl(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *container, IrInstruction *name)
+{
+    IrInstructionHasDecl *instruction = ir_build_instruction<IrInstructionHasDecl>(irb, scope, source_node);
+    instruction->container = container;
+    instruction->name = name;
+
+    ir_ref_instruction(container, irb->current_basic_block);
+    ir_ref_instruction(name, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5097,6 +5114,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     zig_unreachable();
                 }
                 return ir_lval_wrap(irb, scope, result, lval);
+            }
+        case BuiltinFnIdHasDecl:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *has_decl = ir_build_has_decl(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, has_decl, lval);
             }
     }
     zig_unreachable();
@@ -23173,6 +23205,33 @@ static IrInstruction *ir_analyze_instruction_check_runtime_scope(IrAnalyze *ira,
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_has_decl(IrAnalyze *ira, IrInstructionHasDecl *instruction) {
+    ZigType *container_type = ir_resolve_type(ira, instruction->container->child);
+    if (type_is_invalid(container_type))
+        return ira->codegen->invalid_instruction;
+
+    Buf *name = ir_resolve_str(ira, instruction->name->child);
+    if (name == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    if (!is_container(container_type)) {
+        ir_add_error(ira, instruction->container,
+            buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&container_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ScopeDecls *container_scope = get_container_scope(container_type);
+    Tld *tld = find_container_decl(ira->codegen, container_scope, name);
+    if (tld == nullptr)
+        return ir_const_bool(ira, &instruction->base, false);
+
+    if (tld->visib_mod == VisibModPrivate && tld->import != get_scope_import(instruction->base.scope)) {
+        return ir_const_bool(ira, &instruction->base, false);
+    }
+
+    return ir_const_bool(ira, &instruction->base, true);
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -23467,6 +23526,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_enum_to_int(ira, (IrInstructionEnumToInt *)instruction);
         case IrInstructionIdCheckRuntimeScope:
             return ir_analyze_instruction_check_runtime_scope(ira, (IrInstructionCheckRuntimeScope *)instruction);
+        case IrInstructionIdHasDecl:
+            return ir_analyze_instruction_has_decl(ira, (IrInstructionHasDecl *)instruction);
     }
     zig_unreachable();
 }
@@ -23703,6 +23764,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumToInt:
         case IrInstructionIdVectorToArray:
         case IrInstructionIdArrayToVector:
+        case IrInstructionIdHasDecl:
             return false;
 
         case IrInstructionIdAsm:

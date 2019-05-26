@@ -1471,6 +1471,7 @@ enum BuiltinFnId {
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
+    BuiltinFnIdHasDecl,
 };
 
 struct BuiltinFnEntry {
@@ -2297,6 +2298,7 @@ enum IrInstructionId {
     IrInstructionIdArrayToVector,
     IrInstructionIdAssertZero,
     IrInstructionIdAssertNonNull,
+    IrInstructionIdHasDecl,
 };
 
 struct IrInstruction {
@@ -3501,6 +3503,13 @@ struct IrInstructionAssertNonNull {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionHasDecl {
+    IrInstruction base;
+
+    IrInstruction *container;
+    IrInstruction *name;
 };
 
 static const size_t slice_ptr_index = 0;

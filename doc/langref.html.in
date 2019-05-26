@@ -6734,6 +6734,38 @@ export fn @"A function name that is a complete sentence."() void {}
       </p>
       {#header_close#}
 
+      {#header_open|@hasDecl#}
+      <pre>{#syntax#}@hasDecl(comptime container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <p>
+      Returns whether or not a {#link|struct#}, {#link|enum#}, or {#link|union#} has a declaration
+      matching {#syntax#}name{#endsyntax#}.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Foo = struct {
+    nope: i32,
+
+    pub var blah = "xxx";
+    const hi = 1;
+};
+
+test "@hasDecl" {
+    assert(@hasDecl(Foo, "blah"));
+
+    // Even though `hi` is private, @hasDecl returns true because this test is
+    // in the same file scope as Foo. It would return false if Foo was declared
+    // in a different file.
+    assert(@hasDecl(Foo, "hi"));
+
+    // @hasDecl is for declarations; not fields.
+    assert(!@hasDecl(Foo, "nope"));
+    assert(!@hasDecl(Foo, "nope1234"));
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|@import#}
       <pre>{#syntax#}@import(comptime path: []u8) type{#endsyntax#}</pre>
       <p>
