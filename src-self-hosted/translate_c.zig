@@ -369,9 +369,11 @@ fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompo
     };
 }
 
-fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) !TransResult {
+fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDeclStmt) !TransResult {
     const c = rp.c;
-    const block_scope = findBlockScope(scope);
+    const block_scope = findBlockScope(parent_scope);
+    var scope = parent_scope;
+
     var it = ZigClangDeclStmt_decl_begin(stmt);
     const end_it = ZigClangDeclStmt_decl_end(stmt);
     while (it != end_it) : (it += 1) {
@@ -385,22 +387,32 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 // else
                 //     try appendToken(c, .Keyword_threadlocal, "threadlocal");
                 const thread_local_token: ?ast.TokenIndex = null;
-                // TODO:
-                // const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
-                //     try appendToken(c, .Keyword_const, "const")
-                // else
-                //     try appendToken(c, .Keyword_var, "var");
-                const mut_token = try appendToken(c, .Keyword_var, "var");
-                const name_token = blk: {
-                    const name = try c.str(ZigClangDecl_getName_bytes_begin(
-                        @ptrCast(*const ZigClangDecl, var_decl),
-                    ));
-                    break :blk try appendToken(c, .Identifier, name);
+                const qual_type = ZigClangVarDecl_getType(var_decl);
+                const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
+                    try appendToken(c, .Keyword_const, "const")
+                else
+                    try appendToken(c, .Keyword_var, "var");
+                const name_type = struct {
+                    str: []const u8,
+                    token: ast.TokenIndex,
                 };
+                const c_name = try c.str(ZigClangDecl_getName_bytes_begin(
+                    @ptrCast(*const ZigClangDecl, var_decl),
+                ));
+                const name_token = try appendToken(c, .Identifier, c_name);
                 const eq_token = try appendToken(c, .Equal, "=");
-                // TODO: init_node
+                // TODO:
+                // const init_node = ZigClangVarDecl_getInit();
                 const init_node: ?*ast.Node = null;
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
+
+                const var_scope = try c.a().create(Scope.Var);
+                var_scope.* = Scope.Var{
+                    .base = Scope{ .id = .Var, .parent = parent_scope },
+                    .c_name = c_name,
+                    .zig_name = c_name, // TODO: getWantedName
+                };
+                scope = &var_scope.base;
 
                 const node = try rp.c.a().create(ast.Node.VarDecl);
                 node.* = ast.Node.VarDecl{

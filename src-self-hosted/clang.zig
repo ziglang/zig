@@ -509,6 +509,7 @@ pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*c
 pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
 pub extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(self: struct_ZigClangAPValueLValueBase) ?*const struct_ZigClangExpr;
 pub extern fn ZigClangASTUnit_delete(arg0: ?*struct_ZigClangASTUnit) void;
+pub extern fn ZigClangVarDecl_getType(self: ?*const struct_ZigClangVarDecl) struct_ZigClangQualType;
 
 pub extern fn ZigClangFunctionDecl_getType(self: *const ZigClangFunctionDecl) struct_ZigClangQualType;
 pub extern fn ZigClangFunctionDecl_getLocation(self: *const ZigClangFunctionDecl) struct_ZigClangSourceLocation;

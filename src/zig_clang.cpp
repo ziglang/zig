@@ -1821,6 +1821,11 @@ void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
     delete reinterpret_cast<clang::ASTUnit *>(self);
 }
 
+struct ZigClangQualType ZigClangVarDecl_getType(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return bitcast(casted->getType());
+}
+
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
     auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
     return (ZigClangBuiltinTypeKind)casted->getKind();
