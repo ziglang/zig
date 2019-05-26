@@ -8993,6 +8993,13 @@ static bool slice_is_const(ZigType *type) {
     return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
 }
 
+static bool is_tagged_union(ZigType *type) {
+    if (type->id != ZigTypeIdUnion)
+        return false;
+    return (type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr);
+}
+
 static void populate_error_set_table(ErrorTableEntry **errors, ZigType *set) {
     assert(set->id == ZigTypeIdErrorSet);
     for (uint32_t i = 0; i < set->data.error_set.err_count; i += 1) {
@@ -9676,9 +9683,23 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 continue;
             }
         }
+        if (is_tagged_union(prev_type) && cur_type->id == ZigTypeIdEnumLiteral) {
+            TypeUnionField *field = find_union_type_field(prev_type, cur_inst->value.data.x_enum_literal);
+            if (field != nullptr) {
+                continue;
+            }
+        }
 
         if (cur_type->id == ZigTypeIdEnum && prev_type->id == ZigTypeIdEnumLiteral) {
             TypeEnumField *field = find_enum_type_field(cur_type, prev_inst->value.data.x_enum_literal);
+            if (field != nullptr) {
+                prev_inst = cur_inst;
+                continue;
+            }
+        }
+
+        if (is_tagged_union(cur_type) && prev_type->id == ZigTypeIdEnumLiteral) {
+            TypeUnionField *field = find_union_type_field(cur_type, prev_inst->value.data.x_enum_literal);
             if (field != nullptr) {
                 prev_inst = cur_inst;
                 continue;
@@ -10907,11 +10928,17 @@ static IrInstruction *ir_analyze_undefined_to_anything(IrAnalyze *ira, IrInstruc
 }
 
 static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *target, ZigType *wanted_type)
+        IrInstruction *uncasted_target, ZigType *wanted_type)
 {
     Error err;
     assert(wanted_type->id == ZigTypeIdUnion);
-    assert(target->value.type->id == ZigTypeIdEnum);
+
+    if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *target = ir_implicit_cast(ira, uncasted_target, wanted_type->data.unionation.tag_type);
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
@@ -11788,17 +11815,12 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // enum to union which has the enum as the tag type
-    if (wanted_type->id == ZigTypeIdUnion && actual_type->id == ZigTypeIdEnum &&
-        (wanted_type->data.unionation.decl_node->data.container_decl.auto_enum ||
-        wanted_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    // enum to union which has the enum as the tag type, or
+    // enum literal to union which has a matching enum as the tag type
+    if (is_tagged_union(wanted_type) && (actual_type->id == ZigTypeIdEnum ||
+                actual_type->id == ZigTypeIdEnumLiteral))
     {
-        if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusZeroBitsKnown)))
-            return ira->codegen->invalid_instruction;
-
-        if (wanted_type->data.unionation.tag_type == actual_type) {
-            return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
-        }
+        return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
     }
 
     // cast from *T to *[1]T

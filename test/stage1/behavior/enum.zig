@@ -930,9 +930,9 @@ test "enum literal in array literal" {
         two,
     };
 
-    const array = []Items {
-      .one,
-      .two,
+    const array = []Items{
+        .one,
+        .two,
     };
 
     expect(array[0] == .one);
@@ -961,4 +961,24 @@ test "enum value allocation" {
     expect(@enumToInt(LargeEnum.A0) == 0x80000000);
     expect(@enumToInt(LargeEnum.A1) == 0x80000001);
     expect(@enumToInt(LargeEnum.A2) == 0x80000002);
+}
+
+test "enum literal casting to tagged union" {
+    const Arch = union(enum) {
+        x86_64,
+        arm: Arm32,
+
+        const Arm32 = enum {
+            v8_5a,
+            v8_4a,
+        };
+    };
+
+    var t = true;
+    var x: Arch = .x86_64;
+    var y = if (t) x else .x86_64;
+    switch (y) {
+        .x86_64 => {},
+        else => @panic("fail"),
+    }
 }
