@@ -6868,7 +6868,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       {#header_close#}
       {#header_open|@hasField#}
-      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []u8) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>Returns if the field name of a struct, union, or enum exists.</p>
       <p>
       The result is a compile time constant.
