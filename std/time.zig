@@ -3,11 +3,19 @@ const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
+const math = std.math;
 
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
+    if (os.windows.is_the_target) {
+        const ns_per_ms = ns_per_s / ms_per_s;
+        const big_ms_from_ns = nanoseconds / ns_per_ms;
+        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
+        os.windows.kernel32.Sleep(ms);
+        return;
+    }
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
     std.os.nanosleep(s, ns);

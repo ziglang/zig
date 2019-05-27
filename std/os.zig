@@ -2315,19 +2315,6 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
-    if (windows.is_the_target and !builtin.link_libc) {
-        // TODO https://github.com/ziglang/zig/issues/1284
-        const small_s = math.cast(windows.DWORD, seconds) catch math.maxInt(windows.DWORD);
-        const ms_from_s = math.mul(windows.DWORD, small_s, std.time.ms_per_s) catch math.maxInt(windows.DWORD);
-
-        const ns_per_ms = std.time.ns_per_s / std.time.ms_per_s;
-        const big_ms_from_ns = nanoseconds / ns_per_ms;
-        const ms_from_ns = math.cast(windows.DWORD, big_ms_from_ns) catch math.maxInt(windows.DWORD);
-
-        const ms = math.add(windows.DWORD, ms_from_s, ms_from_ns) catch math.maxInt(windows.DWORD);
-        windows.kernel32.Sleep(ms);
-        return;
-    }
     var req = timespec{
         .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
         .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
