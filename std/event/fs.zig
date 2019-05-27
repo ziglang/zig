@@ -957,6 +957,7 @@ pub fn Watch(comptime V: type) type {
                 } else |err| switch (err) {
                     error.EventNotFound => unreachable,
                     error.ProcessNotFound => unreachable,
+                    error.Overflow => unreachable,
                     error.AccessDenied, error.SystemResources => |casted_err| {
                         await (async self.channel.put(casted_err) catch unreachable);
                     },
