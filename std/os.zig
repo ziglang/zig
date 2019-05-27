@@ -718,7 +718,7 @@ pub const GetCwdError = error{
 
 /// The result is a slice of out_buffer, indexed from 0.
 pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.GetCurrentDirectory(out_buffer);
     }
 
@@ -760,7 +760,7 @@ pub const SymLinkError = error{
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkC` and `symlinkW`.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const target_path_w = try windows.sliceToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path);
         return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
@@ -774,7 +774,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
 pub fn symlinkC(target_path: [*]const u8, sym_link_path: [*]const u8) SymLinkError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
         return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
@@ -850,7 +850,7 @@ pub const UnlinkError = error{
 /// Delete a name and possibly the file it refers to.
 /// See also `unlinkC`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
     } else {
@@ -861,7 +861,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
 
 /// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
 pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
     }
@@ -906,7 +906,7 @@ const RenameError = error{
 
 /// Change the name or location of a file.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const old_path_w = try windows.sliceToPrefixedFileW(old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(new_path);
         return renameW(&old_path_w, &new_path_w);
@@ -919,7 +919,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
 
 /// Same as `rename` except the parameters are null-terminated byte arrays.
 pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
         return renameW(&old_path_w, &new_path_w);
@@ -975,7 +975,7 @@ pub const MakeDirError = error{
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         return windows.CreateDirectoryW(&dir_path_w, null);
     } else {
@@ -986,7 +986,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
 pub fn mkdirC(dir_path: [*]const u8, mode: u32) MakeDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.CreateDirectoryW(&dir_path_w, null);
     }
@@ -1026,7 +1026,7 @@ pub const DeleteDirError = error{
 
 /// Deletes an empty directory.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
     } else {
@@ -1037,7 +1037,7 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
 
 /// Same as `rmdir` except the parameter is null-terminated.
 pub fn rmdirC(dir_path: [*]const u8) DeleteDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
     }
@@ -1074,7 +1074,7 @@ pub const ChangeCurDirError = error{
 /// Changes the current working directory of the calling process.
 /// `dir_path` is recommended to be a UTF-8 encoded string.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.sliceToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
     } else {
@@ -1085,7 +1085,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 
 /// Same as `chdir` except the parameter is null-terminated.
 pub fn chdirC(dir_path: [*]const u8) ChangeCurDirError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
     }
@@ -1117,7 +1117,7 @@ pub const ReadLinkError = error{
 /// Read value of a symbolic link.
 /// The return value is a slice of `out_buffer` from index 0.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
     } else {
@@ -1128,7 +1128,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
     }
@@ -1197,15 +1197,15 @@ pub fn setregid(rgid: u32, egid: u32) SetIdError!void {
 
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
-    if (builtin.link_libc) {
-        return system.isatty(handle) != 0;
-    }
     if (windows.is_the_target) {
         if (isCygwinPty(handle))
             return true;
 
         var out: windows.DWORD = undefined;
         return windows.kernel32.GetConsoleMode(handle, &out) != 0;
+    }
+    if (builtin.link_libc) {
+        return system.isatty(handle) != 0;
     }
     if (wasi.is_the_target) {
         @compileError("TODO implement std.os.isatty for WASI");
@@ -2003,7 +2003,7 @@ pub const AccessError = error{
 /// check user's permissions for a file
 /// TODO currently this assumes `mode` is `F_OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const path_w = try windows.sliceToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
         return;
@@ -2014,7 +2014,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 
 /// Same as `access` except `path` is null-terminated.
 pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
         return;
@@ -2132,7 +2132,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.SetFilePointerEx_BEGIN(fd, offset);
     }
     const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
@@ -2160,7 +2160,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
@@ -2186,7 +2186,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.SetFilePointerEx_END(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_END))) {
@@ -2214,7 +2214,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.SetFilePointerEx_CURRENT_get(fd);
     }
     const rc = system.lseek(fd, 0, SEEK_CUR);

@@ -30,7 +30,7 @@ pub fn timestamp() u64 {
 /// Get the posix timestamp, UTC, in milliseconds
 /// TODO audit this function. is it possible to return an error?
 pub fn milliTimestamp() u64 {
-    if (os.windows.is_the_target and !builtin.link_libc) {
+    if (os.windows.is_the_target) {
         //FileTime has a granularity of 100 nanoseconds
         //  and uses the NTFS/Windows epoch
         var ft: os.windows.FILETIME = undefined;
