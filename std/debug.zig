@@ -85,6 +85,10 @@ fn wantTtyColor() bool {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
+    if (os.wasi.is_the_target) {
+        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+        return;
+    }
     const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
@@ -147,6 +151,10 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
+    if (os.wasi.is_the_target) {
+        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+        return;
+    }
     const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
