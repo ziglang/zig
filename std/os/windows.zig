@@ -83,7 +83,7 @@ pub fn CreateFileW(
 
 pub const CreatePipeError = error{Unexpected};
 
-fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
+pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
     if (kernel32.CreatePipe(rd, wr, sattr, 0) == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -93,8 +93,8 @@ fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) Creat
 
 pub const SetHandleInformationError = error{Unexpected};
 
-fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
-    if (SetHandleInformation(h, mask, flags) == 0) {
+pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
+    if (kernel32.SetHandleInformation(h, mask, flags) == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
@@ -335,7 +335,7 @@ pub fn CreateSymbolicLinkW(
 ) CreateSymbolicLinkError!void {
     if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
-            else => |err| return kernel32.unexpectedError(err),
+            else => |err| return unexpectedError(err),
         }
     }
 }
@@ -649,7 +649,7 @@ pub fn CreateProcessW(
         lpCommandLine,
         lpProcessAttributes,
         lpThreadAttributes,
-        bInheritHandle,
+        bInheritHandles,
         dwCreationFlags,
         lpEnvironment,
         lpCurrentDirectory,

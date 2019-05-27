@@ -9012,8 +9012,8 @@ export fn add(a: i32, b: i32) void {
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.os.argsAlloc(std.heap.wasm_allocator);
-    defer std.os.argsFree(std.heap.wasm_allocator, args);
+    const args = try std.process.argsAlloc(std.heap.wasm_allocator);
+    defer std.process.argsFree(std.heap.wasm_allocator, args);
 
     for (args) |arg, i| {
         std.debug.warn("{}: {}\n", i, arg);

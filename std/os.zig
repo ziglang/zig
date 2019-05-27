@@ -893,6 +893,8 @@ const RenameError = error{
     PathAlreadyExists,
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
+    InvalidUtf8,
+    BadPathName,
     Unexpected,
 };
 

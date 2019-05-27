@@ -217,11 +217,11 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
-        const result = os.windowsWaitSingle(self.handle, windows.INFINITE);
+        const result = windows.WaitForSingleObject(self.handle, windows.INFINITE);
 
         self.term = (SpawnError!Term)(x: {
             var exit_code: windows.DWORD = undefined;
-            if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
+            if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
                 break :x Term{ .Exited = exit_code };
@@ -412,7 +412,7 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore) blk: {
-            break :blk try os.windowsOpen("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+            break :blk try windows.CreateFile("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
         } else blk: {
             break :blk undefined;
         };
@@ -420,7 +420,7 @@ pub const ChildProcess = struct {
             if (any_ignore) os.close(nul_handle);
         }
         if (any_ignore) {
-            try windowsSetHandleInfo(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
+            try windows.SetHandleInformation(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
 
         var g_hChildStd_IN_Rd: ?windows.HANDLE = null;
@@ -433,7 +433,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_IN_Rd = nul_handle;
             },
             StdIo.Inherit => {
-                g_hChildStd_IN_Rd = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
+                g_hChildStd_IN_Rd = windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch null;
             },
             StdIo.Close => {
                 g_hChildStd_IN_Rd = null;
@@ -453,7 +453,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_OUT_Wr = nul_handle;
             },
             StdIo.Inherit => {
-                g_hChildStd_OUT_Wr = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
+                g_hChildStd_OUT_Wr = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch null;
             },
             StdIo.Close => {
                 g_hChildStd_OUT_Wr = null;
@@ -473,7 +473,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_ERR_Wr = nul_handle;
             },
             StdIo.Inherit => {
-                g_hChildStd_ERR_Wr = windows.GetStdHandle(windows.STD_ERROR_HANDLE);
+                g_hChildStd_ERR_Wr = windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch null;
             },
             StdIo.Close => {
                 g_hChildStd_ERR_Wr = null;
@@ -681,22 +681,22 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
     if (wr) |h| os.close(h);
 }
 
-fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windows.CreatePipe(&rd_h, &wr_h, sattr);
     errdefer windowsDestroyPipe(rd_h, wr_h);
-    try windowsSetHandleInfo(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
+    try windows.SetHandleInformation(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
     rd.* = rd_h;
     wr.* = wr_h;
 }
 
-fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windows.CreatePipe(&rd_h, &wr_h, sattr);
     errdefer windowsDestroyPipe(rd_h, wr_h);
-    try windowsSetHandleInfo(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
+    try windows.SetHandleInformation(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
     rd.* = rd_h;
     wr.* = wr_h;
 }
