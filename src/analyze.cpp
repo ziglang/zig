@@ -981,6 +981,17 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
         return g->builtin_types.entry_invalid;
 
     assert(result->special != ConstValSpecialRuntime);
+    // Reject undefined as valid `type` type even though the specification
+    // allows it to be casted to anything.
+    // See also ir_resolve_type()
+    if (result->special == ConstValSpecialUndef) {
+        add_node_error(g, node,
+            buf_sprintf("expected type 'type', found '%s'",
+                buf_ptr(&g->builtin_types.entry_undef->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    assert(result->data.x_type != nullptr);
     return result->data.x_type;
 }
 
