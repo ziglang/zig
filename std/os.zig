@@ -99,7 +99,8 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
     }
     if (linux.is_the_target) {
         while (true) {
-            switch (errno(system.getrandom(buf.ptr, buf.len, 0))) {
+            // Bypass libc because it's missing on even relatively new versions.
+            switch (linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0))) {
                 0 => return,
                 EINVAL => unreachable,
                 EFAULT => unreachable,

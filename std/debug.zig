@@ -510,7 +510,7 @@ const TtyColor = enum {
 
 /// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
 fn setTtyColor(tty_color: TtyColor) void {
-    if (os.supportsAnsiEscapeCodes(stderr_file.handle)) {
+    if (stderr_file.supportsAnsiEscapeCodes()) {
         switch (tty_color) {
             TtyColor.Red => {
                 stderr_file.write(RED) catch return;
@@ -540,29 +540,29 @@ fn setTtyColor(tty_color: TtyColor) void {
             S.init_attrs = true;
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
             // TODO handle error
-            _ = windows.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+            _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
             S.attrs = info.wAttributes;
         }
 
         // TODO handle errors
         switch (tty_color) {
             TtyColor.Red => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
             },
             TtyColor.Green => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
             },
             TtyColor.Cyan => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
             },
             TtyColor.White, TtyColor.Bold => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
             },
             TtyColor.Dim => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
             },
             TtyColor.Reset => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs);
+                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
             },
         }
     }
@@ -894,7 +894,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         if (this_record_len % 4 != 0) {
             const round_to_next_4 = (this_record_len | 0x3) + 1;
             const march_forward_bytes = round_to_next_4 - this_record_len;
-            try dbi.seekBy(march_forward_bytes);
+            try dbi.seekBy(@intCast(isize, march_forward_bytes));
             this_record_len += march_forward_bytes;
         }
 

@@ -1,7 +1,64 @@
-use @import("../windows.zig");
+// The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
+
+use @import("../windows/bits.zig");
 
 pub const fd_t = HANDLE;
 pub const pid_t = HANDLE;
+
+pub const sig_atomic_t = c_int;
+
+/// maximum signal number + 1
+pub const NSIG = 23;
+
+// Signal types
+
+/// interrupt
+pub const SIGINT = 2;
+
+/// illegal instruction - invalid function image
+pub const SIGILL = 4;
+
+/// floating point exception
+pub const SIGFPE = 8;
+
+/// segment violation
+pub const SIGSEGV = 11;
+
+/// Software termination signal from kill
+pub const SIGTERM = 15;
+
+/// Ctrl-Break sequence
+pub const SIGBREAK = 21;
+
+/// abnormal termination triggered by abort call
+pub const SIGABRT = 22;
+
+/// SIGABRT compatible with other platforms, same as SIGABRT
+pub const SIGABRT_COMPAT = 6;
+
+// Signal action codes
+
+/// default signal action
+pub const SIG_DFL = 0;
+
+/// ignore signal
+pub const SIG_IGN = 1;
+
+/// return current value
+pub const SIG_GET = 2;
+
+/// signal gets error
+pub const SIG_SGE = 3;
+
+/// acknowledge
+pub const SIG_ACK = 4;
+
+/// Signal error value (returned by signal call on error)
+pub const SIG_ERR = -1;
+
+pub const SEEK_SET = 0;
+pub const SEEK_CUR = 1;
+pub const SEEK_END = 2;
 
 pub const EPERM = 1;
 pub const ENOENT = 2;
@@ -89,3 +146,10 @@ pub const ETIME = 137;
 pub const ETIMEDOUT = 138;
 pub const ETXTBSY = 139;
 pub const EWOULDBLOCK = 140;
+
+// These are workarounds for "use of undeclared identifier" compile errors
+// TODO make the compiler even more lazy. don't emit "use of undeclared identifier" errors
+// for if branches that aren't taken.
+pub const SIGKILL = @compileError("Windows libc does not have this");
+pub const EDQUOT = @compileError("Windows libc does not have this");
+pub const TIOCGWINSZ = @compileError("Windows libc does not have this");

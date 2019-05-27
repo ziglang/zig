@@ -92,12 +92,14 @@ pub const DirectAllocator = struct {
                 // obtained some memory space that will cause the next
                 // VirtualAlloc call to fail. To handle this, we will retry
                 // until it succeeds.
-                return w.VirtualAlloc(
+                const ptr = w.VirtualAlloc(
                     @intToPtr(*c_void, aligned_addr),
                     n,
                     w.MEM_COMMIT | w.MEM_RESERVE,
                     w.PAGE_READWRITE,
                 ) catch continue;
+
+                return @ptrCast([*]u8, ptr)[0..n];
             };
 
             return @ptrCast([*]u8, final_addr)[0..n];

@@ -1,5 +1,4 @@
-// Declarations that are intended to be imported into the POSIX namespace.
-// This includes WASI-only APIs.
+use @import("../bits.zig");
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;

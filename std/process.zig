@@ -144,7 +144,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 windows_buf_len,
             ) catch |err| switch (err) {
                 error.Unexpected => return error.EnvironmentVariableNotFound,
-                else => return err,
+                else => |e| return e,
             };
 
             if (result > buf.len) {
@@ -156,7 +156,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 error.DanglingSurrogateHalf => return error.InvalidUtf8,
                 error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
                 error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                else => return err,
+                else => |e| return e,
             };
         }
     } else {

@@ -1,4 +1,4 @@
-use @import("../windows.zig");
+use @import("bits.zig");
 
 pub extern "ole32" stdcallcc fn CoTaskMemFree(pv: LPVOID) void;
 pub extern "ole32" stdcallcc fn CoUninitialize() void;

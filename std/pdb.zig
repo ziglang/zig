@@ -662,7 +662,7 @@ const MsfStream = struct {
     }
 
     fn seekBy(self: *MsfStream, len: i64) !void {
-        self.pos += len;
+        self.pos = @intCast(u64, @intCast(i64, self.pos) + len);
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
     }

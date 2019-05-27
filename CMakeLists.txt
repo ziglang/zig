@@ -628,6 +628,7 @@ set(ZIG_STD_FILES
     "os/wasi.zig"
     "os/windows.zig"
     "os/windows/advapi32.zig"
+    "os/windows/bits.zig"
     "os/windows/error.zig"
     "os/windows/kernel32.zig"
     "os/windows/ntdll.zig"
