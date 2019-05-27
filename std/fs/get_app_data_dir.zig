@@ -23,7 +23,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                 &dir_path_ptr,
             )) {
                 os.windows.S_OK => {
-                    defer os.windows.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
+                    defer os.windows.ole32.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
                     const global_dir = unicode.utf16leToUtf8Alloc(allocator, utf16lePtrSlice(dir_path_ptr)) catch |err| switch (err) {
                         error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,

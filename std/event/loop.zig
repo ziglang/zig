@@ -32,7 +32,7 @@ pub const Loop = struct {
         overlapped: Overlapped,
 
         pub const overlapped_init = switch (builtin.os) {
-            builtin.Os.windows => windows.OVERLAPPED{
+            .windows => windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
                 .Offset = 0,
@@ -50,13 +50,13 @@ pub const Loop = struct {
         };
 
         pub const EventFd = switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => KEventFd,
-            builtin.Os.linux => struct {
+            .macosx, .freebsd, .netbsd => KEventFd,
+            .linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
                 eventfd: i32,
             },
-            builtin.Os.windows => struct {
+            .windows => struct {
                 base: ResumeNode,
                 completion_key: usize,
             },
@@ -69,11 +69,11 @@ pub const Loop = struct {
         };
 
         pub const Basic = switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => KEventBasic,
-            builtin.Os.linux => struct {
+            .macosx, .freebsd, .netbsd => KEventBasic,
+            .linux => struct {
                 base: ResumeNode,
             },
-            builtin.Os.windows => struct {
+            .windows => struct {
                 base: ResumeNode,
             },
             else => @compileError("unsupported OS"),
@@ -147,7 +147,7 @@ pub const Loop = struct {
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {
-            builtin.Os.linux => {
+            .linux => {
                 self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
                 self.os_data.fs_queue_item = 0;
                 // we need another thread for the file system because Linux does not have an async
@@ -221,7 +221,7 @@ pub const Loop = struct {
                     self.extra_threads[extra_thread_index] = try Thread.spawn(self, workerRun);
                 }
             },
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            .macosx, .freebsd, .netbsd => {
                 self.os_data.kqfd = try os.bsdKQueue();
                 errdefer os.close(self.os_data.kqfd);
 
@@ -325,14 +325,14 @@ pub const Loop = struct {
                     self.extra_threads[extra_thread_index] = try Thread.spawn(self, workerRun);
                 }
             },
-            builtin.Os.windows => {
-                self.os_data.io_port = try os.windowsCreateIoCompletionPort(
+            .windows => {
+                self.os_data.io_port = try windows.CreateIoCompletionPort(
                     windows.INVALID_HANDLE_VALUE,
                     null,
                     undefined,
                     maxInt(windows.DWORD),
                 );
-                errdefer os.close(self.os_data.io_port);
+                errdefer windows.CloseHandle(self.os_data.io_port);
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
@@ -361,7 +361,7 @@ pub const Loop = struct {
                     while (i < extra_thread_index) : (i += 1) {
                         while (true) {
                             const overlapped = &self.final_resume_node.overlapped;
-                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
+                            windows.PostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
                             break;
                         }
                     }
@@ -380,18 +380,18 @@ pub const Loop = struct {
 
     fn deinitOsData(self: *Loop) void {
         switch (builtin.os) {
-            builtin.Os.linux => {
+            .linux => {
                 os.close(self.os_data.final_eventfd);
                 while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
                 os.close(self.os_data.epollfd);
                 self.allocator.free(self.eventfd_resume_nodes);
             },
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            .macosx, .freebsd, .netbsd => {
                 os.close(self.os_data.kqfd);
                 os.close(self.os_data.fs_kqfd);
             },
-            builtin.Os.windows => {
-                os.close(self.os_data.io_port);
+            .windows => {
+                windows.CloseHandle(self.os_data.io_port);
             },
             else => {},
         }
@@ -501,7 +501,7 @@ pub const Loop = struct {
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os) {
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     const kevent_array = (*const [1]os.Kevent)(&eventfd_node.kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                     _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
@@ -510,7 +510,7 @@ pub const Loop = struct {
                         return;
                     };
                 },
-                builtin.Os.linux => {
+                .linux => {
                     // the pending count is already accounted for
                     const epoll_events = os.EPOLLONESHOT | os.linux.EPOLLIN | os.linux.EPOLLOUT |
                         os.linux.EPOLLET;
@@ -525,8 +525,8 @@ pub const Loop = struct {
                         return;
                     };
                 },
-                builtin.Os.windows => {
-                    os.windowsPostQueuedCompletionStatus(
+                .windows => {
+                    windows.PostQueuedCompletionStatus(
                         self.os_data.io_port,
                         undefined,
                         undefined,
@@ -623,13 +623,13 @@ pub const Loop = struct {
         if (prev == 1) {
             // cause all the threads to stop
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
                     os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     const final_kevent = (*const [1]os.Kevent)(&self.os_data.final_kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
@@ -637,12 +637,12 @@ pub const Loop = struct {
                     _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
                     return;
                 },
-                builtin.Os.windows => {
+                .windows => {
                     var i: usize = 0;
                     while (i < self.extra_threads.len + 1) : (i += 1) {
                         while (true) {
                             const overlapped = &self.final_resume_node.overlapped;
-                            os.windowsPostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
+                            windows.PostQueuedCompletionStatus(self.os_data.io_port, undefined, undefined, overlapped) catch continue;
                             break;
                         }
                     }
@@ -663,7 +663,7 @@ pub const Loop = struct {
             }
 
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     // only process 1 event so we don't steal from other threads
                     var events: [1]os.linux.epoll_event = undefined;
                     const count = os.epoll_wait(self.os_data.epollfd, events[0..], -1);
@@ -687,7 +687,7 @@ pub const Loop = struct {
                         }
                     }
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     var eventlist: [1]os.Kevent = undefined;
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                     const count = os.bsdKEvent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
@@ -713,16 +713,16 @@ pub const Loop = struct {
                         }
                     }
                 },
-                builtin.Os.windows => {
+                .windows => {
                     var completion_key: usize = undefined;
                     const overlapped = while (true) {
                         var nbytes: windows.DWORD = undefined;
                         var overlapped: ?*windows.OVERLAPPED = undefined;
-                        switch (os.windowsGetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
-                            os.WindowsWaitResult.Aborted => return,
-                            os.WindowsWaitResult.Normal => {},
-                            os.WindowsWaitResult.EOF => {},
-                            os.WindowsWaitResult.Cancelled => continue,
+                        switch (windows.GetQueuedCompletionStatus(self.os_data.io_port, &nbytes, &completion_key, &overlapped, windows.INFINITE)) {
+                            .Aborted => return,
+                            .Normal => {},
+                            .EOF => {},
+                            .Cancelled => continue,
                         }
                         if (overlapped) |o| break o;
                     } else unreachable; // TODO else unreachable should not be necessary
@@ -831,9 +831,9 @@ pub const Loop = struct {
     }
 
     const OsData = switch (builtin.os) {
-        builtin.Os.linux => LinuxOsData,
-        builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => KEventData,
-        builtin.Os.windows => struct {
+        .linux => LinuxOsData,
+        .macosx, .freebsd, .netbsd => KEventData,
+        .windows => struct {
             io_port: windows.HANDLE,
             extra_thread_count: usize,
         },

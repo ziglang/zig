@@ -1,5 +1,3 @@
-use @import("../bits.zig");
-
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
@@ -11,8 +9,6 @@ pub const ADVICE_RANDOM: advice_t = 2;
 pub const ADVICE_WILLNEED: advice_t = 3;
 pub const ADVICE_DONTNEED: advice_t = 4;
 pub const ADVICE_NOREUSE: advice_t = 5;
-
-pub const ciovec_t = iovec_const;
 
 pub const clockid_t = u32;
 pub const CLOCK_REALTIME: clockid_t = 0;
@@ -181,8 +177,6 @@ pub const FILESTAT_SET_MTIM: fstflags_t = 0x0004;
 pub const FILESTAT_SET_MTIM_NOW: fstflags_t = 0x0008;
 
 pub const inode_t = u64;
-
-pub const iovec_t = iovec;
 
 pub const linkcount_t = u32;
 

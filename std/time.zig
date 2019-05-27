@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 
-pub const epoch = @import("epoch.zig");
+pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {

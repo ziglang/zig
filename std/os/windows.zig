@@ -134,6 +134,9 @@ pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObj
 
 pub const FindFirstFileError = error{
     FileNotFound,
+    InvalidUtf8,
+    BadPathName,
+    NameTooLong,
     Unexpected,
 };
 
@@ -192,7 +195,7 @@ pub fn PostQueuedCompletionStatus(
 ) PostQueuedCompletionStatusError!void {
     if (kernel32.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
         switch (kernel32.GetLastError()) {
-            else => return unexpectedError(err),
+            else => |err| return unexpectedError(err),
         }
     }
 }
@@ -350,7 +353,7 @@ pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
 }
 
 pub fn DeleteFileW(filename: [*]const u16) DeleteFileError!void {
-    if (kernel32.DeleteFileW(file_path) == 0) {
+    if (kernel32.DeleteFileW(filename) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
             ERROR.ACCESS_DENIED => return error.AccessDenied,
@@ -501,7 +504,7 @@ pub fn GetFinalPathNameByHandleW(
     buf_len: DWORD,
     flags: DWORD,
 ) GetFinalPathNameByHandleError!DWORD {
-    const rc = kernel32.GetFinalPathNameByHandleW(h_file, buf_ptr, buf.len, flags);
+    const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -539,7 +542,7 @@ pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
 }
 
 pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD {
-    const rc = kernel32.GetFileAttributesW(path);
+    const rc = kernel32.GetFileAttributesW(lpFileName);
     if (rc == INVALID_FILE_ATTRIBUTES) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -703,6 +706,14 @@ pub fn QueryPerformanceCounter() u64 {
 
 pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) void {
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
+}
+
+pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) void {
+    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
+}
+
+pub fn HeapDestroy(hHeap: HANDLE) void {
+    assert(kernel32.HeapDestroy(hHeap) != 0);
 }
 
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {

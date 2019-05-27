@@ -261,7 +261,7 @@ pub const HeapAllocator = switch (builtin.os) {
 
         pub fn deinit(self: *HeapAllocator) void {
             if (self.heap_handle) |heap_handle| {
-                _ = os.windows.HeapDestroy(heap_handle);
+                os.windows.HeapDestroy(heap_handle);
             }
         }
 
@@ -274,12 +274,12 @@ pub const HeapAllocator = switch (builtin.os) {
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, builtin.AtomicOrder.SeqCst);
             const heap_handle = optional_heap_handle orelse blk: {
                 const options = if (builtin.single_threaded) os.windows.HEAP_NO_SERIALIZE else 0;
-                const hh = os.windows.HeapCreate(options, amt, 0) orelse return error.OutOfMemory;
+                const hh = os.windows.kernel32.HeapCreate(options, amt, 0) orelse return error.OutOfMemory;
                 const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, builtin.AtomicOrder.SeqCst, builtin.AtomicOrder.SeqCst) orelse break :blk hh;
-                _ = os.windows.HeapDestroy(hh);
+                os.windows.HeapDestroy(hh);
                 break :blk other_hh.?; // can't be null because of the cmpxchg
             };
-            const ptr = os.windows.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
+            const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return error.OutOfMemory;
             const root_addr = @ptrToInt(ptr);
             const adjusted_addr = mem.alignForward(root_addr, alignment);
             const record_addr = adjusted_addr + n;
@@ -309,12 +309,12 @@ pub const HeapAllocator = switch (builtin.os) {
             const old_ptr = @intToPtr(*c_void, root_addr);
 
             if (new_size == 0) {
-                if (os.windows.HeapFree(self.heap_handle.?, 0, old_ptr) == 0) unreachable;
+                os.windows.HeapFree(self.heap_handle.?, 0, old_ptr);
                 return old_mem[0..0];
             }
 
             const amt = new_size + new_align + @sizeOf(usize);
-            const new_ptr = os.windows.HeapReAlloc(
+            const new_ptr = os.windows.kernel32.HeapReAlloc(
                 self.heap_handle.?,
                 0,
                 old_ptr,

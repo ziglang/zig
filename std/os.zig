@@ -944,7 +944,7 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
 /// Assumes target is Windows.
 pub fn renameW(old_path: [*]const u16, new_path: [*]const u16) RenameError!void {
     const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-    return windows.MoveFileExW(old_path_w, new_path_w, flags);
+    return windows.MoveFileExW(old_path, new_path, flags);
 }
 
 pub const MakeDirError = error{
@@ -959,6 +959,8 @@ pub const MakeDirError = error{
     NoSpaceLeft,
     NotDir,
     ReadOnlyFileSystem,
+    InvalidUtf8,
+    BadPathName,
     Unexpected,
 };
 
@@ -2227,6 +2229,9 @@ pub const RealPathError = error{
     BadPathName,
     DeviceBusy,
 
+    SharingViolation,
+    PipeBusy,
+
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
 
@@ -2294,7 +2299,7 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
     var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
     const wide_len = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
     assert(wide_len <= wide_buf.len);
-    const wide_slice = wide_len[0..wide_len];
+    const wide_slice = wide_buf[0..wide_len];
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.
@@ -2311,13 +2316,13 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     if (windows.is_the_target and !builtin.link_libc) {
         // TODO https://github.com/ziglang/zig/issues/1284
         const small_s = math.cast(windows.DWORD, seconds) catch math.maxInt(windows.DWORD);
-        const ms_from_s = math.mul(small_s, std.time.ms_per_s) catch math.maxInt(windows.DWORD);
+        const ms_from_s = math.mul(windows.DWORD, small_s, std.time.ms_per_s) catch math.maxInt(windows.DWORD);
 
         const ns_per_ms = std.time.ns_per_s / std.time.ms_per_s;
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms_from_ns = math.cast(windows.DWORD, big_ms_from_ns) catch math.maxInt(windows.DWORD);
 
-        const ms = math.add(ms_from_s, ms_from_ns) catch math.maxInt(windows.DWORD);
+        const ms = math.add(windows.DWORD, ms_from_s, ms_from_ns) catch math.maxInt(windows.DWORD);
         windows.kernel32.Sleep(ms);
         return;
     }

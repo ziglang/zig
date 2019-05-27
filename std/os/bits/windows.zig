@@ -5,6 +5,13 @@ use @import("../windows/bits.zig");
 pub const fd_t = HANDLE;
 pub const pid_t = HANDLE;
 
+pub const time_t = c_longlong;
+
+pub const timespec = extern struct {
+    tv_sec: time_t,
+    tv_nsec: c_long,
+};
+
 pub const sig_atomic_t = c_int;
 
 /// maximum signal number + 1
@@ -153,3 +160,4 @@ pub const EWOULDBLOCK = 140;
 pub const SIGKILL = @compileError("Windows libc does not have this");
 pub const EDQUOT = @compileError("Windows libc does not have this");
 pub const TIOCGWINSZ = @compileError("Windows libc does not have this");
+pub const F_OK = 0;

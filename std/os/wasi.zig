@@ -5,7 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const is_the_target = builtin.os == .wasi;
-pub use @import("bits/wasi.zig");
+pub use @import("bits.zig");
 
 comptime {
     assert(@alignOf(i8) == 1);
@@ -17,6 +17,9 @@ comptime {
     assert(@alignOf(i64) == 8);
     assert(@alignOf(u64) == 8);
 }
+
+pub const iovec_t = iovec;
+pub const ciovec_t = iovec_const;
 
 pub extern "wasi_unstable" fn args_get(argv: [*][*]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_unstable" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;

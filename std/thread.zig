@@ -57,7 +57,7 @@ pub const Thread = struct {
         } else
             return switch (builtin.os) {
             .linux => os.linux.gettid(),
-            .windows => windows.GetCurrentThreadId(),
+            .windows => windows.kernel32.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
         };
     }
@@ -99,9 +99,9 @@ pub const Thread = struct {
                 os.munmap(self.data.memory);
             },
             .windows => {
-                assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
-                assert(windows.CloseHandle(self.data.handle) != 0);
-                assert(windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start) != 0);
+                windows.WaitForSingleObject(self.data.handle, windows.INFINITE) catch unreachable;
+                windows.CloseHandle(self.data.handle);
+                windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -171,10 +171,10 @@ pub const Thread = struct {
                 }
             };
 
-            const heap_handle = windows.GetProcessHeap() orelse return error.OutOfMemory;
+            const heap_handle = windows.kernel32.GetProcessHeap() orelse return error.OutOfMemory;
             const byte_count = @alignOf(WinThread.OuterContext) + @sizeOf(WinThread.OuterContext);
-            const bytes_ptr = windows.HeapAlloc(heap_handle, 0, byte_count) orelse return error.OutOfMemory;
-            errdefer assert(windows.HeapFree(heap_handle, 0, bytes_ptr) != 0);
+            const bytes_ptr = windows.kernel32.HeapAlloc(heap_handle, 0, byte_count) orelse return error.OutOfMemory;
+            errdefer assert(windows.kernel32.HeapFree(heap_handle, 0, bytes_ptr) != 0);
             const bytes = @ptrCast([*]u8, bytes_ptr)[0..byte_count];
             const outer_context = std.heap.FixedBufferAllocator.init(bytes).allocator.create(WinThread.OuterContext) catch unreachable;
             outer_context.* = WinThread.OuterContext{
@@ -189,9 +189,9 @@ pub const Thread = struct {
             };
 
             const parameter = if (@sizeOf(Context) == 0) null else @ptrCast(*c_void, &outer_context.inner);
-            outer_context.thread.data.handle = windows.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
-                switch (windows.GetLastError()) {
-                    else => |err| windows.unexpectedError(err),
+            outer_context.thread.data.handle = windows.kernel32.CreateThread(null, default_stack_size, WinThread.threadMain, parameter, 0, null) orelse {
+                switch (windows.kernel32.GetLastError()) {
+                    else => |err| return windows.unexpectedError(err),
                 }
             };
             return &outer_context.thread;
@@ -333,7 +333,7 @@ pub const Thread = struct {
         }
         if (os.windows.is_the_target) {
             var system_info: windows.SYSTEM_INFO = undefined;
-            windows.GetSystemInfo(&system_info);
+            windows.kernel32.GetSystemInfo(&system_info);
             return @intCast(usize, system_info.dwNumberOfProcessors);
         }
         var count: c_int = undefined;
