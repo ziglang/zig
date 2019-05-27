@@ -297,8 +297,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             const err = darwin.getErrno(rc);
             switch (err) {
                 0 => {
-                    off += rc;
-                    inner_off += rc;
+                    const amt_read = @bitCast(usize, rc);
+                    off += amt_read;
+                    inner_off += amt_read;
                     if (inner_off == v.iov_len) {
                         iov_i += 1;
                         inner_off = 0;
@@ -421,8 +422,9 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
             const err = darwin.getErrno(rc);
             switch (err) {
                 0 => {
-                    off += rc;
-                    inner_off += rc;
+                    const amt_written = @bitCast(usize, rc);
+                    off += amt_written;
+                    inner_off += amt_written;
                     if (inner_off == v.iov_len) {
                         iov_i += 1;
                         inner_off = 0;
@@ -1205,8 +1207,8 @@ pub fn isatty(handle: fd_t) bool {
         @compileError("TODO implement std.os.isatty for WASI");
     }
     if (linux.is_the_target) {
-        var wsz: system.winsize = undefined;
-        return system.syscall3(system.SYS_ioctl, @bitCast(usize, isize(handle)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+        var wsz: linux.winsize = undefined;
+        return linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(handle)), linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
     }
     unreachable;
 }
@@ -1778,6 +1780,10 @@ pub const KEventError = error{
 
     /// The specified process to attach to does not exist.
     ProcessNotFound,
+
+    /// changelist or eventlist had too many items on it.
+    /// TODO remove this possibility
+    Overflow,
 };
 
 pub fn kevent(
@@ -1787,9 +1793,16 @@ pub fn kevent(
     timeout: ?*const timespec,
 ) KEventError!usize {
     while (true) {
-        const rc = system.kevent(kq, changelist, eventlist, timeout);
+        const rc = system.kevent(
+            kq,
+            changelist.ptr,
+            try math.cast(c_int, changelist.len),
+            eventlist.ptr,
+            try math.cast(c_int, eventlist.len),
+            timeout,
+        );
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @intCast(usize, rc),
             EACCES => return error.AccessDenied,
             EFAULT => unreachable,
             EBADF => unreachable, // Always a race condition.
@@ -2028,7 +2041,7 @@ pub const PipeError = error{
 
 /// Creates a unidirectional data channel that can be used for interprocess communication.
 pub fn pipe() PipeError![2]fd_t {
-    var fds: [2]i32 = undefined;
+    var fds: [2]fd_t = undefined;
     switch (errno(system.pipe(&fds))) {
         0 => return fds,
         EINVAL => unreachable, // Invalid parameters to pipe()
@@ -2040,7 +2053,7 @@ pub fn pipe() PipeError![2]fd_t {
 }
 
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
-    var fds: [2]i32 = undefined;
+    var fds: [2]fd_t = undefined;
     switch (errno(system.pipe2(&fds, flags))) {
         0 => return fds,
         EINVAL => unreachable, // Invalid flags

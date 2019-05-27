@@ -222,10 +222,10 @@ pub const Loop = struct {
                 }
             },
             .macosx, .freebsd, .netbsd => {
-                self.os_data.kqfd = try os.bsdKQueue();
+                self.os_data.kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.kqfd);
 
-                self.os_data.fs_kqfd = try os.bsdKQueue();
+                self.os_data.fs_kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.fs_kqfd);
 
                 self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
@@ -264,7 +264,7 @@ pub const Loop = struct {
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                     const kevent_array = (*const [1]os.Kevent)(&eventfd_node.data.kevent);
-                    _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null);
+                    _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
                     eventfd_node.data.kevent.flags = os.EV_CLEAR | os.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = os.NOTE_TRIGGER;
                 }
@@ -280,7 +280,7 @@ pub const Loop = struct {
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
                 const final_kev_arr = (*const [1]os.Kevent)(&self.os_data.final_kevent);
-                _ = try os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
+                _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
                 self.os_data.final_kevent.flags = os.EV_ENABLE;
                 self.os_data.final_kevent.fflags = os.NOTE_TRIGGER;
 
@@ -315,7 +315,7 @@ pub const Loop = struct {
 
                 var extra_thread_index: usize = 0;
                 errdefer {
-                    _ = os.bsdKEvent(self.os_data.kqfd, final_kev_arr, empty_kevs, null) catch unreachable;
+                    _ = os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -474,7 +474,7 @@ pub const Loop = struct {
         };
         const kevent_array = (*const [1]os.Kevent)(&kev);
         const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-        _ = try os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null);
+        _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
     }
 
     pub fn bsdRemoveKev(self: *Loop, ident: usize, filter: i16) void {
@@ -488,7 +488,7 @@ pub const Loop = struct {
         };
         const kevent_array = (*const [1]os.Kevent)(&kev);
         const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-        _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch undefined;
+        _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch undefined;
         self.finishOneEvent();
     }
 
@@ -504,7 +504,7 @@ pub const Loop = struct {
                 .macosx, .freebsd, .netbsd => {
                     const kevent_array = (*const [1]os.Kevent)(&eventfd_node.kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-                    _ = os.bsdKEvent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
+                    _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
                         self.next_tick_queue.unget(next_tick_node);
                         self.available_eventfd_resume_nodes.push(resume_stack_node);
                         return;
@@ -634,7 +634,7 @@ pub const Loop = struct {
                     const final_kevent = (*const [1]os.Kevent)(&self.os_data.final_kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                     // cannot fail because we already added it and this just enables it
-                    _ = os.bsdKEvent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
+                    _ = os.kevent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
                     return;
                 },
                 .windows => {
@@ -690,7 +690,7 @@ pub const Loop = struct {
                 .macosx, .freebsd, .netbsd => {
                     var eventlist: [1]os.Kevent = undefined;
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-                    const count = os.bsdKEvent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
+                    const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
                     for (eventlist[0..count]) |ev| {
                         const resume_node = @intToPtr(*ResumeNode, ev.udata);
                         const handle = resume_node.handle;
@@ -753,7 +753,7 @@ pub const Loop = struct {
             builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
                 const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wake);
                 const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
-                _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
+                _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
             builtin.Os.linux => {
                 _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
@@ -823,7 +823,7 @@ pub const Loop = struct {
                 builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
                     const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
-                    _ = os.bsdKEvent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
+                    _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
                 },
                 else => @compileError("Unsupported OS"),
             }

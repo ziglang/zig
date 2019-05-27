@@ -47,7 +47,7 @@ pub const ChildProcess = struct {
     /// Set to change the current working directory when spawning the child process.
     pub cwd: ?[]const u8,
 
-    err_pipe: if (os.windows.is_the_target) void else [2]i32,
+    err_pipe: if (os.windows.is_the_target) void else [2]os.fd_t,
     llnode: if (os.windows.is_the_target) void else LinkedList(*ChildProcess).Node,
 
     pub const SpawnError = error{OutOfMemory} || os.ExecveError || os.SetIdError ||
@@ -701,7 +701,7 @@ fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const 
     wr.* = wr_h;
 }
 
-fn destroyPipe(pipe: [2]i32) void {
+fn destroyPipe(pipe: [2]os.fd_t) void {
     os.close(pipe[0]);
     os.close(pipe[1]);
 }

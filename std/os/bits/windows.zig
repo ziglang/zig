@@ -159,5 +159,4 @@ pub const EWOULDBLOCK = 140;
 // for if branches that aren't taken.
 pub const SIGKILL = @compileError("Windows libc does not have this");
 pub const EDQUOT = @compileError("Windows libc does not have this");
-pub const TIOCGWINSZ = @compileError("Windows libc does not have this");
 pub const F_OK = 0;

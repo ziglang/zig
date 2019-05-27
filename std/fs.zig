@@ -509,7 +509,7 @@ pub const Dir = struct {
                         }
                     }
                     self.handle.index = 0;
-                    self.handle.end_index = @intCast(usize, result);
+                    self.handle.end_index = @intCast(usize, rc);
                     break;
                 }
             }
@@ -694,7 +694,7 @@ pub fn readLinkC(pathname: [*]const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
     return os.readlinkC(pathname, buffer);
 }
 
-pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError;
+pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (os.linux.is_the_target) {
@@ -730,10 +730,10 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 /// On Linux, depends on procfs being mounted. If the currently executing binary has
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
-pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
     if (os.darwin.is_the_target) {
         var u32_len: u32 = out_buffer.len;
-        const rc = c._NSGetExecutablePath(out_buffer, &u32_len);
+        const rc = std.c._NSGetExecutablePath(out_buffer, &u32_len);
         if (rc != 0) return error.NameTooLong;
         return mem.toSlice(u8, out_buffer);
     }
@@ -765,13 +765,13 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
 }
 
 /// Same as `selfExePath` except the result is UTF16LE-encoded.
-pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) ![]u16 {
+pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) SelfExePathError![]u16 {
     return os.windows.GetModuleFileNameW(null, out_buffer, out_buffer.len);
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
+pub fn selfExeDirPathAlloc(allocator: *Allocator) SelfExePathError![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
 }

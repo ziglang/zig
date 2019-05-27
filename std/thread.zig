@@ -323,6 +323,7 @@ pub const Thread = struct {
     pub const CpuCountError = error{
         OutOfMemory,
         PermissionDenied,
+        SystemResources,
         Unexpected,
     };
 
@@ -339,7 +340,7 @@ pub const Thread = struct {
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
         const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
-        try os.sysctlbyname(name, @ptrCast(*c_void, &count), &count_len, null, 0);
+        try os.sysctlbynameC(name, @ptrCast(*c_void, &count), &count_len, null, 0);
         return @intCast(usize, count);
     }
 };

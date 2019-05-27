@@ -1,31 +1,9 @@
 const std = @import("../../std.zig");
 const assert = std.debug.assert;
+const maxInt = std.math.maxInt;
 
 pub const fd_t = c_int;
 pub const pid_t = c_int;
-
-pub fn sigaction(sig: u5, noalias act: *const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig != SIGKILL);
-    assert(sig != SIGSTOP);
-    var cact = c.Sigaction{
-        .handler = @ptrCast(extern fn (c_int) void, act.handler),
-        .sa_flags = @bitCast(c_int, act.flags),
-        .sa_mask = act.mask,
-    };
-    var coact: c.Sigaction = undefined;
-    const result = errnoWrap(c.sigaction(sig, &cact, &coact));
-    if (result != 0) {
-        return result;
-    }
-    if (oact) |old| {
-        old.* = Sigaction{
-            .handler = @ptrCast(extern fn (i32) void, coact.handler),
-            .flags = @bitCast(u32, coact.sa_flags),
-            .mask = coact.sa_mask,
-        };
-    }
-    return result;
-}
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
