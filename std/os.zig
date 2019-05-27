@@ -74,9 +74,13 @@ pub fn close(fd: fd_t) void {
         return windows.CloseHandle(fd);
     }
     if (wasi.is_the_target) {
-        switch (wasi.fd_close(fd)) {
-            0 => return,
-            else => |err| return unexpectedErrno(err),
+        _ = wasi.fd_close(fd);
+    }
+    if (darwin.is_the_target) {
+        // This avoids the EINTR problem.
+        switch (darwin.getErrno(darwin.@"close$NOCANCEL"(fd))) {
+            EBADF => unreachable, // Always a race condition.
+            else => return,
         }
     }
     switch (errno(system.close(fd))) {
