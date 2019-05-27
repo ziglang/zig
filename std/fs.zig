@@ -771,14 +771,14 @@ pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) SelfExePathError
 
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
-pub fn selfExeDirPathAlloc(allocator: *Allocator) SelfExePathError![]u8 {
+pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     return mem.dupe(allocator, u8, try selfExeDirPath(&buf));
 }
 
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
-pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) ![]const u8 {
+pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const u8 {
     if (os.linux.is_the_target) {
         // If the currently executing binary has been deleted,
         // the file path looks something like `/a/b/c/exe (deleted)`
