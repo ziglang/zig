@@ -1920,7 +1920,22 @@ const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
     return reinterpret_cast<const struct ZigClangStringLiteral *>(result);
 }
 
+ZigClangSourceLocation ZigClangImplicitCastExpr_getBeginLoc(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
 enum ZigClangCK ZigClangImplicitCastExpr_getCastKind(const struct ZigClangImplicitCastExpr *self) {
-    auto casted = reinterpret_cast<const clang::CastExpr *>(self);
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
     return (ZigClangCK)casted->getCastKind();
+}
+
+const struct ZigClangExpr *ZigClangImplicitCastExpr_getSubExpr(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getSubExpr());
+}
+
+struct ZigClangQualType ZigClangArrayType_getElementType(const struct ZigClangArrayType *self) {
+    auto casted = reinterpret_cast<const clang::ArrayType *>(self);
+    return bitcast(casted->getElementType());
 }

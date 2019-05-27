@@ -107,6 +107,7 @@ const Context = struct {
     decl_table: DeclTable,
     global_scope: *Scope.Root,
     mode: Mode,
+    clang_context: *ZigClangASTContext,
 
     fn a(c: *Context) *std.mem.Allocator {
         return &c.tree.arena_allocator.allocator;
@@ -183,6 +184,7 @@ pub fn translate(
         .decl_table = DeclTable.init(arena),
         .global_scope = try arena.create(Scope.Root),
         .mode = mode,
+        .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
     };
     context.global_scope.* = Scope.Root{
         .base = Scope{
@@ -458,7 +460,14 @@ fn transImplicitCastExpr(
     scope: *Scope,
     expr: *const ZigClangImplicitCastExpr,
 ) !TransResult {
-    switch (ZigClangImplicitCastExpr_getCastKind(@ptrCast(*const ZigClangImplicitCastExpr, expr))) {
+    const c = rp.c;
+    switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
+        .BitCast => {
+            const node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, expr), .used, .r_value);
+            const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
+            const src_type = getExprQualType(c, ZigClangImplicitCastExpr_getSubExpr(expr));
+            return try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, node.node);
+        },
         else => |kind| return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
@@ -467,6 +476,17 @@ fn transImplicitCastExpr(
             @tagName(kind),
         ),
     }
+}
+
+fn transCCast(
+    rp: RestorePoint,
+    scope: *Scope,
+    loc: ZigClangSourceLocation,
+    dst_type: ZigClangQualType,
+    src_type: ZigClangQualType,
+    target_node: *ast.Node,
+) !TransResult {
+    return revertAndWarn(rp, error.UnsupportedTranslation, loc, "TODO implement translation of C cast");
 }
 
 fn transExpr(
@@ -497,6 +517,23 @@ fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSou
 fn qualTypeCanon(qt: ZigClangQualType) *const ZigClangType {
     const canon = ZigClangQualType_getCanonicalType(qt);
     return ZigClangQualType_getTypePtr(canon);
+}
+
+fn getExprQualType(c: *Context, expr: *const ZigClangExpr) ZigClangQualType {
+    blk: {
+        // If this is a C `char *`, turn it into a `const char *`
+        if (ZigClangExpr_getStmtClass(expr) != .ImplicitCastExprClass) break :blk;
+        const cast_expr = @ptrCast(*const ZigClangImplicitCastExpr, expr);
+        if (ZigClangImplicitCastExpr_getCastKind(cast_expr) != .ArrayToPointerDecay) break :blk;
+        const sub_expr = ZigClangImplicitCastExpr_getSubExpr(cast_expr);
+        if (ZigClangExpr_getStmtClass(sub_expr) != .StringLiteralClass) break :blk;
+        const array_qt = ZigClangExpr_getType(sub_expr);
+        const array_type = @ptrCast(*const ZigClangArrayType, ZigClangQualType_getTypePtr(array_qt));
+        var pointee_qt = ZigClangArrayType_getElementType(array_type);
+        ZigClangQualType_addConst(&pointee_qt);
+        return ZigClangASTContext_getPointerType(c.clang_context, pointee_qt);
+    }
+    return ZigClangExpr_getType(expr);
 }
 
 const RestorePoint = struct {

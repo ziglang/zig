@@ -870,6 +870,10 @@ ZIG_EXTERN_C const char *ZigClangStringLiteral_getString_bytes_begin_size(const 
 ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
         const struct ZigClangPredefinedExpr *self);
 
+ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangImplicitCastExpr_getBeginLoc(const struct ZigClangImplicitCastExpr *);
 ZIG_EXTERN_C enum ZigClangCK ZigClangImplicitCastExpr_getCastKind(const struct ZigClangImplicitCastExpr *);
+ZIG_EXTERN_C const struct ZigClangExpr *ZigClangImplicitCastExpr_getSubExpr(const struct ZigClangImplicitCastExpr *);
+
+ZIG_EXTERN_C struct ZigClangQualType ZigClangArrayType_getElementType(const struct ZigClangArrayType *);
 
 #endif

@@ -879,4 +879,8 @@ pub const ZigClangVarDecl_TLSKind = extern enum {
     Dynamic,
 };
 
+pub extern fn ZigClangImplicitCastExpr_getBeginLoc(*const ZigClangImplicitCastExpr) ZigClangSourceLocation;
 pub extern fn ZigClangImplicitCastExpr_getCastKind(*const ZigClangImplicitCastExpr) ZigClangCK;
+pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExpr) *const ZigClangExpr;
+
+pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
