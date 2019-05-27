@@ -1,8 +1,24 @@
 // This is Zig code that is used by both stage1 and stage2.
 // The prototypes in src/userland.h must match these definitions.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
+const io = std.io;
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
+const Buffer = std.Buffer;
+const arg = @import("arg.zig");
+const self_hosted_main = @import("main.zig");
+const Args = arg.Args;
+const Flag = arg.Flag;
+const errmsg = @import("errmsg.zig");
+
+var stderr_file: fs.File = undefined;
+var stderr: *io.OutStream(fs.File.WriteError) = undefined;
+var stdout: *io.OutStream(fs.File.WriteError) = undefined;
 
 // ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
@@ -157,7 +173,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
 
     if (flags.present("help")) {
         try stdout.write(self_hosted_main.usage_fmt);
-        os.exit(0);
+        process.exit(0);
     }
 
     const color = blk: {
@@ -177,7 +193,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
     if (flags.present("stdin")) {
         if (flags.positionals.len != 0) {
             try stderr.write("cannot use --stdin with positional arguments\n");
-            os.exit(1);
+            process.exit(1);
         }
 
         var stdin_file = try io.getStdIn();
@@ -188,7 +204,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing stdin: {}\n", err);
-            os.exit(1);
+            process.exit(1);
         };
         defer tree.deinit();
 
@@ -197,12 +213,12 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
             try printErrMsgToFile(allocator, parse_error, tree, "<stdin>", stderr_file, color);
         }
         if (tree.errors.len != 0) {
-            os.exit(1);
+            process.exit(1);
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
             const code = if (anything_changed) u8(1) else u8(0);
-            os.exit(code);
+            process.exit(code);
         }
 
         _ = try std.zig.render(allocator, stdout, tree);
@@ -211,7 +227,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
 
     if (flags.positionals.len == 0) {
         try stderr.write("expected at least one source file argument\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     var fmt = Fmt{
@@ -227,7 +243,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         try fmtPath(&fmt, file_path, check_mode);
     }
     if (fmt.any_error) {
-        os.exit(1);
+        process.exit(1);
     }
 }
 
@@ -250,7 +266,7 @@ const FmtError = error{
     ReadOnlyFileSystem,
     LinkQuotaExceeded,
     FileBusy,
-} || os.File.OpenError;
+} || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
     const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
@@ -261,12 +277,12 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     const source_code = io.readFileAlloc(fmt.allocator, file_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
-            var dir = try std.os.Dir.open(fmt.allocator, file_path);
+            var dir = try fs.Dir.open(fmt.allocator, file_path);
             defer dir.close();
 
             while (try dir.next()) |entry| {
-                if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try os.path.join(fmt.allocator, [][]const u8{ file_path, entry.name });
+                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                    const full_path = try fs.path.join(fmt.allocator, [][]const u8{ file_path, entry.name });
                     try fmtPath(fmt, full_path, check_mode);
                 }
             }
@@ -329,7 +345,7 @@ fn printErrMsgToFile(
     parse_error: *const ast.Error,
     tree: *ast.Tree,
     path: []const u8,
-    file: os.File,
+    file: fs.File,
     color: errmsg.Color,
 ) !void {
     const color_on = switch (color) {
@@ -377,20 +393,3 @@ fn printErrMsgToFile(
     try stream.writeByteNTimes('~', last_token.end - first_token.start);
     try stream.write("\n");
 }
-
-const os = std.os;
-const io = std.io;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const Buffer = std.Buffer;
-
-const arg = @import("arg.zig");
-const self_hosted_main = @import("main.zig");
-const Args = arg.Args;
-const Flag = arg.Flag;
-const errmsg = @import("errmsg.zig");
-
-var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(os.File.WriteError) = undefined;
-var stdout: *io.OutStream(os.File.WriteError) = undefined;

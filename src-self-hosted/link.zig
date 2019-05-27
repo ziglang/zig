@@ -302,7 +302,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
         try ctx.args.append(c"--allow-shlib-undefined");
     }
 
-    if (ctx.comp.target.getOs() == builtin.Os.zen) {
+    if (ctx.comp.target.getOs() == .zen) {
         try ctx.args.append(c"-e");
         try ctx.args.append(c"_start");
 
@@ -311,7 +311,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
-    const full_path = try std.os.path.join(&ctx.arena.allocator, [][]const u8{ dirname, basename });
+    const full_path = try std.fs.path.join(&ctx.arena.allocator, [][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
     try ctx.args.append(full_path_with_null.ptr);
 }
@@ -668,7 +668,7 @@ const DarwinPlatform = struct {
                 break :blk ver;
             },
             Compilation.DarwinVersionMin.None => blk: {
-                assert(comp.target.getOs() == builtin.Os.macosx);
+                assert(comp.target.getOs() == .macosx);
                 result.kind = Kind.MacOS;
                 break :blk "10.10";
             },

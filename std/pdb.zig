@@ -6,6 +6,7 @@ const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
 const coff = std.coff;
+const File = std.fs.File;
 
 const ArrayList = std.ArrayList;
 
@@ -459,7 +460,7 @@ pub const PDBStringTableHeader = packed struct {
 };
 
 pub const Pdb = struct {
-    in_file: os.File,
+    in_file: File,
     allocator: *mem.Allocator,
     coff: *coff.Coff,
     string_table: *MsfStream,
@@ -468,7 +469,7 @@ pub const Pdb = struct {
     msf: Msf,
 
     pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
-        self.in_file = try os.File.openRead(file_name);
+        self.in_file = try File.openRead(file_name);
         self.allocator = coff_ptr.allocator;
         self.coff = coff_ptr;
 
@@ -492,7 +493,7 @@ const Msf = struct {
     directory: MsfStream,
     streams: []MsfStream,
 
-    fn openFile(self: *Msf, allocator: *mem.Allocator, file: os.File) !void {
+    fn openFile(self: *Msf, allocator: *mem.Allocator, file: File) !void {
         var file_stream = file.inStream();
         const in = &file_stream.stream;
 
@@ -587,7 +588,7 @@ const SuperBlock = packed struct {
 };
 
 const MsfStream = struct {
-    in_file: os.File,
+    in_file: File,
     pos: u64,
     blocks: []u32,
     block_size: u32,
@@ -598,7 +599,7 @@ const MsfStream = struct {
     pub const Error = @typeOf(read).ReturnType.ErrorSet;
     pub const Stream = io.InStream(Error);
 
-    fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: *mem.Allocator) !MsfStream {
+    fn init(block_size: u32, block_count: u32, pos: u64, file: File, allocator: *mem.Allocator) !MsfStream {
         var stream = MsfStream{
             .in_file = file,
             .pos = 0,
@@ -660,9 +661,8 @@ const MsfStream = struct {
         return size;
     }
 
-    // XXX: The `len` parameter should be signed
-    fn seekForward(self: *MsfStream, len: u64) !void {
-        self.pos += len;
+    fn seekBy(self: *MsfStream, len: i64) !void {
+        self.pos = @intCast(u64, @intCast(i64, self.pos) + len);
         if (self.pos >= self.blocks.len * self.block_size)
             return error.EOF;
     }

@@ -8,6 +8,11 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
+pub const page_size = switch (builtin.arch) {
+    .wasm32, .wasm64 => 64 * 1024,
+    else => 4 * 1024,
+};
+
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};
 
@@ -580,14 +585,14 @@ pub fn readIntSlice(comptime T: type, bytes: []const u8, endian: builtin.Endian)
 test "comptime read/write int" {
     comptime {
         var bytes: [2]u8 = undefined;
-        std.mem.writeIntLittle(u16, &bytes, 0x1234);
-        const result = std.mem.readIntBig(u16, &bytes);
+        writeIntLittle(u16, &bytes, 0x1234);
+        const result = readIntBig(u16, &bytes);
         testing.expect(result == 0x3412);
     }
     comptime {
         var bytes: [2]u8 = undefined;
-        std.mem.writeIntBig(u16, &bytes, 0x1234);
-        const result = std.mem.readIntLittle(u16, &bytes);
+        writeIntBig(u16, &bytes, 0x1234);
+        const result = readIntLittle(u16, &bytes);
         testing.expect(result == 0x3412);
     }
 }
@@ -1048,7 +1053,7 @@ fn testReadIntImpl() void {
     }
 }
 
-test "std.mem.writeIntSlice" {
+test "writeIntSlice" {
     testWriteIntImpl();
     comptime testWriteIntImpl();
 }
@@ -1179,7 +1184,7 @@ pub fn reverse(comptime T: type, items: []T) void {
     }
 }
 
-test "std.mem.reverse" {
+test "reverse" {
     var arr = []i32{
         5,
         3,
@@ -1206,7 +1211,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
     reverse(T, items);
 }
 
-test "std.mem.rotate" {
+test "rotate" {
     var arr = []i32{
         5,
         3,
@@ -1291,14 +1296,14 @@ pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
     return @ptrCast(AsBytesReturnType(P), ptr);
 }
 
-test "std.mem.asBytes" {
+test "asBytes" {
     const deadbeef = u32(0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
     };
 
-    testing.expect(std.mem.eql(u8, asBytes(&deadbeef), deadbeef_bytes));
+    testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
 
     var codeface = u32(0xC0DEFACE);
     for (asBytes(&codeface).*) |*b|
@@ -1318,7 +1323,7 @@ test "std.mem.asBytes" {
         .c = 0xDE,
         .d = 0xA1,
     };
-    testing.expect(std.mem.eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+    testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
 }
 
 ///Given any value, returns a copy of its bytes in an array.
@@ -1326,17 +1331,17 @@ pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
-test "std.mem.toBytes" {
+test "toBytes" {
     var my_bytes = toBytes(u32(0x12345678));
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(std.mem.eql(u8, my_bytes, "\x12\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(std.mem.eql(u8, my_bytes, "\x78\x56\x34\x12")),
+        builtin.Endian.Big => testing.expect(eql(u8, my_bytes, "\x12\x34\x56\x78")),
+        builtin.Endian.Little => testing.expect(eql(u8, my_bytes, "\x78\x56\x34\x12")),
     }
 
     my_bytes[0] = '\x99';
     switch (builtin.endian) {
-        builtin.Endian.Big => testing.expect(std.mem.eql(u8, my_bytes, "\x99\x34\x56\x78")),
-        builtin.Endian.Little => testing.expect(std.mem.eql(u8, my_bytes, "\x99\x56\x34\x12")),
+        builtin.Endian.Big => testing.expect(eql(u8, my_bytes, "\x99\x34\x56\x78")),
+        builtin.Endian.Little => testing.expect(eql(u8, my_bytes, "\x99\x56\x34\x12")),
     }
 }
 
@@ -1358,7 +1363,7 @@ pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typ
     return @ptrCast(BytesAsValueReturnType(T, @typeOf(bytes)), bytes);
 }
 
-test "std.mem.bytesAsValue" {
+test "bytesAsValue" {
     const deadbeef = u32(0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
@@ -1400,7 +1405,7 @@ test "std.mem.bytesAsValue" {
 pub fn bytesToValue(comptime T: type, bytes: var) T {
     return bytesAsValue(T, &bytes).*;
 }
-test "std.mem.bytesToValue" {
+test "bytesToValue" {
     const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
@@ -1425,25 +1430,25 @@ pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubA
     return @ptrCast(ReturnType, &ptr[start]);
 }
 
-test "std.mem.subArrayPtr" {
+test "subArrayPtr" {
     const a1 = "abcdef";
     const sub1 = subArrayPtr(&a1, 2, 3);
-    testing.expect(std.mem.eql(u8, sub1.*, "cde"));
+    testing.expect(eql(u8, sub1.*, "cde"));
 
     var a2 = "abcdef";
     var sub2 = subArrayPtr(&a2, 2, 3);
 
-    testing.expect(std.mem.eql(u8, sub2, "cde"));
+    testing.expect(eql(u8, sub2, "cde"));
     sub2[1] = 'X';
-    testing.expect(std.mem.eql(u8, a2, "abcXef"));
+    testing.expect(eql(u8, a2, "abcXef"));
 }
 
 /// Round an address up to the nearest aligned address
 pub fn alignForward(addr: usize, alignment: usize) usize {
-    return (addr + alignment - 1) & ~(alignment - 1);
+    return alignBackward(addr + (alignment - 1), alignment);
 }
 
-test "std.mem.alignForward" {
+test "alignForward" {
     testing.expect(alignForward(1, 1) == 1);
     testing.expect(alignForward(2, 1) == 2);
     testing.expect(alignForward(1, 2) == 2);
@@ -1456,4 +1461,31 @@ test "std.mem.alignForward" {
     testing.expect(alignForward(15, 8) == 16);
     testing.expect(alignForward(16, 8) == 16);
     testing.expect(alignForward(17, 8) == 24);
+}
+
+pub fn alignBackward(addr: usize, alignment: usize) usize {
+    // 000010000 // example addr
+    // 000001111 // subtract 1
+    // 111110000 // binary not
+    return addr & ~(alignment - 1);
+}
+
+pub fn isAligned(addr: usize, alignment: usize) bool {
+    return alignBackward(addr, alignment) == addr;
+}
+
+test "isAligned" {
+    testing.expect(isAligned(0, 4));
+    testing.expect(isAligned(1, 1));
+    testing.expect(isAligned(2, 1));
+    testing.expect(isAligned(2, 2));
+    testing.expect(!isAligned(2, 4));
+    testing.expect(isAligned(3, 1));
+    testing.expect(!isAligned(3, 2));
+    testing.expect(!isAligned(3, 4));
+    testing.expect(isAligned(4, 4));
+    testing.expect(isAligned(4, 2));
+    testing.expect(isAligned(4, 1));
+    testing.expect(!isAligned(4, 8));
+    testing.expect(!isAligned(4, 16));
 }

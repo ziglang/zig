@@ -55,12 +55,12 @@ pub const TestContext = struct {
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);
 
-        try std.os.makePath(allocator, tmp_dir_name);
-        errdefer std.os.deleteTree(allocator, tmp_dir_name) catch {};
+        try std.fs.makePath(allocator, tmp_dir_name);
+        errdefer std.fs.deleteTree(allocator, tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
-        std.os.deleteTree(allocator, tmp_dir_name) catch {};
+        std.fs.deleteTree(allocator, tmp_dir_name) catch {};
         allocator.free(self.zig_lib_dir);
         self.zig_compiler.deinit();
         self.loop.deinit();
@@ -87,10 +87,10 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.os.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
 
-        if (std.os.path.dirname(file1_path)) |dirname| {
-            try std.os.makePath(allocator, dirname);
+        if (std.fs.path.dirname(file1_path)) |dirname| {
+            try std.fs.makePath(allocator, dirname);
         }
 
         // TODO async I/O
@@ -120,11 +120,11 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.os.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
 
         const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, Target(Target.Native).exeFileExt());
-        if (std.os.path.dirname(file1_path)) |dirname| {
-            try std.os.makePath(allocator, dirname);
+        if (std.fs.path.dirname(file1_path)) |dirname| {
+            try std.fs.makePath(allocator, dirname);
         }
 
         // TODO async I/O
@@ -164,9 +164,9 @@ pub const TestContext = struct {
             Compilation.Event.Ok => {
                 const argv = []const []const u8{exe_file_2};
                 // TODO use event loop
-                const child = try std.os.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
+                const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
                 switch (child.term) {
-                    std.os.ChildProcess.Term.Exited => |code| {
+                    .Exited => |code| {
                         if (code != 0) {
                             return error.BadReturnCode;
                         }

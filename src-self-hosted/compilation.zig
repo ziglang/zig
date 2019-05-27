@@ -1,5 +1,4 @@
 const std = @import("std");
-const os = std.os;
 const io = std.io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -54,7 +53,7 @@ pub const ZigCompiler = struct {
         };
 
         var seed_bytes: [@sizeOf(u64)]u8 = undefined;
-        try std.os.getRandomBytes(seed_bytes[0..]);
+        try std.crypto.randomBytes(seed_bytes[0..]);
         const seed = mem.readIntNative(u64, &seed_bytes);
 
         return ZigCompiler{
@@ -302,6 +301,7 @@ pub const Compilation = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        CurrentWorkingDirectoryUnlinked,
     };
 
     pub const Event = union(enum) {
@@ -487,7 +487,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try target.getTriple(comp.arena());
         comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.os.path.join(comp.arena(), [][]const u8{ zig_lib_dir, "std" });
+        comp.zig_std_dir = try std.fs.path.join(comp.arena(), [][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             builtin.Mode.Debug => llvm.CodeGenLevelNone,
@@ -529,8 +529,8 @@ pub const Compilation = struct {
         defer comp.events.destroy();
 
         if (root_src_path) |root_src| {
-            const dirname = std.os.path.dirname(root_src) orelse ".";
-            const basename = std.os.path.basename(root_src);
+            const dirname = std.fs.path.dirname(root_src) orelse ".";
+            const basename = std.fs.path.basename(root_src);
 
             comp.root_package = try Package.create(comp.arena(), dirname, basename);
             comp.std_package = try Package.create(comp.arena(), comp.zig_std_dir, "std.zig");
@@ -558,7 +558,7 @@ pub const Compilation = struct {
 
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
             // TODO evented I/O?
-            os.deleteTree(comp.arena(), tmp_dir) catch {};
+            std.fs.deleteTree(comp.arena(), tmp_dir) catch {};
         } else |_| {};
     }
 
@@ -970,8 +970,8 @@ pub const Compilation = struct {
     async fn initialCompile(self: *Compilation) !void {
         if (self.root_src_path) |root_src_path| {
             const root_scope = blk: {
-                // TODO async/await os.path.real
-                const root_src_real_path = os.path.realAlloc(self.gpa(), root_src_path) catch |err| {
+                // TODO async/await std.fs.realpath
+                const root_src_real_path = std.fs.realpathAlloc(self.gpa(), root_src_path) catch |err| {
                     try self.addCompileErrorCli(root_src_path, "unable to open: {}", @errorName(err));
                     return;
                 };
@@ -1196,7 +1196,7 @@ pub const Compilation = struct {
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
         defer self.gpa().free(file_name);
 
-        const full_path = try os.path.join(self.gpa(), [][]const u8{ tmp_dir, file_name[0..] });
+        const full_path = try std.fs.path.join(self.gpa(), [][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
         return Buffer.fromOwnedSlice(self.gpa(), full_path);
@@ -1217,8 +1217,8 @@ pub const Compilation = struct {
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
-        const tmp_dir = try os.path.join(self.arena(), [][]const u8{ zig_dir_path, comp_dir_name[0..] });
-        try os.makePath(self.gpa(), tmp_dir);
+        const tmp_dir = try std.fs.path.join(self.arena(), [][]const u8{ zig_dir_path, comp_dir_name[0..] });
+        try std.fs.makePath(self.gpa(), tmp_dir);
         return tmp_dir;
     }
 
@@ -1384,7 +1384,7 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
 }
 
 fn getZigDir(allocator: *mem.Allocator) ![]u8 {
-    return os.getAppDataDir(allocator, "zig");
+    return std.fs.getAppDataDir(allocator, "zig");
 }
 
 async fn analyzeFnType(

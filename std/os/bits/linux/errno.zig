@@ -279,6 +279,7 @@ pub const ESOCKTNOSUPPORT = 94;
 
 /// Operation not supported on transport endpoint
 pub const EOPNOTSUPP = 95;
+pub const ENOTSUP = EOPNOTSUPP;
 
 /// Protocol family not supported
 pub const EPFNOSUPPORT = 96;

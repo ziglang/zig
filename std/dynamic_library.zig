@@ -1,21 +1,17 @@
 const builtin = @import("builtin");
-const Os = builtin.Os;
 
 const std = @import("std.zig");
 const mem = std.mem;
-const cstr = std.cstr;
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
-const linux = os.linux;
-const windows = os.windows;
-const win_util = @import("os/windows/util.zig");
+const windows = std.os.windows;
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
-    Os.linux => LinuxDynLib,
-    Os.windows => WindowsDynLib,
+    .linux => LinuxDynLib,
+    .windows => WindowsDynLib,
     else => void,
 };
 
@@ -105,39 +101,35 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
 pub const LinuxDynLib = struct {
     elf_lib: ElfLib,
     fd: i32,
-    map_addr: usize,
-    map_size: usize,
+    memory: []align(mem.page_size) u8,
 
     /// Trusts the file
     pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
-        const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
-        errdefer std.os.close(fd);
+        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
+        errdefer os.close(fd);
 
-        const size = @intCast(usize, (try std.os.posixFStat(fd)).size);
+        const size = @intCast(usize, (try os.fstat(fd)).size);
 
-        const addr = linux.mmap(
+        const bytes = try os.mmap(
             null,
             size,
-            linux.PROT_READ | linux.PROT_EXEC,
-            linux.MAP_PRIVATE | linux.MAP_LOCKED,
+            os.PROT_READ | os.PROT_EXEC,
+            os.MAP_PRIVATE | os.MAP_LOCKED,
             fd,
             0,
         );
-        errdefer _ = linux.munmap(addr, size);
-
-        const bytes = @intToPtr([*]align(std.os.page_size) u8, addr)[0..size];
+        errdefer os.munmap(bytes);
 
         return DynLib{
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
-            .map_addr = addr,
-            .map_size = size,
+            .memory = bytes,
         };
     }
 
     pub fn close(self: *DynLib) void {
-        _ = linux.munmap(self.map_addr, self.map_size);
-        std.os.close(self.fd);
+        os.munmap(self.memory);
+        os.close(self.fd);
         self.* = undefined;
     }
 
@@ -149,7 +141,7 @@ pub const LinuxDynLib = struct {
 pub const ElfLib = struct {
     strings: [*]u8,
     syms: [*]elf.Sym,
-    hashtab: [*]linux.Elf_Symndx,
+    hashtab: [*]os.Elf_Symndx,
     versym: ?[*]u16,
     verdef: ?*elf.Verdef,
     base: usize,
@@ -184,7 +176,7 @@ pub const ElfLib = struct {
 
         var maybe_strings: ?[*]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
-        var maybe_hashtab: ?[*]linux.Elf_Symndx = null;
+        var maybe_hashtab: ?[*]os.Elf_Symndx = null;
         var maybe_versym: ?[*]u16 = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
@@ -195,7 +187,7 @@ pub const ElfLib = struct {
                 switch (dynv[i]) {
                     elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
                     elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
-                    elf.DT_HASH => maybe_hashtab = @intToPtr([*]linux.Elf_Symndx, p),
+                    elf.DT_HASH => maybe_hashtab = @intToPtr([*]os.Elf_Symndx, p),
                     elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
                     elf.DT_VERDEF => maybe_verdef = @intToPtr(*elf.Verdef, p),
                     else => {},
@@ -225,7 +217,7 @@ pub const ElfLib = struct {
             if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
             if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
-            if (!mem.eql(u8, name, cstr.toSliceConst(self.strings + self.syms[i].st_name))) continue;
+            if (!mem.eql(u8, name, mem.toSliceConst(u8, self.strings + self.syms[i].st_name))) continue;
             if (maybe_versym) |versym| {
                 if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                     continue;
@@ -248,7 +240,7 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, cstr.toSliceConst(strings + aux.vda_name));
+    return mem.eql(u8, vername, mem.toSliceConst(u8, strings + aux.vda_name));
 }
 
 pub const WindowsDynLib = struct {
@@ -256,36 +248,28 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
-        const wpath = try win_util.sliceToPrefixedFileW(path);
+        const wpath = try windows.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
             .allocator = allocator,
-            .dll = windows.LoadLibraryW(&wpath) orelse {
-                const err = windows.GetLastError();
-                switch (err) {
-                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-                    else => return os.unexpectedErrorWindows(err),
-                }
-            },
+            .dll = try windows.LoadLibraryW(&wpath),
         };
     }
 
     pub fn close(self: *WindowsDynLib) void {
-        assert(windows.FreeLibrary(self.dll) != 0);
+        windows.FreeLibrary(self.dll);
         self.* = undefined;
     }
 
     pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
-        return @ptrToInt(windows.GetProcAddress(self.dll, name.ptr));
+        return @ptrToInt(windows.kernel32.GetProcAddress(self.dll, name.ptr));
     }
 };
 
 test "dynamic_library" {
     const libname = switch (builtin.os) {
-        Os.linux => "invalid_so.so",
-        Os.windows => "invalid_dll.dll",
+        .linux => "invalid_so.so",
+        .windows => "invalid_dll.dll",
         else => return,
     };
 

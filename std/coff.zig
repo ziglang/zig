@@ -3,6 +3,7 @@ const std = @import("std.zig");
 const io = std.io;
 const mem = std.mem;
 const os = std.os;
+const File = std.fs.File;
 
 const ArrayList = std.ArrayList;
 
@@ -28,7 +29,7 @@ pub const CoffError = error{
 };
 
 pub const Coff = struct {
-    in_file: os.File,
+    in_file: File,
     allocator: *mem.Allocator,
 
     coff_header: CoffHeader,
@@ -77,7 +78,7 @@ pub const Coff = struct {
         try self.loadOptionalHeader(&file_stream);
     }
 
-    fn loadOptionalHeader(self: *Coff, file_stream: *os.File.InStream) !void {
+    fn loadOptionalHeader(self: *Coff, file_stream: *File.InStream) !void {
         const in = &file_stream.stream;
         self.pe_header.magic = try in.readIntLittle(u16);
         // For now we're only interested in finding the reference to the .pdb,
@@ -91,7 +92,7 @@ pub const Coff = struct {
         } else
             return error.InvalidPEMagic;
 
-        try self.in_file.seekForward(skip_size);
+        try self.in_file.seekBy(skip_size);
 
         const number_of_rva_and_sizes = try in.readIntLittle(u32);
         if (number_of_rva_and_sizes != IMAGE_NUMBEROF_DIRECTORY_ENTRIES)

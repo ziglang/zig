@@ -139,15 +139,13 @@ pub const Buffer = struct {
 };
 
 test "simple Buffer" {
-    const cstr = @import("cstr.zig");
-
     var buf = try Buffer.init(debug.global_allocator, "");
     testing.expect(buf.len() == 0);
     try buf.append("hello");
     try buf.append(" ");
     try buf.append("world");
     testing.expect(buf.eql("hello world"));
-    testing.expect(mem.eql(u8, cstr.toSliceConst(buf.toSliceConst().ptr), buf.toSliceConst()));
+    testing.expect(mem.eql(u8, mem.toSliceConst(u8, buf.toSliceConst().ptr), buf.toSliceConst()));
 
     var buf2 = try Buffer.initFromBuffer(buf);
     testing.expect(buf.eql(buf2.toSliceConst()));

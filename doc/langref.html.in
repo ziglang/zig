@@ -796,8 +796,8 @@ const assert = std.debug.assert;
 threadlocal var x: i32 = 1234;
 
 test "thread local storage" {
-    const thread1 = try std.os.spawnThread({}, testTls);
-    const thread2 = try std.os.spawnThread({}, testTls);
+    const thread1 = try std.Thread.spawn({}, testTls);
+    const thread2 = try std.Thread.spawn({}, testTls);
     testTls({});
     thread1.wait();
     thread2.wait();
@@ -4531,7 +4531,7 @@ const mem = std.mem;
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
     const window_name = [1][*]const u8{c"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.cstr.toSliceConst(x[0].?), "window name"));
+    assert(mem.eql(u8, std.mem.toSliceConst(u8, x[0].?), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -9012,8 +9012,8 @@ export fn add(a: i32, b: i32) void {
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.os.argsAlloc(std.heap.wasm_allocator);
-    defer std.os.argsFree(std.heap.wasm_allocator, args);
+    const args = try std.process.argsAlloc(std.heap.wasm_allocator);
+    defer std.process.argsFree(std.heap.wasm_allocator, args);
 
     for (args) |arg, i| {
         std.debug.warn("{}: {}\n", i, arg);
@@ -9923,6 +9923,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
         <li>Minimize energy spent on coding style.</li>
+        <li>Resource deallocation must succeed.</li>
         <li>Together we serve end users.</li>
       </ul>
       {#header_close#}

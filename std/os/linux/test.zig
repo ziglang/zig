@@ -11,7 +11,7 @@ test "getpid" {
 
 test "timer" {
     const epoll_fd = linux.epoll_create();
-    var err = linux.getErrno(epoll_fd);
+    var err: usize = linux.getErrno(epoll_fd);
     expect(err == 0);
 
     const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);

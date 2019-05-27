@@ -377,7 +377,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
         \\    defer stdout.print("defer2\n") catch unreachable;
-        \\    var args_it = @import("std").os.args();
+        \\    var args_it = @import("std").process.args();
         \\    if (args_it.skip() and !args_it.skip()) return;
         \\    defer stdout.print("defer3\n") catch unreachable;
         \\    stdout.print("after\n") catch unreachable;
@@ -444,7 +444,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const allocator = std.debug.global_allocator;
             \\
             \\pub fn main() !void {
-            \\    var args_it = os.args();
+            \\    var args_it = std.process.args();
             \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStream();
             \\    const stdout = &stdout_adapter.stream;
@@ -485,7 +485,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const allocator = std.debug.global_allocator;
             \\
             \\pub fn main() !void {
-            \\    var args_it = os.args();
+            \\    var args_it = std.process.args();
             \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStream();
             \\    const stdout = &stdout_adapter.stream;

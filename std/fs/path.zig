@@ -1,33 +1,28 @@
-const std = @import("../std.zig");
 const builtin = @import("builtin");
-const Os = builtin.Os;
+const std = @import("../std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = mem.Allocator;
-const os = std.os;
 const math = std.math;
-const posix = os.posix;
-const windows = os.windows;
-const cstr = std.cstr;
-const windows_util = @import("windows/util.zig");
+const windows = std.os.windows;
+const fs = std.fs;
+const process = std.process;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';
-pub const sep = if (is_windows) sep_windows else sep_posix;
+pub const sep = if (windows.is_the_target) sep_windows else sep_posix;
 
 pub const sep_str = [1]u8{sep};
 
 pub const delimiter_windows = ';';
 pub const delimiter_posix = ':';
-pub const delimiter = if (is_windows) delimiter_windows else delimiter_posix;
-
-const is_windows = builtin.os == builtin.Os.windows;
+pub const delimiter = if (windows.is_the_target) delimiter_windows else delimiter_posix;
 
 pub fn isSep(byte: u8) bool {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return byte == '/' or byte == '\\';
     } else {
         return byte == '/';
@@ -77,7 +72,7 @@ fn joinSep(allocator: *Allocator, separator: u8, paths: []const []const u8) ![]u
     return buf;
 }
 
-pub const join = if (is_windows) joinWindows else joinPosix;
+pub const join = if (windows.is_the_target) joinWindows else joinPosix;
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
@@ -105,7 +100,7 @@ fn testJoinPosix(paths: []const []const u8, expected: []const u8) void {
     testing.expectEqualSlices(u8, expected, actual);
 }
 
-test "os.path.join" {
+test "join" {
     testJoinWindows([][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c");
     testJoinWindows([][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c");
     testJoinWindows([][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c");
@@ -134,7 +129,7 @@ test "os.path.join" {
 }
 
 pub fn isAbsolute(path: []const u8) bool {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return isAbsoluteWindows(path);
     } else {
         return isAbsolutePosix(path);
@@ -164,7 +159,7 @@ pub fn isAbsolutePosix(path: []const u8) bool {
     return path[0] == sep_posix;
 }
 
-test "os.path.isAbsoluteWindows" {
+test "isAbsoluteWindows" {
     testIsAbsoluteWindows("/", true);
     testIsAbsoluteWindows("//", true);
     testIsAbsoluteWindows("//server", true);
@@ -186,7 +181,7 @@ test "os.path.isAbsoluteWindows" {
     testIsAbsoluteWindows("/usr/local", true);
 }
 
-test "os.path.isAbsolutePosix" {
+test "isAbsolutePosix" {
     testIsAbsolutePosix("/home/foo", true);
     testIsAbsolutePosix("/home/foo/..", true);
     testIsAbsolutePosix("bar/", false);
@@ -279,7 +274,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
     return relative_path;
 }
 
-test "os.path.windowsParsePath" {
+test "windowsParsePath" {
     {
         const parsed = windowsParsePath("//a/b");
         testing.expect(parsed.is_abs);
@@ -313,7 +308,7 @@ test "os.path.windowsParsePath" {
 }
 
 pub fn diskDesignator(path: []const u8) []const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return diskDesignatorWindows(path);
     } else {
         return "";
@@ -378,7 +373,7 @@ fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) bool {
 
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
 pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return resolveWindows(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
@@ -395,8 +390,8 @@ pub fn resolve(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(is_windows); // resolveWindows called on non windows can't use getCwd
-        return os.getCwdAlloc(allocator);
+        assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
+        return process.getCwdAlloc(allocator);
     }
 
     // determine which disk designator we will result with, if any
@@ -490,8 +485,8 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
                 result_disk_designator = result[0..result_index];
             },
             WindowsPath.Kind.None => {
-                assert(is_windows); // resolveWindows called on non windows can't use getCwd
-                const cwd = try os.getCwdAlloc(allocator);
+                assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
+                const cwd = try process.getCwdAlloc(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
                 result = try allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
@@ -505,9 +500,9 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
             },
         }
     } else {
-        assert(is_windows); // resolveWindows called on non windows can't use getCwd
+        assert(windows.is_the_target); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
-        const cwd = try os.getCwdAlloc(allocator);
+        const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
 
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
@@ -576,8 +571,8 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (paths.len == 0) {
-        assert(!is_windows); // resolvePosix called on windows can't use getCwd
-        return os.getCwdAlloc(allocator);
+        assert(!windows.is_the_target); // resolvePosix called on windows can't use getCwd
+        return process.getCwdAlloc(allocator);
     }
 
     var first_index: usize = 0;
@@ -598,8 +593,8 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     if (have_abs) {
         result = try allocator.alloc(u8, max_size);
     } else {
-        assert(!is_windows); // resolvePosix called on windows can't use getCwd
-        const cwd = try os.getCwdAlloc(allocator);
+        assert(!windows.is_the_target); // resolvePosix called on windows can't use getCwd
+        const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
         result = try allocator.alloc(u8, max_size + cwd.len + 1);
         mem.copy(u8, result, cwd);
@@ -637,9 +632,9 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     return allocator.shrink(result, result_index);
 }
 
-test "os.path.resolve" {
-    const cwd = try os.getCwdAlloc(debug.global_allocator);
-    if (is_windows) {
+test "resolve" {
+    const cwd = try process.getCwdAlloc(debug.global_allocator);
+    if (windows.is_the_target) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
         }
@@ -650,9 +645,9 @@ test "os.path.resolve" {
     }
 }
 
-test "os.path.resolveWindows" {
-    if (is_windows) {
-        const cwd = try os.getCwdAlloc(debug.global_allocator);
+test "resolveWindows" {
+    if (windows.is_the_target) {
+        const cwd = try process.getCwdAlloc(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
             const result = testResolveWindows([][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" });
@@ -693,7 +688,7 @@ test "os.path.resolveWindows" {
     testing.expect(mem.eql(u8, testResolveWindows([][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }), "C:\\foo\\tmp.3\\cycles\\root.js"));
 }
 
-test "os.path.resolvePosix" {
+test "resolvePosix" {
     testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c" }), "/a/b/c"));
     testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b", "c", "//d", "e///" }), "/d/e"));
     testing.expect(mem.eql(u8, testResolvePosix([][]const u8{ "/a/b/c", "..", "../" }), "/a"));
@@ -717,7 +712,7 @@ fn testResolvePosix(paths: []const []const u8) []u8 {
 /// If the path is a file in the current directory (no directory component)
 /// then returns null
 pub fn dirname(path: []const u8) ?[]const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return dirnameWindows(path);
     } else {
         return dirnamePosix(path);
@@ -784,7 +779,7 @@ pub fn dirnamePosix(path: []const u8) ?[]const u8 {
     return path[0..end_index];
 }
 
-test "os.path.dirnamePosix" {
+test "dirnamePosix" {
     testDirnamePosix("/a/b/c", "/a/b");
     testDirnamePosix("/a/b/c///", "/a/b");
     testDirnamePosix("/a", "/");
@@ -796,7 +791,7 @@ test "os.path.dirnamePosix" {
     testDirnamePosix("a//", null);
 }
 
-test "os.path.dirnameWindows" {
+test "dirnameWindows" {
     testDirnameWindows("c:\\", "c:\\");
     testDirnameWindows("c:\\foo", "c:\\");
     testDirnameWindows("c:\\foo\\", "c:\\");
@@ -849,7 +844,7 @@ fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) void {
 }
 
 pub fn basename(path: []const u8) []const u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return basenameWindows(path);
     } else {
         return basenamePosix(path);
@@ -909,7 +904,7 @@ pub fn basenameWindows(path: []const u8) []const u8 {
     return path[start_index + 1 .. end_index];
 }
 
-test "os.path.basename" {
+test "basename" {
     testBasename("", "");
     testBasename("/", "");
     testBasename("/dir/basename.ext", "basename.ext");
@@ -965,7 +960,7 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) void {
 /// string is returned.
 /// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
 pub fn relative(allocator: *Allocator, from: []const u8, to: []const u8) ![]u8 {
-    if (is_windows) {
+    if (windows.is_the_target) {
         return relativeWindows(allocator, from, to);
     } else {
         return relativePosix(allocator, from, to);
@@ -1090,7 +1085,7 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
     return []u8{};
 }
 
-test "os.path.relative" {
+test "relative" {
     testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
@@ -1138,151 +1133,4 @@ fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) void {
     const result = relativeWindows(debug.global_allocator, from, to) catch unreachable;
     testing.expectEqualSlices(u8, expected_output, result);
-}
-
-pub const RealError = error{
-    FileNotFound,
-    AccessDenied,
-    NameTooLong,
-    NotSupported,
-    NotDir,
-    SymLinkLoop,
-    InputOutput,
-    FileTooBig,
-    IsDir,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    SystemResources,
-    NoSpaceLeft,
-    FileSystem,
-    BadPathName,
-    DeviceBusy,
-
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
-
-    /// TODO remove this possibility
-    PathAlreadyExists,
-
-    /// TODO remove this possibility
-    Unexpected,
-};
-
-/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
-/// Otherwise use `real` or `realC`.
-pub fn realW(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u16) RealError![]u8 {
-    const h_file = windows.CreateFileW(
-        pathname,
-        windows.GENERIC_READ,
-        windows.FILE_SHARE_READ,
-        null,
-        windows.OPEN_EXISTING,
-        windows.FILE_ATTRIBUTE_NORMAL,
-        null,
-    );
-    if (h_file == windows.INVALID_HANDLE_VALUE) {
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => return error.AccessDenied,
-            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
-            else => return os.unexpectedErrorWindows(err),
-        }
-    }
-    defer os.close(h_file);
-    var utf16le_buf: [windows_util.PATH_MAX_WIDE]u16 = undefined;
-    const casted_len = @intCast(windows.DWORD, utf16le_buf.len); // TODO shouldn't need this cast
-    const result = windows.GetFinalPathNameByHandleW(h_file, &utf16le_buf, casted_len, windows.VOLUME_NAME_DOS);
-    assert(result <= utf16le_buf.len);
-    if (result == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
-            windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
-            windows.ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
-            windows.ERROR.INVALID_PARAMETER => unreachable,
-            else => return os.unexpectedErrorWindows(err),
-        }
-    }
-    const utf16le_slice = utf16le_buf[0..result];
-
-    // windows returns \\?\ prepended to the path
-    // we strip it because nobody wants \\?\ prepended to their path
-    const prefix = []u16{ '\\', '\\', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, utf16le_slice, prefix)) prefix.len else 0;
-
-    // Trust that Windows gives us valid UTF-16LE.
-    const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice[start_index..]) catch unreachable;
-    return out_buffer[0..end_index];
-}
-
-/// See `real`
-/// Use this when you have a null terminated pointer path.
-pub fn realC(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: [*]const u8) RealError![]u8 {
-    switch (builtin.os) {
-        Os.windows => {
-            const pathname_w = try windows_util.cStrToPrefixedFileW(pathname);
-            return realW(out_buffer, pathname_w);
-        },
-        Os.freebsd, Os.netbsd, Os.macosx, Os.ios => {
-            // TODO instead of calling the libc function here, port the implementation to Zig
-            const err = posix.getErrno(posix.realpath(pathname, out_buffer));
-            switch (err) {
-                0 => return mem.toSlice(u8, out_buffer),
-                posix.EINVAL => unreachable,
-                posix.EBADF => unreachable,
-                posix.EFAULT => unreachable,
-                posix.EACCES => return error.AccessDenied,
-                posix.ENOENT => return error.FileNotFound,
-                posix.ENOTSUP => return error.NotSupported,
-                posix.ENOTDIR => return error.NotDir,
-                posix.ENAMETOOLONG => return error.NameTooLong,
-                posix.ELOOP => return error.SymLinkLoop,
-                posix.EIO => return error.InputOutput,
-                else => return os.unexpectedErrorPosix(err),
-            }
-        },
-        Os.linux => {
-            const fd = try os.posixOpenC(pathname, posix.O_PATH | posix.O_NONBLOCK | posix.O_CLOEXEC, 0);
-            defer os.close(fd);
-
-            var buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}\x00", fd) catch unreachable;
-
-            return os.readLinkC(out_buffer, proc_path.ptr);
-        },
-        else => @compileError("TODO implement os.path.real for " ++ @tagName(builtin.os)),
-    }
-}
-
-/// Return the canonicalized absolute pathname.
-/// Expands all symbolic links and resolves references to `.`, `..`, and
-/// extra `/` characters in ::pathname.
-/// The return value is a slice of out_buffer, and not necessarily from the beginning.
-pub fn real(out_buffer: *[os.MAX_PATH_BYTES]u8, pathname: []const u8) RealError![]u8 {
-    switch (builtin.os) {
-        Os.windows => {
-            const pathname_w = try windows_util.sliceToPrefixedFileW(pathname);
-            return realW(out_buffer, &pathname_w);
-        },
-        Os.macosx, Os.ios, Os.linux, Os.freebsd, Os.netbsd => {
-            const pathname_c = try os.toPosixPath(pathname);
-            return realC(out_buffer, &pathname_c);
-        },
-        else => @compileError("Unsupported OS"),
-    }
-}
-
-/// `real`, except caller must free the returned memory.
-pub fn realAlloc(allocator: *Allocator, pathname: []const u8) ![]u8 {
-    var buf: [os.MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try real(&buf, pathname));
-}
-
-test "os.path.real" {
-    // at least call it so it gets compiled
-    var buf: [os.MAX_PATH_BYTES]u8 = undefined;
-    testing.expectError(error.FileNotFound, real(&buf, "definitely_bogus_does_not_exist1234"));
 }
