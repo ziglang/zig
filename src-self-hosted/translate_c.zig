@@ -398,11 +398,6 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     @ptrCast(*const ZigClangDecl, var_decl),
                 ));
                 const name_token = try appendToken(c, .Identifier, c_name);
-                const eq_token = try appendToken(c, .Equal, "=");
-                // TODO:
-                // const init_node = ZigClangVarDecl_getInit();
-                const init_node: ?*ast.Node = null;
-                const semicolon_token = try appendToken(c, .Semicolon, ";");
 
                 const var_scope = try c.a().create(Scope.Var);
                 var_scope.* = Scope.Var{
@@ -411,6 +406,13 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     .zig_name = c_name, // TODO: getWantedName
                 };
                 scope = &var_scope.base;
+
+                const eq_token = try appendToken(c, .Equal, "=");
+                const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
+                    (try transExpr(rp, scope, expr)).node
+                else
+                    null;
+                const semicolon_token = try appendToken(c, .Semicolon, ";");
 
                 const node = try rp.c.a().create(ast.Node.VarDecl);
                 node.* = ast.Node.VarDecl{
@@ -448,6 +450,15 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
         .node_scope = scope,
         .child_scope = scope,
     };
+}
+
+fn transExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangExpr) !TransResult {
+    return revertAndWarn(
+        rp,
+        error.UnsupportedTranslation,
+        ZigClangExpr_getBeginLoc(expr),
+        "TODO implement translation of Expr",
+    );
 }
 
 fn findBlockScope(inner: *Scope) *Scope.Block {

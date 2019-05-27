@@ -1459,11 +1459,6 @@ const char *ZigClangDecl_getDeclKindName(const struct ZigClangDecl *self) {
     return casted->getDeclKindName();
 }
 
-enum ZigClangVarDecl_TLSKind ZigClangVarDecl_getTLSKind(const ZigClangVarDecl *self) {
-    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
-    return (ZigClangVarDecl_TLSKind)casted->getTLSKind();
-}
-
 ZigClangSourceLocation ZigClangRecordDecl_getLocation(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     return bitcast(record_decl->getLocation());
@@ -1829,6 +1824,16 @@ void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
 struct ZigClangQualType ZigClangVarDecl_getType(const struct ZigClangVarDecl *self) {
     auto casted = reinterpret_cast<const clang::VarDecl *>(self);
     return bitcast(casted->getType());
+}
+
+const struct ZigClangExpr *ZigClangVarDecl_getInit(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return reinterpret_cast<const ZigClangExpr *>(casted->getInit());
+}
+
+enum ZigClangVarDecl_TLSKind ZigClangVarDecl_getTLSKind(const ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return (ZigClangVarDecl_TLSKind)casted->getTLSKind();
 }
 
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
