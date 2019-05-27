@@ -2071,6 +2071,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
 pub const SysCtlError = error{
     PermissionDenied,
     SystemResources,
+    NameTooLong,
     Unexpected,
 };
 
@@ -2081,7 +2082,8 @@ pub fn sysctl(
     newp: ?*c_void,
     newlen: usize,
 ) SysCtlError!void {
-    switch (errno(system.sysctl(name.ptr, name.len, oldp, oldlenp, newp, newlen))) {
+    const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
+    switch (errno(system.sysctl(name.ptr, name_len, oldp, oldlenp, newp, newlen))) {
         0 => return,
         EFAULT => unreachable,
         EPERM => return error.PermissionDenied,

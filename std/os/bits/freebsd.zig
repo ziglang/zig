@@ -1,3 +1,6 @@
+const std = @import("../../std.zig");
+const maxInt = std.math.maxInt;
+
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 

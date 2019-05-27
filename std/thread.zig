@@ -340,7 +340,10 @@ pub const Thread = struct {
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
         const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
-        try os.sysctlbynameC(name, @ptrCast(*c_void, &count), &count_len, null, 0);
+        os.sysctlbynameC(name, &count, &count_len, null, 0) catch |err| switch (err) {
+            error.NameTooLong => unreachable,
+            else => |e| return e,
+        };
         return @intCast(usize, count);
     }
 };
