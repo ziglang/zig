@@ -182,7 +182,7 @@ pub const LibCInstallation = struct {
     }
 
     async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
-        const cc_exe = std.process.getEnvPosix("CC") orelse "cc";
+        const cc_exe = std.os.getenv("CC") orelse "cc";
         const argv = []const []const u8{
             cc_exe,
             "-E",
@@ -392,7 +392,7 @@ pub const LibCInstallation = struct {
 
 /// caller owns returned memory
 async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bool) ![]u8 {
-    const cc_exe = std.process.getEnvPosix("CC") orelse "cc";
+    const cc_exe = std.os.getenv("CC") orelse "cc";
     const arg1 = try std.fmt.allocPrint(loop.allocator, "-print-file-name={}", o_file);
     defer loop.allocator.free(arg1);
     const argv = []const []const u8{ cc_exe, arg1 };
@@ -463,7 +463,7 @@ fn fileExists(path: []const u8) !bool {
     if (fs.File.access(path)) |_| {
         return true;
     } else |err| switch (err) {
-        error.FileNotFound, error.PermissionDenied => return false,
+        error.FileNotFound => return false,
         else => return error.FileSystem,
     }
 }

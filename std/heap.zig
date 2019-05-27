@@ -112,7 +112,7 @@ pub const DirectAllocator = struct {
             -1,
             0,
         ) catch return error.OutOfMemory;
-        if (alloc_size == n) return slice;
+        if (alloc_size == n) return slice[0..n];
 
         const aligned_addr = mem.alignForward(@ptrToInt(slice.ptr), alignment);
 

@@ -99,7 +99,7 @@ pub const Loop = struct {
     /// have the correct pointer value.
     pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
-        const core_count = try os.cpuCount(allocator);
+        const core_count = try Thread.cpuCount();
         return self.initInternal(allocator, core_count);
     }
 
@@ -139,9 +139,9 @@ pub const Loop = struct {
         self.allocator.free(self.extra_threads);
     }
 
-    const InitOsDataError = os.LinuxEpollCreateError || mem.Allocator.Error || os.LinuxEventFdError ||
-        os.SpawnThreadError || os.LinuxEpollCtlError || os.BsdKEventError ||
-        os.WindowsCreateIoCompletionPortError;
+    const InitOsDataError = os.EpollCreateError || mem.Allocator.Error || os.EventFdError ||
+        Thread.SpawnError || os.EpollCtlError || os.KEventError ||
+        windows.CreateIoCompletionPortError;
 
     const wakeup_bytes = []u8{0x1} ** 8;
 
@@ -172,7 +172,7 @@ pub const Loop = struct {
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
-                            .eventfd = try os.linuxEventFd(1, os.EFD_CLOEXEC | os.EFD_NONBLOCK),
+                            .eventfd = try os.eventfd(1, os.EFD_CLOEXEC | os.EFD_NONBLOCK),
                             .epoll_op = os.EPOLL_CTL_ADD,
                         },
                         .next = undefined,
@@ -180,17 +180,17 @@ pub const Loop = struct {
                     self.available_eventfd_resume_nodes.push(eventfd_node);
                 }
 
-                self.os_data.epollfd = try os.linuxEpollCreate(os.EPOLL_CLOEXEC);
+                self.os_data.epollfd = try os.epoll_create1(os.EPOLL_CLOEXEC);
                 errdefer os.close(self.os_data.epollfd);
 
-                self.os_data.final_eventfd = try os.linuxEventFd(0, os.EFD_CLOEXEC | os.EFD_NONBLOCK);
+                self.os_data.final_eventfd = try os.eventfd(0, os.EFD_CLOEXEC | os.EFD_NONBLOCK);
                 errdefer os.close(self.os_data.final_eventfd);
 
                 self.os_data.final_eventfd_event = os.epoll_event{
                     .events = os.EPOLLIN,
                     .data = os.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
                 };
-                try os.linuxEpollCtl(
+                try os.epoll_ctl(
                     self.os_data.epollfd,
                     os.EPOLL_CTL_ADD,
                     self.os_data.final_eventfd,
@@ -211,7 +211,7 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -417,11 +417,11 @@ pub const Loop = struct {
             .events = flags,
             .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
         };
-        try os.linuxEpollCtl(self.os_data.epollfd, op, fd, &ev);
+        try os.epoll_ctl(self.os_data.epollfd, op, fd, &ev);
     }
 
     pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
-        os.linuxEpollCtl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
+        os.epoll_ctl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
         self.finishOneEvent();
     }
 
@@ -626,7 +626,7 @@ pub const Loop = struct {
                 builtin.Os.linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    os.posixWrite(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
                 builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
@@ -666,7 +666,7 @@ pub const Loop = struct {
                 builtin.Os.linux => {
                     // only process 1 event so we don't steal from other threads
                     var events: [1]os.linux.epoll_event = undefined;
-                    const count = os.linuxEpollWait(self.os_data.epollfd, events[0..], -1);
+                    const count = os.epoll_wait(self.os_data.epollfd, events[0..], -1);
                     for (events[0..count]) |ev| {
                         const resume_node = @intToPtr(*ResumeNode, ev.data.ptr);
                         const handle = resume_node.handle;
@@ -783,10 +783,10 @@ pub const Loop = struct {
                 switch (node.data.msg) {
                     @TagType(fs.Request.Msg).End => return,
                     @TagType(fs.Request.Msg).PWriteV => |*msg| {
-                        msg.result = os.posix_pwritev(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                        msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
                     @TagType(fs.Request.Msg).PReadV => |*msg| {
-                        msg.result = os.posix_preadv(msg.fd, msg.iov.ptr, msg.iov.len, msg.offset);
+                        msg.result = os.preadv(msg.fd, msg.iov, msg.offset);
                     },
                     @TagType(fs.Request.Msg).Open => |*msg| {
                         msg.result = os.openC(msg.path.ptr, msg.flags, msg.mode);
@@ -800,7 +800,7 @@ pub const Loop = struct {
                             break :blk;
                         };
                         defer os.close(fd);
-                        msg.result = os.posixWrite(fd, msg.contents);
+                        msg.result = os.write(fd, msg.contents);
                     },
                 }
                 switch (node.data.finish) {

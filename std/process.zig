@@ -1,7 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
+const fs = std.fs;
 const BufMap = std.BufMap;
+const Buffer = std.Buffer;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -12,6 +14,24 @@ pub const abort = os.abort;
 pub const exit = os.exit;
 pub const changeCurDir = os.chdir;
 pub const changeCurDirC = os.chdirC;
+
+/// The result is a slice of `out_buffer`, from index `0`.
+pub fn getCwd(out_buffer: *[fs.MAX_PATH_BYTES]u8) ![]u8 {
+    return os.getcwd(out_buffer);
+}
+
+/// Caller must free the returned memory.
+pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    return mem.dupe(allocator, u8, try os.getcwd(&buf));
+}
+
+test "getCwdAlloc" {
+    // at least call it so it gets compiled
+    var buf: [1000]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    _ = getCwdAlloc(allocator) catch undefined;
+}
 
 /// Caller must free result when done.
 /// TODO make this go through libc when we have it
@@ -402,7 +422,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
     var contents = try Buffer.initSize(allocator, 0);
     defer contents.deinit();
 
-    var slice_list = ArrayList(usize).init(allocator);
+    var slice_list = std.ArrayList(usize).init(allocator);
     defer slice_list.deinit();
 
     while (it.next(allocator)) |arg_or_err| {

@@ -15,11 +15,11 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try os.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try os.deleteTree(a, "os_test_tmp");
-    if (os.Dir.open(a, "os_test_tmp")) |dir| {
+    try fs.deleteTree(a, "os_test_tmp");
+    if (fs.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -27,7 +27,7 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try os.makePath(a, "os_test_tmp");
+    try fs.makePath(a, "os_test_tmp");
     if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
@@ -35,8 +35,8 @@ test "access file" {
     }
 
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
-    try File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt");
-    try os.deleteTree(a, "os_test_tmp");
+    try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
+    try fs.deleteTree(a, "os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -52,15 +52,12 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
+    } else if (os.windows.is_the_target) {
+        expect(Thread.getCurrentId() != thread_current_id);
     } else {
-        switch (builtin.os) {
-            builtin.Os.windows => expect(Thread.getCurrentId() != thread_current_id),
-            else => {
-                // If the thread completes very quickly, then thread_id can be 0. See the
-                // documentation comments for `std.Thread.handle`.
-                expect(thread_id == 0 or thread_current_id == thread_id);
-            },
-        }
+        // If the thread completes very quickly, then thread_id can be 0. See the
+        // documentation comments for `std.Thread.handle`.
+        expect(thread_id == 0 or thread_current_id == thread_id);
     }
 }
 
@@ -92,7 +89,7 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
-    const cpu_count = try std.os.cpuCount(a);
+    const cpu_count = try Thread.cpuCount();
     expect(cpu_count >= 1);
 }
 
@@ -105,7 +102,7 @@ test "AtomicFile" {
         \\ this is a test file
     ;
     {
-        var af = try os.AtomicFile.init(test_out_file, File.default_mode);
+        var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
         defer af.deinit();
         try af.file.write(test_content);
         try af.finish();
@@ -113,7 +110,7 @@ test "AtomicFile" {
     const content = try io.readFileAlloc(allocator, test_out_file);
     expect(mem.eql(u8, content, test_content));
 
-    try os.deleteFile(test_out_file);
+    try fs.deleteFile(test_out_file);
 }
 
 test "thread local storage" {
@@ -145,10 +142,10 @@ test "getrandom" {
 test "getcwd" {
     // at least call it so it gets compiled
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    _ = os.getcwd(&buf) catch {};
+    _ = os.getcwd(&buf) catch undefined;
 }
 
 test "realpath" {
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    testing.expectError(error.FileNotFound, os.realpath("definitely_bogus_does_not_exist1234", &buf));
+    testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }

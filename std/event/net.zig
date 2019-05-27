@@ -45,13 +45,13 @@ pub const Server = struct {
     ) !void {
         self.handleRequestFn = handleRequestFn;
 
-        const sockfd = try os.posixSocket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK, os.PROTO_tcp);
+        const sockfd = try os.socket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK, os.PROTO_tcp);
         errdefer os.close(sockfd);
         self.sockfd = sockfd;
 
-        try os.posixBind(sockfd, &address.os_addr);
-        try os.posixListen(sockfd, os.SOMAXCONN);
-        self.listen_address = std.net.Address.initPosix(try os.posixGetSockName(sockfd));
+        try os.bind(sockfd, &address.os_addr);
+        try os.listen(sockfd, os.SOMAXCONN);
+        self.listen_address = std.net.Address.initPosix(try os.getsockname(sockfd));
 
         self.accept_coro = try async<self.loop.allocator> Server.handler(self);
         errdefer cancel self.accept_coro.?;
@@ -64,7 +64,10 @@ pub const Server = struct {
     /// Stop listening
     pub fn close(self: *Server) void {
         self.loop.linuxRemoveFd(self.sockfd.?);
-        os.close(self.sockfd.?);
+        if (self.sockfd) |fd| {
+            os.close(fd);
+            self.sockfd = null;
+        }
     }
 
     pub fn deinit(self: *Server) void {
@@ -76,7 +79,7 @@ pub const Server = struct {
         while (true) {
             var accepted_addr: std.net.Address = undefined;
             // TODO just inline the following function here and don't expose it as posixAsyncAccept
-            if (os.posixAsyncAccept(self.sockfd.?, &accepted_addr.os_addr, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC)) |accepted_fd| {
+            if (os.accept4_async(self.sockfd.?, &accepted_addr.os_addr, os.SOCK_NONBLOCK | os.SOCK_CLOEXEC)) |accepted_fd| {
                 if (accepted_fd == -1) {
                     // would block
                     suspend; // we will get resumed by epoll_wait in the event loop
@@ -105,7 +108,7 @@ pub const Server = struct {
 };
 
 pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
-    const sockfd = try os.posixSocket(
+    const sockfd = try os.socket(
         os.AF_UNIX,
         os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK,
         0,
@@ -120,9 +123,9 @@ pub async fn connectUnixSocket(loop: *Loop, path: []const u8) !i32 {
     if (path.len > @typeOf(sock_addr.path).len) return error.NameTooLong;
     mem.copy(u8, sock_addr.path[0..], path);
     const size = @intCast(u32, @sizeOf(os.sa_family_t) + path.len);
-    try os.posixConnectAsync(sockfd, &sock_addr, size);
+    try os.connect_async(sockfd, &sock_addr, size);
     try await try async loop.linuxWaitFd(sockfd, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
-    try os.posixGetSockOptConnectError(sockfd);
+    try os.getsockoptError(sockfd);
 
     return sockfd;
 }
@@ -249,12 +252,12 @@ pub async fn readv(loop: *Loop, fd: fd_t, data: []const []u8) !usize {
 pub async fn connect(loop: *Loop, _address: *const std.net.Address) !File {
     var address = _address.*; // TODO https://github.com/ziglang/zig/issues/1592
 
-    const sockfd = try os.posixSocket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK, os.PROTO_tcp);
+    const sockfd = try os.socket(os.AF_INET, os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK, os.PROTO_tcp);
     errdefer os.close(sockfd);
 
-    try os.posixConnectAsync(sockfd, &address.os_addr, @sizeOf(os.sockaddr_in));
+    try os.connect_async(sockfd, &address.os_addr, @sizeOf(os.sockaddr_in));
     try await try async loop.linuxWaitFd(sockfd, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
-    try os.posixGetSockOptConnectError(sockfd);
+    try os.getsockoptError(sockfd);
 
     return File.openHandle(sockfd);
 }

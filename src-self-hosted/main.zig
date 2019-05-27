@@ -702,6 +702,7 @@ const FmtError = error{
     ReadOnlyFileSystem,
     LinkQuotaExceeded,
     FileBusy,
+    CurrentWorkingDirectoryUnlinked,
 } || fs.File.OpenError;
 
 async fn asyncFmtMain(
@@ -851,7 +852,7 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
 }
 
 fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
+    try stdout.print("{}\n", std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING));
 }
 
 const args_test_spec = []Flag{Flag.Bool("--help")};
@@ -924,14 +925,14 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
     ,
-        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
-        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
-        std.cstr.toSliceConst(c.ZIG_LLVM_CONFIG_EXE),
-        std.cstr.toSliceConst(c.ZIG_LLD_INCLUDE_PATH),
-        std.cstr.toSliceConst(c.ZIG_LLD_LIBRARIES),
-        std.cstr.toSliceConst(c.ZIG_STD_FILES),
-        std.cstr.toSliceConst(c.ZIG_C_HEADER_FILES),
-        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
+        std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
+        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
+        std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
+        std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
+        std.mem.toSliceConst(u8, c.ZIG_STD_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_C_HEADER_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
     );
 }
 

@@ -301,6 +301,7 @@ pub const Compilation = struct {
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+        CurrentWorkingDirectoryUnlinked,
     };
 
     pub const Event = union(enum) {

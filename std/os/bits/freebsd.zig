@@ -161,7 +161,7 @@ pub const CLOCK_SECOND = 13;
 pub const CLOCK_THREAD_CPUTIME_ID = 14;
 pub const CLOCK_PROCESS_CPUTIME_ID = 15;
 
-pub const MAP_FAILED = maxInt(usize);
+pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
 pub const MAP_FIXED = 0x0010;
@@ -644,29 +644,23 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
-fn unsigned(s: i32) u32 {
-    return @bitCast(u32, s);
+pub fn WEXITSTATUS(s: u32) u32 {
+    return (s & 0xff00) >> 8;
 }
-fn signed(s: u32) i32 {
-    return @bitCast(i32, s);
+pub fn WTERMSIG(s: u32) u32 {
+    return s & 0x7f;
 }
-pub fn WEXITSTATUS(s: i32) i32 {
-    return signed((unsigned(s) & 0xff00) >> 8);
-}
-pub fn WTERMSIG(s: i32) i32 {
-    return signed(unsigned(s) & 0x7f);
-}
-pub fn WSTOPSIG(s: i32) i32 {
+pub fn WSTOPSIG(s: u32) u32 {
     return WEXITSTATUS(s);
 }
-pub fn WIFEXITED(s: i32) bool {
+pub fn WIFEXITED(s: u32) bool {
     return WTERMSIG(s) == 0;
 }
-pub fn WIFSTOPPED(s: i32) bool {
-    return @intCast(u16, (((unsigned(s) & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+pub fn WIFSTOPPED(s: u32) bool {
+    return @intCast(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
 }
-pub fn WIFSIGNALED(s: i32) bool {
-    return (unsigned(s) & 0xffff) -% 1 < 0xff;
+pub fn WIFSIGNALED(s: u32) bool {
+    return (s & 0xffff) -% 1 < 0xff;
 }
 
 pub const winsize = extern struct {

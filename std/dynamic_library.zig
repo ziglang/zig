@@ -6,8 +6,7 @@ const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
-const windows = os.windows;
-const win_util = @import("os/windows/util.zig");
+const windows = std.os.windows;
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
@@ -102,17 +101,16 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
 pub const LinuxDynLib = struct {
     elf_lib: ElfLib,
     fd: i32,
-    map_addr: usize,
-    map_size: usize,
+    memory: []align(mem.page_size) u8,
 
     /// Trusts the file
     pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
         const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
-        errdefer std.os.close(fd);
+        errdefer os.close(fd);
 
-        const size = @intCast(usize, (try std.os.posixFStat(fd)).size);
+        const size = @intCast(usize, (try os.fstat(fd)).size);
 
-        const addr = os.mmap(
+        const bytes = try os.mmap(
             null,
             size,
             os.PROT_READ | os.PROT_EXEC,
@@ -120,21 +118,18 @@ pub const LinuxDynLib = struct {
             fd,
             0,
         );
-        errdefer os.munmap(addr, size);
-
-        const bytes = @intToPtr([*]align(mem.page_size) u8, addr)[0..size];
+        errdefer os.munmap(bytes);
 
         return DynLib{
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
-            .map_addr = addr,
-            .map_size = size,
+            .memory = bytes,
         };
     }
 
     pub fn close(self: *DynLib) void {
-        os.munmap(self.map_addr, self.map_size);
-        std.os.close(self.fd);
+        os.munmap(self.memory);
+        os.close(self.fd);
         self.* = undefined;
     }
 
@@ -253,28 +248,21 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
-        const wpath = try win_util.sliceToPrefixedFileW(path);
+        const wpath = try windows.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
             .allocator = allocator,
-            .dll = windows.LoadLibraryW(&wpath) orelse {
-                switch (windows.GetLastError()) {
-                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-                    else => |err| return windows.unexpectedError(err),
-                }
-            },
+            .dll = try windows.LoadLibraryW(&wpath),
         };
     }
 
     pub fn close(self: *WindowsDynLib) void {
-        assert(windows.FreeLibrary(self.dll) != 0);
+        windows.FreeLibrary(self.dll);
         self.* = undefined;
     }
 
     pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
-        return @ptrToInt(windows.GetProcAddress(self.dll, name.ptr));
+        return @ptrToInt(windows.kernel32.GetProcAddress(self.dll, name.ptr));
     }
 };
 

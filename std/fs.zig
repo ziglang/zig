@@ -38,24 +38,6 @@ pub const MAX_PATH_BYTES = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-/// The result is a slice of `out_buffer`, from index `0`.
-pub fn getCwd(out_buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
-    return os.getcwd(out_buffer);
-}
-
-/// Caller must free the returned memory.
-pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
-    var buf: [MAX_PATH_BYTES]u8 = undefined;
-    return mem.dupe(allocator, u8, try os.getcwd(&buf));
-}
-
-test "getCwdAlloc" {
-    // at least call it so it gets compiled
-    var buf: [1000]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    _ = getCwdAlloc(allocator) catch {};
-}
-
 // here we replace the standard +/ with -_ so that it can be used in a file name
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
@@ -260,17 +242,17 @@ pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
-pub fn deleteDir(dir_path: []const u8) DeleteDirError!void {
+pub fn deleteDir(dir_path: []const u8) !void {
     return os.rmdir(dir_path);
 }
 
 /// Same as `deleteDir` except the parameter is a null-terminated UTF8-encoded string.
-pub fn deleteDirC(dir_path: [*]const u8) DeleteDirError!void {
+pub fn deleteDirC(dir_path: [*]const u8) !void {
     return os.rmdirC(dir_path);
 }
 
 /// Same as `deleteDir` except the parameter is a null-terminated UTF16LE-encoded string.
-pub fn deleteDirW(dir_path: [*]const u16) DeleteDirError!void {
+pub fn deleteDirW(dir_path: [*]const u16) !void {
     return os.rmdirW(dir_path);
 }
 
@@ -362,7 +344,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             };
             defer dir.close();
 
-            var full_entry_buf = ArrayList(u8).init(allocator);
+            var full_entry_buf = std.ArrayList(u8).init(allocator);
             defer full_entry_buf.deinit();
 
             while (try dir.next()) |entry| {

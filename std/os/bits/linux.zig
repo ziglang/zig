@@ -1,5 +1,7 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
+use @import("../bits.zig");
 
 pub use @import("linux/errno.zig");
 pub use switch (builtin.arch) {
@@ -661,29 +663,23 @@ pub const TFD_CLOEXEC = O_CLOEXEC;
 pub const TFD_TIMER_ABSTIME = 1;
 pub const TFD_TIMER_CANCEL_ON_SET = (1 << 1);
 
-fn unsigned(s: i32) u32 {
-    return @bitCast(u32, s);
+pub fn WEXITSTATUS(s: u32) u32 {
+    return (s & 0xff00) >> 8;
 }
-fn signed(s: u32) i32 {
-    return @bitCast(i32, s);
+pub fn WTERMSIG(s: u32) u32 {
+    return s & 0x7f;
 }
-pub fn WEXITSTATUS(s: i32) i32 {
-    return signed((unsigned(s) & 0xff00) >> 8);
-}
-pub fn WTERMSIG(s: i32) i32 {
-    return signed(unsigned(s) & 0x7f);
-}
-pub fn WSTOPSIG(s: i32) i32 {
+pub fn WSTOPSIG(s: u32) u32 {
     return WEXITSTATUS(s);
 }
-pub fn WIFEXITED(s: i32) bool {
+pub fn WIFEXITED(s: u32) bool {
     return WTERMSIG(s) == 0;
 }
-pub fn WIFSTOPPED(s: i32) bool {
-    return @intCast(u16, ((unsigned(s) & 0xffff) *% 0x10001) >> 8) > 0x7f00;
+pub fn WIFSTOPPED(s: u32) bool {
+    return @intCast(u16, ((s & 0xffff) *% 0x10001) >> 8) > 0x7f00;
 }
-pub fn WIFSIGNALED(s: i32) bool {
-    return (unsigned(s) & 0xffff) -% 1 < 0xff;
+pub fn WIFSIGNALED(s: u32) bool {
+    return (s & 0xffff) -% 1 < 0xff;
 }
 
 pub const winsize = extern struct {
@@ -902,7 +898,7 @@ pub const dirent64 = extern struct {
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*]const u8,
-    dlpi_phdr: [*]elf.Phdr,
+    dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
 };
 

@@ -382,7 +382,7 @@ pub fn unlinkat(dirfd: i32, path: [*]const u8, flags: u32) usize {
     return syscall3(SYS_unlinkat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), flags);
 }
 
-pub fn waitpid(pid: i32, status: *i32, flags: u32) usize {
+pub fn waitpid(pid: i32, status: *u32, flags: u32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), flags, 0);
 }
 

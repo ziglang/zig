@@ -54,10 +54,10 @@ pub const ChildProcess = struct {
         os.ChangeCurDirError || windows.CreateProcessError;
 
     pub const Term = union(enum) {
-        Exited: i32,
-        Signal: i32,
-        Stopped: i32,
-        Unknown: i32,
+        Exited: u32,
+        Signal: u32,
+        Stopped: u32,
+        Unknown: u32,
     };
 
     pub const StdIo = enum {
@@ -155,7 +155,7 @@ pub const ChildProcess = struct {
     }
 
     pub const ExecResult = struct {
-        term: os.ChildProcess.Term,
+        term: Term,
         stdout: []u8,
         stderr: []u8,
     };
@@ -224,7 +224,7 @@ pub const ChildProcess = struct {
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
-                break :x Term{ .Exited = @bitCast(i32, exit_code) };
+                break :x Term{ .Exited = exit_code };
             }
         });
 
@@ -240,7 +240,7 @@ pub const ChildProcess = struct {
         self.handleWaitResult(status);
     }
 
-    fn handleWaitResult(self: *ChildProcess, status: i32) void {
+    fn handleWaitResult(self: *ChildProcess, status: u32) void {
         self.term = self.cleanupAfterWait(status);
     }
 
@@ -259,7 +259,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn cleanupAfterWait(self: *ChildProcess, status: i32) !Term {
+    fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
         defer {
             os.close(self.err_pipe[0]);
             os.close(self.err_pipe[1]);
@@ -281,7 +281,7 @@ pub const ChildProcess = struct {
         return statusToTerm(status);
     }
 
-    fn statusToTerm(status: i32) Term {
+    fn statusToTerm(status: u32) Term {
         return if (os.WIFEXITED(status))
             Term{ .Exited = os.WEXITSTATUS(status) }
         else if (os.WIFSIGNALED(status))

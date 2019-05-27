@@ -1,8 +1,10 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const os = std.os;
+const mem = std.mem;
 const windows = std.os.windows;
 const c = std.c;
+const assert = std.debug.assert;
 
 pub const Thread = struct {
     data: Data,
@@ -31,14 +33,12 @@ pub const Thread = struct {
     pub const Data = if (use_pthreads)
         struct {
             handle: Thread.Handle,
-            mmap_addr: usize,
-            mmap_len: usize,
+            memory: []align(mem.page_size) u8,
         }
     else switch (builtin.os) {
         .linux => struct {
             handle: Thread.Handle,
-            mmap_addr: usize,
-            mmap_len: usize,
+            memory: []align(mem.page_size) u8,
         },
         .windows => struct {
             handle: Thread.Handle,
@@ -56,7 +56,7 @@ pub const Thread = struct {
             return c.pthread_self();
         } else
             return switch (builtin.os) {
-            .linux => linux.gettid(),
+            .linux => os.linux.gettid(),
             .windows => windows.GetCurrentThreadId(),
             else => @compileError("Unsupported OS"),
         };
@@ -82,21 +82,21 @@ pub const Thread = struct {
                 os.EDEADLK => unreachable,
                 else => unreachable,
             }
-            os.munmap(self.data.mmap_addr, self.data.mmap_len);
+            os.munmap(self.data.memory);
         } else switch (builtin.os) {
             .linux => {
                 while (true) {
                     const pid_value = @atomicLoad(i32, &self.data.handle, .SeqCst);
                     if (pid_value == 0) break;
-                    const rc = linux.futex_wait(&self.data.handle, linux.FUTEX_WAIT, pid_value, null);
-                    switch (linux.getErrno(rc)) {
+                    const rc = os.linux.futex_wait(&self.data.handle, os.linux.FUTEX_WAIT, pid_value, null);
+                    switch (os.linux.getErrno(rc)) {
                         0 => continue,
                         os.EINTR => continue,
                         os.EAGAIN => continue,
                         else => unreachable,
                     }
                 }
-                os.munmap(self.data.mmap_addr, self.data.mmap_len);
+                os.munmap(self.data.memory);
             },
             .windows => {
                 assert(windows.WaitForSingleObject(self.data.handle, windows.INFINITE) == windows.WAIT_OBJECT_0);
@@ -129,6 +129,10 @@ pub const Thread = struct {
 
         /// Not enough userland memory to spawn the thread.
         OutOfMemory,
+
+        /// `mlockall` is enabled, and the memory needed to spawn the thread
+        /// would exceed the limit.
+        LockedMemoryLimitExceeded,
 
         Unexpected,
     };
@@ -219,7 +223,7 @@ pub const Thread = struct {
             }
         };
 
-        const MAP_GROWSDOWN = if (builtin.os == .linux) linux.MAP_GROWSDOWN else 0;
+        const MAP_GROWSDOWN = if (os.linux.is_the_target) os.linux.MAP_GROWSDOWN else 0;
 
         var stack_end_offset: usize = undefined;
         var thread_start_offset: usize = undefined;
@@ -241,7 +245,7 @@ pub const Thread = struct {
             }
             // Finally, the Thread Local Storage, if any.
             if (!Thread.use_pthreads) {
-                if (linux.tls.tls_image) |tls_img| {
+                if (os.linux.tls.tls_image) |tls_img| {
                     l = mem.alignForward(l, @alignOf(usize));
                     tls_start_offset = l;
                     l += tls_img.alloc_size;
@@ -249,12 +253,24 @@ pub const Thread = struct {
             }
             break :blk l;
         };
-        const mmap_addr = try os.mmap(null, mmap_len, os.PROT_READ | os.PROT_WRITE, os.MAP_PRIVATE | os.MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-        errdefer os.munmap(mmap_addr, mmap_len);
+        const mmap_slice = os.mmap(
+            null,
+            mem.alignForward(mmap_len, mem.page_size),
+            os.PROT_READ | os.PROT_WRITE,
+            os.MAP_PRIVATE | os.MAP_ANONYMOUS | MAP_GROWSDOWN,
+            -1,
+            0,
+        ) catch |err| switch (err) {
+            error.MemoryMappingNotSupported => unreachable, // no file descriptor
+            error.AccessDenied => unreachable, // no file descriptor
+            error.PermissionDenied => unreachable, // no file descriptor
+            else => |e| return e,
+        };
+        errdefer os.munmap(mmap_slice);
+        const mmap_addr = @ptrToInt(mmap_slice.ptr);
 
         const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, mmap_addr + thread_start_offset));
-        thread_ptr.data.mmap_addr = mmap_addr;
-        thread_ptr.data.mmap_len = mmap_len;
+        thread_ptr.data.memory = mmap_slice;
 
         var arg: usize = undefined;
         if (@sizeOf(Context) != 0) {
@@ -269,7 +285,7 @@ pub const Thread = struct {
             if (c.pthread_attr_init(&attr) != 0) return error.SystemResources;
             defer assert(c.pthread_attr_destroy(&attr) == 0);
 
-            assert(c.pthread_attr_setstack(&attr, @intToPtr(*c_void, mmap_addr), stack_end_offset) == 0);
+            assert(c.pthread_attr_setstack(&attr, mmap_slice.ptr, stack_end_offset) == 0);
 
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
@@ -279,13 +295,13 @@ pub const Thread = struct {
                 os.EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (builtin.os == .linux) {
+        } else if (os.linux.is_the_target) {
             var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
                 os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
                 os.CLONE_DETACHED;
             var newtls: usize = undefined;
-            if (linux.tls.tls_image) |tls_img| {
-                newtls = linux.tls.copyTLS(mmap_addr + tls_start_offset);
+            if (os.linux.tls.tls_image) |tls_img| {
+                newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
                 flags |= os.CLONE_SETTLS;
             }
             const rc = os.linux.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
@@ -313,7 +329,7 @@ pub const Thread = struct {
     pub fn cpuCount() CpuCountError!usize {
         if (os.linux.is_the_target) {
             const cpu_set = try os.sched_getaffinity(0);
-            return os.CPU_COUNT(cpu_set);
+            return usize(os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
         if (os.windows.is_the_target) {
             var system_info: windows.SYSTEM_INFO = undefined;

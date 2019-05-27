@@ -284,7 +284,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 /// This function is for blocking file descriptors only. For non-blocking, see
 /// `preadvAsync`.
-pub fn preadv(fd: fd_t, iov: [*]const iovec, count: usize, offset: u64) ReadError!usize {
+pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
     if (darwin.is_the_target) {
         // Darwin does not have preadv but it does have pread.
         var off: usize = 0;
@@ -301,7 +301,7 @@ pub fn preadv(fd: fd_t, iov: [*]const iovec, count: usize, offset: u64) ReadErro
                     if (inner_off == v.iov_len) {
                         iov_i += 1;
                         inner_off = 0;
-                        if (iov_i == count) {
+                        if (iov_i == iov.len) {
                             return off;
                         }
                     }
@@ -323,9 +323,10 @@ pub fn preadv(fd: fd_t, iov: [*]const iovec, count: usize, offset: u64) ReadErro
         }
     }
     while (true) {
-        const rc = system.preadv(fd, iov, count, offset);
+        // TODO handle the case when iov_len is too large and get rid of this @intCast
+        const rc = system.preadv(fd, iov.ptr, @intCast(u32, iov.len), offset);
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @bitCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
@@ -407,7 +408,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
 /// Write multiple buffers to a file descriptor. Keeps trying if it gets interrupted.
 /// This function is for blocking file descriptors only. For non-blocking, see
 /// `pwritevAsync`.
-pub fn pwritev(fd: fd_t, iov: [*]const iovec_const, count: usize, offset: u64) WriteError!void {
+pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void {
     if (darwin.is_the_target) {
         // Darwin does not have pwritev but it does have pwrite.
         var off: usize = 0;
@@ -424,7 +425,7 @@ pub fn pwritev(fd: fd_t, iov: [*]const iovec_const, count: usize, offset: u64) W
                     if (inner_off == v.iov_len) {
                         iov_i += 1;
                         inner_off = 0;
-                        if (iov_i == count) {
+                        if (iov_i == iov.len) {
                             return;
                         }
                     }
@@ -449,7 +450,8 @@ pub fn pwritev(fd: fd_t, iov: [*]const iovec_const, count: usize, offset: u64) W
     }
 
     while (true) {
-        const rc = system.pwritev(fd, iov, count, offset);
+        // TODO handle the case when iov_len is too large and get rid of this @intCast
+        const rc = system.pwritev(fd, iov.ptr, @intCast(u32, iov.len), offset);
         switch (errno(rc)) {
             0 => return,
             EINTR => continue,
@@ -724,7 +726,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
         ERANGE => return error.NameTooLong,
-        else => return unexpectedErrno(err),
+        else => return unexpectedErrno(@intCast(usize, err)),
     }
 }
 
@@ -1121,7 +1123,7 @@ pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
-        0 => return out_buffer[0..rc],
+        0 => return out_buffer[0..@bitCast(usize, rc)],
         EACCES => return error.AccessDenied,
         EFAULT => unreachable,
         EINVAL => unreachable,
@@ -1307,7 +1309,7 @@ pub const BindError = error{
 
 /// addr is `*const T` where T is one of the sockaddr
 pub fn bind(fd: i32, addr: *const sockaddr) BindError!void {
-    const rc = system.bind(fd, system, @sizeOf(sockaddr));
+    const rc = system.bind(fd, addr, @sizeOf(sockaddr));
     switch (errno(rc)) {
         0 => return,
         EACCES => return error.AccessDenied,
@@ -1521,7 +1523,7 @@ pub fn epoll_wait(epfd: i32, events: []epoll_event, timeout: i32) usize {
         // TODO get rid of the @intCast
         const rc = system.epoll_wait(epfd, events.ptr, @intCast(u32, events.len), timeout);
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EBADF => unreachable,
             EFAULT => unreachable,
@@ -1613,12 +1615,10 @@ pub const ConnectError = error{
 /// Initiate a connection on a socket.
 /// This is for blocking file descriptors only.
 /// For non-blocking, see `connect_async`.
-pub fn connect(sockfd: i32, sockaddr: *const sockaddr) ConnectError!void {
+pub fn connect(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, sockaddr, @sizeOf(sockaddr)))) {
+        switch (errno(system.connect(sockfd, sock_addr, @sizeOf(sockaddr)))) {
             0 => return,
-            else => |err| return unexpectedErrno(err),
-
             EACCES => return error.PermissionDenied,
             EPERM => return error.PermissionDenied,
             EADDRINUSE => return error.AddressInUse,
@@ -1636,19 +1636,18 @@ pub fn connect(sockfd: i32, sockaddr: *const sockaddr) ConnectError!void {
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             ETIMEDOUT => return error.ConnectionTimedOut,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
 
 /// Same as `connect` except it is for blocking socket file descriptors.
 /// It expects to receive EINPROGRESS`.
-pub fn connect_async(sockfd: i32, sockaddr: *const c_void, len: u32) ConnectError!void {
+pub fn connect_async(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, sockaddr, len))) {
-            0, EINPROGRESS => return,
+        switch (errno(system.connect(sockfd, sock_addr, @sizeOf(sockaddr)))) {
             EINTR => continue,
-            else => |err| return unexpectedErrno(err),
-
+            0, EINPROGRESS => return,
             EACCES => return error.PermissionDenied,
             EPERM => return error.PermissionDenied,
             EADDRINUSE => return error.AddressInUse,
@@ -1664,13 +1663,14 @@ pub fn connect_async(sockfd: i32, sockaddr: *const c_void, len: u32) ConnectErro
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             ETIMEDOUT => return error.ConnectionTimedOut,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
 
 pub fn getsockoptError(sockfd: i32) ConnectError!void {
-    var err_code: i32 = undefined;
-    var size: u32 = @sizeOf(i32);
+    var err_code: u32 = undefined;
+    var size: u32 = @sizeOf(u32);
     const rc = system.getsockopt(sockfd, SOL_SOCKET, SO_ERROR, @ptrCast([*]u8, &err_code), &size);
     assert(size == 4);
     switch (errno(rc)) {
@@ -1702,11 +1702,13 @@ pub fn getsockoptError(sockfd: i32) ConnectError!void {
     }
 }
 
-pub fn waitpid(pid: i32, flags: u32) i32 {
-    var status: i32 = undefined;
+pub fn waitpid(pid: i32, flags: u32) u32 {
+    // TODO allow implicit pointer cast from *u32 to *c_uint ?
+    const Status = if (builtin.link_libc) c_uint else u32;
+    var status: Status = undefined;
     while (true) {
         switch (errno(system.waitpid(pid, &status, flags))) {
-            0 => return status,
+            0 => return @bitCast(u32, status),
             EINTR => continue,
             ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
             EINVAL => unreachable, // The options argument was invalid
@@ -1892,11 +1894,19 @@ pub fn fork() ForkError!pid_t {
 }
 
 pub const MMapError = error{
+    /// The underlying filesystem of the specified file does not support memory mapping.
+    MemoryMappingNotSupported,
+
+    /// A file descriptor refers to a non-regular file. Or a file mapping was requested,
+    /// but the file descriptor is not open for reading. Or `MAP_SHARED` was requested
+    /// and `PROT_WRITE` is set, but the file descriptor is not open in `O_RDWR` mode.
+    /// Or `PROT_WRITE` is set, but the file is append-only.
     AccessDenied,
+
+    /// The `prot` argument asks for `PROT_EXEC` but the mapped area belongs to a file on
+    /// a filesystem that was mounted no-exec.
     PermissionDenied,
     LockedMemoryLimitExceeded,
-    SystemFdQuotaExceeded,
-    MemoryMappingNotSupported,
     OutOfMemory,
     Unexpected,
 };
@@ -1932,7 +1942,6 @@ pub fn mmap(
         EAGAIN => return error.LockedMemoryLimitExceeded,
         EBADF => unreachable, // Always a race condition.
         EOVERFLOW => unreachable, // The number of pages used for length + offset would overflow.
-        ENFILE => return error.SystemFdQuotaExceeded,
         ENODEV => return error.MemoryMappingNotSupported,
         EINVAL => unreachable, // Invalid parameters to mmap()
         ENOMEM => return error.OutOfMemory,
@@ -2265,7 +2274,7 @@ pub fn realpathC(pathname: [*]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
         ENAMETOOLONG => return error.NameTooLong,
         ELOOP => return error.SymLinkLoop,
         EIO => return error.InputOutput,
-        else => |err| return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(@intCast(usize, err)),
     };
     return mem.toSlice(u8, result_path);
 }
@@ -2349,7 +2358,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
 }
 
 pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
-    switch (errno(system.clock_getres(clk_id, tp))) {
+    switch (errno(system.clock_getres(clk_id, res))) {
         0 => return,
         EFAULT => unreachable,
         EINVAL => return error.UnsupportedClock,
@@ -2364,7 +2373,7 @@ pub const SchedGetAffinityError = error{
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
-    switch (errno(system.sched_getaffinity(pid, &set))) {
+    switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
         0 => return set,
         EFAULT => unreachable,
         EINVAL => unreachable,

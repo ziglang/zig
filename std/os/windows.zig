@@ -1180,6 +1180,44 @@ pub fn CreateProcessW(
     }
 }
 
+pub const LoadLibraryError = error{
+    FileNotFound,
+    Unexpected,
+};
+
+pub fn LoadLibraryW(lpLibFileName: [*]const u16) LoadLibraryError!HMODULE {
+    return kernel32.LoadLibraryW(lpLibFileName) orelse {
+        switch (kernel32.GetLastError()) {
+            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+            else => |err| return unexpectedError(err),
+        }
+    };
+}
+
+pub fn FreeLibrary(hModule: HMODULE) void {
+    assert(kernel32.FreeLibrary(hModule) != 0);
+}
+
+pub fn QueryPerformanceFrequency() u64 {
+    // "On systems that run Windows XP or later, the function will always succeed"
+    // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancefrequency
+    var result: LARGE_INTEGER = undefined;
+    assert(kernel32.QueryPerformanceFrequency(&result) != 0);
+    // The kernel treats this integer as unsigned.
+    return @bitCast(u64, result);
+}
+
+pub fn QueryPerformanceCounter() u64 {
+    // "On systems that run Windows XP or later, the function will always succeed"
+    // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancecounter
+    var result: LARGE_INTEGER = undefined;
+    assert(kernel32.QueryPerformanceCounter(&result) != 0);
+    // The kernel treats this integer as unsigned.
+    return @bitCast(u64, result);
+}
+
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }

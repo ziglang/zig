@@ -137,24 +137,27 @@ pub const File = struct {
 
     /// Test for the existence of `path`.
     /// `path` is UTF8-encoded.
-    pub fn exists(path: []const u8) !void {
+    /// In general it is recommended to avoid this function. For example,
+    /// instead of testing if a file exists and then opening it, just
+    /// open it and handle the error for file not found.
+    pub fn access(path: []const u8) !void {
         return os.access(path, os.F_OK);
     }
 
-    /// Same as `exists` except the parameter is null-terminated.
-    pub fn existsC(path: [*]const u8) !void {
+    /// Same as `access` except the parameter is null-terminated.
+    pub fn accessC(path: [*]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
-    /// Same as `exists` except the parameter is null-terminated UTF16LE-encoded.
-    pub fn existsW(path: [*]const u16) !void {
+    /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
+    pub fn accessW(path: [*]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: File) void {
-        os.close(self.handle);
+        return os.close(self.handle);
     }
 
     /// Test whether the file refers to a terminal.

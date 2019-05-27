@@ -36,7 +36,7 @@ pub const Request = struct {
             offset: usize,
             result: Error!void,
 
-            pub const Error = os.PosixWriteError;
+            pub const Error = os.WriteError;
         };
 
         pub const PReadV = struct {
@@ -45,7 +45,7 @@ pub const Request = struct {
             offset: usize,
             result: Error!usize,
 
-            pub const Error = os.PosixReadError;
+            pub const Error = os.ReadError;
         };
 
         pub const Open = struct {
@@ -172,7 +172,7 @@ pub async fn pwritevPosix(
     fd: fd_t,
     iovecs: []const os.iovec_const,
     offset: usize,
-) os.PosixWriteError!void {
+) os.WriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -320,7 +320,7 @@ pub async fn preadvPosix(
     fd: fd_t,
     iovecs: []const os.iovec,
     offset: usize,
-) os.PosixReadError!usize {
+) os.ReadError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -786,7 +786,7 @@ pub fn Watch(comptime V: type) type {
 
             switch (builtin.os) {
                 builtin.Os.linux => {
-                    const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
+                    const inotify_fd = try os.inotify_init1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
                     errdefer os.close(inotify_fd);
 
                     var result: *Self = undefined;
@@ -977,7 +977,7 @@ pub fn Watch(comptime V: type) type {
             var basename_with_null_consumed = false;
             defer if (!basename_with_null_consumed) self.channel.loop.allocator.free(basename_with_null);
 
-            const wd = try os.linuxINotifyAddWatchC(
+            const wd = try os.inotify_add_watchC(
                 self.os_data.inotify_fd,
                 dirname_with_null.ptr,
                 os.linux.IN_CLOSE_WRITE | os.linux.IN_ONLYDIR | os.linux.IN_EXCL_UNLINK,
@@ -1255,7 +1255,7 @@ pub fn Watch(comptime V: type) type {
                             ev = @ptrCast(*os.linux.inotify_event, ptr);
                             if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                                 const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
-                                const basename_with_null = basename_ptr[0 .. std.cstr.len(basename_ptr) + 1];
+                                const basename_with_null = basename_ptr[0 .. std.mem.len(u8, basename_ptr) + 1];
                                 const user_value = blk: {
                                     const held = await (async watch.os_data.table_lock.acquire() catch unreachable);
                                     defer held.release();

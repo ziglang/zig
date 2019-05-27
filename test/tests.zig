@@ -393,7 +393,7 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
 
-            const expected_exit_code: i32 = 126;
+            const expected_exit_code: u32 = 126;
             switch (term) {
                 .Exited => |code| {
                     if (code != expected_exit_code) {

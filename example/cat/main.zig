@@ -1,12 +1,13 @@
 const std = @import("std");
 const io = std.io;
+const process = std.process;
+const File = std.fs.File;
 const mem = std.mem;
-const os = std.os;
 const warn = std.debug.warn;
 const allocator = std.debug.global_allocator;
 
 pub fn main() !void {
-    var args_it = os.args();
+    var args_it = process.args();
     const exe = try unwrapArg(args_it.next(allocator).?);
     var catted_anything = false;
     var stdout_file = try io.getStdOut();
@@ -20,7 +21,7 @@ pub fn main() !void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var file = os.File.openRead(arg) catch |err| {
+            var file = File.openRead(arg) catch |err| {
                 warn("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
@@ -41,7 +42,7 @@ fn usage(exe: []const u8) !void {
     return error.Invalid;
 }
 
-fn cat_file(stdout: *os.File, file: *os.File) !void {
+fn cat_file(stdout: *File, file: *File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {

@@ -95,7 +95,7 @@ pub const Timer = struct {
     ///  be less precise
     frequency: switch (builtin.os) {
         .windows => u64,
-        .macosx, .ios, .tvos, .watchos => darwin.mach_timebase_info_data,
+        .macosx, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
         else => void,
     },
     resolution: u64,
@@ -119,20 +119,13 @@ pub const Timer = struct {
         var self: Timer = undefined;
 
         if (os.windows.is_the_target) {
-            var freq: i64 = undefined;
-            var err = windows.QueryPerformanceFrequency(&freq);
-            if (err == windows.FALSE) return error.TimerUnsupported;
-            self.frequency = @intCast(u64, freq);
+            self.frequency = os.windows.QueryPerformanceFrequency();
             self.resolution = @divFloor(ns_per_s, self.frequency);
-
-            var start_time: i64 = undefined;
-            err = windows.QueryPerformanceCounter(&start_time);
-            assert(err != windows.FALSE);
-            self.start_time = @intCast(u64, start_time);
+            self.start_time = os.windows.QueryPerformanceCounter();
         } else if (os.darwin.is_the_target) {
-            darwin.mach_timebase_info(&self.frequency);
+            os.darwin.mach_timebase_info(&self.frequency);
             self.resolution = @divFloor(self.frequency.numer, self.frequency.denom);
-            self.start_time = darwin.mach_absolute_time();
+            self.start_time = os.darwin.mach_absolute_time();
         } else {
             //On Linux, seccomp can do arbitrary things to our ability to call
             //  syscalls, including return any errno value it wants and
@@ -177,13 +170,10 @@ pub const Timer = struct {
 
     fn clockNative() u64 {
         if (os.windows.is_the_target) {
-            var result: i64 = undefined;
-            var err = windows.QueryPerformanceCounter(&result);
-            assert(err != windows.FALSE);
-            return @intCast(u64, result);
+            return os.windows.QueryPerformanceCounter();
         }
         if (os.darwin.is_the_target) {
-            return darwin.mach_absolute_time();
+            return os.darwin.mach_absolute_time();
         }
         var ts: os.timespec = undefined;
         os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;

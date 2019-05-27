@@ -152,7 +152,7 @@ pub const CLOCK_MONOTONIC = 3;
 pub const CLOCK_THREAD_CPUTIME_ID = 0x20000000;
 pub const CLOCK_PROCESS_CPUTIME_ID = 0x40000000;
 
-pub const MAP_FAILED = maxInt(usize);
+pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 pub const MAP_SHARED = 0x0001;
 pub const MAP_PRIVATE = 0x0002;
 pub const MAP_REMAPDUP = 0x0004;
@@ -516,34 +516,28 @@ pub const TIOCSWINSZ = 0x80087467;
 pub const TIOCUCNTL = 0x80047466;
 pub const TIOCXMTFRAME = 0x80087444;
 
-fn unsigned(s: i32) u32 {
-    return @bitCast(u32, s);
+pub fn WEXITSTATUS(s: u32) u32 {
+    return (s >> 8) & 0xff;
 }
-fn signed(s: u32) i32 {
-    return @bitCast(i32, s);
+pub fn WTERMSIG(s: u32) u32 {
+    return s & 0x7f;
 }
-pub fn WEXITSTATUS(s: i32) i32 {
-    return signed((unsigned(s) >> 8) & 0xff);
-}
-pub fn WTERMSIG(s: i32) i32 {
-    return signed(unsigned(s) & 0x7f);
-}
-pub fn WSTOPSIG(s: i32) i32 {
+pub fn WSTOPSIG(s: u32) u32 {
     return WEXITSTATUS(s);
 }
-pub fn WIFEXITED(s: i32) bool {
+pub fn WIFEXITED(s: u32) bool {
     return WTERMSIG(s) == 0;
 }
 
-pub fn WIFCONTINUED(s: i32) bool {
+pub fn WIFCONTINUED(s: u32) bool {
     return ((s & 0x7f) == 0xffff);
 }
 
-pub fn WIFSTOPPED(s: i32) bool {
+pub fn WIFSTOPPED(s: u32) bool {
     return ((s & 0x7f != 0x7f) and !WIFCONTINUED(s));
 }
 
-pub fn WIFSIGNALED(s: i32) bool {
+pub fn WIFSIGNALED(s: u32) bool {
     return !WIFSTOPPED(s) and !WIFCONTINUED(s) and !WIFEXITED(s);
 }
 

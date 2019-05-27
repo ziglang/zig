@@ -219,7 +219,7 @@ pub const MAP_NOCACHE = 0x0400;
 
 /// don't reserve needed swap area
 pub const MAP_NORESERVE = 0x0040;
-pub const MAP_FAILED = maxInt(usize);
+pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 
 /// [XSI] no hang in wait/no child to reap
 pub const WNOHANG = 0x00000001;
@@ -749,26 +749,26 @@ pub const IPPROTO_UDP = 17;
 pub const IPPROTO_IP = 0;
 pub const IPPROTO_IPV6 = 41;
 
-fn wstatus(x: i32) i32 {
+fn wstatus(x: u32) u32 {
     return x & 0o177;
 }
 const wstopped = 0o177;
-pub fn WEXITSTATUS(x: i32) i32 {
+pub fn WEXITSTATUS(x: u32) u32 {
     return x >> 8;
 }
-pub fn WTERMSIG(x: i32) i32 {
+pub fn WTERMSIG(x: u32) u32 {
     return wstatus(x);
 }
-pub fn WSTOPSIG(x: i32) i32 {
+pub fn WSTOPSIG(x: u32) u32 {
     return x >> 8;
 }
-pub fn WIFEXITED(x: i32) bool {
+pub fn WIFEXITED(x: u32) bool {
     return wstatus(x) == 0;
 }
-pub fn WIFSTOPPED(x: i32) bool {
+pub fn WIFSTOPPED(x: u32) bool {
     return wstatus(x) == wstopped and WSTOPSIG(x) != 0x13;
 }
-pub fn WIFSIGNALED(x: i32) bool {
+pub fn WIFSIGNALED(x: u32) bool {
     return wstatus(x) != wstopped and wstatus(x) != 0;
 }
 

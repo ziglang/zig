@@ -5,6 +5,6 @@ const c = @cImport({
 });
 
 export fn main(argc: c_int, argv: [*]?[*]u8) c_int {
-    c.fprintf(c.stderr, c"Hello, world!\n");
+    _ = c.fprintf(c.stderr, c"Hello, world!\n");
     return 0;
 }

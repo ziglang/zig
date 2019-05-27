@@ -7,7 +7,7 @@ const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const mem = std.mem;
-const os = std.os;
+const fs = std.fs;
 const File = std.fs.File;
 
 test "write a file, read it, then delete it" {
@@ -58,7 +58,7 @@ test "write a file, read it, then delete it" {
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try os.deleteFile(tmp_file_name);
+    try fs.deleteFile(tmp_file_name);
 }
 
 test "BufferOutStream" {
@@ -316,7 +316,7 @@ test "BitStreams with File Stream" {
 
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
-    try os.deleteFile(tmp_file_name);
+    try fs.deleteFile(tmp_file_name);
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
@@ -596,7 +596,7 @@ test "c out stream" {
 
     const filename = c"tmp_io_test_file.txt";
     const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
-    defer std.os.deleteFileC(filename) catch {};
+    defer fs.deleteFileC(filename) catch {};
 
     const out_stream = &io.COutStream.init(out_file).stream;
     try out_stream.print("hi: {}\n", i32(123));
