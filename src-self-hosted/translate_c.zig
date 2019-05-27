@@ -324,6 +324,7 @@ fn transStmt(
     switch (sc) {
         .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
+        .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt)),
         else => {
             return revertAndWarn(
                 rp,
@@ -409,7 +410,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
 
                 const eq_token = try appendToken(c, .Equal, "=");
                 const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
-                    (try transExpr(rp, scope, expr)).node
+                    (try transExpr(rp, scope, expr, .used, .r_value)).node
                 else
                     null;
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -423,7 +424,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     .name_token = name_token,
                     .eq_token = eq_token,
                     .mut_token = mut_token,
-                    .comptime_token = null, // TODO IsConstexpr ?
+                    .comptime_token = null,
                     .extern_export_token = null, // TODO ?TokenIndex,
                     .lib_name = null, // TODO ?*Node,
                     .type_node = null, // TODO ?*Node,
@@ -452,13 +453,30 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
     };
 }
 
-fn transExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangExpr) !TransResult {
-    return revertAndWarn(
-        rp,
-        error.UnsupportedTranslation,
-        ZigClangExpr_getBeginLoc(expr),
-        "TODO implement translation of Expr",
-    );
+fn transImplicitCastExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangImplicitCastExpr,
+) !TransResult {
+    switch (ZigClangImplicitCastExpr_getCastKind(@ptrCast(*const ZigClangImplicitCastExpr, expr))) {
+        else => |kind| return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, expr)),
+            "TODO implement translation of CastKind {}",
+            @tagName(kind),
+        ),
+    }
+}
+
+fn transExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangExpr,
+    used: ResultUsed,
+    lrvalue: LRValue,
+) TransError!TransResult {
+    return transStmt(rp, scope, @ptrCast(*const ZigClangStmt, expr), used, lrvalue);
 }
 
 fn findBlockScope(inner: *Scope) *Scope.Block {

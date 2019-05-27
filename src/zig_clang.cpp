@@ -1919,3 +1919,8 @@ const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
     const clang::StringLiteral *result = casted->getFunctionName();
     return reinterpret_cast<const struct ZigClangStringLiteral *>(result);
 }
+
+enum ZigClangCK ZigClangImplicitCastExpr_getCastKind(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CastExpr *>(self);
+    return (ZigClangCK)casted->getCastKind();
+}
