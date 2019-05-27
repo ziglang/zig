@@ -393,10 +393,6 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     try appendToken(c, .Keyword_const, "const")
                 else
                     try appendToken(c, .Keyword_var, "var");
-                const name_type = struct {
-                    str: []const u8,
-                    token: ast.TokenIndex,
-                };
                 const c_name = try c.str(ZigClangDecl_getName_bytes_begin(
                     @ptrCast(*const ZigClangDecl, var_decl),
                 ));
@@ -417,7 +413,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     null;
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
 
-                const node = try rp.c.a().create(ast.Node.VarDecl);
+                const node = try c.a().create(ast.Node.VarDecl);
                 node.* = ast.Node.VarDecl{
                     .base = ast.Node{ .id = .VarDecl },
                     .doc_comments = null,
