@@ -870,3 +870,10 @@ pub const ZigClangDeclStmt_const_decl_iterator = [*c]const *struct_ZigClangDecl;
 
 pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
 pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
+
+pub extern fn ZigClangVarDecl_getTLSKind(self: ?*const struct_ZigClangVarDecl) ZigClangVarDecl_TLSKind;
+pub const ZigClangVarDecl_TLSKind = extern enum {
+    None,
+    Static,
+    Dynamic,
+};

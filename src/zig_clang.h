@@ -733,6 +733,12 @@ enum ZigClangStringLiteral_StringKind {
     ZigClangStringLiteral_StringKind_UTF32,
 };
 
+enum ZigClangVarDecl_TLSKind {
+    ZigClangVarDecl_TLSKind_None,
+    ZigClangVarDecl_TLSKind_Static,
+    ZigClangVarDecl_TLSKind_Dynamic,
+};
+
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const struct ZigClangSourceManager *,
         struct ZigClangSourceLocation Loc);
 ZIG_EXTERN_C const char *ZigClangSourceManager_getFilename(const struct ZigClangSourceManager *,
@@ -791,6 +797,8 @@ ZIG_EXTERN_C struct ZigClangQualType ZigClangEnumDecl_getIntegerType(const struc
 ZIG_EXTERN_C const char *ZigClangDecl_getName_bytes_begin(const struct ZigClangDecl *decl);
 ZIG_EXTERN_C enum ZigClangDeclKind ZigClangDecl_getKind(const struct ZigClangDecl *decl);
 ZIG_EXTERN_C const char *ZigClangDecl_getDeclKindName(const struct ZigClangDecl *decl);
+
+ZIG_EXTERN_C enum ZigClangVarDecl_TLSKind ZigClangVarDecl_getTLSKind(const struct ZigClangVarDecl *var_decl);
 
 ZIG_EXTERN_C bool ZigClangSourceLocation_eq(struct ZigClangSourceLocation a, struct ZigClangSourceLocation b);
 

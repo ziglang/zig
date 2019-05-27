@@ -381,12 +381,10 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
             .Var => {
                 const var_decl = @ptrCast(*const ZigClangVarDecl, it.*);
 
-                // TODO:
-                // const thread_local_token = if (ZigClangVarDecl_getTLSKind() == .None)
-                //     null
-                // else
-                //     try appendToken(c, .Keyword_threadlocal, "threadlocal");
-                const thread_local_token: ?ast.TokenIndex = null;
+                const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
+                    null
+                else
+                    try appendToken(c, .Keyword_threadlocal, "threadlocal");
                 const qual_type = ZigClangVarDecl_getType(var_decl);
                 const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
                     try appendToken(c, .Keyword_const, "const")
