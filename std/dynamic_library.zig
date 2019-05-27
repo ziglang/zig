@@ -104,9 +104,9 @@ pub const LinuxDynLib = struct {
     memory: []align(mem.page_size) u8,
 
     /// Trusts the file
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
-        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
-        errdefer os.close(fd);
+    pub fn open(path: []const u8) !DynLib {
+        const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
+        errdefer std.os.close(fd);
 
         const size = @intCast(usize, (try os.fstat(fd)).size);
 
@@ -244,15 +244,21 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 pub const WindowsDynLib = struct {
-    allocator: *mem.Allocator,
     dll: windows.HMODULE,
 
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
-        const wpath = try windows.sliceToPrefixedFileW(path);
+    pub fn open(path: []const u8) !WindowsDynLib {
+        const wpath = try win_util.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
-            .allocator = allocator,
-            .dll = try windows.LoadLibraryW(&wpath),
+            .dll = windows.LoadLibraryW(&wpath) orelse {
+                const err = windows.GetLastError();
+                switch (err) {
+                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+                    else => return os.unexpectedErrorWindows(err),
+                }
+            },
         };
     }
 
@@ -273,7 +279,7 @@ test "dynamic_library" {
         else => return,
     };
 
-    const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
+    const dynlib = DynLib.open(libname) catch |err| {
         testing.expect(err == error.FileNotFound);
         return;
     };
