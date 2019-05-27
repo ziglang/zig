@@ -5,6 +5,8 @@ use @import("../windows/bits.zig");
 pub const fd_t = HANDLE;
 pub const pid_t = HANDLE;
 
+pub const PATH_MAX = 260;
+
 pub const time_t = c_longlong;
 
 pub const timespec = extern struct {
@@ -153,10 +155,13 @@ pub const ETIME = 137;
 pub const ETIMEDOUT = 138;
 pub const ETXTBSY = 139;
 pub const EWOULDBLOCK = 140;
+pub const EDQUOT = 10069;
+
+pub const F_OK = 0;
 
 // These are workarounds for "use of undeclared identifier" compile errors
 // TODO make the compiler even more lazy. don't emit "use of undeclared identifier" errors
 // for if branches that aren't taken.
 pub const SIGKILL = @compileError("Windows libc does not have this");
-pub const EDQUOT = @compileError("Windows libc does not have this");
-pub const F_OK = 0;
+
+

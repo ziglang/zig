@@ -412,7 +412,7 @@ pub const ChildProcess = struct {
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
         const nul_handle = if (any_ignore) blk: {
-            break :blk try windows.CreateFile("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+            break :blk try windows.CreateFile("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, null, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, null);
         } else blk: {
             break :blk undefined;
         };

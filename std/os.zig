@@ -70,7 +70,7 @@ pub const errno = system.getErrno;
 /// must call `fsync` before `close`.
 /// Note: The Zig standard library does not support POSIX thread cancellation.
 pub fn close(fd: fd_t) void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.CloseHandle(fd);
     }
     if (wasi.is_the_target) {
@@ -236,7 +236,7 @@ pub const ReadError = error{
 /// This function is for blocking file descriptors only. For non-blocking, see
 /// `readAsync`.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.ReadFile(fd, buf);
     }
 
@@ -363,7 +363,7 @@ pub const WriteError = error{
 /// This function is for blocking file descriptors only. For non-blocking, see
 /// `writeAsync`.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         return windows.WriteFile(fd, bytes);
     }
 
@@ -1736,7 +1736,7 @@ pub const FStatError = error{
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
     if (darwin.is_the_target) {
-        switch (errno(system.@"fstat$INODE64"(fd, &stat))) {
+        switch (darwin.getErrno(darwin.@"fstat$INODE64"(fd, &stat))) {
             0 => return stat,
             EBADF => unreachable, // Always a race condition.
             ENOMEM => return error.SystemResources,
@@ -2265,7 +2265,7 @@ pub const RealPathError = error{
 /// The return value is a slice of `out_buffer`, but not necessarily from the beginning.
 /// See also `realpathC` and `realpathW`.
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const pathname_w = try windows.sliceToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
     }
@@ -2275,12 +2275,12 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
 
 /// Same as `realpath` except `pathname` is null-terminated.
 pub fn realpathC(pathname: [*]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
-    if (windows.is_the_target and !builtin.link_libc) {
+    if (windows.is_the_target) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
     }
     if (linux.is_the_target and !builtin.link_libc) {
-        const fd = try openC(pathname, O_PATH | O_NONBLOCK | O_CLOEXEC, 0);
+        const fd = try openC(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
         defer close(fd);
 
         var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
@@ -2310,8 +2310,10 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
         pathname,
         windows.GENERIC_READ,
         windows.FILE_SHARE_READ,
+        null,
         windows.OPEN_EXISTING,
         windows.FILE_ATTRIBUTE_NORMAL,
+        null,
     );
     defer windows.CloseHandle(h_file);
 

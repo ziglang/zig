@@ -147,14 +147,14 @@ pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64)
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
+        _ = windows.kernel32.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
+        _ = windows.kernel32.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        switch (windows.GetLastError()) {
+    if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+        switch (windows.kernel32.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.INVALID_USER_BUFFER => return error.SystemResources,
             windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
@@ -247,7 +247,7 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
 }
 
 /// data must outlive the returned promise
-pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) os.WindowsReadError!usize {
+pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) !usize {
     assert(data.len != 0);
     if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
 
@@ -291,19 +291,19 @@ pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize
         },
     };
     // TODO only call create io completion port once per fd
-    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined) catch undefined;
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
+        _ = windows.kernel32.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
+        _ = windows.kernel32.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        switch (windows.GetLastError()) {
+    if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+        switch (windows.kernel32.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
@@ -408,12 +408,14 @@ pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
 
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_READ,
             windows.FILE_SHARE_READ,
+            null,
             windows.OPEN_EXISTING,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
 
         else => @compileError("Unsupported OS"),
@@ -437,12 +439,14 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.
             const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.CREATE_ALWAYS,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
         else => @compileError("Unsupported OS"),
     }
@@ -460,12 +464,14 @@ pub async fn openReadWrite(
             return await (async openPosix(loop, path, flags, mode) catch unreachable);
         },
 
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE | windows.GENERIC_READ,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.OPEN_ALWAYS,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
 
         else => @compileError("Unsupported OS"),
@@ -622,12 +628,14 @@ pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, 
 }
 
 async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
-    const handle = try os.windowsOpen(
+    const handle = try windows.CreateFile(
         path,
         windows.GENERIC_WRITE,
         windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+        null,
         windows.CREATE_ALWAYS,
         windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+        null,
     );
     defer os.close(handle);
 
@@ -1028,7 +1036,7 @@ pub fn Watch(comptime V: type) type {
             defer if (!basename_utf16le_null_consumed) self.channel.loop.allocator.free(basename_utf16le_null);
             const basename_utf16le_no_null = basename_utf16le_null[0 .. basename_utf16le_null.len - 1];
 
-            const dir_handle = windows.CreateFileW(
+            const dir_handle = try windows.CreateFileW(
                 dirname_utf16le.ptr,
                 windows.FILE_LIST_DIRECTORY,
                 windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE | windows.FILE_SHARE_WRITE,
@@ -1037,15 +1045,8 @@ pub fn Watch(comptime V: type) type {
                 windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OVERLAPPED,
                 null,
             );
-            if (dir_handle == windows.INVALID_HANDLE_VALUE) {
-                switch (windows.GetLastError()) {
-                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    else => |err| return windows.unexpectedError(err),
-                }
-            }
             var dir_handle_consumed = false;
-            defer if (!dir_handle_consumed) os.close(dir_handle);
+            defer if (!dir_handle_consumed) windows.CloseHandle(dir_handle);
 
             const held = await (async self.os_data.table_lock.acquire() catch unreachable);
             defer held.release();
@@ -1124,7 +1125,7 @@ pub fn Watch(comptime V: type) type {
             var event_buf: [4096]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined;
 
             // TODO handle this error not in the channel but in the setup
-            _ = os.windowsCreateIoCompletionPort(
+            _ = windows.CreateIoCompletionPort(
                 dir_handle,
                 self.channel.loop.os_data.io_port,
                 undefined,
@@ -1140,10 +1141,10 @@ pub fn Watch(comptime V: type) type {
                     self.channel.loop.beginOneEvent();
                     errdefer self.channel.loop.finishOneEvent();
                     errdefer {
-                        _ = windows.CancelIoEx(dir_handle, &resume_node.base.overlapped);
+                        _ = windows.kernel32.CancelIoEx(dir_handle, &resume_node.base.overlapped);
                     }
                     suspend {
-                        _ = windows.ReadDirectoryChangesW(
+                        _ = windows.kernel32.ReadDirectoryChangesW(
                             dir_handle,
                             &event_buf,
                             @intCast(windows.DWORD, event_buf.len),
@@ -1159,8 +1160,8 @@ pub fn Watch(comptime V: type) type {
                     }
                 }
                 var bytes_transferred: windows.DWORD = undefined;
-                if (windows.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-                    const err = switch (windows.GetLastError()) {
+                if (windows.kernel32.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+                    const err = switch (windows.kernel32.GetLastError()) {
                         else => |err| windows.unexpectedError(err),
                     };
                     await (async self.channel.put(err) catch unreachable);

@@ -27,7 +27,7 @@ pub const File = struct {
 
     /// Call close to clean up.
     pub fn openRead(path: []const u8) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.sliceToPrefixedFileW(path);
             return openReadW(&path_w);
         }
@@ -37,7 +37,7 @@ pub const File = struct {
 
     /// `openRead` except with a null terminated path
     pub fn openReadC(path: [*]const u8) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openReadW(&path_w);
         }
@@ -52,8 +52,10 @@ pub const File = struct {
             path_w,
             windows.GENERIC_READ,
             windows.FILE_SHARE_READ,
+            null,
             windows.OPEN_EXISTING,
             windows.FILE_ATTRIBUTE_NORMAL,
+            null,
         );
         return openHandle(handle);
     }
@@ -67,7 +69,7 @@ pub const File = struct {
     /// If a file already exists in the destination it will be truncated.
     /// Call close to clean up.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.sliceToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
         }
@@ -77,7 +79,7 @@ pub const File = struct {
 
     /// Same as `openWriteMode` except `path` is null-terminated.
     pub fn openWriteModeC(path: [*]const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
         }
@@ -92,8 +94,10 @@ pub const File = struct {
             path_w,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.CREATE_ALWAYS,
             windows.FILE_ATTRIBUTE_NORMAL,
+            null,
         );
         return openHandle(handle);
     }
@@ -102,7 +106,7 @@ pub const File = struct {
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// Call close to clean up.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.sliceToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         }
@@ -111,7 +115,7 @@ pub const File = struct {
     }
 
     pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         }
@@ -125,8 +129,10 @@ pub const File = struct {
             path_w,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.CREATE_NEW,
             windows.FILE_ATTRIBUTE_NORMAL,
+            null,
         );
         return openHandle(handle);
     }
@@ -198,7 +204,7 @@ pub const File = struct {
     }
 
     pub fn getEndPos(self: File) GetPosError!u64 {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             return windows.GetFileSizeEx(self.handle);
         }
         const stat = try os.fstat(self.handle);
@@ -208,7 +214,7 @@ pub const File = struct {
     pub const ModeError = os.FStatError;
 
     pub fn mode(self: File) ModeError!Mode {
-        if (windows.is_the_target and !builtin.link_libc) {
+        if (windows.is_the_target) {
             return {};
         }
         const stat = try os.fstat(self.handle);

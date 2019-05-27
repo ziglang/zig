@@ -48,21 +48,25 @@ pub fn CreateFile(
     file_path: []const u8,
     desired_access: DWORD,
     share_mode: DWORD,
+    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
     creation_disposition: DWORD,
     flags_and_attrs: DWORD,
+    hTemplateFile: ?HANDLE,
 ) CreateFileError!HANDLE {
     const file_path_w = try sliceToPrefixedFileW(file_path);
-    return CreateFileW(&file_path_w, desired_access, share_mode, creation_disposition, flags_and_attrs);
+    return CreateFileW(&file_path_w, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
 }
 
 pub fn CreateFileW(
     file_path_w: [*]const u16,
     desired_access: DWORD,
     share_mode: DWORD,
+    lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
     creation_disposition: DWORD,
     flags_and_attrs: DWORD,
+    hTemplateFile: ?HANDLE,
 ) CreateFileError!HANDLE {
-    const result = kernel32.CreateFileW(file_path_w, desired_access, share_mode, null, creation_disposition, flags_and_attrs, null);
+    const result = kernel32.CreateFileW(file_path_w, desired_access, share_mode, lpSecurityAttributes, creation_disposition, flags_and_attrs, hTemplateFile);
 
     if (result == INVALID_HANDLE_VALUE) {
         switch (kernel32.GetLastError()) {

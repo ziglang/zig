@@ -13,9 +13,9 @@ pub use switch (builtin.os) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u12 {
+pub fn getErrno(rc: var) u16 {
     if (rc == -1) {
-        return @intCast(u12, _errno().*);
+        return @intCast(u16, _errno().*);
     } else {
         return 0;
     }
