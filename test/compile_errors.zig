@@ -3,6 +3,23 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "undefined as field type is rejected",
+        \\const Foo = struct {
+        \\    a: undefined,
+        \\};
+        \\const Bar = union {
+        \\    a: undefined,
+        \\};
+        \\pub fn main() void {
+        \\    const foo: Foo = undefined;
+        \\    const bar: Bar = undefined;
+        \\}
+    ,
+        "tmp.zig:2:8: error: expected type 'type', found '(undefined)'",
+        "tmp.zig:5:8: error: expected type 'type', found '(undefined)'",
+    );
+
+    cases.add(
         "@hasDecl with non-container",
         \\export fn entry() void {
         \\    _ = @hasDecl(i32, "hi");
