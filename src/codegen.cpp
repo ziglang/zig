@@ -5606,6 +5606,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdBitCast:
         case IrInstructionIdGlobalAsm:
         case IrInstructionIdHasDecl:
+        case IrInstructionIdUndeclaredIdent:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

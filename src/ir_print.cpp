@@ -1461,6 +1461,10 @@ static void ir_print_has_decl(IrPrint *irp, IrInstructionHasDecl *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_undeclared_ident(IrPrint *irp, IrInstructionUndeclaredIdent *instruction) {
+    fprintf(irp->f, "@undeclaredIdent(%s)", buf_ptr(instruction->name));
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1930,6 +1934,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdHasDecl:
             ir_print_has_decl(irp, (IrInstructionHasDecl *)instruction);
+            break;
+        case IrInstructionIdUndeclaredIdent:
+            ir_print_undeclared_ident(irp, (IrInstructionUndeclaredIdent *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

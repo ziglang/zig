@@ -1015,6 +1015,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionHasDecl *) {
     return IrInstructionIdHasDecl;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUndeclaredIdent *) {
+    return IrInstructionIdUndeclaredIdent;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3031,6 +3035,15 @@ static IrInstruction *ir_build_has_decl(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_undeclared_identifier(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        Buf *name)
+{
+    IrInstructionUndeclaredIdent *instruction = ir_build_instruction<IrInstructionUndeclaredIdent>(irb, scope, source_node);
+    instruction->name = name;
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *scope_is_comptime, IrInstruction *is_comptime) {
     IrInstructionCheckRuntimeScope *instruction = ir_build_instruction<IrInstructionCheckRuntimeScope>(irb, scope, source_node);
     instruction->scope_is_comptime = scope_is_comptime;
@@ -3896,13 +3909,18 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
 
     Buf *variable_name = node->data.symbol_expr.symbol;
 
-    if (buf_eql_str(variable_name, "_") && lval == LValPtr) {
-        IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
-        const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
-                irb->codegen->builtin_types.entry_void, false);
-        const_instruction->base.value.special = ConstValSpecialStatic;
-        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
-        return &const_instruction->base;
+    if (buf_eql_str(variable_name, "_")) {
+        if (lval == LValPtr) {
+            IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
+            const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
+                    irb->codegen->builtin_types.entry_void, false);
+            const_instruction->base.value.special = ConstValSpecialStatic;
+            const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
+            return &const_instruction->base;
+        } else {
+            add_node_error(irb->codegen, node, buf_sprintf("`_` may only be used to assign things to"));
+            return irb->codegen->invalid_instruction;
+        }
     }
 
     ZigType *primitive_type;
@@ -3943,11 +3961,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return irb->codegen->invalid_instruction;
     }
 
-    // put a variable of same name with invalid type in global scope
-    // so that future references to this same name will find a variable with an invalid type
-    populate_invalid_variable_in_scope(irb->codegen, scope, node, variable_name);
-    add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
-    return irb->codegen->invalid_instruction;
+    return ir_build_undeclared_identifier(irb, scope, node, variable_name);
 }
 
 static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
@@ -23237,6 +23251,16 @@ static IrInstruction *ir_analyze_instruction_has_decl(IrAnalyze *ira, IrInstruct
     return ir_const_bool(ira, &instruction->base, true);
 }
 
+static IrInstruction *ir_analyze_instruction_undeclared_ident(IrAnalyze *ira, IrInstructionUndeclaredIdent *instruction) {
+    // put a variable of same name with invalid type in global scope
+    // so that future references to this same name will find a variable with an invalid type
+    populate_invalid_variable_in_scope(ira->codegen, instruction->base.scope, instruction->base.source_node,
+            instruction->name);
+    ir_add_error(ira, &instruction->base,
+            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(instruction->name)));
+    return ira->codegen->invalid_instruction;
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -23533,6 +23557,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_check_runtime_scope(ira, (IrInstructionCheckRuntimeScope *)instruction);
         case IrInstructionIdHasDecl:
             return ir_analyze_instruction_has_decl(ira, (IrInstructionHasDecl *)instruction);
+        case IrInstructionIdUndeclaredIdent:
+            return ir_analyze_instruction_undeclared_ident(ira, (IrInstructionUndeclaredIdent *)instruction);
     }
     zig_unreachable();
 }
@@ -23667,6 +23693,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAssertNonNull:
         case IrInstructionIdResizeSlice:
         case IrInstructionIdGlobalAsm:
+        case IrInstructionIdUndeclaredIdent:
             return true;
 
         case IrInstructionIdPhi:

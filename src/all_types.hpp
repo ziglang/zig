@@ -2306,6 +2306,7 @@ enum IrInstructionId {
     IrInstructionIdAssertZero,
     IrInstructionIdAssertNonNull,
     IrInstructionIdHasDecl,
+    IrInstructionIdUndeclaredIdent,
 };
 
 struct IrInstruction {
@@ -3517,6 +3518,12 @@ struct IrInstructionHasDecl {
 
     IrInstruction *container;
     IrInstruction *name;
+};
+
+struct IrInstructionUndeclaredIdent {
+    IrInstruction base;
+
+    Buf *name;
 };
 
 static const size_t slice_ptr_index = 0;

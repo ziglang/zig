@@ -1219,7 +1219,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:5: error: `_` is not a declarable symbol",
-        "tmp.zig:3:12: error: use of undeclared identifier '_'",
     );
 
     cases.add(
@@ -1232,7 +1231,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:4:20: error: use of undeclared identifier '_'",
+        "tmp.zig:4:20: error: `_` may only be used to assign things to",
     );
 
     cases.add(
@@ -1248,7 +1247,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 1;
         \\}
     ,
-        "tmp.zig:4:20: error: use of undeclared identifier '_'",
+        "tmp.zig:4:20: error: `_` may only be used to assign things to",
     );
 
     cases.add(
@@ -1266,7 +1265,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.optionalReturnError;
         \\}
     ,
-        "tmp.zig:6:17: error: use of undeclared identifier '_'",
+        "tmp.zig:6:17: error: `_` may only be used to assign things to",
     );
 
     cases.add(
