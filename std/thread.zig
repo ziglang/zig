@@ -223,15 +223,17 @@ pub const Thread = struct {
             }
         };
 
-        const MAP_GROWSDOWN = if (os.linux.is_the_target) os.linux.MAP_GROWSDOWN else 0;
-
+        var guard_end_offset: usize = undefined;
         var stack_end_offset: usize = undefined;
         var thread_start_offset: usize = undefined;
         var context_start_offset: usize = undefined;
         var tls_start_offset: usize = undefined;
         const mmap_len = blk: {
-            // First in memory will be the stack, which grows downwards.
-            var l: usize = mem.alignForward(default_stack_size, mem.page_size);
+            var l: usize = mem.page_size;
+            // Allocate a guard page right after the end of the stack region
+            guard_end_offset = l;
+            // The stack itself, which grows downwards.
+            l = mem.alignForward(l + default_stack_size, mem.page_size);
             stack_end_offset = l;
             // Above the stack, so that it can be in the same mmap call, put the Thread object.
             l = mem.alignForward(l, @alignOf(Thread));
@@ -253,20 +255,33 @@ pub const Thread = struct {
             }
             break :blk l;
         };
+        // Map the whole stack with no rw permissions to avoid committing the
+        // whole region right away
         const mmap_slice = os.mmap(
             null,
             mem.alignForward(mmap_len, mem.page_size),
-            os.PROT_READ | os.PROT_WRITE,
-            os.MAP_PRIVATE | os.MAP_ANONYMOUS | MAP_GROWSDOWN,
+            os.PROT_NONE,
+            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
             -1,
             0,
         ) catch |err| switch (err) {
-            error.MemoryMappingNotSupported => unreachable, // no file descriptor
-            error.AccessDenied => unreachable, // no file descriptor
-            error.PermissionDenied => unreachable, // no file descriptor
+            error.MemoryMappingNotSupported => unreachable,
+            error.AccessDenied => unreachable,
+            error.PermissionDenied => unreachable,
             else => |e| return e,
         };
         errdefer os.munmap(mmap_slice);
+
+        // Map everything but the guard page as rw
+        os.mprotect(
+            mmap_slice,
+            os.PROT_READ | os.PROT_WRITE,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => unreachable,
+            error.AccessDenied => unreachable,
+            else => |e| return e,
+        };
+
         const mmap_addr = @ptrToInt(mmap_slice.ptr);
 
         const thread_ptr = @alignCast(@alignOf(Thread), @intToPtr(*Thread, mmap_addr + thread_start_offset));
