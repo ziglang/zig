@@ -83,3 +83,12 @@ test "dl_iterate_phdr" {
     expect(linux.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
     expect(counter != 0);
 }
+
+test "sigaltstack" {
+    var st: linux.stack_t = undefined;
+    expect(linux.sigaltstack(null, &st) == 0);
+    // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
+    st.ss_flags = 0;
+    st.ss_size = 1;
+    expect(linux.getErrno(linux.sigaltstack(&st, null)) == linux.ENOMEM);
+}
