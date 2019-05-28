@@ -594,8 +594,7 @@ const MsfStream = struct {
 
     /// Implementation of InStream trait for Pdb.MsfStream
 
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
-    pub const Stream = io.InStream(Error);
+    pub const ReadError = error{};
 
     fn init(block_size: u32, block_count: u32, pos: u64, file: os.File, allocator: mem.Allocator) !MsfStream {
         var stream = MsfStream{
@@ -683,14 +682,14 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    fn readFn(in_stream: Stream, buffer: []u8) Error!usize {
+    fn readFn(in_stream: io.InStream, buffer: []u8) anyerror!usize {
         const self = in_stream.implCast(MsfStream);
         return self.read(buffer);
     }
     
-    pub fn inStream(self: *MsfStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn inStream(self: *MsfStream) io.InStream {
+        return io.InStream {
+            .impl = io.InStream.ifaceCast(self),
             .readFn = readFn,
         };
     }

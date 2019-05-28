@@ -39,7 +39,7 @@ const Module = struct {
 var stderr_file: os.File = undefined;
 var stderr_file_out_stream: os.File.OutStreamAdapter = undefined;
 
-var stderr_stream: ?io.OutStream(os.File.WriteError) = null;
+var stderr_stream: ?io.OutStream = null;
 var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
@@ -48,7 +48,7 @@ pub fn warn(comptime fmt: []const u8, args: ...) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !io.OutStream(os.File.WriteError) {
+pub fn getStderrStream() !io.OutStream {
     if (stderr_stream) |st| {
         return st;
     } else {
@@ -1842,7 +1842,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
     try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
 
     var is_64: bool = undefined;
-    const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+    const unit_length = try readInitialLength(di.dwarf_in_stream, &is_64);
     if (unit_length == 0) {
         return error.MissingDebugInfo;
     }
@@ -2024,7 +2024,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
         try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        const unit_length = try readInitialLength(di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
@@ -2126,7 +2126,7 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        const unit_length = try readInitialLength(di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
@@ -2254,7 +2254,7 @@ fn readStringMem(ptr: *[*]const u8) []const u8 {
     return result;
 }
 
-fn readInitialLength(comptime E: type, in_stream: io.InStream(E), is_64: *bool) !u64 {
+fn readInitialLength(in_stream: io.InStream, is_64: *bool) !u64 {
     const first_32_bits = try in_stream.readIntLittle(u32);
     is_64.* = (first_32_bits == 0xffffffff);
     if (is_64.*) {

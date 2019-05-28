@@ -7,7 +7,7 @@ const posix = std.os.posix;
 /// std.io.FileOutStream because std.os.File.write would do this when linking
 /// libc.
 pub const COutStream = struct {
-    pub const Error = std.os.File.WriteError;
+    pub const WriteError = std.os.File.WriteError;
     pub const Stream = OutStream(Error);
 
     c_file: *std.c.FILE,
@@ -18,7 +18,7 @@ pub const COutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: Stream, bytes: []const u8) anyerror!void {
         const self = out_stream.implCast(COutStream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;

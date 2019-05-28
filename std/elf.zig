@@ -353,8 +353,8 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    seekable_stream: io.SeekableStream(anyerror, anyerror),
-    in_stream: io.InStream(anyerror),
+    seekable_stream: io.SeekableStream,
+    in_stream: io.InStream,
     auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
@@ -382,8 +382,8 @@ pub const Elf = struct {
     pub fn openStream(
         elf: *Elf,
         allocator: mem.Allocator,
-        seekable_stream: io.SeekableStream(anyerror, anyerror),
-        in: io.InStream(anyerror),
+        seekable_stream: io.SeekableStream,
+        in: io.InStream,
     ) !void {
         elf.auto_close_stream = false;
         elf.allocator = allocator;
