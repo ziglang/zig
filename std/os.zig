@@ -1889,14 +1889,14 @@ pub const MProtectError = error{
 };
 
 /// `memory.len` must be page-aligned.
-pub fn mprotect(memory: [*]align(mem.page_size) u8, protection: u32) MProtectError!void {
+pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
     assert(mem.isAligned(memory.len, mem.page_size));
     switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
         0 => return,
         EINVAL => unreachable,
         EACCES => return error.AccessDenied,
         ENOMEM => return error.OutOfMemory,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
