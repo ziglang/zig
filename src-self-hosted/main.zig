@@ -21,8 +21,8 @@ const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: os.File = undefined;
-var stderr: io.OutStream = undefined;
-var stdout: io.OutStream = undefined;
+var stderr: io.OutStream(os.File.WriteError) = undefined;
+var stdout: io.OutStream(os.File.WriteError) = undefined;
 
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
