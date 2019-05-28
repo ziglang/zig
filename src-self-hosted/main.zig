@@ -4,7 +4,9 @@ const builtin = @import("builtin");
 const event = std.event;
 const os = std.os;
 const io = std.io;
+const fs = std.fs;
 const mem = std.mem;
+const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
@@ -20,9 +22,9 @@ const Target = @import("target.zig").Target;
 const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
-var stderr_file: os.File = undefined;
-var stderr: *io.OutStream(os.File.WriteError) = undefined;
-var stdout: *io.OutStream(os.File.WriteError) = undefined;
+var stderr_file: fs.File = undefined;
+var stderr: *io.OutStream(fs.File.WriteError) = undefined;
+var stdout: *io.OutStream(fs.File.WriteError) = undefined;
 
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -62,14 +64,14 @@ pub fn main() !void {
     var stderr_out_stream = stderr_file.outStream();
     stderr = &stderr_out_stream.stream;
 
-    const args = try os.argsAlloc(allocator);
+    const args = try process.argsAlloc(allocator);
     // TODO I'm getting  unreachable code here, which shouldn't happen
-    //defer os.argsFree(allocator, args);
+    //defer process.argsFree(allocator, args);
 
     if (args.len <= 1) {
         try stderr.write("expected command argument\n\n");
         try stderr.write(usage);
-        os.exit(1);
+        process.exit(1);
     }
 
     const commands = []Command{
@@ -125,7 +127,7 @@ pub fn main() !void {
 
     try stderr.print("unknown command: {}\n\n", args[1]);
     try stderr.write(usage);
-    os.exit(1);
+    process.exit(1);
 }
 
 const usage_build_generic =
@@ -256,7 +258,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     if (flags.present("help")) {
         try stdout.write(usage_build_generic);
-        os.exit(0);
+        process.exit(0);
     }
 
     const build_mode = blk: {
@@ -324,14 +326,14 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
                 cur_pkg = parent;
             } else {
                 try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
-                os.exit(1);
+                process.exit(1);
             }
         }
     }
 
     if (cur_pkg.parent != null) {
         try stderr.print("unmatched --pkg-begin\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     const provided_name = flags.single("name");
@@ -340,18 +342,18 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         1 => flags.positionals.at(0),
         else => {
             try stderr.print("unexpected extra parameter: {}\n", flags.positionals.at(1));
-            os.exit(1);
+            process.exit(1);
         },
     };
 
     const root_name = if (provided_name) |n| n else blk: {
         if (root_source_file) |file| {
-            const basename = os.path.basename(file);
+            const basename = fs.path.basename(file);
             var it = mem.separate(basename, ".");
             break :blk it.next() orelse basename;
         } else {
             try stderr.write("--name [name] not provided and unable to infer\n");
-            os.exit(1);
+            process.exit(1);
         }
     };
 
@@ -361,12 +363,12 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const link_objects = flags.many("object");
     if (root_source_file == null and link_objects.len == 0 and assembly_files.len == 0) {
         try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     if (out_type == Compilation.Kind.Obj and link_objects.len != 0) {
         try stderr.write("When building an object file, --object arguments are invalid\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     var clang_argv_buf = ArrayList([]const u8).init(allocator);
@@ -379,7 +381,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     }
     try ZigCompiler.setLlvmArgv(allocator, mllvm_flags);
 
-    const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch os.exit(1);
+    const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch process.exit(1);
     defer allocator.free(zig_lib_dir);
 
     var override_libc: LibCInstallation = undefined;
@@ -448,7 +450,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     if (flags.single("mmacosx-version-min") != null and flags.single("mios-version-min") != null) {
         try stderr.write("-mmacosx-version-min and -mios-version-min options not allowed together\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     if (flags.single("mmacosx-version-min")) |ver| {
@@ -478,16 +480,16 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
 
         switch (build_event) {
             Compilation.Event.Ok => {
-                stderr.print("Build {} succeeded\n", count) catch os.exit(1);
+                stderr.print("Build {} succeeded\n", count) catch process.exit(1);
             },
             Compilation.Event.Error => |err| {
-                stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch os.exit(1);
+                stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch process.exit(1);
             },
             Compilation.Event.Fail => |msgs| {
-                stderr.print("Build {} compile errors:\n", count) catch os.exit(1);
+                stderr.print("Build {} compile errors:\n", count) catch process.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
-                    msg.printToFile(stderr_file, color) catch os.exit(1);
+                    msg.printToFile(stderr_file, color) catch process.exit(1);
                 }
             },
         }
@@ -550,8 +552,8 @@ fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_fil
                 "Try running `zig libc` to see an example for the native target.\n",
             libc_paths_file,
             @errorName(err),
-        ) catch os.exit(1);
-        os.exit(1);
+        ) catch process.exit(1);
+        process.exit(1);
     };
 }
 
@@ -565,7 +567,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
         },
         else => {
             try stderr.print("unexpected extra parameter: {}\n", args[1]);
-            os.exit(1);
+            process.exit(1);
         },
     }
 
@@ -584,10 +586,10 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
 
 async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
     const libc = (await (async zig_compiler.getNativeLibC() catch unreachable)) catch |err| {
-        stderr.print("unable to find libc: {}\n", @errorName(err)) catch os.exit(1);
-        os.exit(1);
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
+        process.exit(1);
     };
-    libc.render(stdout) catch os.exit(1);
+    libc.render(stdout) catch process.exit(1);
 }
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
@@ -596,7 +598,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
     if (flags.present("help")) {
         try stdout.write(usage_fmt);
-        os.exit(0);
+        process.exit(0);
     }
 
     const color = blk: {
@@ -616,7 +618,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     if (flags.present("stdin")) {
         if (flags.positionals.len != 0) {
             try stderr.write("cannot use --stdin with positional arguments\n");
-            os.exit(1);
+            process.exit(1);
         }
 
         var stdin_file = try io.getStdIn();
@@ -627,7 +629,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
             try stderr.print("error parsing stdin: {}\n", err);
-            os.exit(1);
+            process.exit(1);
         };
         defer tree.deinit();
 
@@ -639,12 +641,12 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
             try msg.printToFile(stderr_file, color);
         }
         if (tree.errors.len != 0) {
-            os.exit(1);
+            process.exit(1);
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
             const code = if (anything_changed) u8(1) else u8(0);
-            os.exit(code);
+            process.exit(code);
         }
 
         _ = try std.zig.render(allocator, stdout, tree);
@@ -653,7 +655,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
     if (flags.positionals.len == 0) {
         try stderr.write("expected at least one source file argument\n");
-        os.exit(1);
+        process.exit(1);
     }
 
     var loop: event.Loop = undefined;
@@ -700,7 +702,8 @@ const FmtError = error{
     ReadOnlyFileSystem,
     LinkQuotaExceeded,
     FileBusy,
-} || os.File.OpenError;
+    CurrentWorkingDirectoryUnlinked,
+} || fs.File.OpenError;
 
 async fn asyncFmtMain(
     loop: *event.Loop,
@@ -725,7 +728,7 @@ async fn asyncFmtMain(
     }
     try await (async group.wait() catch unreachable);
     if (fmt.any_error) {
-        os.exit(1);
+        process.exit(1);
     }
 }
 
@@ -747,13 +750,13 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     )) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
-            var dir = try std.os.Dir.open(fmt.loop.allocator, file_path);
+            var dir = try fs.Dir.open(fmt.loop.allocator, file_path);
             defer dir.close();
 
             var group = event.Group(FmtError!void).init(fmt.loop);
             while (try dir.next()) |entry| {
-                if (entry.kind == std.os.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try os.path.join(fmt.loop.allocator, [][]const u8{ file_path, entry.name });
+                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                    const full_path = try fs.path.join(fmt.loop.allocator, [][]const u8{ file_path, entry.name });
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
@@ -849,7 +852,7 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
 }
 
 fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.print("{}\n", std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
+    try stdout.print("{}\n", std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING));
 }
 
 const args_test_spec = []Flag{Flag.Bool("--help")};
@@ -891,7 +894,7 @@ const usage_internal =
 fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try stderr.write(usage_internal);
-        os.exit(1);
+        process.exit(1);
     }
 
     const sub_commands = []Command{Command{
@@ -922,14 +925,14 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
     ,
-        std.cstr.toSliceConst(c.ZIG_CMAKE_BINARY_DIR),
-        std.cstr.toSliceConst(c.ZIG_CXX_COMPILER),
-        std.cstr.toSliceConst(c.ZIG_LLVM_CONFIG_EXE),
-        std.cstr.toSliceConst(c.ZIG_LLD_INCLUDE_PATH),
-        std.cstr.toSliceConst(c.ZIG_LLD_LIBRARIES),
-        std.cstr.toSliceConst(c.ZIG_STD_FILES),
-        std.cstr.toSliceConst(c.ZIG_C_HEADER_FILES),
-        std.cstr.toSliceConst(c.ZIG_DIA_GUIDS_LIB),
+        std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
+        std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
+        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
+        std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
+        std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
+        std.mem.toSliceConst(u8, c.ZIG_STD_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_C_HEADER_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
     );
 }
 

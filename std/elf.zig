@@ -6,6 +6,7 @@ const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
 const InStream = std.stream.InStream;
+const File = std.fs.File;
 
 pub const AT_NULL = 0;
 pub const AT_IGNORE = 1;
@@ -367,7 +368,7 @@ pub const Elf = struct {
     string_section: *SectionHeader,
     section_headers: []SectionHeader,
     allocator: *mem.Allocator,
-    prealloc_file: os.File,
+    prealloc_file: File,
 
     /// Call close when done.
     pub fn openPath(elf: *Elf, allocator: *mem.Allocator, path: []const u8) !void {
@@ -375,7 +376,7 @@ pub const Elf = struct {
     }
 
     /// Call close when done.
-    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: os.File) !void {
+    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: File) !void {
         @compileError("TODO implement");
     }
 
@@ -410,7 +411,7 @@ pub const Elf = struct {
         if (version_byte != 1) return error.InvalidFormat;
 
         // skip over padding
-        try seekable_stream.seekForward(9);
+        try seekable_stream.seekBy(9);
 
         elf.file_type = switch (try in.readInt(u16, elf.endian)) {
             1 => FileType.Relocatable,
@@ -447,7 +448,7 @@ pub const Elf = struct {
         }
 
         // skip over flags
-        try seekable_stream.seekForward(4);
+        try seekable_stream.seekBy(4);
 
         const header_size = try in.readInt(u16, elf.endian);
         if ((elf.is_64 and header_size != 64) or (!elf.is_64 and header_size != 52)) {

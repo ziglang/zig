@@ -1,15 +1,4 @@
-use @import("../windows.zig");
-
-pub const PROV_RSA_FULL = 1;
-
-pub const REGSAM = ACCESS_MASK;
-pub const ACCESS_MASK = DWORD;
-pub const PHKEY = *HKEY;
-pub const HKEY = *HKEY__;
-pub const HKEY__ = extern struct {
-    unused: c_int,
-};
-pub const LSTATUS = LONG;
+use @import("bits.zig");
 
 pub extern "advapi32" stdcallcc fn RegOpenKeyExW(
     hKey: HKEY,

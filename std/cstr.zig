@@ -9,11 +9,6 @@ pub const line_sep = switch (builtin.os) {
     else => "\n",
 };
 
-/// Deprecated, use mem.len
-pub fn len(ptr: [*]const u8) usize {
-    return mem.len(u8, ptr);
-}
-
 pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
     var index: usize = 0;
     while (a[index] == b[index] and a[index] != 0) : (index += 1) {}
@@ -26,16 +21,6 @@ pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
     }
 }
 
-/// Deprecated, use mem.toSliceConst
-pub fn toSliceConst(str: [*]const u8) []const u8 {
-    return mem.toSliceConst(u8, str);
-}
-
-/// Deprecated, use mem.toSlice
-pub fn toSlice(str: [*]u8) []u8 {
-    return mem.toSlice(u8, str);
-}
-
 test "cstr fns" {
     comptime testCStrFnsImpl();
     testCStrFnsImpl();
@@ -43,7 +28,7 @@ test "cstr fns" {
 
 fn testCStrFnsImpl() void {
     testing.expect(cmp(c"aoeu", c"aoez") == -1);
-    testing.expect(len(c"123456789") == 9);
+    testing.expect(mem.len(u8, c"123456789") == 9);
 }
 
 /// Returns a mutable slice with 1 more byte of length which is a null byte.

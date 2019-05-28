@@ -2,28 +2,28 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Builder = std.build.Builder;
 const tests = @import("test/tests.zig");
-const os = std.os;
 const BufMap = std.BufMap;
 const warn = std.debug.warn;
 const mem = std.mem;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
+const fs = std.fs;
 
 pub fn build(b: *Builder) !void {
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
-    const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
-    const langref_out_path = os.path.join(
+    const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
+    const langref_out_path = fs.path.join(
         b.allocator,
         [][]const u8{ b.cache_root, "langref.html" },
     ) catch unreachable;
     var docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs([][]const u8{
         rel_zig_exe,
-        "doc" ++ os.path.sep_str ++ "langref.html.in",
+        "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
@@ -137,7 +137,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
-    const lib_dir = os.path.join(
+    const lib_dir = fs.path.join(
         b.allocator,
         [][]const u8{ dep.prefix, "lib" },
     ) catch unreachable;
@@ -146,7 +146,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
             ([]const u8)("libncurses.a")
         else
             b.fmt("lib{}.a", lib);
-        const static_lib_name = os.path.join(
+        const static_lib_name = fs.path.join(
             b.allocator,
             [][]const u8{ lib_dir, static_bare_name },
         ) catch unreachable;
@@ -166,10 +166,8 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
 }
 
 fn fileExists(filename: []const u8) !bool {
-    os.File.access(filename) catch |err| switch (err) {
-        error.PermissionDenied,
-        error.FileNotFound,
-        => return false,
+    fs.File.access(filename) catch |err| switch (err) {
+        error.FileNotFound => return false,
         else => return err,
     };
     return true;
@@ -177,7 +175,7 @@ fn fileExists(filename: []const u8) !bool {
 
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
-    lib_exe_obj.addObjectFile(os.path.join(b.allocator, [][]const u8{
+    lib_exe_obj.addObjectFile(fs.path.join(b.allocator, [][]const u8{
         cmake_binary_dir,
         "zig_cpp",
         b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt()),
@@ -223,7 +221,7 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
             if (mem.startsWith(u8, lib_arg, "-l")) {
                 try result.system_libs.append(lib_arg[2..]);
             } else {
-                if (os.path.isAbsolute(lib_arg)) {
+                if (fs.path.isAbsolute(lib_arg)) {
                     try result.libs.append(lib_arg);
                 } else {
                     try result.system_libs.append(lib_arg);
@@ -257,8 +255,8 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
 pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
     var it = mem.tokenize(stdlib_files, ";");
     while (it.next()) |stdlib_file| {
-        const src_path = os.path.join(b.allocator, [][]const u8{ "std", stdlib_file }) catch unreachable;
-        const dest_path = os.path.join(
+        const src_path = fs.path.join(b.allocator, [][]const u8{ "std", stdlib_file }) catch unreachable;
+        const dest_path = fs.path.join(
             b.allocator,
             [][]const u8{ "lib", "zig", "std", stdlib_file },
         ) catch unreachable;
@@ -269,8 +267,8 @@ pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
 pub fn installCHeaders(b: *Builder, c_header_files: []const u8) void {
     var it = mem.tokenize(c_header_files, ";");
     while (it.next()) |c_header_file| {
-        const src_path = os.path.join(b.allocator, [][]const u8{ "c_headers", c_header_file }) catch unreachable;
-        const dest_path = os.path.join(
+        const src_path = fs.path.join(b.allocator, [][]const u8{ "c_headers", c_header_file }) catch unreachable;
+        const dest_path = fs.path.join(
             b.allocator,
             [][]const u8{ "lib", "zig", "include", c_header_file },
         ) catch unreachable;
@@ -315,7 +313,7 @@ fn configureStage2(b: *Builder, exe: var, ctx: Context) !void {
     }
     dependOnLib(b, exe, ctx.llvm);
 
-    if (exe.target.getOs() == builtin.Os.linux) {
+    if (exe.target.getOs() == .linux) {
         try addCxxKnownPath(b, ctx, exe, "libstdc++.a",
             \\Unable to determine path to libstdc++.a
             \\On Fedora, install libstdc++-static and try again.
@@ -385,17 +383,9 @@ const Context = struct {
 };
 
 fn addLibUserlandStep(b: *Builder) void {
-    // Sadly macOS requires hacks to work around the buggy MACH-O linker code.
-    const artifact = if (builtin.os == .macosx)
-        b.addObject("userland", "src-self-hosted/stage1.zig")
-    else
-        b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
+    const artifact = b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
     artifact.disable_gen_h = true;
-    if (builtin.os == .macosx) {
-        artifact.disable_stack_probing = true;
-    } else {
-        artifact.bundle_compiler_rt = true;
-    }
+    artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");

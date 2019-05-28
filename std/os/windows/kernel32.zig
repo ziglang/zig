@@ -1,4 +1,4 @@
-use @import("../windows.zig");
+use @import("bits.zig");
 
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
@@ -189,86 +189,9 @@ pub extern "kernel32" stdcallcc fn GetProcAddress(hModule: HMODULE, lpProcName: 
 
 pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) BOOL;
 
-pub const FILE_NOTIFY_INFORMATION = extern struct {
-    NextEntryOffset: DWORD,
-    Action: DWORD,
-    FileNameLength: DWORD,
-    FileName: [1]WCHAR,
-};
-
-pub const FILE_ACTION_ADDED = 0x00000001;
-pub const FILE_ACTION_REMOVED = 0x00000002;
-pub const FILE_ACTION_MODIFIED = 0x00000003;
-pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
-pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
-
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
-
-pub const FILE_LIST_DIRECTORY = 1;
-
-pub const FILE_NOTIFY_CHANGE_CREATION = 64;
-pub const FILE_NOTIFY_CHANGE_SIZE = 8;
-pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
-pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
-pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
-pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
-pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
-pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
-
-pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
-    dwSize: COORD,
-    dwCursorPosition: COORD,
-    wAttributes: WORD,
-    srWindow: SMALL_RECT,
-    dwMaximumWindowSize: COORD,
-};
-
-pub const FOREGROUND_BLUE = 1;
-pub const FOREGROUND_GREEN = 2;
-pub const FOREGROUND_RED = 4;
-pub const FOREGROUND_INTENSITY = 8;
-
 pub extern "kernel32" stdcallcc fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 pub extern "kernel32" stdcallcc fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 pub extern "kernel32" stdcallcc fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 pub extern "kernel32" stdcallcc fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) void;
 
-pub const LIST_ENTRY = extern struct {
-    Flink: *LIST_ENTRY,
-    Blink: *LIST_ENTRY,
-};
-
-pub const RTL_CRITICAL_SECTION_DEBUG = extern struct {
-    Type: WORD,
-    CreatorBackTraceIndex: WORD,
-    CriticalSection: *RTL_CRITICAL_SECTION,
-    ProcessLocksList: LIST_ENTRY,
-    EntryCount: DWORD,
-    ContentionCount: DWORD,
-    Flags: DWORD,
-    CreatorBackTraceIndexHigh: WORD,
-    SpareWORD: WORD,
-};
-
-pub const RTL_CRITICAL_SECTION = extern struct {
-    DebugInfo: *RTL_CRITICAL_SECTION_DEBUG,
-    LockCount: LONG,
-    RecursionCount: LONG,
-    OwningThread: HANDLE,
-    LockSemaphore: HANDLE,
-    SpinCount: ULONG_PTR,
-};
-
-pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
-pub const INIT_ONCE = RTL_RUN_ONCE;
-pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-
 pub extern "kernel32" stdcallcc fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) BOOL;
-
-pub const INIT_ONCE_FN = extern fn (InitOnce: *INIT_ONCE, Parameter: ?*c_void, Context: ?*c_void) BOOL;
-
-pub const RTL_RUN_ONCE = extern struct {
-    Ptr: ?*c_void,
-};
-
-pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };

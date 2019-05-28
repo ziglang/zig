@@ -62,7 +62,7 @@ extern fn WinMainCRTStartup() noreturn {
     if (!builtin.single_threaded) {
         _ = @import("bootstrap_windows_tls.zig");
     }
-    std.os.windows.ExitProcess(callMain());
+    std.os.windows.kernel32.ExitProcess(callMain());
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -78,10 +78,10 @@ fn posixCallMainAndExit() noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
 
-    if (builtin.os == builtin.Os.linux) {
+    if (builtin.os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
-        std.os.linux_elf_aux_maybe = auxv;
+        std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
         std.os.linux.tls.initTLS();
 
@@ -92,14 +92,14 @@ fn posixCallMainAndExit() noreturn {
         }
     }
 
-    std.os.posix.exit(callMainWithArgs(argc, argv, envp));
+    std.os.exit(callMainWithArgs(argc, argv, envp));
 }
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
-    std.os.ArgIteratorPosix.raw = argv[0..argc];
-    std.os.posix_environ_raw = envp;
+    std.os.argv = argv[0..argc];
+    std.os.environ = envp;
     return callMain();
 }
 

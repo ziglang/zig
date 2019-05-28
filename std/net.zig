@@ -2,8 +2,8 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const net = @This();
-const posix = std.os.posix;
 const mem = std.mem;
+const os = std.os;
 
 pub const TmpWinAddr = struct {
     family: u8,
@@ -12,7 +12,7 @@ pub const TmpWinAddr = struct {
 
 pub const OsAddress = switch (builtin.os) {
     builtin.Os.windows => TmpWinAddr,
-    else => posix.sockaddr,
+    else => os.sockaddr,
 };
 
 pub const Address = struct {
@@ -20,9 +20,9 @@ pub const Address = struct {
 
     pub fn initIp4(ip4: u32, _port: u16) Address {
         return Address{
-            .os_addr = posix.sockaddr{
-                .in = posix.sockaddr_in{
-                    .family = posix.AF_INET,
+            .os_addr = os.sockaddr{
+                .in = os.sockaddr_in{
+                    .family = os.AF_INET,
                     .port = mem.nativeToBig(u16, _port),
                     .addr = ip4,
                     .zero = []u8{0} ** 8,
@@ -33,10 +33,10 @@ pub const Address = struct {
 
     pub fn initIp6(ip6: *const Ip6Addr, _port: u16) Address {
         return Address{
-            .family = posix.AF_INET6,
-            .os_addr = posix.sockaddr{
-                .in6 = posix.sockaddr_in6{
-                    .family = posix.AF_INET6,
+            .family = os.AF_INET6,
+            .os_addr = os.sockaddr{
+                .in6 = os.sockaddr_in6{
+                    .family = os.AF_INET6,
                     .port = mem.nativeToBig(u16, _port),
                     .flowinfo = 0,
                     .addr = ip6.addr,
@@ -50,18 +50,18 @@ pub const Address = struct {
         return mem.bigToNative(u16, self.os_addr.in.port);
     }
 
-    pub fn initPosix(addr: posix.sockaddr) Address {
+    pub fn initPosix(addr: os.sockaddr) Address {
         return Address{ .os_addr = addr };
     }
 
     pub fn format(self: *const Address, out_stream: var) !void {
         switch (self.os_addr.in.family) {
-            posix.AF_INET => {
+            os.AF_INET => {
                 const native_endian_port = mem.bigToNative(u16, self.os_addr.in.port);
                 const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
                 try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
             },
-            posix.AF_INET6 => {
+            os.AF_INET6 => {
                 const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
                 try out_stream.print("[TODO render ip6 address]:{}", native_endian_port);
             },

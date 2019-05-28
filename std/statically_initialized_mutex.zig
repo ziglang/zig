@@ -23,7 +23,7 @@ pub const StaticallyInitializedMutex = switch (builtin.os) {
             mutex: *StaticallyInitializedMutex,
 
             pub fn release(self: Held) void {
-                windows.LeaveCriticalSection(&self.mutex.lock);
+                windows.kernel32.LeaveCriticalSection(&self.mutex.lock);
             }
         };
 
@@ -40,20 +40,20 @@ pub const StaticallyInitializedMutex = switch (builtin.os) {
             Context: ?*c_void,
         ) windows.BOOL {
             const lock = @ptrCast(*windows.CRITICAL_SECTION, @alignCast(@alignOf(windows.CRITICAL_SECTION), Parameter));
-            windows.InitializeCriticalSection(lock);
+            windows.kernel32.InitializeCriticalSection(lock);
             return windows.TRUE;
         }
 
         /// TODO: once https://github.com/ziglang/zig/issues/287 is solved and std.Mutex has a better
         /// implementation of a runtime initialized mutex, remove this function.
         pub fn deinit(self: *StaticallyInitializedMutex) void {
-            assert(windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, &self.lock, null) != 0);
-            windows.DeleteCriticalSection(&self.lock);
+            windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, &self.lock, null);
+            windows.kernel32.DeleteCriticalSection(&self.lock);
         }
 
         pub fn acquire(self: *StaticallyInitializedMutex) Held {
-            assert(windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, &self.lock, null) != 0);
-            windows.EnterCriticalSection(&self.lock);
+            windows.InitOnceExecuteOnce(&self.init_once, initCriticalSection, &self.lock, null);
+            windows.kernel32.EnterCriticalSection(&self.lock);
             return Held{ .mutex = self };
         }
     },
@@ -96,9 +96,9 @@ test "std.StaticallyInitializedMutex" {
         expect(context.data == TestContext.incr_count);
     } else {
         const thread_count = 10;
-        var threads: [thread_count]*std.os.Thread = undefined;
+        var threads: [thread_count]*std.Thread = undefined;
         for (threads) |*t| {
-            t.* = try std.os.spawnThread(&context, TestContext.worker);
+            t.* = try std.Thread.spawn(&context, TestContext.worker);
         }
         for (threads) |t|
             t.wait();

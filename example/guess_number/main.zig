@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const io = std.io;
 const fmt = std.fmt;
-const os = std.os;
 
 pub fn main() !void {
     var stdout_file = try io.getStdOut();
@@ -11,7 +10,7 @@ pub fn main() !void {
     try stdout.print("Welcome to the Guess Number Game in Zig.\n");
 
     var seed_bytes: [@sizeOf(u64)]u8 = undefined;
-    os.getRandomBytes(seed_bytes[0..]) catch |err| {
+    std.crypto.randomBytes(seed_bytes[0..]) catch |err| {
         std.debug.warn("unable to seed random number generator: {}", err);
         return err;
     };

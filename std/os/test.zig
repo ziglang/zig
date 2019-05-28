@@ -1,8 +1,12 @@
 const std = @import("../std.zig");
 const os = std.os;
+const testing = std.testing;
 const expect = std.testing.expect;
 const io = std.io;
+const fs = std.fs;
 const mem = std.mem;
+const File = std.fs.File;
+const Thread = std.Thread;
 
 const a = std.debug.global_allocator;
 
@@ -11,11 +15,11 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try os.makePath(a, "os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c");
-    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "c" ++ os.path.sep_str ++ "file.txt", "nonsense");
-    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "b" ++ os.path.sep_str ++ "file2.txt", "blah");
-    try os.deleteTree(a, "os_test_tmp");
-    if (os.Dir.open(a, "os_test_tmp")) |dir| {
+    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
+    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+    try fs.deleteTree(a, "os_test_tmp");
+    if (fs.Dir.open(a, "os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -23,40 +27,37 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try os.makePath(a, "os_test_tmp");
-    if (os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt")) |ok| {
+    try fs.makePath(a, "os_test_tmp");
+    if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
     }
 
-    try io.writeFile("os_test_tmp" ++ os.path.sep_str ++ "file.txt", "");
-    try os.File.access("os_test_tmp" ++ os.path.sep_str ++ "file.txt");
-    try os.deleteTree(a, "os_test_tmp");
+    try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
+    try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
+    try fs.deleteTree(a, "os_test_tmp");
 }
 
-fn testThreadIdFn(thread_id: *os.Thread.Id) void {
-    thread_id.* = os.Thread.getCurrentId();
+fn testThreadIdFn(thread_id: *Thread.Id) void {
+    thread_id.* = Thread.getCurrentId();
 }
 
-test "std.os.Thread.getCurrentId" {
+test "std.Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    var thread_current_id: os.Thread.Id = undefined;
-    const thread = try os.spawnThread(&thread_current_id, testThreadIdFn);
+    var thread_current_id: Thread.Id = undefined;
+    const thread = try Thread.spawn(&thread_current_id, testThreadIdFn);
     const thread_id = thread.handle();
     thread.wait();
-    if (os.Thread.use_pthreads) {
+    if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
+    } else if (os.windows.is_the_target) {
+        expect(Thread.getCurrentId() != thread_current_id);
     } else {
-        switch (builtin.os) {
-            builtin.Os.windows => expect(os.Thread.getCurrentId() != thread_current_id),
-            else => {
-                // If the thread completes very quickly, then thread_id can be 0. See the
-                // documentation comments for `std.os.Thread.handle`.
-                expect(thread_id == 0 or thread_current_id == thread_id);
-            },
-        }
+        // If the thread completes very quickly, then thread_id can be 0. See the
+        // documentation comments for `std.Thread.handle`.
+        expect(thread_id == 0 or thread_current_id == thread_id);
     }
 }
 
@@ -65,10 +66,10 @@ test "spawn threads" {
 
     var shared_ctx: i32 = 1;
 
-    const thread1 = try std.os.spawnThread({}, start1);
-    const thread2 = try std.os.spawnThread(&shared_ctx, start2);
-    const thread3 = try std.os.spawnThread(&shared_ctx, start2);
-    const thread4 = try std.os.spawnThread(&shared_ctx, start2);
+    const thread1 = try Thread.spawn({}, start1);
+    const thread2 = try Thread.spawn(&shared_ctx, start2);
+    const thread3 = try Thread.spawn(&shared_ctx, start2);
+    const thread4 = try Thread.spawn(&shared_ctx, start2);
 
     thread1.wait();
     thread2.wait();
@@ -88,7 +89,7 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
-    const cpu_count = try std.os.cpuCount(a);
+    const cpu_count = try Thread.cpuCount();
     expect(cpu_count >= 1);
 }
 
@@ -101,7 +102,7 @@ test "AtomicFile" {
         \\ this is a test file
     ;
     {
-        var af = try os.AtomicFile.init(test_out_file, os.File.default_mode);
+        var af = try fs.AtomicFile.init(test_out_file, File.default_mode);
         defer af.deinit();
         try af.file.write(test_content);
         try af.finish();
@@ -109,13 +110,13 @@ test "AtomicFile" {
     const content = try io.readFileAlloc(allocator, test_out_file);
     expect(mem.eql(u8, content, test_content));
 
-    try os.deleteFile(test_out_file);
+    try fs.deleteFile(test_out_file);
 }
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-    const thread1 = try std.os.spawnThread({}, testTls);
-    const thread2 = try std.os.spawnThread({}, testTls);
+    const thread1 = try Thread.spawn({}, testTls);
+    const thread2 = try Thread.spawn({}, testTls);
     testTls({});
     thread1.wait();
     thread2.wait();
@@ -126,4 +127,25 @@ fn testTls(context: void) void {
     if (x != 1234) @panic("bad start value");
     x += 1;
     if (x != 1235) @panic("bad end value");
+}
+
+test "getrandom" {
+    var buf_a: [50]u8 = undefined;
+    var buf_b: [50]u8 = undefined;
+    try os.getrandom(&buf_a);
+    try os.getrandom(&buf_b);
+    // If this test fails the chance is significantly higher that there is a bug than
+    // that two sets of 50 bytes were equal.
+    expect(!mem.eql(u8, buf_a, buf_b));
+}
+
+test "getcwd" {
+    // at least call it so it gets compiled
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    _ = os.getcwd(&buf) catch undefined;
+}
+
+test "realpath" {
+    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }

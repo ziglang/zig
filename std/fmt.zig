@@ -226,7 +226,7 @@ pub fn formatType(
             builtin.TypeInfo.Pointer.Size.Many => {
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        const len = std.cstr.len(value);
+                        const len = mem.len(u8, value);
                         return formatText(value[0..len], fmt, context, Errors, output);
                     }
                 }

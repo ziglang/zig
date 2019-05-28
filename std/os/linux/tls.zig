@@ -1,6 +1,6 @@
 const std = @import("std");
+const os = std.os;
 const mem = std.mem;
-const posix = std.os.posix;
 const elf = std.elf;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -126,7 +126,7 @@ pub fn initTLS() void {
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
-    const auxv = std.os.linux_elf_aux_maybe.?;
+    const auxv = std.os.linux.elf_aux_maybe.?;
     var at_phent: usize = undefined;
     var at_phnum: usize = undefined;
     var at_phdr: usize = undefined;
@@ -237,9 +237,14 @@ pub fn allocateTLS(size: usize) usize {
         return @ptrToInt(&main_thread_tls_buffer);
     }
 
-    const addr = posix.mmap(null, size, posix.PROT_READ | posix.PROT_WRITE, posix.MAP_PRIVATE | posix.MAP_ANONYMOUS, -1, 0);
+    const slice = os.mmap(
+        null,
+        size,
+        os.PROT_READ | os.PROT_WRITE,
+        os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+        -1,
+        0,
+    ) catch @panic("out of memory");
 
-    if (posix.getErrno(addr) != 0) @panic("out of memory");
-
-    return addr;
+    return @ptrToInt(slice.ptr);
 }

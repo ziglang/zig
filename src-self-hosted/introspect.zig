@@ -2,19 +2,19 @@
 
 const std = @import("std");
 const mem = std.mem;
-const os = std.os;
+const fs = std.fs;
 
 const warn = std.debug.warn;
 
 /// Caller must free result
 pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![]u8 {
-    const test_zig_dir = try os.path.join(allocator, [][]const u8{ test_path, "lib", "zig" });
+    const test_zig_dir = try fs.path.join(allocator, [][]const u8{ test_path, "lib", "zig" });
     errdefer allocator.free(test_zig_dir);
 
-    const test_index_file = try os.path.join(allocator, [][]const u8{ test_zig_dir, "std", "std.zig" });
+    const test_index_file = try fs.path.join(allocator, [][]const u8{ test_zig_dir, "std", "std.zig" });
     defer allocator.free(test_index_file);
 
-    var file = try os.File.openRead(test_index_file);
+    var file = try fs.File.openRead(test_index_file);
     file.close();
 
     return test_zig_dir;
@@ -22,12 +22,12 @@ pub fn testZigInstallPrefix(allocator: *mem.Allocator, test_path: []const u8) ![
 
 /// Caller must free result
 pub fn findZigLibDir(allocator: *mem.Allocator) ![]u8 {
-    const self_exe_path = try os.selfExeDirPathAlloc(allocator);
+    const self_exe_path = try fs.selfExeDirPathAlloc(allocator);
     defer allocator.free(self_exe_path);
 
     var cur_path: []const u8 = self_exe_path;
     while (true) {
-        const test_dir = os.path.dirname(cur_path) orelse ".";
+        const test_dir = fs.path.dirname(cur_path) orelse ".";
 
         if (mem.eql(u8, test_dir, cur_path)) {
             break;

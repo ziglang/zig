@@ -1,7 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const io = std.io;
-const os = std.os;
+const fs = std.fs;
+const process = std.process;
+const ChildProcess = std.ChildProcess;
 const warn = std.debug.warn;
 const mem = std.mem;
 const testing = std.testing;
@@ -11,7 +13,7 @@ const max_doc_file_size = 10 * 1024 * 1024;
 const exe_ext = std.build.Target(std.build.Target.Native).exeFileExt();
 const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
 const tmp_dir_name = "docgen_tmp";
-const test_out_path = tmp_dir_name ++ os.path.sep_str ++ "test" ++ exe_ext;
+const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
     var direct_allocator = std.heap.DirectAllocator.init();
@@ -22,7 +24,7 @@ pub fn main() !void {
 
     const allocator = &arena.allocator;
 
-    var args_it = os.args();
+    var args_it = process.args();
 
     if (!args_it.skip()) @panic("expected self arg");
 
@@ -35,10 +37,10 @@ pub fn main() !void {
     const out_file_name = try (args_it.next(allocator) orelse @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
-    var in_file = try os.File.openRead(in_file_name);
+    var in_file = try fs.File.openRead(in_file_name);
     defer in_file.close();
 
-    var out_file = try os.File.openWrite(out_file_name);
+    var out_file = try fs.File.openWrite(out_file_name);
     defer out_file.close();
 
     var file_in_stream = in_file.inStream();
@@ -46,13 +48,13 @@ pub fn main() !void {
     const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = out_file.outStream();
-    var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(&file_out_stream.stream);
+    var buffered_out_stream = io.BufferedOutStream(fs.File.WriteError).init(&file_out_stream.stream);
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
 
-    try os.makePath(allocator, tmp_dir_name);
-    defer os.deleteTree(allocator, tmp_dir_name) catch {};
+    try fs.makePath(allocator, tmp_dir_name);
+    defer fs.deleteTree(allocator, tmp_dir_name) catch {};
 
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
@@ -950,7 +952,7 @@ fn tokenizeAndPrint(docgen_tokenizer: *Tokenizer, out: var, source_token: Token)
 fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
 
-    var env_map = try os.getEnvMap(allocator);
+    var env_map = try process.getEnvMap(allocator);
     try env_map.set("ZIG_DEBUG_COLOR", "1");
 
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
@@ -1012,7 +1014,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 try tokenizeAndPrint(tokenizer, out, code.source_token);
                 try out.write("</pre>");
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
-                const tmp_source_file_name = try os.path.join(
+                const tmp_source_file_name = try fs.path.join(
                     allocator,
                     [][]const u8{ tmp_dir_name, name_plus_ext },
                 );
@@ -1021,7 +1023,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
                         const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
-                        const tmp_bin_file_name = try os.path.join(
+                        const tmp_bin_file_name = try fs.path.join(
                             allocator,
                             [][]const u8{ tmp_dir_name, name_plus_bin_ext },
                         );
@@ -1056,7 +1058,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
                         for (code.link_objects) |link_object| {
                             const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
-                            const full_path_object = try os.path.join(
+                            const full_path_object = try fs.path.join(
                                 allocator,
                                 [][]const u8{ tmp_dir_name, name_with_ext },
                             );
@@ -1076,7 +1078,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
                         if (expected_outcome == .BuildFail) {
-                            const result = try os.ChildProcess.exec(
+                            const result = try ChildProcess.exec(
                                 allocator,
                                 build_args.toSliceConst(),
                                 null,
@@ -1084,7 +1086,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 max_doc_file_size,
                             );
                             switch (result.term) {
-                                os.ChildProcess.Term.Exited => |exit_code| {
+                                .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
                                         for (build_args.toSliceConst()) |arg|
@@ -1113,7 +1115,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         if (code.target_str) |triple| {
                             if (mem.startsWith(u8, triple, "wasm32") or
                                 mem.startsWith(u8, triple, "x86_64-linux") and
-                                (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64))
+                                (builtin.os != .linux or builtin.arch != .x86_64))
                             {
                                 // skip execution
                                 try out.print("</code></pre>\n");
@@ -1124,9 +1126,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const run_args = [][]const u8{tmp_bin_file_name};
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
-                            const result = try os.ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
+                            const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
                             switch (result.term) {
-                                os.ChildProcess.Term.Exited => |exit_code| {
+                                .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
                                         for (run_args) |arg|
@@ -1216,9 +1218,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try out.print(" --release-small");
                             },
                         }
-                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                        const result = try ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
                         switch (result.term) {
-                            os.ChildProcess.Term.Exited => |exit_code| {
+                            .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
                                     for (test_args.toSliceConst()) |arg|
@@ -1274,9 +1276,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
 
-                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                        const result = try ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
                         switch (result.term) {
-                            os.ChildProcess.Term.Exited => |exit_code| {
+                            .Exited => |exit_code| {
                                 if (exit_code == 0) {
                                     warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
                                     for (test_args.toSliceConst()) |arg|
@@ -1310,7 +1312,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                     },
                     Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
-                        const tmp_obj_file_name = try os.path.join(
+                        const tmp_obj_file_name = try fs.path.join(
                             allocator,
                             [][]const u8{ tmp_dir_name, name_plus_obj_ext },
                         );
@@ -1318,7 +1320,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         defer build_args.deinit();
 
                         const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
-                        const output_h_file_name = try os.path.join(
+                        const output_h_file_name = try fs.path.join(
                             allocator,
                             [][]const u8{ tmp_dir_name, name_plus_h_ext },
                         );
@@ -1367,9 +1369,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
 
                         if (maybe_error_match) |error_match| {
-                            const result = try os.ChildProcess.exec(allocator, build_args.toSliceConst(), null, &env_map, max_doc_file_size);
+                            const result = try ChildProcess.exec(allocator, build_args.toSliceConst(), null, &env_map, max_doc_file_size);
                             switch (result.term) {
-                                os.ChildProcess.Term.Exited => |exit_code| {
+                                .Exited => |exit_code| {
                                     if (exit_code == 0) {
                                         warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
                                         for (build_args.toSliceConst()) |arg|
@@ -1448,10 +1450,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
     }
 }
 
-fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !os.ChildProcess.ExecResult {
-    const result = try os.ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
+fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
+    const result = try ChildProcess.exec(allocator, args, null, env_map, max_doc_file_size);
     switch (result.term) {
-        os.ChildProcess.Term.Exited => |exit_code| {
+        .Exited => |exit_code| {
             if (exit_code != 0) {
                 warn("{}\nThe following command exited with code {}:\n", result.stderr, exit_code);
                 for (args) |arg|

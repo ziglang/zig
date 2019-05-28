@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const io = std.io;
 const meta = std.meta;
@@ -6,8 +7,8 @@ const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const mem = std.mem;
-const os = std.os;
-const builtin = @import("builtin");
+const fs = std.fs;
+const File = std.fs.File;
 
 test "write a file, read it, then delete it" {
     var raw_bytes: [200 * 1024]u8 = undefined;
@@ -18,11 +19,11 @@ test "write a file, read it, then delete it" {
     prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try os.File.openWrite(tmp_file_name);
+        var file = try File.openWrite(tmp_file_name);
         defer file.close();
 
         var file_out_stream = file.outStream();
-        var buf_stream = io.BufferedOutStream(os.File.WriteError).init(&file_out_stream.stream);
+        var buf_stream = io.BufferedOutStream(File.WriteError).init(&file_out_stream.stream);
         const st = &buf_stream.stream;
         try st.print("begin");
         try st.write(data[0..]);
@@ -32,15 +33,15 @@ test "write a file, read it, then delete it" {
 
     {
         // make sure openWriteNoClobber doesn't harm the file
-        if (os.File.openWriteNoClobber(tmp_file_name, os.File.default_mode)) |file| {
+        if (File.openWriteNoClobber(tmp_file_name, File.default_mode)) |file| {
             unreachable;
         } else |err| {
-            std.debug.assert(err == os.File.OpenError.PathAlreadyExists);
+            std.debug.assert(err == File.OpenError.PathAlreadyExists);
         }
     }
 
     {
-        var file = try os.File.openRead(tmp_file_name);
+        var file = try File.openRead(tmp_file_name);
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -48,7 +49,7 @@ test "write a file, read it, then delete it" {
         expect(file_size == expected_file_size);
 
         var file_in_stream = file.inStream();
-        var buf_stream = io.BufferedInStream(os.File.ReadError).init(&file_in_stream.stream);
+        var buf_stream = io.BufferedInStream(File.ReadError).init(&file_in_stream.stream);
         const st = &buf_stream.stream;
         const contents = try st.readAllAlloc(allocator, 2 * 1024);
         defer allocator.free(contents);
@@ -57,7 +58,7 @@ test "write a file, read it, then delete it" {
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try os.deleteFile(tmp_file_name);
+    try fs.deleteFile(tmp_file_name);
 }
 
 test "BufferOutStream" {
@@ -273,12 +274,12 @@ test "BitOutStream" {
 test "BitStreams with File Stream" {
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try os.File.openWrite(tmp_file_name);
+        var file = try File.openWrite(tmp_file_name);
         defer file.close();
 
         var file_out = file.outStream();
         var file_out_stream = &file_out.stream;
-        const OutError = os.File.WriteError;
+        const OutError = File.WriteError;
         var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
 
         try bit_stream.writeBits(u2(1), 1);
@@ -290,12 +291,12 @@ test "BitStreams with File Stream" {
         try bit_stream.flushBits();
     }
     {
-        var file = try os.File.openRead(tmp_file_name);
+        var file = try File.openRead(tmp_file_name);
         defer file.close();
 
         var file_in = file.inStream();
         var file_in_stream = &file_in.stream;
-        const InError = os.File.ReadError;
+        const InError = File.ReadError;
         var bit_stream = io.BitInStream(builtin.endian, InError).init(file_in_stream);
 
         var out_bits: usize = undefined;
@@ -315,7 +316,7 @@ test "BitStreams with File Stream" {
 
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
-    try os.deleteFile(tmp_file_name);
+    try fs.deleteFile(tmp_file_name);
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
@@ -595,7 +596,7 @@ test "c out stream" {
 
     const filename = c"tmp_io_test_file.txt";
     const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
-    defer std.os.deleteFileC(filename) catch {};
+    defer fs.deleteFileC(filename) catch {};
 
     const out_stream = &io.COutStream.init(out_file).stream;
     try out_stream.print("hi: {}\n", i32(123));

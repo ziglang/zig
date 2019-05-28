@@ -1453,6 +1453,14 @@ static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_va
     }
 }
 
+static void ir_print_has_decl(IrPrint *irp, IrInstructionHasDecl *instruction) {
+    fprintf(irp->f, "@hasDecl(");
+    ir_print_other_instruction(irp, instruction->container);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1919,6 +1927,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResizeSlice:
             ir_print_resize_slice(irp, (IrInstructionResizeSlice *)instruction);
+            break;
+        case IrInstructionIdHasDecl:
+            ir_print_has_decl(irp, (IrInstructionHasDecl *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@hasDecl with non-container",
+        \\export fn entry() void {
+        \\    _ = @hasDecl(i32, "hi");
+        \\}
+    ,
+        "tmp.zig:2:18: error: expected struct, enum, or union; found 'i32'",
+    );
+
+    cases.add(
         "field access of slices",
         \\export fn entry() void {
         \\    var slice: []i32 = undefined;

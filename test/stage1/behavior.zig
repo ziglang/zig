@@ -53,6 +53,7 @@ comptime {
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
+    _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");

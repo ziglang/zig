@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
-const os = std.os;
+const fs = std.fs;
+const process = std.process;
 const Token = std.zig.Token;
 const ast = std.zig.ast;
 const TokenIndex = std.zig.ast.TokenIndex;
@@ -239,10 +240,10 @@ pub const Msg = struct {
         const allocator = msg.getAllocator();
         const tree = msg.getTree();
 
-        const cwd = try os.getCwdAlloc(allocator);
+        const cwd = try process.getCwdAlloc(allocator);
         defer allocator.free(cwd);
 
-        const relpath = try os.path.relative(allocator, cwd, msg.realpath);
+        const relpath = try fs.path.relative(allocator, cwd, msg.realpath);
         defer allocator.free(relpath);
 
         const path = if (relpath.len < msg.realpath.len) relpath else msg.realpath;
@@ -276,7 +277,7 @@ pub const Msg = struct {
         try stream.write("\n");
     }
 
-    pub fn printToFile(msg: *const Msg, file: os.File, color: Color) !void {
+    pub fn printToFile(msg: *const Msg, file: fs.File, color: Color) !void {
         const color_on = switch (color) {
             Color.Auto => file.isTty(),
             Color.On => true,

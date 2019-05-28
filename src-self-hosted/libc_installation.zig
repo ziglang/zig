@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const event = std.event;
 const Target = @import("target.zig").Target;
 const c = @import("c.zig");
+const fs = std.fs;
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -30,7 +31,7 @@ pub const LibCInstallation = struct {
         self: *LibCInstallation,
         allocator: *std.mem.Allocator,
         libc_file: []const u8,
-        stderr: *std.io.OutStream(std.os.File.WriteError),
+        stderr: *std.io.OutStream(fs.File.WriteError),
     ) !void {
         self.initEmpty();
 
@@ -100,7 +101,7 @@ pub const LibCInstallation = struct {
         }
     }
 
-    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(std.os.File.WriteError)) !void {
+    pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(fs.File.WriteError)) !void {
         @setEvalBranchQuota(4000);
         try out.print(
             \\# The directory that contains `stdlib.h`.
@@ -148,7 +149,7 @@ pub const LibCInstallation = struct {
         errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
 
         switch (builtin.os) {
-            builtin.Os.windows => {
+            .windows => {
                 var sdk: *c.ZigWindowsSDK = undefined;
                 switch (c.zig_find_windows_sdk(@ptrCast(?[*]?[*]c.ZigWindowsSDK, &sdk))) {
                     c.ZigFindWindowsSdkError.None => {
@@ -166,13 +167,13 @@ pub const LibCInstallation = struct {
                     c.ZigFindWindowsSdkError.PathTooLong => return error.NotFound,
                 }
             },
-            builtin.Os.linux => {
+            .linux => {
                 try group.call(findNativeIncludeDirLinux, self, loop);
                 try group.call(findNativeLibDirLinux, self, loop);
                 try group.call(findNativeStaticLibDir, self, loop);
                 try group.call(findNativeDynamicLinker, self, loop);
             },
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            .macosx, .freebsd, .netbsd => {
                 self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),
@@ -181,7 +182,7 @@ pub const LibCInstallation = struct {
     }
 
     async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
-        const cc_exe = std.os.getEnvPosix("CC") orelse "cc";
+        const cc_exe = std.os.getenv("CC") orelse "cc";
         const argv = []const []const u8{
             cc_exe,
             "-E",
@@ -190,7 +191,7 @@ pub const LibCInstallation = struct {
             "/dev/null",
         };
         // TODO make this use event loop
-        const errorable_result = std.os.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
+        const errorable_result = std.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
         const exec_result = if (std.debug.runtime_safety) blk: {
             break :blk errorable_result catch unreachable;
         } else blk: {
@@ -205,7 +206,7 @@ pub const LibCInstallation = struct {
         }
 
         switch (exec_result.term) {
-            std.os.ChildProcess.Term.Exited => |code| {
+            std.ChildProcess.Term.Exited => |code| {
                 if (code != 0) return error.CCompilerExitCode;
             },
             else => {
@@ -230,7 +231,7 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try std.os.path.join(loop.allocator, [][]const u8{ search_path, "stdlib.h" });
+            const stdlib_path = try fs.path.join(loop.allocator, [][]const u8{ search_path, "stdlib.h" });
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -254,7 +255,7 @@ pub const LibCInstallation = struct {
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
             try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
 
-            const stdlib_path = try std.os.path.join(
+            const stdlib_path = try fs.path.join(
                 loop.allocator,
                 [][]const u8{ result_buf.toSliceConst(), "stdlib.h" },
             );
@@ -286,7 +287,7 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
-            const ucrt_lib_path = try std.os.path.join(
+            const ucrt_lib_path = try fs.path.join(
                 loop.allocator,
                 [][]const u8{ result_buf.toSliceConst(), "ucrt.lib" },
             );
@@ -364,7 +365,7 @@ pub const LibCInstallation = struct {
                 builtin.Arch.aarch64 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
-            const kernel32_path = try std.os.path.join(
+            const kernel32_path = try fs.path.join(
                 loop.allocator,
                 [][]const u8{ result_buf.toSliceConst(), "kernel32.lib" },
             );
@@ -391,14 +392,14 @@ pub const LibCInstallation = struct {
 
 /// caller owns returned memory
 async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bool) ![]u8 {
-    const cc_exe = std.os.getEnvPosix("CC") orelse "cc";
+    const cc_exe = std.os.getenv("CC") orelse "cc";
     const arg1 = try std.fmt.allocPrint(loop.allocator, "-print-file-name={}", o_file);
     defer loop.allocator.free(arg1);
     const argv = []const []const u8{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
     await (async loop.yield() catch unreachable);
-    const errorable_result = std.os.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
+    const errorable_result = std.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
     const exec_result = if (std.debug.runtime_safety) blk: {
         break :blk errorable_result catch unreachable;
     } else blk: {
@@ -412,7 +413,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
         loop.allocator.free(exec_result.stderr);
     }
     switch (exec_result.term) {
-        std.os.ChildProcess.Term.Exited => |code| {
+        .Exited => |code| {
             if (code != 0) return error.CCompilerExitCode;
         },
         else => {
@@ -421,7 +422,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     }
     var it = std.mem.tokenize(exec_result.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
-    const dirname = std.os.path.dirname(line) orelse return error.LibCRuntimeNotFound;
+    const dirname = fs.path.dirname(line) orelse return error.LibCRuntimeNotFound;
 
     if (want_dirname) {
         return std.mem.dupe(loop.allocator, u8, dirname);
@@ -459,10 +460,10 @@ fn fillSearch(search_buf: *[2]Search, sdk: *c.ZigWindowsSDK) []Search {
 }
 
 fn fileExists(path: []const u8) !bool {
-    if (std.os.File.access(path)) |_| {
+    if (fs.File.access(path)) |_| {
         return true;
     } else |err| switch (err) {
-        error.FileNotFound, error.PermissionDenied => return false,
+        error.FileNotFound => return false,
         else => return error.FileSystem,
     }
 }

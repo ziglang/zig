@@ -5,9 +5,10 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 const mem = std.mem;
-const posix = os.posix;
 const windows = os.windows;
 const Loop = event.Loop;
+const fd_t = os.fd_t;
+const File = std.fs.File;
 
 pub const RequestNode = std.atomic.Queue(Request).Node;
 
@@ -30,53 +31,53 @@ pub const Request = struct {
         End, // special - means the fs thread should exit
 
         pub const PWriteV = struct {
-            fd: os.FileHandle,
-            iov: []const os.posix.iovec_const,
+            fd: fd_t,
+            iov: []const os.iovec_const,
             offset: usize,
             result: Error!void,
 
-            pub const Error = os.PosixWriteError;
+            pub const Error = os.WriteError;
         };
 
         pub const PReadV = struct {
-            fd: os.FileHandle,
-            iov: []const os.posix.iovec,
+            fd: fd_t,
+            iov: []const os.iovec,
             offset: usize,
             result: Error!usize,
 
-            pub const Error = os.PosixReadError;
+            pub const Error = os.ReadError;
         };
 
         pub const Open = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
             flags: u32,
-            mode: os.File.Mode,
-            result: Error!os.FileHandle,
+            mode: File.Mode,
+            result: Error!fd_t,
 
-            pub const Error = os.File.OpenError;
+            pub const Error = File.OpenError;
         };
 
         pub const WriteFile = struct {
             /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
             path: []const u8,
             contents: []const u8,
-            mode: os.File.Mode,
+            mode: File.Mode,
             result: Error!void,
 
-            pub const Error = os.File.OpenError || os.File.WriteError;
+            pub const Error = File.OpenError || File.WriteError;
         };
 
         pub const Close = struct {
-            fd: os.FileHandle,
+            fd: fd_t,
         };
     };
 };
 
-pub const PWriteVError = error{OutOfMemory} || os.File.WriteError;
+pub const PWriteVError = error{OutOfMemory} || File.WriteError;
 
 /// data - just the inner references - must live until pwritev promise completes.
-pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) PWriteVError!void {
+pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -87,11 +88,11 @@ pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, o
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const iovecs = try loop.allocator.alloc(os.posix.iovec_const, data.len);
+            const iovecs = try loop.allocator.alloc(os.iovec_const, data.len);
             defer loop.allocator.free(iovecs);
 
             for (data) |buf, i| {
-                iovecs[i] = os.posix.iovec_const{
+                iovecs[i] = os.iovec_const{
                     .iov_base = buf.ptr,
                     .iov_len = buf.len,
                 };
@@ -109,7 +110,7 @@ pub async fn pwritev(loop: *Loop, fd: os.FileHandle, data: []const []const u8, o
 }
 
 /// data must outlive the returned promise
-pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
+pub async fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
     if (data.len == 0) return;
     if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
 
@@ -121,7 +122,7 @@ pub async fn pwritevWindows(loop: *Loop, fd: os.FileHandle, data: []const []cons
     }
 }
 
-pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, offset: u64) os.WindowsWriteError!void {
+pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -146,33 +147,32 @@ pub async fn pwriteWindows(loop: *Loop, fd: os.FileHandle, data: []const u8, off
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
+        _ = windows.kernel32.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
+        _ = windows.kernel32.WriteFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        const err = windows.GetLastError();
-        return switch (err) {
+    if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+        switch (windows.kernel32.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
-            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
-            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
-            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
-            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
-            else => os.unexpectedErrorWindows(err),
-        };
+            windows.ERROR.INVALID_USER_BUFFER => return error.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => return error.SystemResources,
+            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
+            else => |err| return windows.unexpectedError(err),
+        }
     }
 }
 
 /// iovecs must live until pwritev promise completes.
 pub async fn pwritevPosix(
     loop: *Loop,
-    fd: os.FileHandle,
-    iovecs: []const posix.iovec_const,
+    fd: fd_t,
+    iovecs: []const os.iovec_const,
     offset: usize,
-) os.PosixWriteError!void {
+) os.WriteError!void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -209,10 +209,10 @@ pub async fn pwritevPosix(
     return req_node.data.msg.PWriteV.result;
 }
 
-pub const PReadVError = error{OutOfMemory} || os.File.ReadError;
+pub const PReadVError = error{OutOfMemory} || File.ReadError;
 
 /// data - just the inner references - must live until preadv promise completes.
-pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: usize) PReadVError!usize {
+pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -225,11 +225,11 @@ pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: 
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const iovecs = try loop.allocator.alloc(os.posix.iovec, data.len);
+            const iovecs = try loop.allocator.alloc(os.iovec, data.len);
             defer loop.allocator.free(iovecs);
 
             for (data) |buf, i| {
-                iovecs[i] = os.posix.iovec{
+                iovecs[i] = os.iovec{
                     .iov_base = buf.ptr,
                     .iov_len = buf.len,
                 };
@@ -247,7 +247,7 @@ pub async fn preadv(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: 
 }
 
 /// data must outlive the returned promise
-pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, offset: u64) os.WindowsReadError!usize {
+pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) !usize {
     assert(data.len != 0);
     if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
 
@@ -271,7 +271,7 @@ pub async fn preadvWindows(loop: *Loop, fd: os.FileHandle, data: []const []u8, o
     }
 }
 
-pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u64) !usize {
+pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -291,25 +291,24 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
         },
     };
     // TODO only call create io completion port once per fd
-    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+    _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined) catch undefined;
     loop.beginOneEvent();
     errdefer loop.finishOneEvent();
 
     errdefer {
-        _ = windows.CancelIoEx(fd, &resume_node.base.overlapped);
+        _ = windows.kernel32.CancelIoEx(fd, &resume_node.base.overlapped);
     }
     suspend {
-        _ = windows.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
+        _ = windows.kernel32.ReadFile(fd, data.ptr, @intCast(windows.DWORD, data.len), null, &resume_node.base.overlapped);
     }
     var bytes_transferred: windows.DWORD = undefined;
-    if (windows.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-        const err = windows.GetLastError();
-        switch (err) {
+    if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+        switch (windows.kernel32.GetLastError()) {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
             windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
-            else => return os.unexpectedErrorWindows(err),
+            else => |err| return windows.unexpectedError(err),
         }
     }
     return usize(bytes_transferred);
@@ -318,10 +317,10 @@ pub async fn preadWindows(loop: *Loop, fd: os.FileHandle, data: []u8, offset: u6
 /// iovecs must live until preadv promise completes
 pub async fn preadvPosix(
     loop: *Loop,
-    fd: os.FileHandle,
-    iovecs: []const posix.iovec,
+    fd: fd_t,
+    iovecs: []const os.iovec,
     offset: usize,
-) os.PosixReadError!usize {
+) os.ReadError!usize {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -362,8 +361,8 @@ pub async fn openPosix(
     loop: *Loop,
     path: []const u8,
     flags: u32,
-    mode: os.File.Mode,
-) os.File.OpenError!os.FileHandle {
+    mode: File.Mode,
+) File.OpenError!fd_t {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -402,19 +401,21 @@ pub async fn openPosix(
     return req_node.data.msg.Open.result;
 }
 
-pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
+pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
-            const flags = posix.O_LARGEFILE | posix.O_RDONLY | posix.O_CLOEXEC;
-            return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+            const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
+            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
 
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_READ,
             windows.FILE_SHARE_READ,
+            null,
             windows.OPEN_EXISTING,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
 
         else => @compileError("Unsupported OS"),
@@ -423,27 +424,29 @@ pub async fn openRead(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHa
 
 /// Creates if does not exist. Truncates the file if it exists.
 /// Uses the default mode.
-pub async fn openWrite(loop: *Loop, path: []const u8) os.File.OpenError!os.FileHandle {
-    return await (async openWriteMode(loop, path, os.File.default_mode) catch unreachable);
+pub async fn openWrite(loop: *Loop, path: []const u8) File.OpenError!fd_t {
+    return await (async openWriteMode(loop, path, File.default_mode) catch unreachable);
 }
 
 /// Creates if does not exist. Truncates the file if it exists.
-pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os.File.OpenError!os.FileHandle {
+pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx,
         builtin.Os.linux,
         builtin.Os.freebsd,
         builtin.Os.netbsd,
         => {
-            const flags = posix.O_LARGEFILE | posix.O_WRONLY | posix.O_CREAT | posix.O_CLOEXEC | posix.O_TRUNC;
-            return await (async openPosix(loop, path, flags, os.File.default_mode) catch unreachable);
+            const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
+            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.CREATE_ALWAYS,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
         else => @compileError("Unsupported OS"),
     }
@@ -453,20 +456,22 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: os.File.Mode) os
 pub async fn openReadWrite(
     loop: *Loop,
     path: []const u8,
-    mode: os.File.Mode,
-) os.File.OpenError!os.FileHandle {
+    mode: File.Mode,
+) File.OpenError!fd_t {
     switch (builtin.os) {
         builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
-            const flags = posix.O_LARGEFILE | posix.O_RDWR | posix.O_CREAT | posix.O_CLOEXEC;
+            const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, mode) catch unreachable);
         },
 
-        builtin.Os.windows => return os.windowsOpen(
+        builtin.Os.windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE | windows.GENERIC_READ,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+            null,
             windows.OPEN_ALWAYS,
             windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+            null,
         ),
 
         else => @compileError("Unsupported OS"),
@@ -487,7 +492,7 @@ pub const CloseOperation = struct {
         builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => OsDataPosix,
 
         builtin.Os.windows => struct {
-            handle: ?os.FileHandle,
+            handle: ?fd_t,
         },
 
         else => @compileError("Unsupported OS"),
@@ -551,7 +556,7 @@ pub const CloseOperation = struct {
         }
     }
 
-    pub fn setHandle(self: *CloseOperation, handle: os.FileHandle) void {
+    pub fn setHandle(self: *CloseOperation, handle: fd_t) void {
         switch (builtin.os) {
             builtin.Os.linux,
             builtin.Os.macosx,
@@ -585,7 +590,7 @@ pub const CloseOperation = struct {
         }
     }
 
-    pub fn getHandle(self: *CloseOperation) os.FileHandle {
+    pub fn getHandle(self: *CloseOperation) fd_t {
         switch (builtin.os) {
             builtin.Os.linux,
             builtin.Os.macosx,
@@ -606,11 +611,11 @@ pub const CloseOperation = struct {
 /// contents must remain alive until writeFile completes.
 /// TODO make this atomic or provide writeFileAtomic and rename this one to writeFileTruncate
 pub async fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !void {
-    return await (async writeFileMode(loop, path, contents, os.File.default_mode) catch unreachable);
+    return await (async writeFileMode(loop, path, contents, File.default_mode) catch unreachable);
 }
 
 /// contents must remain alive until writeFile completes.
-pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     switch (builtin.os) {
         builtin.Os.linux,
         builtin.Os.macosx,
@@ -623,19 +628,21 @@ pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, 
 }
 
 async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
-    const handle = try os.windowsOpen(
+    const handle = try windows.CreateFile(
         path,
         windows.GENERIC_WRITE,
         windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
+        null,
         windows.CREATE_ALWAYS,
         windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED,
+        null,
     );
     defer os.close(handle);
 
     try await (async pwriteWindows(loop, handle, contents, 0) catch unreachable);
 }
 
-async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: os.File.Mode) !void {
+async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     // workaround for https://github.com/ziglang/zig/issues/1194
     suspend {
         resume @handle();
@@ -689,7 +696,7 @@ pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8
     defer list.deinit();
 
     while (true) {
-        try list.ensureCapacity(list.len + os.page_size);
+        try list.ensureCapacity(list.len + mem.page_size);
         const buf = list.items[list.len..];
         const buf_array = [][]u8{buf};
         const amt = try await (async preadv(loop, fd, buf_array, list.len) catch unreachable);
@@ -787,7 +794,7 @@ pub fn Watch(comptime V: type) type {
 
             switch (builtin.os) {
                 builtin.Os.linux => {
-                    const inotify_fd = try os.linuxINotifyInit1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
+                    const inotify_fd = try os.inotify_init1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
                     errdefer os.close(inotify_fd);
 
                     var result: *Self = undefined;
@@ -880,7 +887,7 @@ pub fn Watch(comptime V: type) type {
         }
 
         async fn addFileKEvent(self: *Self, file_path: []const u8, value: V) !?V {
-            const resolved_path = try os.path.resolve(self.channel.loop.allocator, [][]const u8{file_path});
+            const resolved_path = try std.fs.path.resolve(self.channel.loop.allocator, [][]const u8{file_path});
             var resolved_path_consumed = false;
             defer if (!resolved_path_consumed) self.channel.loop.allocator.free(resolved_path);
 
@@ -888,10 +895,7 @@ pub fn Watch(comptime V: type) type {
             var close_op_consumed = false;
             defer if (!close_op_consumed) close_op.finish();
 
-            const flags = switch (builtin.os) {
-                builtin.Os.macosx => posix.O_SYMLINK | posix.O_EVTONLY,
-                else => 0,
-            };
+            const flags = if (os.darwin.is_the_target) os.O_SYMLINK | os.O_EVTONLY else 0;
             const mode = 0;
             const fd = try await (async openPosix(self.channel.loop, resolved_path, flags, mode) catch unreachable);
             close_op.setHandle(fd);
@@ -943,16 +947,16 @@ pub fn Watch(comptime V: type) type {
             while (true) {
                 if (await (async self.channel.loop.bsdWaitKev(
                     @intCast(usize, close_op.getHandle()),
-                    posix.EVFILT_VNODE,
-                    posix.NOTE_WRITE | posix.NOTE_DELETE,
+                    os.EVFILT_VNODE,
+                    os.NOTE_WRITE | os.NOTE_DELETE,
                 ) catch unreachable)) |kev| {
                     // TODO handle EV_ERROR
-                    if (kev.fflags & posix.NOTE_DELETE != 0) {
+                    if (kev.fflags & os.NOTE_DELETE != 0) {
                         await (async self.channel.put(Self.Event{
                             .id = Event.Id.Delete,
                             .data = value_copy,
                         }) catch unreachable);
-                    } else if (kev.fflags & posix.NOTE_WRITE != 0) {
+                    } else if (kev.fflags & os.NOTE_WRITE != 0) {
                         await (async self.channel.put(Self.Event{
                             .id = Event.Id.CloseWrite,
                             .data = value_copy,
@@ -961,6 +965,7 @@ pub fn Watch(comptime V: type) type {
                 } else |err| switch (err) {
                     error.EventNotFound => unreachable,
                     error.ProcessNotFound => unreachable,
+                    error.Overflow => unreachable,
                     error.AccessDenied, error.SystemResources => |casted_err| {
                         await (async self.channel.put(casted_err) catch unreachable);
                     },
@@ -971,17 +976,17 @@ pub fn Watch(comptime V: type) type {
         async fn addFileLinux(self: *Self, file_path: []const u8, value: V) !?V {
             const value_copy = value;
 
-            const dirname = os.path.dirname(file_path) orelse ".";
+            const dirname = std.fs.path.dirname(file_path) orelse ".";
             const dirname_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, dirname);
             var dirname_with_null_consumed = false;
             defer if (!dirname_with_null_consumed) self.channel.loop.allocator.free(dirname_with_null);
 
-            const basename = os.path.basename(file_path);
+            const basename = std.fs.path.basename(file_path);
             const basename_with_null = try std.cstr.addNullByte(self.channel.loop.allocator, basename);
             var basename_with_null_consumed = false;
             defer if (!basename_with_null_consumed) self.channel.loop.allocator.free(basename_with_null);
 
-            const wd = try os.linuxINotifyAddWatchC(
+            const wd = try os.inotify_add_watchC(
                 self.os_data.inotify_fd,
                 dirname_with_null.ptr,
                 os.linux.IN_CLOSE_WRITE | os.linux.IN_ONLYDIR | os.linux.IN_EXCL_UNLINK,
@@ -1017,7 +1022,7 @@ pub fn Watch(comptime V: type) type {
             const value_copy = value;
             // TODO we might need to convert dirname and basename to canonical file paths ("short"?)
 
-            const dirname = try std.mem.dupe(self.channel.loop.allocator, u8, os.path.dirname(file_path) orelse ".");
+            const dirname = try std.mem.dupe(self.channel.loop.allocator, u8, std.fs.path.dirname(file_path) orelse ".");
             var dirname_consumed = false;
             defer if (!dirname_consumed) self.channel.loop.allocator.free(dirname);
 
@@ -1025,13 +1030,13 @@ pub fn Watch(comptime V: type) type {
             defer self.channel.loop.allocator.free(dirname_utf16le);
 
             // TODO https://github.com/ziglang/zig/issues/265
-            const basename = os.path.basename(file_path);
+            const basename = std.fs.path.basename(file_path);
             const basename_utf16le_null = try std.unicode.utf8ToUtf16LeWithNull(self.channel.loop.allocator, basename);
             var basename_utf16le_null_consumed = false;
             defer if (!basename_utf16le_null_consumed) self.channel.loop.allocator.free(basename_utf16le_null);
             const basename_utf16le_no_null = basename_utf16le_null[0 .. basename_utf16le_null.len - 1];
 
-            const dir_handle = windows.CreateFileW(
+            const dir_handle = try windows.CreateFileW(
                 dirname_utf16le.ptr,
                 windows.FILE_LIST_DIRECTORY,
                 windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE | windows.FILE_SHARE_WRITE,
@@ -1040,16 +1045,8 @@ pub fn Watch(comptime V: type) type {
                 windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OVERLAPPED,
                 null,
             );
-            if (dir_handle == windows.INVALID_HANDLE_VALUE) {
-                const err = windows.GetLastError();
-                switch (err) {
-                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    else => return os.unexpectedErrorWindows(err),
-                }
-            }
             var dir_handle_consumed = false;
-            defer if (!dir_handle_consumed) os.close(dir_handle);
+            defer if (!dir_handle_consumed) windows.CloseHandle(dir_handle);
 
             const held = await (async self.os_data.table_lock.acquire() catch unreachable);
             defer held.release();
@@ -1128,7 +1125,7 @@ pub fn Watch(comptime V: type) type {
             var event_buf: [4096]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined;
 
             // TODO handle this error not in the channel but in the setup
-            _ = os.windowsCreateIoCompletionPort(
+            _ = windows.CreateIoCompletionPort(
                 dir_handle,
                 self.channel.loop.os_data.io_port,
                 undefined,
@@ -1144,10 +1141,10 @@ pub fn Watch(comptime V: type) type {
                     self.channel.loop.beginOneEvent();
                     errdefer self.channel.loop.finishOneEvent();
                     errdefer {
-                        _ = windows.CancelIoEx(dir_handle, &resume_node.base.overlapped);
+                        _ = windows.kernel32.CancelIoEx(dir_handle, &resume_node.base.overlapped);
                     }
                     suspend {
-                        _ = windows.ReadDirectoryChangesW(
+                        _ = windows.kernel32.ReadDirectoryChangesW(
                             dir_handle,
                             &event_buf,
                             @intCast(windows.DWORD, event_buf.len),
@@ -1163,10 +1160,9 @@ pub fn Watch(comptime V: type) type {
                     }
                 }
                 var bytes_transferred: windows.DWORD = undefined;
-                if (windows.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
-                    const errno = windows.GetLastError();
-                    const err = switch (errno) {
-                        else => os.unexpectedErrorWindows(errno),
+                if (windows.kernel32.GetOverlappedResult(dir_handle, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+                    const err = switch (windows.kernel32.GetLastError()) {
+                        else => |err| windows.unexpectedError(err),
                     };
                     await (async self.channel.put(err) catch unreachable);
                 } else {
@@ -1261,7 +1257,7 @@ pub fn Watch(comptime V: type) type {
                             ev = @ptrCast(*os.linux.inotify_event, ptr);
                             if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                                 const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
-                                const basename_with_null = basename_ptr[0 .. std.cstr.len(basename_ptr) + 1];
+                                const basename_with_null = basename_ptr[0 .. std.mem.len(u8, basename_ptr) + 1];
                                 const user_value = blk: {
                                     const held = await (async watch.os_data.table_lock.acquire() catch unreachable);
                                     defer held.release();
@@ -1340,7 +1336,7 @@ async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
 }
 
 async fn testFsWatch(loop: *Loop) !void {
-    const file_path = try os.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
+    const file_path = try std.fs.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
     defer loop.allocator.free(file_path);
 
     const contents =
@@ -1366,7 +1362,7 @@ async fn testFsWatch(loop: *Loop) !void {
     defer if (!ev_consumed) cancel ev;
 
     // overwrite line 2
-    const fd = try await try async openReadWrite(loop, file_path, os.File.default_mode);
+    const fd = try await try async openReadWrite(loop, file_path, File.default_mode);
     {
         defer os.close(fd);
 
@@ -1388,15 +1384,15 @@ async fn testFsWatch(loop: *Loop) !void {
 }
 
 pub const OutStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
     offset: usize,
 
-    pub const Error = os.File.WriteError;
+    pub const Error = File.WriteError;
     pub const Stream = event.io.OutStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) OutStream {
+    pub fn init(loop: *Loop, fd: fd_t, offset: usize) OutStream {
         return OutStream{
             .fd = fd,
             .loop = loop,
@@ -1414,7 +1410,7 @@ pub const OutStream = struct {
 };
 
 pub const InStream = struct {
-    fd: os.FileHandle,
+    fd: fd_t,
     stream: Stream,
     loop: *Loop,
     offset: usize,
@@ -1422,7 +1418,7 @@ pub const InStream = struct {
     pub const Error = PReadVError; // TODO make this not have OutOfMemory
     pub const Stream = event.io.InStream(Error);
 
-    pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) InStream {
+    pub fn init(loop: *Loop, fd: fd_t, offset: usize) InStream {
         return InStream{
             .fd = fd,
             .loop = loop,

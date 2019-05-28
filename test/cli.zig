@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const os = std.os;
 const testing = std.testing;
+const process = std.process;
+const fs = std.fs;
+const ChildProcess = std.ChildProcess;
 
 var a: *std.mem.Allocator = undefined;
 
@@ -12,7 +14,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
     defer arena.deinit();
 
-    var arg_it = os.args();
+    var arg_it = process.args();
 
     // skip my own exe name
     _ = arg_it.skip();
@@ -27,9 +29,9 @@ pub fn main() !void {
         std.debug.warn("Expected second argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
-    const zig_exe = try os.path.resolve(a, [][]const u8{zig_exe_rel});
+    const zig_exe = try fs.path.resolve(a, [][]const u8{zig_exe_rel});
 
-    const dir_path = try os.path.join(a, [][]const u8{ cache_root, "clitest" });
+    const dir_path = try fs.path.join(a, [][]const u8{ cache_root, "clitest" });
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = []TestFn{
         testZigInitLib,
@@ -37,8 +39,8 @@ pub fn main() !void {
         testGodboltApi,
     };
     for (test_fns) |testFn| {
-        try os.deleteTree(a, dir_path);
-        try os.makeDir(dir_path);
+        try fs.deleteTree(a, dir_path);
+        try fs.makeDir(dir_path);
         try testFn(zig_exe, dir_path);
     }
 }
@@ -58,15 +60,15 @@ fn printCmd(cwd: []const u8, argv: []const []const u8) void {
     std.debug.warn("\n");
 }
 
-fn exec(cwd: []const u8, argv: []const []const u8) !os.ChildProcess.ExecResult {
+fn exec(cwd: []const u8, argv: []const []const u8) !ChildProcess.ExecResult {
     const max_output_size = 100 * 1024;
-    const result = os.ChildProcess.exec(a, argv, cwd, null, max_output_size) catch |err| {
+    const result = ChildProcess.exec(a, argv, cwd, null, max_output_size) catch |err| {
         std.debug.warn("The following command failed:\n");
         printCmd(cwd, argv);
         return err;
     };
     switch (result.term) {
-        os.ChildProcess.Term.Exited => |code| {
+        .Exited => |code| {
             if (code != 0) {
                 std.debug.warn("The following command exited with error code {}:\n", code);
                 printCmd(cwd, argv);
@@ -97,10 +99,10 @@ fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
-    if (builtin.os != builtin.Os.linux or builtin.arch != builtin.Arch.x86_64) return;
+    if (builtin.os != .linux or builtin.arch != .x86_64) return;
 
-    const example_zig_path = try os.path.join(a, [][]const u8{ dir_path, "example.zig" });
-    const example_s_path = try os.path.join(a, [][]const u8{ dir_path, "example.s" });
+    const example_zig_path = try fs.path.join(a, [][]const u8{ dir_path, "example.zig" });
+    const example_s_path = try fs.path.join(a, [][]const u8{ dir_path, "example.s" });
 
     try std.io.writeFile(example_zig_path,
         \\// Type your code here, or load an example.
@@ -114,13 +116,13 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     );
 
     const args = [][]const u8{
-        zig_exe, "build-obj",
-        "--cache-dir", dir_path,
-        "--name", "example",
-        "--output-dir", dir_path,
-        "--emit", "asm",
-        "-mllvm", "--x86-asm-syntax=intel",
-        "--strip", "--release-fast",
+        zig_exe,          "build-obj",
+        "--cache-dir",    dir_path,
+        "--name",         "example",
+        "--output-dir",   dir_path,
+        "--emit",         "asm",
+        "-mllvm",         "--x86-asm-syntax=intel",
+        "--strip",        "--release-fast",
         example_zig_path, "--disable-gen-h",
     };
     _ = try exec(dir_path, args);

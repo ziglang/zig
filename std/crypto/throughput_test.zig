@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const time = std.os.time;
+const time = std.time;
 const Timer = time.Timer;
 const crypto = @import("../crypto.zig");
 

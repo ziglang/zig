@@ -877,6 +877,7 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
         case ZigLLVM_Linux:
             kind = object::Archive::K_GNU;
             break;
+        case ZigLLVM_MacOSX:
         case ZigLLVM_Darwin:
         case ZigLLVM_IOS:
             kind = object::Archive::K_DARWIN;

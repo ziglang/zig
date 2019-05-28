@@ -1,38 +1,44 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const Os = builtin.Os;
 const c = std.c;
 
 const math = std.math;
 const debug = std.debug;
 const assert = debug.assert;
 const os = std.os;
+const fs = std.fs;
 const mem = std.mem;
 const meta = std.meta;
 const trait = meta.trait;
 const Buffer = std.Buffer;
 const fmt = std.fmt;
-const File = std.os.File;
+const File = std.fs.File;
 const testing = std.testing;
 
-const is_posix = builtin.os != builtin.Os.windows;
-const is_windows = builtin.os == builtin.Os.windows;
+pub const GetStdIoError = os.windows.GetStdHandleError;
 
-const GetStdIoErrs = os.WindowsGetStdHandleErrs;
-
-pub fn getStdErr() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE) else if (is_posix) os.posix.STDERR_FILENO else unreachable;
-    return File.openHandle(handle);
+pub fn getStdOut() GetStdIoError!File {
+    if (os.windows.is_the_target) {
+        const handle = try os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE);
+        return File.openHandle(handle);
+    }
+    return File.openHandle(os.STDOUT_FILENO);
 }
 
-pub fn getStdOut() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE) else if (is_posix) os.posix.STDOUT_FILENO else unreachable;
-    return File.openHandle(handle);
+pub fn getStdErr() GetStdIoError!File {
+    if (os.windows.is_the_target) {
+        const handle = try os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE);
+        return File.openHandle(handle);
+    }
+    return File.openHandle(os.STDERR_FILENO);
 }
 
-pub fn getStdIn() GetStdIoErrs!File {
-    const handle = if (is_windows) try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE) else if (is_posix) os.posix.STDIN_FILENO else unreachable;
-    return File.openHandle(handle);
+pub fn getStdIn() GetStdIoError!File {
+    if (os.windows.is_the_target) {
+        const handle = try os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE);
+        return File.openHandle(handle);
+    }
+    return File.openHandle(os.STDIN_FILENO);
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
@@ -66,7 +72,7 @@ pub fn InStream(comptime ReadError: type) type {
                     return;
                 }
 
-                const new_buf_size = math.min(max_size, actual_buf_len + os.page_size);
+                const new_buf_size = math.min(max_size, actual_buf_len + mem.page_size);
                 if (new_buf_size == actual_buf_len) return error.StreamTooLong;
                 try buffer.resize(new_buf_size);
             }
@@ -301,7 +307,7 @@ pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptim
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(os.page_size, Error);
+    return BufferedInStreamCustom(mem.page_size, Error);
 }
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
@@ -774,7 +780,7 @@ test "io.CountingOutStream" {
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
-    return BufferedOutStreamCustom(os.page_size, Error);
+    return BufferedOutStreamCustom(mem.page_size, Error);
 }
 
 pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
@@ -979,9 +985,9 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
 }
 
 pub const BufferedAtomicFile = struct {
-    atomic_file: os.AtomicFile,
-    file_stream: os.File.OutStream,
-    buffered_stream: BufferedOutStream(os.File.WriteError),
+    atomic_file: fs.AtomicFile,
+    file_stream: File.OutStream,
+    buffered_stream: BufferedOutStream(File.WriteError),
     allocator: *mem.Allocator,
 
     pub fn create(allocator: *mem.Allocator, dest_path: []const u8) !*BufferedAtomicFile {
@@ -995,11 +1001,11 @@ pub const BufferedAtomicFile = struct {
         };
         errdefer allocator.destroy(self);
 
-        self.atomic_file = try os.AtomicFile.init(dest_path, os.File.default_mode);
+        self.atomic_file = try fs.AtomicFile.init(dest_path, File.default_mode);
         errdefer self.atomic_file.deinit();
 
         self.file_stream = self.atomic_file.file.outStream();
-        self.buffered_stream = BufferedOutStream(os.File.WriteError).init(&self.file_stream.stream);
+        self.buffered_stream = BufferedOutStream(File.WriteError).init(&self.file_stream.stream);
         return self;
     }
 
@@ -1014,7 +1020,7 @@ pub const BufferedAtomicFile = struct {
         try self.atomic_file.finish();
     }
 
-    pub fn stream(self: *BufferedAtomicFile) *OutStream(os.File.WriteError) {
+    pub fn stream(self: *BufferedAtomicFile) *OutStream(File.WriteError) {
         return &self.buffered_stream.stream;
     }
 };
