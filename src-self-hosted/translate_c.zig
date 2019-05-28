@@ -151,27 +151,27 @@ pub fn translate(
 
     var tree_arena = std.heap.ArenaAllocator.init(backing_allocator);
     errdefer tree_arena.deinit();
-    var arena = &tree_arena.allocator;
 
-    const root_node = try arena.create(ast.Node.Root);
-    root_node.* = ast.Node.Root{
+    const tree = try tree_arena.allocator.create(ast.Tree);
+    tree.* = ast.Tree{
+        .source = undefined, // need to use Buffer.toOwnedSlice later
+        .root_node = undefined,
+        .arena_allocator = tree_arena,
+        .tokens = undefined, // can't reference the allocator yet
+        .errors = undefined, // can't reference the allocator yet
+    };
+    const arena = &tree.arena_allocator.allocator; // now we can reference the allocator
+    tree.tokens = ast.Tree.TokenList.init(arena);
+    tree.errors = ast.Tree.ErrorList.init(arena);
+
+    tree.root_node = try arena.create(ast.Node.Root);
+    tree.root_node.* = ast.Node.Root{
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
         .doc_comments = null,
         // initialized with the eof token at the end
         .eof_token = undefined,
     };
-
-    const tree = try arena.create(ast.Tree);
-    tree.* = ast.Tree{
-        .source = undefined, // need to use Buffer.toOwnedSlice later
-        .root_node = root_node,
-        .arena_allocator = undefined,
-        .tokens = ast.Tree.TokenList.init(arena),
-        .errors = ast.Tree.ErrorList.init(arena),
-    };
-    tree.arena_allocator = tree_arena;
-    arena = &tree.arena_allocator.allocator;
 
     var source_buffer = try std.Buffer.initSize(arena, 0);
 
