@@ -123,6 +123,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, skip_non_native));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    test_step.dependOn(tests.addComparePanicTests(b, test_filter, modes));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
