@@ -8466,6 +8466,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
           </li>
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
+          <li>Are you building for WebAssembly? In this case, {#syntax#}std.heap.wasm_allocator{#endsyntax#} is likely
+              the right choice for your main allocator as it uses WebAssembly's memory instructions.</li>
           <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
@@ -8996,8 +8998,12 @@ all your base are belong to us</code></pre>
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
+      <p>Zig supports building for WebAssembly out of the box. There is also a specialized {#syntax#}std.heap.wasm_allocator{#endsyntax#}
+      memory allocator for WebAssembly environments.</p>
       {#header_open|Freestanding#}
-      {#code_begin|lib|wasm#}
+      <p>For host environments like the web browser and nodejs, build as a library using the freestanding OS target.
+      Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
+      {#code_begin|lib|math#}
       {#target_wasm#}
 extern fn print(i32) void;
 
@@ -9006,7 +9012,22 @@ export fn add(a: i32, b: i32) void {
 }
       {#code_end#}
       {#header_close#}
+      <p class="file">test.js</p>
+    <pre><code>const fs = require('fs');
+const source = fs.readFileSync("./math.wasm");
+const typedArray = new Uint8Array(source);
+
+WebAssembly.instantiate(typedArray, {
+  env: {
+    print: (result) =&gt; { console.log(`The result is ${result}`); }
+  }}).then(result =&gt; {
+  const add = result.instance.exports.add;
+  add(1, 2);
+});</code></pre>
+    <pre><code>$ node test.js
+The result is 3</code></pre>
       {#header_open|WASI#}
+      <p>Zig's support for WebAssembly System Interface (WASI) is under active development. Example of using the standard library and reading command line arguments:</p>
       {#code_begin|exe|wasi#}
       {#target_wasi#}
 const std = @import("std");
@@ -9020,6 +9041,10 @@ pub fn main() !void {
     }
 }
       {#code_end#}
+     <pre><code>$ wasmer run wasi.wasm 123 hello
+0: wasi.wasm
+1: 123
+2: hello</code></pre>
       {#header_close#}
       {#header_close#}
       {#header_open|Targets#}
@@ -9260,6 +9285,7 @@ Available libcs:
   s390x-linux-musl
   sparc-linux-gnu
   sparcv9-linux-gnu
+  wasm32-freestanding-musl
   x86_64-linux-gnu
   x86_64-linux-gnux32
   x86_64-linux-musl</code></pre>
