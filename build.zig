@@ -138,6 +138,7 @@ pub fn build(b: *Builder) !void {
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
+    test_step.dependOn(tests.addComparePanicTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
