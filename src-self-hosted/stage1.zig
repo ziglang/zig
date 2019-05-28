@@ -106,7 +106,8 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     const c_out_stream = std.io.COutStream.init(output_file).outStream();
-    _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
+    const RenderError = std.io.COutStream.WriteError || std.zig.RenderError;
+    _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (@errSetCast(RenderError, e)) {
         error.SystemResources => return Error.SystemResources,
         error.OperationAborted => return Error.OperationAborted,
         error.BrokenPipe => return Error.BrokenPipe,
@@ -274,7 +275,9 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
         },
         else => {
             // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
+            _ = stderr.print("unable to open '{}': {}\n", file_path, err) catch |e| {
+                return @errSetCast(FmtError, e);
+            };
             fmt.any_error = true;
             return;
         },
@@ -282,7 +285,9 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     defer fmt.allocator.free(source_code);
 
     const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
-        try stderr.print("error parsing file '{}': {}\n", file_path, err);
+        _ = stderr.print("error parsing file '{}': {}\n", file_path, err) catch |e| {
+            return @errSetCast(FmtError, e);
+        };
         fmt.any_error = true;
         return;
     };
@@ -290,7 +295,9 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        try printErrMsgToFile(fmt.allocator, parse_error, tree, file_path, stderr_file, fmt.color);
+        printErrMsgToFile(fmt.allocator, parse_error, tree, file_path, stderr_file, fmt.color) catch |e| {
+            return @errSetCast(FmtError, e);
+        };
     }
     if (tree.errors.len != 0) {
         fmt.any_error = true;
@@ -298,19 +305,29 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
+        const anything_changed = std.zig.render(fmt.allocator, io.null_out_stream, tree) catch |e| {
+            return @errSetCast(FmtError, e);
+        };
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            _ = stderr.print("{}\n", file_path) catch |e| {
+                return @errSetCast(FmtError, e);
+            };
             fmt.any_error = true;
         }
     } else {
         const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.allocator, baf.outStream(), tree);
+        const anything_changed = std.zig.render(fmt.allocator, baf.outStream(), tree) catch |e| {
+            return @errSetCast(FmtError, e);
+        };
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
-            try baf.finish();
+            stderr.print("{}\n", file_path) catch |e| {
+                return @errSetCast(FmtError, e);
+            };
+            baf.finish() catch |e| {
+                return @errSetCast(FmtError, e);
+            };
         }
     }
 }
@@ -392,5 +409,5 @@ const Flag = arg.Flag;
 const errmsg = @import("errmsg.zig");
 
 var stderr_file: os.File = undefined;
-var stderr: io.OutStream(os.File.WriteError) = undefined;
-var stdout: io.OutStream(os.File.WriteError) = undefined;
+var stderr: io.OutStream = undefined;
+var stdout: io.OutStream = undefined;

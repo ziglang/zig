@@ -169,7 +169,8 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     defer close(fd);
 
     const stream = File.openHandle(fd).inStreamAdapter().inStream();
-    stream.readNoEof(buf) catch |err| switch (err) {
+    const Error = File.ReadError || error{EndOfStream};
+    stream.readNoEof(buf) catch |err| switch (@errSetCast(Error, err)) {
         error.EndOfStream => unreachable,
         error.OperationAborted => unreachable,
         error.BrokenPipe => unreachable,

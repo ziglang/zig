@@ -1164,8 +1164,8 @@ const MachOFile = struct {
     sect_debug_line: ?*const macho.section_64,
 };
 
-pub const DwarfSeekableStream = io.SeekableStream(anyerror, anyerror);
-pub const DwarfInStream = io.InStream(anyerror);
+pub const DwarfSeekableStream = io.SeekableStream;
+pub const DwarfInStream = io.InStream;
 
 pub const DwarfInfo = struct {
     dwarf_seekable_stream: DwarfSeekableStream,

@@ -237,7 +237,7 @@ pub const OutStream = struct {
     writeFn: fn (self: Self, bytes: []const u8) anyerror!void,
 
     pub fn print(self: Self, comptime format: []const u8, args: ...) anyerror!void {
-        return std.fmt.format(self, Error, self.writeFn, format, args);
+        return std.fmt.format(self, anyerror, self.writeFn, format, args);
     }
 
     pub fn write(self: Self, bytes: []const u8) anyerror!void {
@@ -796,34 +796,33 @@ test "io.NullOutStream" {
 
 /// An OutStream that counts how many bytes has been written to it.
 pub const CountingOutStream = struct {
-        const Self = @This();
-        //Throws no errors in addition to the child stream's errors
-        pub const WriteError = error{};
+    const Self = @This();
+    //Throws no errors in addition to the child stream's errors
+    pub const WriteError = error{};
 
-        pub bytes_written: u64,
-        child_stream: Stream,
+    pub bytes_written: u64,
+    child_stream: OutStream,
 
-        pub fn init(child_stream: Stream) Self {
-            return Self{
-                .bytes_written = 0,
-                .child_stream = child_stream,
-            };
-        }
+    pub fn init(child_stream: OutStream) Self {
+        return Self{
+            .bytes_written = 0,
+            .child_stream = child_stream,
+        };
+    }
 
-        fn writeFn(out_stream: OutStream, bytes: []const u8) anyerror!void {
-            const self = out_stream.implCast(Self);
-            try self.child_stream.write(bytes);
-            self.bytes_written += bytes.len;
-        }
-        
-        pub fn outStream(self: *Self) OutStream {
-            return OutStream {
-                .impl = OutStream.ifaceCast(self),
-                .writeFn = writeFn,
-            };
-        }
-    };
-}
+    fn writeFn(out_stream: OutStream, bytes: []const u8) anyerror!void {
+        const self = out_stream.implCast(Self);
+        try self.child_stream.write(bytes);
+        self.bytes_written += bytes.len;
+    }
+    
+    pub fn outStream(self: *Self) OutStream {
+        return OutStream {
+            .impl = OutStream.ifaceCast(self),
+            .writeFn = writeFn,
+        };
+    }
+};
 
 test "io.CountingOutStream" {
     var null_stream = NullOutStream.init();

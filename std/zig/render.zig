@@ -4,30 +4,30 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const ast = std.zig.ast;
 const Token = std.zig.Token;
+const OutStream = std.io.OutStream;
 
 const indent_delta = 4;
 
-pub const Error = error{
-    /// Ran out of memory allocating call stack frames to complete rendering.
-    OutOfMemory,
-};
+//Errors from render() that could be thrown on top of whatever the underlying stream throws
+pub const RenderError = mem.Allocator.Error;
 
 /// Returns whether anything changed
-pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(stream).Error || Error)!bool {
+pub fn render(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree) anyerror!bool {
     var anything_changed: bool = false;
 
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
         const MyStream = @This();
-        const StreamError = @typeOf(stream).Error;
-        const Stream = std.io.OutStream(StreamError);
+        
+        //adds no errors on top of what the underlying stream throws
+        pub const WriteError = error{};
 
         anything_changed_ptr: *bool,
-        child_stream: @typeOf(stream),
+        child_stream: OutStream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: Stream, bytes: []const u8) StreamError!void {
+        fn write(iface_stream: OutStream, bytes: []const u8) anyerror!void {
             const self = iface_stream.implCast(MyStream);
 
             if (!self.anything_changed_ptr.*) {
@@ -46,9 +46,9 @@ pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(s
             try self.child_stream.write(bytes);
         }
         
-        pub fn outStream(self: *MyStream) Stream {
-            return Stream {
-                .impl = Stream.ifaceCast(self),
+        pub fn outStream(self: *MyStream) OutStream {
+            return OutStream {
+                .impl = OutStream.ifaceCast(self),
                 .writeFn = write,
             };
         }
@@ -71,9 +71,9 @@ pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(s
 
 fn renderRoot(
     allocator: mem.Allocator,
-    stream: var,
+    stream: OutStream,
     tree: *ast.Tree,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     var tok_it = tree.tokens.iterator(0);
 
     // render all the line comments at the beginning of the file
@@ -135,7 +135,7 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @typeOf(stream).Error!void {
+fn renderExtraNewline(tree: *ast.Tree, stream: OutStream, start_col: *usize, node: *ast.Node) anyerror!void {
     const first_token = node.firstToken();
     var prev_token = first_token;
     while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
@@ -149,7 +149,7 @@ fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *as
     }
 }
 
-fn renderTopLevelDecl(allocator: mem.Allocator, stream: var, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) (@typeOf(stream).Error || Error)!void {
+fn renderTopLevelDecl(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) anyerror!void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -230,13 +230,13 @@ fn renderTopLevelDecl(allocator: mem.Allocator, stream: var, tree: *ast.Tree, in
 
 fn renderExpression(
     allocator: mem.Allocator,
-    stream: var,
+    stream: OutStream,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     switch (base.id) {
         ast.Node.Id.Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
@@ -712,7 +712,7 @@ fn renderExpression(
 
                         // Null stream for counting the printed length of each expression
                         var null_stream = std.io.NullOutStream.init();
-                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(null_stream.outStream());
+                        var counting_stream = std.io.CountingOutStream.init(null_stream.outStream());
 
                         var it = exprs.iterator(0);
                         var i: usize = 0;
@@ -1711,12 +1711,12 @@ fn renderExpression(
 
 fn renderVarDecl(
     allocator: mem.Allocator,
-    stream: var,
+    stream: OutStream,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     var_decl: *ast.Node.VarDecl,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
     }
@@ -1783,13 +1783,13 @@ fn renderVarDecl(
 
 fn renderParamDecl(
     allocator: mem.Allocator,
-    stream: var,
+    stream: OutStream,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
 
     try renderDocComments(tree, stream, param_decl, indent, start_col);
@@ -1813,12 +1813,12 @@ fn renderParamDecl(
 
 fn renderStatement(
     allocator: mem.Allocator,
-    stream: var,
+    stream: OutStream,
     tree: *ast.Tree,
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
@@ -1851,13 +1851,13 @@ const Space = enum {
 
 fn renderTokenOffset(
     tree: *ast.Tree,
-    stream: var,
+    stream: OutStream,
     token_index: ast.TokenIndex,
     indent: usize,
     start_col: *usize,
     space: Space,
     token_skip_bytes: usize,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -2025,22 +2025,22 @@ fn renderTokenOffset(
 
 fn renderToken(
     tree: *ast.Tree,
-    stream: var,
+    stream: OutStream,
     token_index: ast.TokenIndex,
     indent: usize,
     start_col: *usize,
     space: Space,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     return renderTokenOffset(tree, stream, token_index, indent, start_col, space, 0);
 }
 
 fn renderDocComments(
     tree: *ast.Tree,
-    stream: var,
+    stream: OutStream,
     node: var,
     indent: usize,
     start_col: *usize,
-) (@typeOf(stream).Error || Error)!void {
+) anyerror!void {
     const comment = node.doc_comments orelse return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();
@@ -2080,8 +2080,7 @@ fn nodeCausesSliceOpSpace(base: *ast.Node) bool {
 // The contents are not written to anything.
 const FindByteOutStream = struct {
     const Self = FindByteOutStream;
-    pub const Error = error{};
-    pub const Stream = std.io.OutStream(Error);
+    pub const WriteError = error{};
 
     pub byte_found: bool,
     byte: u8,
@@ -2093,7 +2092,7 @@ const FindByteOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+    fn writeFn(out_stream: OutStream, bytes: []const u8) anyerror!void {
         const self = out_stream.implCast(Self);
         if (self.byte_found) return;
         self.byte_found = blk: {
@@ -2103,9 +2102,9 @@ const FindByteOutStream = struct {
         };
     }
     
-    pub fn outStream(self: *Self) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn outStream(self: *Self) OutStream {
+        return OutStream {
+            .impl = OutStream.ifaceCast(self),
             .writeFn = writeFn,
         };
     }

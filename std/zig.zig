@@ -4,6 +4,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("zig/parse.zig").parse;
 pub const parseStringLiteral = @import("zig/parse_string_literal.zig").parseStringLiteral;
 pub const render = @import("zig/render.zig").render;
+pub const RenderError = @import("zig/render.zig").RenderError;
 pub const ast = @import("zig/ast.zig");
 
 test "std.zig tests" {

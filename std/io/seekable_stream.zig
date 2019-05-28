@@ -2,50 +2,49 @@ const std = @import("../std.zig");
 const InStream = std.io.InStream;
 const assert = std.debug.assert;
 
-pub fn SeekableStream = struct {
-        const Self = @This();
-        pub const SeekableStreamImpl = ?*@OpaqueType();
+pub const SeekableStream = struct {
+    const Self = @This();
+    pub const SeekableStreamImpl = ?*@OpaqueType();
 
-        impl: SeekableStreamImpl,
-        
-        seekToFn: fn (self: Self, pos: u64) anyerror!void,
-        seekForwardFn: fn (self: Self, pos: i64) anyerror!void,
+    impl: SeekableStreamImpl,
+    
+    seekToFn: fn (self: Self, pos: u64) anyerror!void,
+    seekForwardFn: fn (self: Self, pos: i64) anyerror!void,
 
-        getPosFn: fn (self: Self) anyerror!u64,
-        getEndPosFn: fn (self: Self) anyerror!u64,
+    getPosFn: fn (self: Self) anyerror!u64,
+    getEndPosFn: fn (self: Self) anyerror!u64,
 
-        pub fn seekTo(self: Self, pos: u64) anyerror!void {
-            return self.seekToFn(self, pos);
-        }
+    pub fn seekTo(self: Self, pos: u64) anyerror!void {
+        return self.seekToFn(self, pos);
+    }
 
-        pub fn seekForward(self: Self, amt: i64) anyerror!void {
-            return self.seekForwardFn(self, amt);
-        }
+    pub fn seekForward(self: Self, amt: i64) anyerror!void {
+        return self.seekForwardFn(self, amt);
+    }
 
-        pub fn getEndPos(self: Self) anyerror!u64 {
-            return self.getEndPosFn(self);
-        }
+    pub fn getEndPos(self: Self) anyerror!u64 {
+        return self.getEndPosFn(self);
+    }
 
-        pub fn getPos(self: Self) anyerror!u64 {
-            return self.getPosFn(self);
-        }
-        
-        /// Cast the original type to the implementation pointer
-        pub fn ifaceCast(ptr: var) SeekableStreamImpl {
-            const T = @typeOf(ptr);
-            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
-            return @ptrCast(SeekableStreamImpl, ptr);
-        }
-        
-        /// Cast the implementation pointer back to the original type
-        pub fn implCast(seek: Self, comptime T: type) *T {
-            if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
-            assert(seek.impl != null);
-            const aligned = @alignCast(@alignOf(T), seek.impl);
-            return @ptrCast(*T, aligned);
-        }
-    };
-}
+    pub fn getPos(self: Self) anyerror!u64 {
+        return self.getPosFn(self);
+    }
+    
+    /// Cast the original type to the implementation pointer
+    pub fn ifaceCast(ptr: var) SeekableStreamImpl {
+        const T = @typeOf(ptr);
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
+        return @ptrCast(SeekableStreamImpl, ptr);
+    }
+    
+    /// Cast the implementation pointer back to the original type
+    pub fn implCast(seek: Self, comptime T: type) *T {
+        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
+        assert(seek.impl != null);
+        const aligned = @alignCast(@alignOf(T), seek.impl);
+        return @ptrCast(*T, aligned);
+    }
+};
 
 pub const SliceSeekableInStream = struct {
     const Self = @This();
@@ -107,7 +106,7 @@ pub const SliceSeekableInStream = struct {
     
     pub fn inStream(self: *Self) InStream {
         return InStream {
-            .impl = Stream.ifaceCast(self),
+            .impl = InStream.ifaceCast(self),
             .readFn = readFn,
         };
     }

@@ -8,7 +8,6 @@ const posix = std.os.posix;
 /// libc.
 pub const COutStream = struct {
     pub const WriteError = std.os.File.WriteError;
-    pub const Stream = OutStream(Error);
 
     c_file: *std.c.FILE,
 
@@ -18,7 +17,7 @@ pub const COutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: Stream, bytes: []const u8) anyerror!void {
+    fn writeFn(out_stream: OutStream, bytes: []const u8) anyerror!void {
         const self = out_stream.implCast(COutStream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
@@ -44,9 +43,9 @@ pub const COutStream = struct {
         }
     }
     
-    pub fn outStream(self: *COutStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn outStream(self: *COutStream) OutStream {
+        return OutStream {
+            .impl = OutStream.ifaceCast(self),
             .writeFn = writeFn,
         };
     }
