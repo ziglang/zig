@@ -277,7 +277,6 @@ pub const Thread = struct {
             mmap_slice,
             os.PROT_READ | os.PROT_WRITE,
         ) catch |err| switch (err) {
-            error.OutOfMemory => unreachable,
             error.AccessDenied => unreachable,
             else => |e| return e,
         };

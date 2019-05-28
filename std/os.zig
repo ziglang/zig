@@ -1883,7 +1883,16 @@ pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
 }
 
 pub const MProtectError = error{
+    /// The memory cannot be given the specified access.  This can happen, for example, if you
+    /// mmap(2)  a  file  to  which  you have read-only access, then ask mprotect() to mark it
+    /// PROT_WRITE.
     AccessDenied,
+
+    /// Changing  the  protection  of a memory region would result in the total number of map‐
+    /// pings with distinct attributes (e.g., read versus read/write protection) exceeding the
+    /// allowed maximum.  (For example, making the protection of a range PROT_READ in the mid‐
+    /// dle of a region currently protected as PROT_READ|PROT_WRITE would result in three map‐
+    /// pings: two read/write mappings at each end and a read-only mapping in the middle.)
     OutOfMemory,
     Unexpected,
 };
