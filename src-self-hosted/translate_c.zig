@@ -457,13 +457,21 @@ fn transImplicitCastExpr(
     expr: *const ZigClangImplicitCastExpr,
 ) !TransResult {
     const c = rp.c;
+    const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
         .BitCast => {
-            const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
             const node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
             const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
             const src_type = getExprQualType(c, sub_expr);
             return try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, node.node);
+        },
+        .FunctionToPointerDecay, .ArrayToPointerDecay => {
+            return maybeSuppressResult(
+                rp,
+                scope,
+                .used,
+                try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value),
+            );
         },
         else => |kind| return revertAndWarn(
             rp,
@@ -501,6 +509,30 @@ fn findBlockScope(inner: *Scope) *Scope.Block {
     while (true) : (scope = scope.parent orelse unreachable) {
         if (scope.id == .Block) return @fieldParentPtr(Scope.Block, "base", scope);
     }
+}
+
+fn maybeSuppressResult(
+    rp: RestorePoint,
+    scope: *Scope,
+    used: ResultUsed,
+    result: TransResult,
+) !TransResult {
+    if (used == .used) return result;
+    const lhs = try appendIdentifier(rp.c, "_");
+    const op_token = try appendToken(rp.c, .Equal, "=");
+    const op_node = try rp.c.a().create(ast.Node.InfixOp);
+    op_node.* = ast.Node.InfixOp{
+        .base = ast.Node{ .id = .InfixOp },
+        .op_token = op_token,
+        .lhs = lhs,
+        .op = .Assign,
+        .rhs = result.node,
+    };
+    return TransResult{
+        .node = &op_node.base,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
