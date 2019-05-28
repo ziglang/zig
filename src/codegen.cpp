@@ -2002,7 +2002,7 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
             render_const_val_global(g, &instruction->value, "");
             ZigType *ptr_type = get_pointer_to_type(g, instruction->value.type, true);
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.global_refs->llvm_global, get_llvm_type(g, ptr_type), "");
-        } else if (instruction->value.type->id == ZigTypeIdPointer) {
+        } else if (get_codegen_ptr_type(instruction->value.type) != nullptr) {
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.global_refs->llvm_value,
                     get_llvm_type(g, instruction->value.type), "");
         } else {
