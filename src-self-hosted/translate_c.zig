@@ -459,9 +459,10 @@ fn transImplicitCastExpr(
     const c = rp.c;
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
         .BitCast => {
-            const node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, expr), .used, .r_value);
+            const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
+            const node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
             const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
-            const src_type = getExprQualType(c, ZigClangImplicitCastExpr_getSubExpr(expr));
+            const src_type = getExprQualType(c, sub_expr);
             return try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, node.node);
         },
         else => |kind| return revertAndWarn(
