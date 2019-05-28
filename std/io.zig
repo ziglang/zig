@@ -345,7 +345,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
         start_index: usize,
         end_index: usize,
 
-        pub fn init(unbuffered_in_stream: Stream) Self {
+        pub fn init(unbuffered_in_stream: InStream) Self {
             return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
