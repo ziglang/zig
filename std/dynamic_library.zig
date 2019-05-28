@@ -105,8 +105,8 @@ pub const LinuxDynLib = struct {
 
     /// Trusts the file
     pub fn open(path: []const u8) !DynLib {
-        const fd = try std.os.posixOpen(path, 0, linux.O_RDONLY | linux.O_CLOEXEC);
-        errdefer std.os.close(fd);
+        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
+        errdefer os.close(fd);
 
         const size = @intCast(usize, (try os.fstat(fd)).size);
 
@@ -247,18 +247,10 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
-        const wpath = try win_util.sliceToPrefixedFileW(path);
+        const wpath = try windows.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
-            .dll = windows.LoadLibraryW(&wpath) orelse {
-                const err = windows.GetLastError();
-                switch (err) {
-                    windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-                    windows.ERROR.MOD_NOT_FOUND => return error.FileNotFound,
-                    else => return os.unexpectedErrorWindows(err),
-                }
-            },
+            .dll = try windows.LoadLibraryW(&wpath),
         };
     }
 
