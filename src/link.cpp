@@ -1715,7 +1715,7 @@ void codegen_link(CodeGen *g) {
     Buf diag = BUF_INIT;
 
     codegen_add_time_event(g, "LLVM Link");
-    if (g->system_linker_hack && g->zig_target->os == OsMacOSX) {
+    if (0) {
         Termination term;
         ZigList<const char *> args = {};
         for (size_t i = 1; i < lj.args.length; i += 1) {
