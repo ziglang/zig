@@ -486,6 +486,7 @@ pub extern fn ZigClangQualType_isConstQualified(arg0: struct_ZigClangQualType) b
 pub extern fn ZigClangQualType_isVolatileQualified(arg0: struct_ZigClangQualType) bool;
 pub extern fn ZigClangQualType_isRestrictQualified(arg0: struct_ZigClangQualType) bool;
 pub extern fn ZigClangType_getTypeClass(self: ?*const struct_ZigClangType) ZigClangTypeClass;
+pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) struct_ZigClangQualType;
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*]const u8;
 pub extern fn ZigClangStmt_getBeginLoc(self: *const struct_ZigClangStmt) struct_ZigClangSourceLocation;
