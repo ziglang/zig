@@ -1356,6 +1356,10 @@ bool target_supports_fpic(const ZigTarget *target) {
   return target->os != OsWindows;
 }
 
+bool target_supports_stack_probing(const ZigTarget *target) {
+    return target->os != OsWindows && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
+}
+
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
   // This function returns whether non-pic code is completely invalid on the given target.
   return target->os == OsWindows || target_os_requires_libc(target->os) ||

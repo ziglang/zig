@@ -1633,6 +1633,12 @@ enum WantPIC {
     WantPICEnabled,
 };
 
+enum WantStackCheck {
+    WantStackCheckAuto,
+    WantStackCheckDisabled,
+    WantStackCheckEnabled,
+};
+
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
@@ -1790,6 +1796,8 @@ struct CodeGen {
     TldFn *panic_tld_fn;
     AstNode *root_export_decl;
 
+    WantPIC want_pic;
+    WantStackCheck want_stack_check;
     CacheHash cache_hash;
     ErrColor err_color;
     uint32_t next_unresolved_index;
@@ -1807,8 +1815,6 @@ struct CodeGen {
     bool have_dllmain_crt_startup;
     bool have_pub_panic;
     bool have_err_ret_tracing;
-    bool have_pic;
-    bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool c_want_stdint;
     bool c_want_stdbool;
     bool verbose_tokenize;
@@ -1824,6 +1830,7 @@ struct CodeGen {
     bool enable_time_report;
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
+    bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
@@ -1852,8 +1859,6 @@ struct CodeGen {
     const ZigTarget *zig_target;
     TargetSubsystem subsystem;
     ValgrindSupport valgrind_support;
-    WantPIC want_pic;
-    bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
     bool strip_debug_symbols;
     bool is_test_build;
     bool is_single_threaded;
@@ -1863,7 +1868,9 @@ struct CodeGen {
     bool is_dummy_so;
     bool disable_gen_h;
     bool bundle_compiler_rt;
-    bool disable_stack_probing;
+    bool have_pic;
+    bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
+    bool have_stack_probing;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

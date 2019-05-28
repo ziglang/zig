@@ -399,15 +399,6 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
-static void add_probe_stack_attr(CodeGen *g, LLVMValueRef fn_val) {
-    // Windows already emits its own stack probes
-    if (!g->disable_stack_probing && g->zig_target->os != OsWindows &&
-        (g->zig_target->arch == ZigLLVM_x86 ||
-         g->zig_target->arch == ZigLLVM_x86_64)) {
-        addLLVMFnAttrStr(fn_val, "probe-stack", "__zig_probe_stack");
-    }
-}
-
 static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     switch (id) {
         case GlobalLinkageIdInternal:
@@ -596,8 +587,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
-
-            add_probe_stack_attr(g, fn_table_entry->llvm_value);
+        }
+        if (g->have_stack_probing && !fn_table_entry->def_scope->safety_off) {
+            addLLVMFnAttrStr(fn_table_entry->llvm_value, "probe-stack", "__zig_probe_stack");
         }
     } else {
         maybe_import_dll(g, fn_table_entry->llvm_value, linkage);
@@ -7458,6 +7450,20 @@ static bool detect_pic(CodeGen *g) {
     zig_unreachable();
 }
 
+static bool detect_stack_probing(CodeGen *g) {
+    if (!target_supports_stack_probing(g->zig_target))
+        return false;
+    switch (g->want_stack_check) {
+        case WantStackCheckDisabled:
+            return false;
+        case WantStackCheckEnabled:
+            return true;
+        case WantStackCheckAuto:
+            return g->build_mode == BuildModeSafeRelease || g->build_mode == BuildModeDebug;
+    }
+    zig_unreachable();
+}
+
 static bool detect_single_threaded(CodeGen *g) {
     if (g->want_single_threaded)
         return true;
@@ -7476,6 +7482,7 @@ static bool detect_err_ret_tracing(CodeGen *g) {
 Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
+    g->have_stack_probing = detect_stack_probing(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
@@ -7982,6 +7989,7 @@ static void init(CodeGen *g) {
 
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
+    g->have_stack_probing = detect_stack_probing(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
@@ -9351,10 +9359,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->each_lib_rpath);
     cache_bool(ch, g->disable_gen_h);
     cache_bool(ch, g->bundle_compiler_rt);
-    cache_bool(ch, g->disable_stack_probing);
     cache_bool(ch, want_valgrind_support(g));
     cache_bool(ch, g->have_pic);
     cache_bool(ch, g->have_dynamic_link);
+    cache_bool(ch, g->have_stack_probing);
     cache_bool(ch, g->is_dummy_so);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
