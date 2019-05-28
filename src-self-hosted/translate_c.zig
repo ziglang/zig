@@ -107,6 +107,7 @@ const Context = struct {
     decl_table: DeclTable,
     global_scope: *Scope.Root,
     mode: Mode,
+    ptr_params: std.BufSet,
     clang_context: *ZigClangASTContext,
 
     fn a(c: *Context) *std.mem.Allocator {
@@ -184,6 +185,7 @@ pub fn translate(
         .decl_table = DeclTable.init(arena),
         .global_scope = try arena.create(Scope.Root),
         .mode = mode,
+        .ptr_params = std.BufSet.init(arena),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
     };
     context.global_scope.* = Scope.Root{
@@ -326,6 +328,7 @@ fn transStmt(
     switch (sc) {
         .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
+        .DeclRefExprClass => return transDeclRefExpr(rp, scope, @ptrCast(*const ZigClangDeclRefExpr, stmt), lrvalue),
         .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt)),
         else => {
             return revertAndWarn(
@@ -451,6 +454,24 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
     };
 }
 
+fn transDeclRefExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangDeclRefExpr,
+    lrvalue: LRValue,
+) !TransResult {
+    const value_decl = ZigClangDeclRefExpr_getDecl(expr);
+    const c_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, value_decl)));
+    const zig_name = transLookupZigIdentifier(scope, c_name);
+    if (lrvalue == .l_value) try rp.c.ptr_params.put(zig_name);
+    const node = try appendIdentifier(rp.c, zig_name);
+    return TransResult{
+        .node = node,
+        .node_scope = scope,
+        .child_scope = scope,
+    };
+}
+
 fn transImplicitCastExpr(
     rp: RestorePoint,
     scope: *Scope,
@@ -508,6 +529,16 @@ fn findBlockScope(inner: *Scope) *Scope.Block {
     var scope = inner;
     while (true) : (scope = scope.parent orelse unreachable) {
         if (scope.id == .Block) return @fieldParentPtr(Scope.Block, "base", scope);
+    }
+}
+
+fn transLookupZigIdentifier(inner: *Scope, c_name: []const u8) []const u8 {
+    var scope = inner;
+    while (true) : (scope = scope.parent orelse return c_name) {
+        if (scope.id == .Var) {
+            const var_scope = @ptrCast(*const Scope.Var, scope);
+            if (std.mem.eql(u8, var_scope.c_name, c_name)) return var_scope.zig_name;
+        }
     }
 }
 

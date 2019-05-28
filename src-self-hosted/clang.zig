@@ -884,3 +884,5 @@ pub extern fn ZigClangImplicitCastExpr_getCastKind(*const ZigClangImplicitCastEx
 pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExpr) *const ZigClangExpr;
 
 pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
+
+pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const ZigClangValueDecl;

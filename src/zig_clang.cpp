@@ -1939,3 +1939,8 @@ struct ZigClangQualType ZigClangArrayType_getElementType(const struct ZigClangAr
     auto casted = reinterpret_cast<const clang::ArrayType *>(self);
     return bitcast(casted->getElementType());
 }
+
+const struct ZigClangValueDecl *ZigClangDeclRefExpr_getDecl(const struct ZigClangDeclRefExpr *self) {
+    auto casted = reinterpret_cast<const clang::DeclRefExpr *>(self);
+    return reinterpret_cast<const struct ZigClangValueDecl *>(casted->getDecl());
+}
