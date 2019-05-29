@@ -100,6 +100,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
 
     codegen_add_time_event(g, "Initialize");
 
+    g->subsystem = TargetSubsystemAuto;
     g->libc = libc;
     g->zig_target = target;
     g->cache_dir = cache_dir;
