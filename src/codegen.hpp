@@ -56,4 +56,6 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
 
 Buf *codegen_generate_builtin_source(CodeGen *g);
 
+TargetSubsystem detect_subsystem(CodeGen *g);
+
 #endif

@@ -2722,12 +2722,10 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-            g->subsystem = g->subsystem == TargetSubsystemAuto ? TargetSubsystemConsole : g->subsystem;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
             g->zig_target->os == OsWindows)
         {
             g->have_winmain = true;
-            g->subsystem = g->subsystem == TargetSubsystemAuto ? TargetSubsystemWindows : g->subsystem;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
             g->zig_target->os == OsWindows)
         {
@@ -3966,7 +3964,6 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
                 if (is_pub) {
                     if (buf_eql_str(proto_name, "main")) {
                         g->have_pub_main = true;
-                        g->subsystem = g->subsystem == TargetSubsystemAuto ? TargetSubsystemConsole : g->subsystem;
                     } else if (buf_eql_str(proto_name, "panic")) {
                         g->have_pub_panic = true;
                     }
