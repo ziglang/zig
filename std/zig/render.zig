@@ -168,7 +168,9 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             if (use_decl.visib_token) |visib_token| {
                 try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
             }
-            try renderToken(tree, stream, use_decl.use_token, indent, start_col, Space.Space); // use
+            // TODO after depracating use, go back to this:
+            //try renderToken(tree, stream, use_decl.use_token, indent, start_col, Space.Space); // usingnamespace
+            try stream.write("usingnamespace ");
             try renderExpression(allocator, stream, tree, indent, start_col, use_decl.expr, Space.None);
             try renderToken(tree, stream, use_decl.semicolon_token, indent, start_col, Space.Newline); // ;
         },

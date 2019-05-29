@@ -1,3 +1,13 @@
+// TODO remove `use` keyword eventually
+test "zig fmt: change use to usingnamespace" {
+    try testTransform(
+        \\use @import("std");
+    ,
+        \\usingnamespace @import("std");
+        \\
+    );
+}
+
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
@@ -2090,8 +2100,8 @@ test "zig fmt: Block after if" {
 
 test "zig fmt: use" {
     try testCanonical(
-        \\use @import("std");
-        \\pub use @import("std");
+        \\usingnamespace @import("std");
+        \\pub usingnamespace @import("std");
         \\
     );
 }

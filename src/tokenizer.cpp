@@ -153,7 +153,8 @@ static const struct ZigKeyword zig_keywords[] = {
     {"undefined", TokenIdKeywordUndefined},
     {"union", TokenIdKeywordUnion},
     {"unreachable", TokenIdKeywordUnreachable},
-    {"use", TokenIdKeywordUse},
+    {"use", TokenIdKeywordUsingNamespace},
+    {"usingnamespace", TokenIdKeywordUsingNamespace},
     {"var", TokenIdKeywordVar},
     {"volatile", TokenIdKeywordVolatile},
     {"while", TokenIdKeywordWhile},
@@ -1546,7 +1547,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordUndefined: return "undefined";
         case TokenIdKeywordUnion: return "union";
         case TokenIdKeywordUnreachable: return "unreachable";
-        case TokenIdKeywordUse: return "use";
+        case TokenIdKeywordUsingNamespace: return "usingnamespace";
         case TokenIdKeywordVar: return "var";
         case TokenIdKeywordVolatile: return "volatile";
         case TokenIdKeywordWhile: return "while";

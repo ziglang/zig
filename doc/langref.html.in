@@ -9918,7 +9918,7 @@ KEYWORD_try         &lt;- 'try'         end_of_word
 KEYWORD_undefined   &lt;- 'undefined'   end_of_word
 KEYWORD_union       &lt;- 'union'       end_of_word
 KEYWORD_unreachable &lt;- 'unreachable' end_of_word
-KEYWORD_use         &lt;- 'use'         end_of_word
+KEYWORD_usingnamespace &lt;- 'usingnamespace' end_of_word
 KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
@@ -9935,7 +9935,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror
          / KEYWORD_stdcallcc / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
-         / KEYWORD_use / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>
+         / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>
       {#header_close#}
       {#header_open|Zen#}
       <ul>
