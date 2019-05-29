@@ -149,3 +149,14 @@ test "realpath" {
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     testing.expectError(error.FileNotFound, fs.realpath("definitely_bogus_does_not_exist1234", &buf));
 }
+
+test "sigaltstack" {
+    if (builtin.os == .windows or builtin.os == .wasi) return error.SkipZigTest;
+
+    var st: os.stack_t = undefined;
+    try os.sigaltstack(null, &st);
+    // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
+    st.ss_flags = 0;
+    st.ss_size = 1;
+    testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
+}
