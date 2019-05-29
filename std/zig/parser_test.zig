@@ -2252,7 +2252,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         if (testParse(source, failing_allocator.allocator(), &anything_changed)) |_| {
             return error.NondeterministicMemoryUsage;
         } else |err| switch (err) {
-            error.OutOfMemory => {
+            error.NoSpaceLeft, error.OutOfMemory => {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
                     warn(
                         "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",

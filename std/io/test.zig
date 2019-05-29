@@ -135,13 +135,13 @@ test "SliceOutStream" {
     try ss.outStream().write("world");
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
-    expectError(error.OutOfSpace, ss.outStream().write("!"));
+    expectError(error.NoSpaceLeft, ss.outStream().write("!"));
     expect(mem.eql(u8, ss.getWritten(), "Helloworld"));
 
     ss.reset();
     expect(ss.getWritten().len == 0);
 
-    expectError(error.OutOfSpace, ss.outStream().write("Hello world!"));
+    expectError(error.NoSpaceLeft, ss.outStream().write("Hello world!"));
     expect(mem.eql(u8, ss.getWritten(), "Hello worl"));
 }
 

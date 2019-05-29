@@ -1392,9 +1392,6 @@ pub const OutStream = struct {
     loop: *Loop,
     offset: usize,
 
-    pub const Error = os.File.WriteError;
-    pub const Stream = event.io.OutStream(Error);
-
     pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) OutStream {
         return OutStream{
             .fd = fd,
@@ -1403,16 +1400,16 @@ pub const OutStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
+    async<*mem.Allocator> fn writeFn(out_stream: io.OutStream, bytes: []const u8) io.OutStream.Error!void {
         const self = out_stream.implCast(OutStream);
         const offset = self.offset;
         self.offset += bytes.len;
         return await (async pwritev(self.loop, self.fd, [][]const u8{bytes}, offset) catch unreachable);
     }
     
-    pub fn outStream(self: *OutStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn outStream(self: *OutStream) io.OutStream {
+        return io.OutStream {
+            .impl = io.OutStream.ifaceCast(self),
             .writeFn = writeFn,
         };
     }
@@ -1423,28 +1420,24 @@ pub const InStream = struct {
     loop: *Loop,
     offset: usize,
 
-    pub const Error = PReadVError; // TODO make this not have OutOfMemory
-    pub const Stream = event.io.InStream(Error);
-
     pub fn init(loop: *Loop, fd: os.FileHandle, offset: usize) InStream {
         return InStream{
             .fd = fd,
             .loop = loop,
             .offset = offset,
-            .stream = Stream{ .readFn = readFn },
         };
     }
 
-    async<*mem.Allocator> fn readFn(in_stream: Stream, bytes: []u8) Error!usize {
+    async<*mem.Allocator> fn readFn(in_stream: io.InStream, bytes: []u8) io.InStrean.Error!usize {
         const self = in_stream.implCast(InStream);
         const amt = try await (async preadv(self.loop, self.fd, [][]u8{bytes}, self.offset) catch unreachable);
         self.offset += amt;
         return amt;
     }
     
-    pub fn inStream(self: *InStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn inStream(self: *InStream) io.InStream {
+        return io.InStream {
+            .impl = io.InStream.ifaceCast(self),
             .readFn = readFn,
         };
     }

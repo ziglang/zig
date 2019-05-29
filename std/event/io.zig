@@ -6,11 +6,13 @@ const mem = std.mem;
 
 pub const InStream = struct {
     const Self = @This();
+    
+    pub const Error = std.os.WindowsReadError || std.os.PosixReadError || error{EndOfStream};
 
     /// Return the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
-    readFn: async<*Allocator> fn (self: *Self, buffer: []u8) anyerror!usize,
+    readFn: async<*Allocator> fn (self: *Self, buffer: []u8) Error!usize,
 
     /// Return the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
@@ -67,7 +69,7 @@ pub const InStream = struct {
 
 pub const OutStream = struct {
     const Self = @This();
-    pub const Error = WriteError;
+    pub const Error = std.os.WindowsWriteError || std.os.PosixWriteError;
 
-    writeFn: async<*Allocator> fn (self: *Self, buffer: []u8) anyerror!void,
+    writeFn: async<*Allocator> fn (self: *Self, buffer: []u8) Error!void,
 };

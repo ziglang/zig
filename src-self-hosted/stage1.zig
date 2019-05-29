@@ -392,5 +392,5 @@ const Flag = arg.Flag;
 const errmsg = @import("errmsg.zig");
 
 var stderr_file: os.File = undefined;
-var stderr: io.OutStream(os.File.WriteError) = undefined;
-var stdout: io.OutStream(os.File.WriteError) = undefined;
+var stderr: io.OutStream = undefined;
+var stdout: io.OutStream = undefined;

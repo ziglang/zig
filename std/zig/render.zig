@@ -8,26 +8,22 @@ const OutStream = std.io.OutStream;
 
 const indent_delta = 4;
 
-//Errors from render() that could be thrown on top of whatever the underlying stream throws
-pub const RenderError = mem.Allocator.Error;
+pub const Error = mem.Allocator.Error || std.io.OutStream.Error;
 
 /// Returns whether anything changed
-pub fn render(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree) anyerror!bool {
+pub fn render(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree) Error!bool {
     var anything_changed: bool = false;
 
     // make a passthrough stream that checks whether something changed
     const MyStream = struct {
         const MyStream = @This();
-        
-        //adds no errors on top of what the underlying stream throws
-        pub const WriteError = error{};
 
         anything_changed_ptr: *bool,
         child_stream: OutStream,
         source_index: usize,
         source: []const u8,
 
-        fn write(iface_stream: OutStream, bytes: []const u8) anyerror!void {
+        fn write(iface_stream: OutStream, bytes: []const u8) OutStream.Error!void {
             const self = iface_stream.implCast(MyStream);
 
             if (!self.anything_changed_ptr.*) {
@@ -73,7 +69,7 @@ fn renderRoot(
     allocator: mem.Allocator,
     stream: OutStream,
     tree: *ast.Tree,
-) anyerror!void {
+) Error!void {
     var tok_it = tree.tokens.iterator(0);
 
     // render all the line comments at the beginning of the file
@@ -135,7 +131,7 @@ fn renderRoot(
     }
 }
 
-fn renderExtraNewline(tree: *ast.Tree, stream: OutStream, start_col: *usize, node: *ast.Node) anyerror!void {
+fn renderExtraNewline(tree: *ast.Tree, stream: OutStream, start_col: *usize, node: *ast.Node) Error!void {
     const first_token = node.firstToken();
     var prev_token = first_token;
     while (tree.tokens.at(prev_token - 1).id == Token.Id.DocComment) {
@@ -149,7 +145,7 @@ fn renderExtraNewline(tree: *ast.Tree, stream: OutStream, start_col: *usize, nod
     }
 }
 
-fn renderTopLevelDecl(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) anyerror!void {
+fn renderTopLevelDecl(allocator: mem.Allocator, stream: OutStream, tree: *ast.Tree, indent: usize, start_col: *usize, decl: *ast.Node) Error!void {
     switch (decl.id) {
         ast.Node.Id.FnProto => {
             const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
@@ -236,7 +232,7 @@ fn renderExpression(
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) anyerror!void {
+) Error!void {
     switch (base.id) {
         ast.Node.Id.Identifier => {
             const identifier = @fieldParentPtr(ast.Node.Identifier, "base", base);
@@ -1716,7 +1712,7 @@ fn renderVarDecl(
     indent: usize,
     start_col: *usize,
     var_decl: *ast.Node.VarDecl,
-) anyerror!void {
+) Error!void {
     if (var_decl.visib_token) |visib_token| {
         try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
     }
@@ -1789,7 +1785,7 @@ fn renderParamDecl(
     start_col: *usize,
     base: *ast.Node,
     space: Space,
-) anyerror!void {
+) Error!void {
     const param_decl = @fieldParentPtr(ast.Node.ParamDecl, "base", base);
 
     try renderDocComments(tree, stream, param_decl, indent, start_col);
@@ -1818,7 +1814,7 @@ fn renderStatement(
     indent: usize,
     start_col: *usize,
     base: *ast.Node,
-) anyerror!void {
+) Error!void {
     switch (base.id) {
         ast.Node.Id.VarDecl => {
             const var_decl = @fieldParentPtr(ast.Node.VarDecl, "base", base);
@@ -1857,7 +1853,7 @@ fn renderTokenOffset(
     start_col: *usize,
     space: Space,
     token_skip_bytes: usize,
-) anyerror!void {
+) Error!void {
     if (space == Space.BlockStart) {
         if (start_col.* < indent + indent_delta)
             return renderToken(tree, stream, token_index, indent, start_col, Space.Space);
@@ -2030,7 +2026,7 @@ fn renderToken(
     indent: usize,
     start_col: *usize,
     space: Space,
-) anyerror!void {
+) Error!void {
     return renderTokenOffset(tree, stream, token_index, indent, start_col, space, 0);
 }
 
@@ -2040,7 +2036,7 @@ fn renderDocComments(
     node: var,
     indent: usize,
     start_col: *usize,
-) anyerror!void {
+) Error!void {
     const comment = node.doc_comments orelse return;
     var it = comment.lines.iterator(0);
     const first_token = node.firstToken();
@@ -2092,7 +2088,7 @@ const FindByteOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: OutStream, bytes: []const u8) anyerror!void {
+    fn writeFn(out_stream: OutStream, bytes: []const u8) OutStream.Error!void {
         const self = out_stream.implCast(Self);
         if (self.byte_found) return;
         self.byte_found = blk: {

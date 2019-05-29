@@ -450,7 +450,7 @@ pub const File = struct {
     pub const InStreamAdapter = struct {
         file: File,
 
-        fn readFn(in_stream: io.InStream, buffer: []u8) anyerror!usize {
+        fn readFn(in_stream: io.InStream, buffer: []u8) io.InStream.Error!usize {
             const self = in_stream.implCast(InStreamAdapter);
             return self.file.read(buffer);
         }
@@ -467,7 +467,7 @@ pub const File = struct {
     pub const OutStreamAdapter = struct {
         file: File,
 
-        fn writeFn(out_stream: io.OutStream, bytes: []const u8) anyerror!void {
+        fn writeFn(out_stream: io.OutStream, bytes: []const u8) io.OutStream.Error!void {
             const self = out_stream.implCast(OutStreamAdapter);
             return self.file.write(bytes);
         }
@@ -484,22 +484,22 @@ pub const File = struct {
     pub const SeekableStreamAdapter = struct {
         file: File,
 
-        pub fn seekToFn(seekable_stream: io.SeekableStream, pos: u64) anyerror!void {
+        pub fn seekToFn(seekable_stream: io.SeekableStream, pos: u64) io.SeekableStream.SeekError!void {
             const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.seekTo(pos);
         }
 
-        pub fn seekForwardFn(seekable_stream: io.SeekableStream, amt: i64) anyerror!void {
+        pub fn seekForwardFn(seekable_stream: io.SeekableStream, amt: i64) io.SeekableStream.SeekError!void {
             const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.seekForward(amt);
         }
 
-        pub fn getEndPosFn(seekable_stream: io.SeekableStream) anyerror!u64 {
+        pub fn getEndPosFn(seekable_stream: io.SeekableStream) io.SeekableStream.GetSeekPosError!u64 {
             const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.getEndPos();
         }
 
-        pub fn getPosFn(seekable_stream: io.SeekableStream) anyerror!u64 {
+        pub fn getPosFn(seekable_stream: io.SeekableStream) io.SeekableStream.GetSeekPosError!u64 {
             const self = seekable_stream.implCast(SeekableStreamAdapter);
             return self.file.getPos();
         }

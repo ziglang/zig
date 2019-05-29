@@ -5,28 +5,42 @@ const assert = std.debug.assert;
 pub const SeekableStream = struct {
     const Self = @This();
     pub const SeekableStreamImpl = ?*@OpaqueType();
-
+    
+    
+    pub const GetSeekPosError = error{
+        SystemResources,
+        Unseekable,
+        Unexpected,
+    };
+    
+    pub const SeekError = error{
+        Overflow,
+        Unseekable,
+        Unexpected,
+        EndOfStream,
+    };
+    
     impl: SeekableStreamImpl,
     
-    seekToFn: fn (self: Self, pos: u64) anyerror!void,
-    seekForwardFn: fn (self: Self, pos: i64) anyerror!void,
+    seekToFn: fn (self: Self, pos: u64) SeekError!void,
+    seekForwardFn: fn (self: Self, pos: i64) SeekError!void,
 
-    getPosFn: fn (self: Self) anyerror!u64,
-    getEndPosFn: fn (self: Self) anyerror!u64,
+    getPosFn: fn (self: Self) GetSeekPosError!u64,
+    getEndPosFn: fn (self: Self) GetSeekPosError!u64,
 
-    pub fn seekTo(self: Self, pos: u64) anyerror!void {
+    pub fn seekTo(self: Self, pos: u64) !void {
         return self.seekToFn(self, pos);
     }
 
-    pub fn seekForward(self: Self, amt: i64) anyerror!void {
+    pub fn seekForward(self: Self, amt: i64) !void {
         return self.seekForwardFn(self, amt);
     }
 
-    pub fn getEndPos(self: Self) anyerror!u64 {
+    pub fn getEndPos(self: Self) !u64 {
         return self.getEndPosFn(self);
     }
 
-    pub fn getPos(self: Self) anyerror!u64 {
+    pub fn getPos(self: Self) !u64 {
         return self.getPosFn(self);
     }
     
@@ -48,9 +62,6 @@ pub const SeekableStream = struct {
 
 pub const SliceSeekableInStream = struct {
     const Self = @This();
-    pub const ReadError = error{};
-    pub const SeekError = error{EndOfStream};
-    pub const GetSeekPosError = error{};
 
     pos: usize,
     slice: []const u8,
@@ -62,7 +73,7 @@ pub const SliceSeekableInStream = struct {
         };
     }
 
-    fn readFn(in_stream: InStream, dest: []u8) anyerror!usize {
+    fn readFn(in_stream: InStream, dest: []u8) InStream.Error!usize {
         const self = in_stream.implCast(SliceSeekableInStream);
         const size = std.math.min(dest.len, self.slice.len - self.pos);
         const end = self.pos + size;
@@ -73,14 +84,14 @@ pub const SliceSeekableInStream = struct {
         return size;
     }
 
-    fn seekToFn(in_stream: SeekableStream, pos: u64) anyerror!void {
+    fn seekToFn(in_stream: SeekableStream, pos: u64) SeekableStream.SeekError!void {
         const self = in_stream.implCast(SliceSeekableInStream);
         const usize_pos = @intCast(usize, pos);
         if (usize_pos >= self.slice.len) return error.EndOfStream;
         self.pos = usize_pos;
     }
 
-    fn seekForwardFn(in_stream: SeekableStream, amt: i64) anyerror!void {
+    fn seekForwardFn(in_stream: SeekableStream, amt: i64) SeekableStream.SeekError!void {
         const self = in_stream.implCast(SliceSeekableInStream);
 
         if (amt < 0) {
@@ -94,12 +105,12 @@ pub const SliceSeekableInStream = struct {
         }
     }
 
-    fn getEndPosFn(in_stream: SeekableStream) anyerror!u64 {
+    fn getEndPosFn(in_stream: SeekableStream) SeekableStream.GetSeekPosError!u64 {
         const self = in_stream.implCast(SliceSeekableInStream);
         return @intCast(u64, self.slice.len);
     }
 
-    fn getPosFn(in_stream: SeekableStream) anyerror!u64 {
+    fn getPosFn(in_stream: SeekableStream) SeekableStream.GetSeekPosError!u64 {
         const self = in_stream.implCast(SliceSeekableInStream);
         return @intCast(u64, self.pos);
     }

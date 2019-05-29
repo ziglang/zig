@@ -334,7 +334,7 @@ pub const OutStream = struct {
     fd: os.FileHandle,
     loop: *Loop,
 
-    pub const Stream = event.io.OutStream;
+    pub const Error = event.io.OutStream.Error;
 
     pub fn init(loop: *Loop, fd: os.FileHandle) OutStream {
         return OutStream{
@@ -343,14 +343,14 @@ pub const OutStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn writeFn(out_stream: Stream, bytes: []const u8) anyerror!void {
+    async<*mem.Allocator> fn writeFn(out_stream: event.io.OutStream, bytes: []const u8) Error!void {
         const self = out_stream.implCast(OutStream);
         return await (async write(self.loop, self.fd, bytes) catch unreachable);
     }
     
-    pub fn outStream(self: *OutStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn outStream(self: *OutStream) event.io.OutStream {
+        return event.io.OutStream {
+            .impl = event.io.OutStream.ifaceCast(self),
             .writeFn = writeFn,
         };
     }
@@ -359,6 +359,8 @@ pub const OutStream = struct {
 pub const InStream = struct {
     fd: os.FileHandle,
     loop: *Loop,
+    
+    pub const Error = event.io.InStream.Error;
 
     pub fn init(loop: *Loop, fd: os.FileHandle) InStream {
         return InStream{
@@ -367,14 +369,14 @@ pub const InStream = struct {
         };
     }
 
-    async<*mem.Allocator> fn readFn(in_stream: Stream, bytes: []u8) anyerror!usize {
+    async<*mem.Allocator> fn readFn(in_stream: event.io.InStream.Error, bytes: []u8) Error!usize {
         const self = in_stream.implCast(InStream);
         return await (async read(self.loop, self.fd, bytes) catch unreachable);
     }
     
-    pub fn outStream(self: *InStream) Stream {
-        return Stream {
-            .impl = Stream.ifaceCast(self),
+    pub fn outStream(self: *InStream) event.io.InStream.Error {
+        return event.io.InStream.Error {
+            .impl = event.io.InStream.Error.ifaceCast(self),
             .readFn = readFn,
         };
     }
