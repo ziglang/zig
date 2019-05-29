@@ -2170,6 +2170,25 @@ test "zig fmt: inline asm parameter alignment" {
     );
 }
 
+test "zig fmt: multiline string in array" {
+    try testCanonical(
+        \\const Foo = [][]const u8{
+        \\    \\aaa
+        \\,
+        \\    \\bbb
+        \\};
+        \\
+        \\fn bar() void {
+        \\    const Foo = [][]const u8{
+        \\        \\aaa
+        \\    ,
+        \\        \\bbb
+        \\    };
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
