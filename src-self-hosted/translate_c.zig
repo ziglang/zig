@@ -638,12 +638,12 @@ fn qualTypeChildIsFnProto(qt: ZigClangQualType) bool {
     const ty = ZigClangQualType_getTypePtr(qt);
     if (ZigClangType_getTypeClass(ty) == .Paren) {
         const paren_type = @ptrCast(*const ZigClangParenType, ty);
-        const inner_type = ZigClangParenType_getInnerType(ty);
+        const inner_type = ZigClangParenType_getInnerType(paren_type);
         return ZigClangQualType_getTypeClass(inner_type) == .FunctionProto;
     }
     if (ZigClangType_getTypeClass(ty) == .Attributed) {
         const attr_type = @ptrCast(*const ZigClangAttributedType, ty);
-        return qualTypeChildIsFnProto(bitcast(ZigClangAttributedType_getEquivalentType(attr_type)));
+        return qualTypeChildIsFnProto(ZigClangAttributedType_getEquivalentType(attr_type));
     }
     return false;
 }

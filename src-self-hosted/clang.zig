@@ -479,6 +479,7 @@ pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: str
 pub extern fn ZigClangTypedefType_getDecl(arg0: ?*const struct_ZigClangTypedefType) ?*const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(arg0: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getCanonicalType(arg0: struct_ZigClangQualType) struct_ZigClangQualType;
+pub extern fn ZigClangQualType_getTypeClass(self: struct_ZigClangQualType) ZigClangTypeClass;
 pub extern fn ZigClangQualType_getTypePtr(self: struct_ZigClangQualType) *const struct_ZigClangType;
 pub extern fn ZigClangQualType_addConst(arg0: [*c]struct_ZigClangQualType) void;
 pub extern fn ZigClangQualType_eq(arg0: struct_ZigClangQualType, arg1: struct_ZigClangQualType) bool;
@@ -887,3 +888,9 @@ pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExp
 pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
 
 pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const ZigClangValueDecl;
+
+pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
+
+pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
+
+pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;

@@ -1546,6 +1546,11 @@ const ZigClangType *ZigClangQualType_getTypePtr(ZigClangQualType self) {
     return reinterpret_cast<const ZigClangType *>(ty);
 }
 
+ZigClangTypeClass ZigClangQualType_getTypeClass(ZigClangQualType self) {
+    clang::QualType ty = bitcast(self);
+    return (ZigClangTypeClass)(ty->getTypeClass());
+}
+
 void ZigClangQualType_addConst(ZigClangQualType *self) {
     reinterpret_cast<clang::QualType *>(self)->addConst();
 }
@@ -1943,4 +1948,19 @@ struct ZigClangQualType ZigClangArrayType_getElementType(const struct ZigClangAr
 const struct ZigClangValueDecl *ZigClangDeclRefExpr_getDecl(const struct ZigClangDeclRefExpr *self) {
     auto casted = reinterpret_cast<const clang::DeclRefExpr *>(self);
     return reinterpret_cast<const struct ZigClangValueDecl *>(casted->getDecl());
+}
+
+struct ZigClangQualType ZigClangParenType_getInnerType(const struct ZigClangParenType *self) {
+    auto casted = reinterpret_cast<const clang::ParenType *>(self);
+    return bitcast(casted->getInnerType());
+}
+
+struct ZigClangQualType ZigClangAttributedType_getEquivalentType(const struct ZigClangAttributedType *self) {
+    auto casted = reinterpret_cast<const clang::AttributedType *>(self);
+    return bitcast(casted->getEquivalentType());
+}
+
+struct ZigClangQualType ZigClangElaboratedType_getNamedType(const struct ZigClangElaboratedType *self) {
+    auto casted = reinterpret_cast<const clang::ElaboratedType *>(self);
+    return bitcast(casted->getNamedType());
 }
