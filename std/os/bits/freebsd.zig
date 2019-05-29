@@ -20,6 +20,13 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
+pub const dl_phdr_info = extern struct {
+    dlpi_addr: usize,
+    dlpi_name: ?[*]const u8,
+    dlpi_phdr: [*]std.elf.Phdr,
+    dlpi_phnum: u16,
+};
+
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,

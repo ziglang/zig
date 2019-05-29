@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
+const elf = std.elf;
 const File = std.fs.File;
 const Thread = std.Thread;
 
@@ -159,4 +160,53 @@ test "sigaltstack" {
     st.ss_flags = 0;
     st.ss_size = 1;
     testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
+}
+
+// If the type is not available use void to avoid erroring out when `iter_fn` is
+// analyzed
+const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
+
+export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
+    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
+        return 0;
+
+    var counter = data.?;
+    // Count how many libraries are loaded
+    counter.* += usize(1);
+
+    // The image should contain at least a PT_LOAD segment
+    if (info.dlpi_phnum < 1) return -1;
+
+    // Quick & dirty validation of the phdr pointers, make sure we're not
+    // pointing to some random gibberish
+    var i: usize = 0;
+    var found_load = false;
+    while (i < info.dlpi_phnum) : (i += 1) {
+        const phdr = info.dlpi_phdr[i];
+
+        if (phdr.p_type != elf.PT_LOAD) continue;
+
+        // Find the ELF header
+        const elf_header = @intToPtr(*elf.Ehdr, phdr.p_vaddr - phdr.p_offset);
+        // Validate the magic
+        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
+        // Consistency check
+        if (elf_header.e_phnum != info.dlpi_phnum) return -1;
+
+        found_load = true;
+        break;
+    }
+
+    if (!found_load) return -1;
+
+    return 42;
+}
+
+test "dl_iterate_phdr" {
+    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
+        return error.SkipZigTest;
+
+    var counter: usize = 0;
+    expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
+    expect(counter != 0);
 }
