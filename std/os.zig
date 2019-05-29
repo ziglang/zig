@@ -2442,6 +2442,29 @@ pub fn unexpectedErrno(err: usize) UnexpectedError {
     return error.Unexpected;
 }
 
+pub const SigaltstackError = error{
+    /// The supplied stack size was less than MINSIGSTKSZ.
+    SizeTooSmall,
+
+    /// Attempted to change the signal stack while it was active.
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
+    if (windows.is_the_target or uefi.is_the_target or wasi.is_the_target)
+        @compileError("std.os.sigaltstack not available for this target");
+
+    switch (errno(system.sigaltstack(ss, old_ss))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        ENOMEM => return error.SizeTooSmall,
+        EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 test "" {
     _ = @import("os/darwin.zig");
     _ = @import("os/freebsd.zig");

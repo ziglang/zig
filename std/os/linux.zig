@@ -818,6 +818,10 @@ pub fn capset(hdrp: *cap_user_header_t, datap: *const cap_user_data_t) usize {
     return syscall2(SYS_capset, @ptrToInt(hdrp), @ptrToInt(datap));
 }
 
+pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) usize {
+    return syscall2(SYS_sigaltstack, @ptrToInt(ss), @ptrToInt(old_ss));
+}
+
 // XXX: This should be weak
 extern const __ehdr_start: elf.Ehdr = undefined;
 

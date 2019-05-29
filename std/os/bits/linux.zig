@@ -929,3 +929,24 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 //#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t),set)
 //#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
 //#define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
+
+pub const MINSIGSTKSZ = switch (builtin.arch) {
+    .i386, .x86_64, .arm => 2048,
+    .aarch64 => 5120,
+    else => @compileError("MINSIGSTKSZ not defined for this architecture"),
+};
+pub const SIGSTKSZ = switch (builtin.arch) {
+    .i386, .x86_64, .arm => 8192,
+    .aarch64 => 16384,
+    else => @compileError("SIGSTKSZ not defined for this architecture"),
+};
+
+pub const SS_ONSTACK = 1;
+pub const SS_DISABLE = 2;
+pub const SS_AUTODISARM = 1 << 31;
+
+pub const stack_t = extern struct {
+    ss_sp: [*]u8,
+    ss_flags: i32,
+    ss_size: isize,
+};
