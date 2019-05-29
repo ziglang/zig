@@ -1225,7 +1225,7 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     lj->args.append(get_libc_file(g->libc, "libmingwex.a"));
     lj->args.append(get_libc_file(g->libc, "libmsvcrt.a"));
 
-    if (g->subsystem == TargetSubsystemWindows) {
+    if (detect_subsystem(g) == TargetSubsystemWindows) {
         lj->args.append(get_libc_file(g->libc, "libgdi32.a"));
         lj->args.append(get_libc_file(g->libc, "libcomdlg32.a"));
     }
@@ -1307,7 +1307,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    switch (g->subsystem) {
+    switch (detect_subsystem(g)) {
         case TargetSubsystemAuto:
             if (g->zig_target->os == OsUefi) {
                 add_uefi_link_args(lj);

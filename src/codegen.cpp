@@ -100,6 +100,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
 
     codegen_add_time_event(g, "Initialize");
 
+    g->subsystem = TargetSubsystemAuto;
     g->libc = libc;
     g->zig_target = target;
     g->cache_dir = cache_dir;
@@ -7417,6 +7418,21 @@ static const char *build_mode_to_str(BuildMode build_mode) {
     zig_unreachable();
 }
 
+static const char *subsystem_to_str(TargetSubsystem subsystem) {
+    switch (subsystem) {
+        case TargetSubsystemConsole: return "Console";
+        case TargetSubsystemWindows: return "Windows";
+        case TargetSubsystemPosix: return "Posix";
+        case TargetSubsystemNative: return "Native";
+        case TargetSubsystemEfiApplication: return "EfiApplication";
+        case TargetSubsystemEfiBootServiceDriver: return "EfiBootServiceDriver";
+        case TargetSubsystemEfiRom: return "EfiRom";
+        case TargetSubsystemEfiRuntimeDriver: return "EfiRuntimeDriver";
+        case TargetSubsystemAuto: zig_unreachable();
+    }
+    zig_unreachable();
+}
+
 static bool detect_dynamic_link(CodeGen *g) {
     if (g->is_dynamic)
         return true;
@@ -7460,6 +7476,23 @@ static bool detect_stack_probing(CodeGen *g) {
             return g->build_mode == BuildModeSafeRelease || g->build_mode == BuildModeDebug;
     }
     zig_unreachable();
+}
+
+// Returns TargetSubsystemAuto to mean "no subsystem"
+TargetSubsystem detect_subsystem(CodeGen *g) {
+    if (g->subsystem != TargetSubsystemAuto)
+        return g->subsystem;
+    if (g->zig_target->os == OsWindows) {
+        if (g->have_dllmain_crt_startup || (g->out_type == OutTypeLib && g->is_dynamic))
+            return TargetSubsystemAuto;
+        if (g->have_c_main || g->have_pub_main || g->is_test_build)
+            return TargetSubsystemConsole;
+        if (g->have_winmain || g->have_winmain_crt_startup)
+            return TargetSubsystemWindows;
+    } else if (g->zig_target->os == OsUefi) {
+        return TargetSubsystemEfiApplication;
+    }
+    return TargetSubsystemAuto;
 }
 
 static bool detect_single_threaded(CodeGen *g) {
@@ -7870,6 +7903,28 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         //assert(EndianLittle == 1);
     }
     {
+        buf_appendf(contents,
+        "pub const SubSystem = enum {\n"
+        "    Console,\n"
+        "    Windows,\n"
+        "    Posix,\n"
+        "    Native,\n"
+        "    EfiApplication,\n"
+        "    EfiBootServiceDriver,\n"
+        "    EfiRom,\n"
+        "    EfiRuntimeDriver,\n"
+        "};\n\n");
+
+        assert(TargetSubsystemConsole == 0);
+        assert(TargetSubsystemWindows == 1);
+        assert(TargetSubsystemPosix == 2);
+        assert(TargetSubsystemNative == 3);
+        assert(TargetSubsystemEfiApplication == 4);
+        assert(TargetSubsystemEfiBootServiceDriver == 5);
+        assert(TargetSubsystemEfiRom == 6);
+        assert(TargetSubsystemEfiRuntimeDriver == 7);
+    }
+    {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
     }
@@ -7884,6 +7939,13 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
+
+    {
+        TargetSubsystem detected_subsystem = detect_subsystem(g);
+        if (detected_subsystem != TargetSubsystemAuto) {
+            buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
+        }
+    }
 
     if (g->is_test_build) {
         buf_appendf(contents,
@@ -7928,6 +7990,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
+    cache_int(&cache_hash, detect_subsystem(g));
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
@@ -7993,10 +8056,6 @@ static void init(CodeGen *g) {
 
     if (target_is_single_threaded(g->zig_target)) {
         g->is_single_threaded = true;
-    }
-
-    if (g->is_test_build) {
-        g->subsystem = g->subsystem == TargetSubsystemAuto ? TargetSubsystemConsole : g->subsystem;
     }
 
     assert(g->root_out_name);
@@ -9352,7 +9411,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
-    cache_int(ch, g->subsystem);
+    cache_int(ch, detect_subsystem(g));
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
     if (g->is_test_build) {

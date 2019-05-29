@@ -1857,7 +1857,7 @@ struct CodeGen {
     BuildMode build_mode;
     OutType out_type;
     const ZigTarget *zig_target;
-    TargetSubsystem subsystem;
+    TargetSubsystem subsystem; // careful using this directly; see detect_subsystem
     ValgrindSupport valgrind_support;
     bool strip_debug_symbols;
     bool is_test_build;

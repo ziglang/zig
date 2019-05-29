@@ -62,7 +62,6 @@ enum SubArchList {
 };
 
 enum TargetSubsystem {
-    TargetSubsystemAuto, // Zig should infer the subsystem
     TargetSubsystemConsole,
     TargetSubsystemWindows,
     TargetSubsystemPosix,
@@ -71,6 +70,11 @@ enum TargetSubsystem {
     TargetSubsystemEfiBootServiceDriver,
     TargetSubsystemEfiRom,
     TargetSubsystemEfiRuntimeDriver,
+
+    // This means Zig should infer the subsystem.
+    // It's last so that the indexes of other items can line up
+    // with the enum in builtin.zig.
+    TargetSubsystemAuto
 };
 
 struct ZigTarget {
