@@ -104,7 +104,7 @@ pub const LinuxDynLib = struct {
     memory: []align(mem.page_size) u8,
 
     /// Trusts the file
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !DynLib {
+    pub fn open(path: []const u8) !DynLib {
         const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
         errdefer os.close(fd);
 
@@ -244,14 +244,12 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 pub const WindowsDynLib = struct {
-    allocator: *mem.Allocator,
     dll: windows.HMODULE,
 
-    pub fn open(allocator: *mem.Allocator, path: []const u8) !WindowsDynLib {
+    pub fn open(path: []const u8) !WindowsDynLib {
         const wpath = try windows.sliceToPrefixedFileW(path);
 
         return WindowsDynLib{
-            .allocator = allocator,
             .dll = try windows.LoadLibraryW(&wpath),
         };
     }
@@ -273,7 +271,7 @@ test "dynamic_library" {
         else => return,
     };
 
-    const dynlib = DynLib.open(std.debug.global_allocator, libname) catch |err| {
+    const dynlib = DynLib.open(libname) catch |err| {
         testing.expect(err == error.FileNotFound);
         return;
     };
