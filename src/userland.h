@@ -126,14 +126,14 @@ struct stage2_DepTokenizer {
 
 // ABI warning
 struct stage2_DepNextResult {
-    enum Ent : uint8_t {
+    enum TypeId {
         error,
         null,
         target,
         prereq,
     };
 
-    Ent ent;
+    TypeId type_id;
 
     // when ent == error --> error text
     // when ent == null --> undefined

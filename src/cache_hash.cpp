@@ -482,7 +482,7 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
     // skip first token: target
     {
         auto result = stage2_DepTokenizer_next(&it);
-        switch (result.ent) {
+        switch (result.type_id) {
             case stage2_DepNextResult::error:
                 if (verbose) {
                     fprintf(stderr, "%s: failed processing .d file: %s\n", result.textz, buf_ptr(dep_file_path));
@@ -502,7 +502,7 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
     // clang is invoked in single-source mode so we never get more targets.
     for (;;) {
         auto result = stage2_DepTokenizer_next(&it);
-        switch (result.ent) {
+        switch (result.type_id) {
             case stage2_DepNextResult::error:
                 if (verbose) {
                     fprintf(stderr, "%s: failed processing .d file: %s\n", result.textz, buf_ptr(dep_file_path));

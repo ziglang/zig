@@ -359,12 +359,9 @@ pub const Tokenizer = struct {
     };
 };
 
-// stage1 compiler support
-var stage2_da = std.heap.DirectAllocator.init();
-
 export fn stage2_DepTokenizer_init(input: [*]const u8, len: usize) stage2_DepTokenizer {
-    const t = stage2_da.allocator.create(Tokenizer) catch unreachable;
-    t.* = Tokenizer.init(&stage2_da.allocator, input[0..len]);
+    const t = std.heap.c_allocator.create(Tokenizer) catch @panic("failed to create .d tokenizer");
+    t.* = Tokenizer.init(std.heap.c_allocator, input[0..len]);
     return stage2_DepTokenizer{
         .handle = t,
     };
@@ -376,20 +373,25 @@ export fn stage2_DepTokenizer_deinit(self: *stage2_DepTokenizer) void {
 
 export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextResult {
     const otoken = self.handle.next() catch {
+        const textz = std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
         return stage2_DepNextResult{
-            .ent = 0,
-            .textz = (std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch unreachable).toSlice().ptr,
+            .type_id = .error_,
+            .textz = textz.toSlice().ptr,
         };
     };
     const token = otoken orelse {
         return stage2_DepNextResult{
-            .ent = 1,
+            .type_id = .null_,
             .textz = undefined,
         };
     };
+    const textz = std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
     return stage2_DepNextResult{
-        .ent = @enumToInt(token.id) + u8(2),
-        .textz = (std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch unreachable).toSlice().ptr,
+        .type_id = switch (token.id) {
+            .target => stage2_DepNextResult.TypeId.target,
+            .prereq => stage2_DepNextResult.TypeId.prereq,
+        },
+        .textz = textz.toSlice().ptr,
     };
 }
 
@@ -398,13 +400,20 @@ export const stage2_DepTokenizer = extern struct {
 };
 
 export const stage2_DepNextResult = extern struct {
-    // 0=error, 1=null, 2=token=target, 3=token=prereq
-    ent: u8,
-    // ent=0 -- error text
-    // ent=1 -- NEVER
-    // ent=2 -- token text value
-    // ent=3 -- token text value
+    type_id: TypeId,
+
+    // when type_id == error --> error text
+    // when type_id == null --> undefined
+    // when type_id == target --> target pathname
+    // when type_id == prereq --> prereq pathname
     textz: [*]const u8,
+
+    export const TypeId = extern enum {
+        error_,
+        null_,
+        target,
+        prereq,
+    };
 };
 
 test "empty file" {
