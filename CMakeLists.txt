@@ -6719,16 +6719,14 @@ else()
 endif()
 add_custom_command(
     OUTPUT "${LIBUSERLAND}"
+    COMMENT "zig0 build libuserland"
     COMMAND zig0 ARGS build
         --override-std-dir std
         --override-lib-dir "${CMAKE_SOURCE_DIR}"
         libuserland
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    DEPENDS
-        "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
-        "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
-        "${CMAKE_SOURCE_DIR}/build.zig"
+    DEPENDS zig0
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")
