@@ -1,6 +1,6 @@
 // The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
 
-use @import("../windows/bits.zig");
+usingnamespace @import("../windows/bits.zig");
 
 pub const fd_t = HANDLE;
 pub const pid_t = HANDLE;

@@ -1,10 +1,10 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
-use @import("../bits.zig");
+usingnamespace @import("../bits.zig");
 
-pub use @import("linux/errno.zig");
-pub use switch (builtin.arch) {
+pub usingnamespace @import("linux/errno.zig");
+pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     else => struct {},

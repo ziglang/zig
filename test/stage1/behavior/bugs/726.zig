@@ -13,4 +13,3 @@ test "@ptrCast from var in empty struct to nullable" {
     var x: ?*const u8 = @ptrCast(?*const u8, &container.c);
     expect(x.?.* == 4);
 }
-

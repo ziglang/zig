@@ -25,4 +25,3 @@ test "float widening" {
     var d: f128 = c;
     expect(d == a);
 }
-

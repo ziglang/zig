@@ -46,7 +46,7 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     else => struct {},
 };
 
-pub use @import("os/bits.zig");
+pub usingnamespace @import("os/bits.zig");
 
 /// See also `getenv`. Populated by startup code before main().
 pub var environ: [][*]u8 = undefined;

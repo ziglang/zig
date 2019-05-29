@@ -1,4 +1,4 @@
-use @import("bits.zig");
+usingnamespace @import("bits.zig");
 
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 

@@ -2,9 +2,9 @@ const builtin = @import("builtin");
 const std = @import("std");
 const page_size = std.mem.page_size;
 
-pub use @import("os/bits.zig");
+pub usingnamespace @import("os/bits.zig");
 
-pub use switch (builtin.os) {
+pub usingnamespace switch (builtin.os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),

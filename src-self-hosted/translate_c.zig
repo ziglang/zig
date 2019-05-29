@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const ast = std.zig.ast;
 const Token = std.zig.Token;
-use @import("clang.zig");
+usingnamespace @import("clang.zig");
 
 pub const Mode = enum {
     import,

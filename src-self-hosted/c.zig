@@ -1,4 +1,4 @@
-pub use @cImport({
+pub usingnamespace @cImport({
     @cDefine("__STDC_CONSTANT_MACROS", "");
     @cDefine("__STDC_LIMIT_MACROS", "");
     @cInclude("inttypes.h");

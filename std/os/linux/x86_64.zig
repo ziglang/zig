@@ -1,4 +1,4 @@
-use @import("../bits.zig");
+usingnamespace @import("../bits.zig");
 
 pub fn syscall0(number: usize) usize {
     return asm volatile ("syscall"

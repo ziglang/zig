@@ -15,4 +15,3 @@ test "@alignOf(T) before referencing T" {
         comptime expect(@alignOf(Foo) == 4);
     }
 }
-

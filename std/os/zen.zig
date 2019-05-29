@@ -80,7 +80,7 @@ pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
 // FIXME: let's borrow Linux's error numbers for now.
-use @import("bits/linux/errno.zig");
+usingnamespace @import("bits/linux/errno.zig");
 // Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) usize {
     const signed_r = @bitCast(isize, r);

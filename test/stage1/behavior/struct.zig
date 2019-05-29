@@ -552,7 +552,7 @@ test "packed struct with fp fields" {
 
 test "use within struct scope" {
     const S = struct {
-        use struct {
+        usingnamespace struct {
             pub fn inner() i32 {
                 return 42;
             }

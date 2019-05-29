@@ -1,4 +1,4 @@
-use @import("bits.zig");
+usingnamespace @import("bits.zig");
 
 pub extern "advapi32" stdcallcc fn RegOpenKeyExW(
     hKey: HKEY,

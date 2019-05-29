@@ -14,12 +14,12 @@ const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 
 pub const is_the_target = builtin.os == .linux;
-pub use switch (builtin.arch) {
+pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     else => struct {},
 };
-pub use @import("bits.zig");
+pub usingnamespace @import("bits.zig");
 pub const tls = @import("linux/tls.zig");
 
 /// Set by startup code, used by `getauxval`.

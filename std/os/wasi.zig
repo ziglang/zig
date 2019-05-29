@@ -5,7 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const is_the_target = builtin.os == .wasi;
-pub use @import("bits.zig");
+pub usingnamespace @import("bits.zig");
 
 comptime {
     assert(@alignOf(i8) == 1);

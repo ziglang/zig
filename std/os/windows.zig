@@ -18,7 +18,7 @@ pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const shell32 = @import("windows/shell32.zig");
 
-pub use @import("windows/bits.zig");
+pub usingnamespace @import("windows/bits.zig");
 
 pub const CreateFileError = error{
     SharingViolation,

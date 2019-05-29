@@ -13,4 +13,3 @@ fn testCastPtrOfArrayToSliceAndPtr() void {
     x[0] += 1;
     expect(mem.eql(u8, array[0..], "boeu"));
 }
-
