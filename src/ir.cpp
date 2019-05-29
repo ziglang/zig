@@ -10266,12 +10266,6 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
     return result;
 }
 
-static bool is_container(ZigType *type) {
-    return type->id == ZigTypeIdStruct ||
-        type->id == ZigTypeIdEnum ||
-        type->id == ZigTypeIdUnion;
-}
-
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstruction *ref_old_instruction) {
     assert(old_bb);
 
@@ -16179,7 +16173,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
     if (type_is_invalid(container_type)) {
         return ira->codegen->invalid_instruction;
-    } else if (is_container_ref(container_type)) {
+    } else if (is_slice(container_type) || is_container_ref(container_type)) {
         assert(container_ptr->value.type->id == ZigTypeIdPointer);
         if (container_type->id == ZigTypeIdPointer) {
             ZigType *bare_type = container_ref_type(container_type);
@@ -16249,7 +16243,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
         if (type_is_invalid(child_type)) {
             return ira->codegen->invalid_instruction;
-        } else if (is_container(child_type) && !is_slice(child_type)) {
+        } else if (is_container(child_type)) {
             if (child_type->id == ZigTypeIdEnum) {
                 if ((err = ensure_complete_type(ira->codegen, child_type)))
                     return ira->codegen->invalid_instruction;

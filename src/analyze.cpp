@@ -3453,11 +3453,12 @@ TypeEnumField *find_enum_field_by_tag(ZigType *enum_type, const BigInt *tag) {
 }
 
 
-static bool is_container(ZigType *type_entry) {
+bool is_container(ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdStruct:
+            return !type_entry->data.structure.is_slice;
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
             return true;
@@ -3498,9 +3499,9 @@ bool is_array_ref(ZigType *type_entry) {
     return array->id == ZigTypeIdArray;
 }
 
-bool is_container_ref(ZigType *type_entry) {
-    return is_ref(type_entry) ?
-        is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
+bool is_container_ref(ZigType *parent_ty) {
+    ZigType *ty = is_ref(parent_ty) ? parent_ty->data.pointer.child_type : parent_ty;
+    return is_slice(ty) || is_container(ty);
 }
 
 ZigType *container_ref_type(ZigType *type_entry) {
@@ -3765,7 +3766,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
-static void add_symbols_from_struct(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
+static void add_symbols_from_container(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
     if (src_use_node->data.use.resolution == TldResolutionUnresolved) {
         preview_use_decl(g, src_use_node, decls_scope);
     }
@@ -3784,9 +3785,9 @@ static void add_symbols_from_struct(CodeGen *g, AstNode *src_use_node, AstNode *
     ZigType *src_ty = use_expr->data.x_type;
     assert(src_ty);
 
-    if (src_ty->id != ZigTypeIdStruct || is_slice(src_ty)) {
+    if (!is_container(src_ty)) {
         add_node_error(g, dst_use_node,
-            buf_sprintf("expected struct, found '%s'", buf_ptr(&src_ty->name)));
+            buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&src_ty->name)));
         decls_scope->any_imports_failed = true;
         return;
     }
@@ -3795,8 +3796,8 @@ static void add_symbols_from_struct(CodeGen *g, AstNode *src_use_node, AstNode *
     ScopeDecls *src_scope = get_container_scope(src_ty);
     // The top-level container where the symbols are defined, it's used in the
     // loop below in order to exclude the ones coming from an import statement
-    ZigType *src_import = get_scope_import(reinterpret_cast<Scope*>(src_scope));
-    assert(src_import && src_import->id == ZigTypeIdStruct);
+    ZigType *src_import = get_scope_import(&src_scope->base);
+    assert(src_import != nullptr);
 
     if (src_scope->any_imports_failed) {
         decls_scope->any_imports_failed = true;
@@ -3835,7 +3836,7 @@ static void add_symbols_from_struct(CodeGen *g, AstNode *src_use_node, AstNode *
     for (size_t i = 0; i < src_scope->use_decls.length; i += 1) {
         AstNode *use_decl_node = src_scope->use_decls.at(i);
         if (use_decl_node->data.use.visib_mod != VisibModPrivate)
-            add_symbols_from_struct(g, use_decl_node, dst_use_node, decls_scope);
+            add_symbols_from_container(g, use_decl_node, dst_use_node, decls_scope);
     }
 }
 
@@ -3847,7 +3848,7 @@ void resolve_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     {
         return;
     }
-    add_symbols_from_struct(g, node, node, decls_scope);
+    add_symbols_from_container(g, node, node, decls_scope);
 }
 
 void preview_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
