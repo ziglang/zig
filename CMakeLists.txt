@@ -6729,6 +6729,9 @@ add_custom_command(
         "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
         "${CMAKE_SOURCE_DIR}/build.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/parse.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/render.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/tokenizer.zig"
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")

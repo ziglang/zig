@@ -1026,7 +1026,7 @@ fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         else_node.* = Node.Else{
             .base = Node{ .id = .Else },
             .else_token = else_token,
-            .payload = null,
+            .payload = payload,
             .body = body,
         };
 
