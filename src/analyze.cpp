@@ -3453,11 +3453,12 @@ TypeEnumField *find_enum_field_by_tag(ZigType *enum_type, const BigInt *tag) {
 }
 
 
-static bool is_container(ZigType *type_entry) {
+bool is_container(ZigType *type_entry) {
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdStruct:
+            return !type_entry->data.structure.is_slice;
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
             return true;
@@ -3498,9 +3499,9 @@ bool is_array_ref(ZigType *type_entry) {
     return array->id == ZigTypeIdArray;
 }
 
-bool is_container_ref(ZigType *type_entry) {
-    return is_ref(type_entry) ?
-        is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
+bool is_container_ref(ZigType *parent_ty) {
+    ZigType *ty = is_ref(parent_ty) ? parent_ty->data.pointer.child_type : parent_ty;
+    return is_slice(ty) || is_container(ty);
 }
 
 ZigType *container_ref_type(ZigType *type_entry) {
@@ -3765,49 +3766,59 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
-static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
+static void add_symbols_from_container(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
     if (src_use_node->data.use.resolution == TldResolutionUnresolved) {
         preview_use_decl(g, src_use_node, decls_scope);
     }
 
-    ConstExprValue *use_target_value = src_use_node->data.use.using_namespace_value;
-    if (type_is_invalid(use_target_value->type)) {
+    ConstExprValue *use_expr = src_use_node->data.use.using_namespace_value;
+    if (type_is_invalid(use_expr->type)) {
         decls_scope->any_imports_failed = true;
         return;
     }
 
     dst_use_node->data.use.resolution = TldResolutionOk;
 
-    assert(use_target_value->special != ConstValSpecialRuntime);
+    assert(use_expr->special != ConstValSpecialRuntime);
 
-    ZigType *target_import = use_target_value->data.x_type;
-    assert(target_import);
+    // The source struct for the imported symbols
+    ZigType *src_ty = use_expr->data.x_type;
+    assert(src_ty);
 
-    if (target_import->id != ZigTypeIdStruct) {
+    if (!is_container(src_ty)) {
         add_node_error(g, dst_use_node,
-            buf_sprintf("expected struct, found '%s'", buf_ptr(&target_import->name)));
+            buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&src_ty->name)));
         decls_scope->any_imports_failed = true;
         return;
     }
 
-    if (get_container_scope(target_import)->any_imports_failed) {
+    // The source scope for the imported symbols
+    ScopeDecls *src_scope = get_container_scope(src_ty);
+    // The top-level container where the symbols are defined, it's used in the
+    // loop below in order to exclude the ones coming from an import statement
+    ZigType *src_import = get_scope_import(&src_scope->base);
+    assert(src_import != nullptr);
+
+    if (src_scope->any_imports_failed) {
         decls_scope->any_imports_failed = true;
     }
 
-    auto it = get_container_scope(target_import)->decl_table.entry_iterator();
+    auto it = src_scope->decl_table.entry_iterator();
     for (;;) {
         auto *entry = it.next();
         if (!entry)
             break;
 
+        Buf *target_tld_name = entry->key;
         Tld *target_tld = entry->value;
-        if (target_tld->import != target_import ||
-            target_tld->visib_mod == VisibModPrivate)
-        {
+
+        if (target_tld->visib_mod == VisibModPrivate) {
             continue;
         }
 
-        Buf *target_tld_name = entry->key;
+        if (target_tld->import != src_import) {
+            continue;
+        }
 
         auto existing_entry = decls_scope->decl_table.put_unique(target_tld_name, target_tld);
         if (existing_entry) {
@@ -3822,10 +3833,10 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
         }
     }
 
-    for (size_t i = 0; i < get_container_scope(target_import)->use_decls.length; i += 1) {
-        AstNode *use_decl_node = get_container_scope(target_import)->use_decls.at(i);
+    for (size_t i = 0; i < src_scope->use_decls.length; i += 1) {
+        AstNode *use_decl_node = src_scope->use_decls.at(i);
         if (use_decl_node->data.use.visib_mod != VisibModPrivate)
-            add_symbols_from_import(g, use_decl_node, dst_use_node, decls_scope);
+            add_symbols_from_container(g, use_decl_node, dst_use_node, decls_scope);
     }
 }
 
@@ -3837,7 +3848,7 @@ void resolve_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     {
         return;
     }
-    add_symbols_from_import(g, node, node, decls_scope);
+    add_symbols_from_container(g, node, node, decls_scope);
 }
 
 void preview_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {

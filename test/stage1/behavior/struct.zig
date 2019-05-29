@@ -549,3 +549,14 @@ test "packed struct with fp fields" {
     expectEqual(f32(11.0), s.data[1]);
     expectEqual(f32(20.0), s.data[2]);
 }
+
+test "use within struct scope" {
+    const S = struct {
+        use struct {
+            pub fn inner() i32 {
+                return 42;
+            }
+        };
+    };
+    expectEqual(i32(42), S.inner());
+}
