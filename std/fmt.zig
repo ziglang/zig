@@ -220,8 +220,10 @@ pub fn formatType(
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
                     return formatText(value, fmt, context, Errors, output);
                 }
-                const casted_value = ([]const u8)(value);
-                return output(context, casted_value);
+                if (ptr_info.child == u8) {
+                    return formatText(value, fmt, context, Errors, output);
+                }
+                return format(context, Errors, output, "{}@{x}", @typeName(ptr_info.child), @ptrToInt(value.ptr));
             },
             builtin.TypeInfo.Pointer.Size.C => {
                 return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
@@ -1008,6 +1010,10 @@ test "fmt.format" {
     {
         const value: []const u8 = "abc";
         try testFmt("slice: abc\n", "slice: {}\n", value);
+    }
+    {
+        const value = @intToPtr([*]const []const u8, 0xdeadbeef)[0..0];
+        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", value);
     }
     {
         const value = @intToPtr(*i32, 0xdeadbeef);
