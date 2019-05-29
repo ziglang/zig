@@ -46,7 +46,7 @@ pub fn main() !void {
     const input_file_bytes = try file_in_stream.inStream().readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = out_file.outStreamAdapter();
-    var buffered_out_stream = io.BufferedOutStream(os.File.WriteError).init(file_out_stream.outStream());
+    var buffered_out_stream = io.BufferedOutStream.init(file_out_stream.outStream());
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
