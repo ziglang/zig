@@ -954,6 +954,7 @@ int main(int argc, char **argv) {
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
+        g->subsystem = subsystem;
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
         g->want_stack_check = want_stack_check;
