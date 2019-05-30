@@ -84,6 +84,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
+        "  --cpu [cpu]                  set the LLVM cpu option (-mcpu)\n"
+        "  --features [features]        set the LLVM cpu features option (-mattr)\n"
         "  --override-std-dir [arg]     use an alternate Zig standard library\n"
         "\n"
         "Link Options:\n"
@@ -450,6 +452,8 @@ int main(int argc, char **argv) {
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
     WantPIC want_pic = WantPICAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
+    const char *llvm_cpu = nullptr;
+    const char *llvm_features = nullptr;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -520,7 +524,7 @@ int main(int argc, char **argv) {
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
 
-        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
+        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, llvm_cpu, llvm_features, OutTypeExe,
                 BuildModeDebug, override_lib_dir, override_std_dir, nullptr, &full_cache_dir);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
@@ -745,6 +749,10 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
+                } else if (strcmp(arg, "--cpu") == 0) {
+                    llvm_cpu = argv[i];
+                } else if (strcmp(arg, "--features") == 0) {
+                    llvm_features = argv[i];
                 } else if (strcmp(arg, "--override-std-dir") == 0) {
                     override_std_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--override-lib-dir") == 0) {
@@ -955,7 +963,7 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
+        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target, llvm_cpu, llvm_features,
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
         codegen_set_strip(g, strip);
         g->subsystem = subsystem;
@@ -1055,8 +1063,8 @@ int main(int argc, char **argv) {
             } else {
                 cache_dir_buf = buf_create_from_str(cache_dir);
             }
-            CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
-                    override_lib_dir, override_std_dir, libc, cache_dir_buf);
+            CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, llvm_cpu, llvm_features, 
+                    out_type, build_mode, override_lib_dir, override_std_dir, libc, cache_dir_buf);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;

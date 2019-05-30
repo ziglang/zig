@@ -17,11 +17,13 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
+    const char *llvm_cpu, const char *llvm_features, OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
     ZigLibCInstallation *libc, Buf *cache_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
+void codegen_set_llvm_cpu(CodeGen *codegen, const char *llvm_cpu);
+void codegen_set_llvm_features(CodeGen *codegen, const char *llvm_features);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 

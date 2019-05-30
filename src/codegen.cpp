@@ -93,6 +93,7 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
+    const char *llvm_cpu, const char *llvm_features,
     OutType out_type, BuildMode build_mode, Buf *override_lib_dir, Buf *override_std_dir,
     ZigLibCInstallation *libc, Buf *cache_dir)
 {
@@ -104,6 +105,9 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->libc = libc;
     g->zig_target = target;
     g->cache_dir = cache_dir;
+
+    g->llvm_cpu = llvm_cpu;
+    g->llvm_features = llvm_features;
 
     if (override_lib_dir == nullptr) {
         g->zig_lib_dir = get_zig_lib_dir();
@@ -218,6 +222,14 @@ void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
 void codegen_set_llvm_argv(CodeGen *g, const char **args, size_t len) {
     g->llvm_argv = args;
     g->llvm_argv_len = len;
+}
+
+void codegen_set_llvm_cpu(CodeGen *g, const char *llvm_cpu) {
+    g->llvm_cpu = llvm_cpu;
+}
+
+void codegen_set_llvm_features(CodeGen *g, const char *llvm_features) {
+    g->llvm_features = llvm_features;
 }
 
 void codegen_set_test_filter(CodeGen *g, Buf *filter) {
@@ -8113,20 +8125,39 @@ static void init(CodeGen *g) {
 
     const char *target_specific_cpu_args;
     const char *target_specific_features;
-    if (g->zig_target->is_native) {
-        // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/ziglang/zig/issues/508
-        // As a workaround we do not use target native features on Windows.
-        if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
-            target_specific_cpu_args = "";
-            target_specific_features = "";
-        } else {
-            target_specific_cpu_args = ZigLLVMGetHostCPUName();
-            target_specific_features = ZigLLVMGetNativeFeatures();
-        }
+    // If the user has overridden one of either cpu or features,
+    // use that in place of empty string or native.
+    if (g->llvm_cpu != nullptr) {
+        target_specific_cpu_args = g->llvm_cpu;
     } else {
-        target_specific_cpu_args = "";
-        target_specific_features = "";
+        if (g->zig_target->is_native) {
+            // LLVM creates invalid binaries on Windows sometimes.
+            // See https://github.com/ziglang/zig/issues/508
+            // As a workaround we do not use target native features on Windows.
+            if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
+                target_specific_cpu_args = "";
+            } else {
+                target_specific_cpu_args = ZigLLVMGetHostCPUName();
+            }
+        } else {
+            target_specific_cpu_args = "";
+        }
+    }
+    if (g->llvm_features != nullptr) {
+        target_specific_features = g->llvm_features;
+    } else {
+        if (g->zig_target->is_native) {
+            // LLVM creates invalid binaries on Windows sometimes.
+            // See https://github.com/ziglang/zig/issues/508
+            // As a workaround we do not use target native features on Windows.
+            if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
+                target_specific_features = "";
+            } else {
+                target_specific_features = ZigLLVMGetNativeFeatures();
+            }
+        } else {
+            target_specific_features = "";
+        }
     }
 
     g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),

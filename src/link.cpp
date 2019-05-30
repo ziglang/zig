@@ -22,8 +22,9 @@ struct LinkJob {
 static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
         ZigLibCInstallation *libc)
 {
-    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
+    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, 
+        parent_gen->llvm_cpu, parent_gen->llvm_features, out_type, parent_gen->build_mode, 
+        parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
     child_gen->disable_gen_h = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;

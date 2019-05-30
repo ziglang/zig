@@ -1894,6 +1894,9 @@ struct CodeGen {
 
     const char **clang_argv;
     size_t clang_argv_len;
+
+    const char *llvm_cpu;
+    const char *llvm_features;
 };
 
 struct ZigVar {

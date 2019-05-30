@@ -965,6 +965,8 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
+    llvm_cpu: ?[]const u8,
+    llvm_features: ?[]const u8,
 
     root_src: ?[]const u8,
     out_h_filename: []const u8,
@@ -1071,6 +1073,8 @@ pub const LibExeObjStep = struct {
             .output_dir = null,
             .need_system_paths = false,
             .single_threaded = false,
+            .llvm_cpu = null,
+            .llvm_features = null,
         };
         self.computeOutFileNames();
         return self;
@@ -1239,6 +1243,14 @@ pub const LibExeObjStep = struct {
 
     pub fn setDisableGenH(self: *LibExeObjStep, value: bool) void {
         self.disable_gen_h = value;
+    }
+
+    pub fn setLlvmCpu(self: *LibExeObjStep, cpu: []const u8) void {
+        self.llvm_cpu = cpu;
+    }
+
+    pub fn setLlvmFeatures(self: *LibExeObjStep, features: []const u8) void {
+        self.llvm_features = features;
     }
 
     /// Unless setOutputDir was called, this function must be called only in
@@ -1443,6 +1455,16 @@ pub const LibExeObjStep = struct {
 
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
+        }
+
+        if (self.llvm_cpu) |llvm_cpu| {
+            try zig_args.append("--cpu");
+            try zig_args.append(llvm_cpu);
+        }
+        
+        if (self.llvm_features) |llvm_features| {
+            try zig_args.append("--features");
+            try zig_args.append(llvm_features);
         }
 
         switch (self.build_mode) {
