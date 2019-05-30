@@ -2224,8 +2224,9 @@ fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
 
 fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
     // TODO https://github.com/ziglang/zig/issues/863
-    const result = mem.readIntSlice(T, ptr.*[0..@sizeOf(T)], endian);
-    ptr.* += @sizeOf(T);
+    const size = (T.bit_count + 7) / 8;
+    const result = mem.readIntSlice(T, ptr.*[0..size], endian);
+    ptr.* += size;
     return result;
 }
 
