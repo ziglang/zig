@@ -421,7 +421,7 @@ pub const Loop = struct {
     }
 
     pub fn linuxRemoveFd(self: *Loop, fd: i32) void {
-        os.epoll_ctl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, undefined) catch {};
+        os.epoll_ctl(self.os_data.epollfd, os.linux.EPOLL_CTL_DEL, fd, null) catch {};
         self.finishOneEvent();
     }
 

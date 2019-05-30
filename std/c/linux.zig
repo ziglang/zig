@@ -7,7 +7,7 @@ pub const _errno = __errno_location;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) c_int;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
 pub extern "c" fn eventfd(initval: c_uint, flags: c_uint) c_int;
-pub extern "c" fn epoll_ctl(epfd: fd_t, op: c_uint, fd: fd_t, event: *epoll_event) c_int;
+pub extern "c" fn epoll_ctl(epfd: fd_t, op: c_uint, fd: fd_t, event: ?*epoll_event) c_int;
 pub extern "c" fn epoll_create1(flags: c_uint) c_int;
 pub extern "c" fn epoll_wait(epfd: fd_t, events: [*]epoll_event, maxevents: c_uint, timeout: c_int) c_int;
 pub extern "c" fn epoll_pwait(
