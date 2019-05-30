@@ -524,7 +524,7 @@ int main(int argc, char **argv) {
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
 
-        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, llvm_cpu, llvm_features, OutTypeExe,
+        CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
                 BuildModeDebug, override_lib_dir, override_std_dir, nullptr, &full_cache_dir);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
@@ -963,7 +963,7 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target, llvm_cpu, llvm_features,
+        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target, 
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
         codegen_set_strip(g, strip);
         g->subsystem = subsystem;
@@ -1063,9 +1063,11 @@ int main(int argc, char **argv) {
             } else {
                 cache_dir_buf = buf_create_from_str(cache_dir);
             }
-            CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, llvm_cpu, llvm_features, 
+            CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, 
                     out_type, build_mode, override_lib_dir, override_std_dir, libc, cache_dir_buf);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
+            g->llvm_cpu = llvm_cpu;
+            g->llvm_features = llvm_features;
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;
             g->want_stack_check = want_stack_check;

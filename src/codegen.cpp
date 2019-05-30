@@ -93,7 +93,6 @@ static const char *symbols_that_llvm_depends_on[] = {
 };
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    const char *llvm_cpu, const char *llvm_features,
     OutType out_type, BuildMode build_mode, Buf *override_lib_dir, Buf *override_std_dir,
     ZigLibCInstallation *libc, Buf *cache_dir)
 {
@@ -105,9 +104,6 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->libc = libc;
     g->zig_target = target;
     g->cache_dir = cache_dir;
-
-    g->llvm_cpu = llvm_cpu;
-    g->llvm_features = llvm_features;
 
     if (override_lib_dir == nullptr) {
         g->zig_lib_dir = get_zig_lib_dir();
@@ -222,14 +218,6 @@ void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
 void codegen_set_llvm_argv(CodeGen *g, const char **args, size_t len) {
     g->llvm_argv = args;
     g->llvm_argv_len = len;
-}
-
-void codegen_set_llvm_cpu(CodeGen *g, const char *llvm_cpu) {
-    g->llvm_cpu = llvm_cpu;
-}
-
-void codegen_set_llvm_features(CodeGen *g, const char *llvm_features) {
-    g->llvm_features = llvm_features;
 }
 
 void codegen_set_test_filter(CodeGen *g, Buf *filter) {
