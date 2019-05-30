@@ -359,63 +359,6 @@ pub const Tokenizer = struct {
     };
 };
 
-export fn stage2_DepTokenizer_init(input: [*]const u8, len: usize) stage2_DepTokenizer {
-    const t = std.heap.c_allocator.create(Tokenizer) catch @panic("failed to create .d tokenizer");
-    t.* = Tokenizer.init(std.heap.c_allocator, input[0..len]);
-    return stage2_DepTokenizer{
-        .handle = t,
-    };
-}
-
-export fn stage2_DepTokenizer_deinit(self: *stage2_DepTokenizer) void {
-    self.handle.deinit();
-}
-
-export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextResult {
-    const otoken = self.handle.next() catch {
-        const textz = std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
-        return stage2_DepNextResult{
-            .type_id = .error_,
-            .textz = textz.toSlice().ptr,
-        };
-    };
-    const token = otoken orelse {
-        return stage2_DepNextResult{
-            .type_id = .null_,
-            .textz = undefined,
-        };
-    };
-    const textz = std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
-    return stage2_DepNextResult{
-        .type_id = switch (token.id) {
-            .target => stage2_DepNextResult.TypeId.target,
-            .prereq => stage2_DepNextResult.TypeId.prereq,
-        },
-        .textz = textz.toSlice().ptr,
-    };
-}
-
-export const stage2_DepTokenizer = extern struct {
-    handle: *Tokenizer,
-};
-
-export const stage2_DepNextResult = extern struct {
-    type_id: TypeId,
-
-    // when type_id == error --> error text
-    // when type_id == null --> undefined
-    // when type_id == target --> target pathname
-    // when type_id == prereq --> prereq pathname
-    textz: [*]const u8,
-
-    export const TypeId = extern enum {
-        error_,
-        null_,
-        target,
-        prereq,
-    };
-};
-
 test "empty file" {
     try depTokenizer("", "");
 }
@@ -469,78 +412,54 @@ test "empty target linefeeds" {
     const expect = "target = {foo.o}";
     try depTokenizer(
         \\foo.o:
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:
         \\
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:
         \\
-    ,
-        expect
-    );
+    , expect);
 }
 
 test "empty target linefeeds + continuations" {
     const expect = "target = {foo.o}";
     try depTokenizer(
         \\foo.o:\
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:\
         \\
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:\
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o:\
         \\
-    ,
-        expect
-    );
+    , expect);
 }
 
 test "empty target linefeeds + hspace + continuations" {
     const expect = "target = {foo.o}";
     try depTokenizer(
         \\foo.o: \
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o: \
         \\
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o: \
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o: \
         \\
-    ,
-        expect
-    );
+    , expect);
 }
 
 test "prereq" {
@@ -572,15 +491,11 @@ test "prereq continuation" {
     try depTokenizer(
         \\foo.o: foo.h\
         \\bar.h
-    ,
-        expect
-    );
+    , expect);
     try depTokenizer(
         \\foo.o: foo.h\
         \\bar.h
-    ,
-        expect
-    );
+    , expect);
 }
 
 test "multiple prereqs" {
@@ -907,14 +822,14 @@ test "error target - continuation expecting end-of-line" {
         \\target = {foo.o}
         \\ERROR: illegal char 'x' at position 8: continuation expecting end-of-line
     );
-    try depTokenizer("foo.o: \\x",
+    try depTokenizer("foo.o: \\\x0dx",
         \\target = {foo.o}
         \\ERROR: illegal char 'x' at position 9: continuation expecting end-of-line
     );
 }
 
 test "error prereq - continuation expecting end-of-line" {
-    try depTokenizer("foo.o: foo.h\\x",
+    try depTokenizer("foo.o: foo.h\\\x0dx",
         \\target = {foo.o}
         \\ERROR: illegal char 'x' at position 14: continuation expecting end-of-line
     );
