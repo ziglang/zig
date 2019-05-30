@@ -158,6 +158,16 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
     zig_unreachable();
 }
 
+static const char *ir_lval_str(LVal lval) {
+    switch (lval) {
+        case LValNone:
+            return "None";
+        case LValPtr:
+            return "Ptr";
+    }
+    zig_unreachable();
+}
+
 static void ir_print_un_op(IrPrint *irp, IrInstructionUnOp *un_op_instruction) {
     fprintf(irp->f, "%s ", ir_un_op_id_str(un_op_instruction->op_id));
     ir_print_other_instruction(irp, un_op_instruction->value);
@@ -219,6 +229,12 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return;
         case ResultLocIdVar:
             return ir_print_result_loc_var(irp, (ResultLocVar *)result_loc);
+        case ResultLocIdPeer:
+            fprintf(irp->f, "peer");
+            return;
+        case ResultLocIdPeerParent:
+            fprintf(irp->f, "peer_parent");
+            return;
     }
     zig_unreachable();
 }
@@ -1128,6 +1144,14 @@ static void ir_print_alloca_gen(IrPrint *irp, IrInstructionAllocaGen *instructio
     fprintf(irp->f, "Alloca(align=%" PRIu32 ",name=%s)", instruction->align, instruction->name_hint);
 }
 
+static void ir_print_end_expr(IrPrint *irp, IrInstructionEndExpr *instruction) {
+    fprintf(irp->f, "EndExpr(result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ",value=");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ",lval=%s)", ir_lval_str(instruction->lval));
+}
+
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
     fprintf(irp->f, "inttoerr ");
     ir_print_other_instruction(irp, instruction->target);
@@ -2013,6 +2037,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAllocaGen:
             ir_print_alloca_gen(irp, (IrInstructionAllocaGen *)instruction);
+            break;
+        case IrInstructionIdEndExpr:
+            ir_print_end_expr(irp, (IrInstructionEndExpr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

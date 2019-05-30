@@ -8,3 +8,21 @@ migrate all the alloca_list to alloca_gen_list
 migrate ir_build_var_decl_src to use ir_build_alloca_src and explicitly initialize
 
 inferred comptime
+
+
+    if (lval == LValNone) {
+        if (result_loc->id == ResultLocIdNone)
+            return value;
+    }
+
+    assert(lval == LValPtr);
+
+    // We needed a pointer to a value, but we got a value. So we create
+    // an instruction which just makes a pointer of it.
+    return ir_build_ref(irb, scope, value->source_node, value, false, false);
+
+handle if with no else
+
+handle comptime if condition
+
+handle mixed runtime and comptime peers
