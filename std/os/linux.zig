@@ -263,6 +263,10 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pwrite, @bitCast(usize, isize(fd)), @ptrToInt(buf), count, offset);
 }
 
+pub fn copy_file_range(fd_in: i32, off_in: ?*u64, fd_out: i32, off_out: ?*u64, len: usize, flags: u32) usize {
+    return syscall6(SYS_copy_file_range, @bitCast(usize, isize(fd_in)), @ptrToInt(off_in), @bitCast(usize, isize(fd_out)), @ptrToInt(off_out), len, flags);
+}
+
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn rename(old: [*]const u8, new: [*]const u8) usize {
     if (@hasDecl(@This(), "SYS_rename")) {
