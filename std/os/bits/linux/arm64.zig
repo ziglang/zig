@@ -299,16 +299,16 @@ pub const O_NONBLOCK = 0o4000;
 pub const O_DSYNC = 0o10000;
 pub const O_SYNC = 0o4010000;
 pub const O_RSYNC = 0o4010000;
-pub const O_DIRECTORY = 0o200000;
-pub const O_NOFOLLOW = 0o400000;
+pub const O_DIRECTORY = 0o40000;
+pub const O_NOFOLLOW = 0o100000;
 pub const O_CLOEXEC = 0o2000000;
 
 pub const O_ASYNC = 0o20000;
-pub const O_DIRECT = 0o40000;
-pub const O_LARGEFILE = 0;
+pub const O_DIRECT = 0o200000;
+pub const O_LARGEFILE = 0o400000;
 pub const O_NOATIME = 0o1000000;
 pub const O_PATH = 0o10000000;
-pub const O_TMPFILE = 0o20200000;
+pub const O_TMPFILE = 0o20040000;
 pub const O_NDELAY = O_NONBLOCK;
 
 pub const F_DUPFD = 0;
