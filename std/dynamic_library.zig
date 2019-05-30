@@ -108,11 +108,12 @@ pub const LinuxDynLib = struct {
         const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
         errdefer os.close(fd);
 
+        // TODO remove this @intCast
         const size = @intCast(usize, (try os.fstat(fd)).size);
 
         const bytes = try os.mmap(
             null,
-            size,
+            mem.alignForward(size, mem.page_size),
             os.PROT_READ | os.PROT_EXEC,
             os.MAP_PRIVATE,
             fd,
