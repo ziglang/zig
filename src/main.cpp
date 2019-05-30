@@ -84,8 +84,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
-        "  --cpu [cpu]                  set the LLVM cpu option (-mcpu)\n"
-        "  --features [features]        set the LLVM cpu features option (-mattr)\n"
+        "  --llvm-cpu [cpu]             set the LLVM cpu option (-mcpu)\n"
+        "  --llvm-features [features]   set the LLVM cpu features option (-mattr)\n"
         "  --override-std-dir [arg]     use an alternate Zig standard library\n"
         "\n"
         "Link Options:\n"
@@ -749,9 +749,9 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
-                } else if (strcmp(arg, "--cpu") == 0) {
+                } else if (strcmp(arg, "--llvm-cpu") == 0) {
                     llvm_cpu = argv[i];
-                } else if (strcmp(arg, "--features") == 0) {
+                } else if (strcmp(arg, "--llvm-features") == 0) {
                     llvm_features = argv[i];
                 } else if (strcmp(arg, "--override-std-dir") == 0) {
                     override_std_dir = buf_create_from_str(argv[i]);

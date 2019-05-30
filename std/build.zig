@@ -1458,12 +1458,12 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.llvm_cpu) |llvm_cpu| {
-            try zig_args.append("--cpu");
+            try zig_args.append("--llvm-cpu");
             try zig_args.append(llvm_cpu);
         }
         
         if (self.llvm_features) |llvm_features| {
-            try zig_args.append("--features");
+            try zig_args.append("--llvm-features");
             try zig_args.append(llvm_features);
         }
 
