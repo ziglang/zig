@@ -9,6 +9,7 @@
 #define ZIG_USERLAND_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -117,5 +118,37 @@ ZIG_EXTERN_C ZIG_ATTRIBUTE_NORETURN void stage2_panic(const char *ptr, size_t le
 
 // ABI warning
 ZIG_EXTERN_C int stage2_fmt(int argc, char **argv);
+
+// ABI warning
+struct stage2_DepTokenizer {
+    void *handle;
+};
+
+// ABI warning
+struct stage2_DepNextResult {
+    enum TypeId {
+        error,
+        null,
+        target,
+        prereq,
+    };
+
+    TypeId type_id;
+
+    // when ent == error --> error text
+    // when ent == null --> undefined
+    // when ent == target --> target pathname
+    // when ent == prereq --> prereq pathname
+    const char *textz;
+};
+
+// ABI warning
+ZIG_EXTERN_C stage2_DepTokenizer stage2_DepTokenizer_init(const char *input, size_t len);
+
+// ABI warning
+ZIG_EXTERN_C void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self);
+
+// ABI warning
+ZIG_EXTERN_C stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self);
 
 #endif

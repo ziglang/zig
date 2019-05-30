@@ -42,3 +42,18 @@ int stage2_fmt(int argc, char **argv) {
     const char *msg = "stage0 called stage2_fmt";
     stage2_panic(msg, strlen(msg));
 }
+
+stage2_DepTokenizer stage2_DepTokenizer_init(const char *input, size_t len) {
+    const char *msg = "stage0 called stage2_DepTokenizer_init";
+    stage2_panic(msg, strlen(msg));
+}
+
+void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self) {
+    const char *msg = "stage0 called stage2_DepTokenizer_deinit";
+    stage2_panic(msg, strlen(msg));
+}
+
+stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self) {
+    const char *msg = "stage0 called stage2_DepTokenizer_next";
+    stage2_panic(msg, strlen(msg));
+}

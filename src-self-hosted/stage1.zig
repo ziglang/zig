@@ -20,6 +20,10 @@ var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
 var stdout: *io.OutStream(fs.File.WriteError) = undefined;
 
+comptime {
+    _ =  @import("dep_tokenizer.zig");
+}
+
 // ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
     const info_zen = @import("main.zig").info_zen;
