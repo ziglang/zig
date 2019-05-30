@@ -965,9 +965,7 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-static ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
-        Buf *type_name)
-{
+ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name) {
     size_t backward_branch_count = 0;
     size_t backward_branch_quota = default_backward_branch_quota;
     return ir_eval_const_value(g, scope, node, type_entry,
@@ -2189,10 +2187,6 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
 
-        if (field_node->data.struct_field.value != nullptr) {
-            add_node_error(g, field_node->data.struct_field.value,
-                    buf_sprintf("enums, not structs, support field assignment"));
-        }
         if (field_type->id == ZigTypeIdOpaque) {
             add_node_error(g, field_node->data.struct_field.type,
                 buf_sprintf("opaque types have unknown size and therefore cannot be directly embedded in structs"));

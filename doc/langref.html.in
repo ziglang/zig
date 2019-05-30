@@ -2263,6 +2263,28 @@ test "linked list" {
 }
       {#code_end#}
 
+      {#header_open|Default Field Values#}
+      <p>
+      Each struct field may have an expression indicating the default field value. Such expressions
+      are executed at {#link|comptime#}, and allow the field to be omitted in a struct literal expression:
+      </p>
+      {#code_begin|test#}
+const Foo = struct {
+    a: i32 = 1234,
+    b: i32,
+};
+
+test "default struct initialization fields" {
+    const x = Foo{
+        .b = 5,
+    };
+    if (x.a + x.b != 1239) {
+        @compileError("it's even comptime known!");
+    }
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|extern struct#}
       <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
       C ABI for the target.</p>

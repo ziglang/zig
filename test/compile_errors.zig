@@ -3,6 +3,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "compile error in struct init expression",
+        \\const Foo = struct {
+        \\    a: i32 = crap,
+        \\    b: i32,
+        \\};
+        \\export fn entry() void {
+        \\    var x = Foo{
+        \\        .b = 5,
+        \\    };
+        \\}
+    ,
+        "tmp.zig:2:14: error: use of undeclared identifier 'crap'",
+    );
+
+    cases.add(
         "undefined as field type is rejected",
         \\const Foo = struct {
         \\    a: undefined,
@@ -5482,18 +5497,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:10:31: error: expected type 'u2', found 'u3'",
-    );
-
-    cases.add(
-        "struct fields with value assignments",
-        \\const MultipleChoice = struct {
-        \\    A: i32 = 20,
-        \\};
-        \\export fn entry() void {
-        \\        var x: MultipleChoice = undefined;
-        \\}
-    ,
-        "tmp.zig:2:14: error: enums, not structs, support field assignment",
     );
 
     cases.add(

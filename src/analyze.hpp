@@ -251,5 +251,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
+ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
 
 #endif

@@ -560,3 +560,21 @@ test "use within struct scope" {
     };
     expectEqual(i32(42), S.inner());
 }
+
+test "default struct initialization fields" {
+    const S = struct {
+        a: i32 = 1234,
+        b: i32,
+    };
+    const x = S{
+        .b = 5,
+    };
+    if (x.a + x.b != 1239) {
+        @compileError("it should be comptime known");
+    }
+    var five: i32 = 5;
+    const y = S{
+        .b = five,
+    };
+    expectEqual(1239, x.a + x.b);
+}

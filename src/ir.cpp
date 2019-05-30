@@ -17887,10 +17887,37 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 
     bool any_missing = false;
     for (size_t i = 0; i < actual_field_count; i += 1) {
-        if (!field_assign_nodes[i]) {
-            ir_add_error_node(ira, instruction->source_node,
-                buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
-            any_missing = true;
+        if (field_assign_nodes[i]) continue;
+
+        // look for a default field value
+        TypeStructField *field = &container_type->data.structure.fields[i];
+        if (field->init_val == nullptr) {
+            // it's not memoized. time to go analyze it
+            assert(field->decl_node->type == NodeTypeStructField);
+            AstNode *init_node = field->decl_node->data.struct_field.value;
+            if (init_node == nullptr) {
+                ir_add_error_node(ira, instruction->source_node,
+                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
+                any_missing = true;
+                continue;
+            }
+            // scope is not the scope of the struct init, it's the scope of the struct type decl
+            Scope *analyze_scope = &get_container_scope(container_type)->base;
+            // memoize it
+            field->init_val = analyze_const_value(ira->codegen, analyze_scope, init_node,
+                    field->type_entry, nullptr);
+        }
+        if (type_is_invalid(field->init_val->type))
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *runtime_inst = ir_const(ira, instruction, field->init_val->type);
+        copy_const_val(&runtime_inst->value, field->init_val, true);
+
+        new_fields[i].value = runtime_inst;
+        new_fields[i].type_struct_field = field;
+
+        if (const_val.special == ConstValSpecialStatic) {
+            copy_const_val(&const_val.data.x_struct.fields[i], field->init_val, true);
         }
     }
     if (any_missing)
