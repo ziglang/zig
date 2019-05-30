@@ -762,16 +762,16 @@ pub const epoll_data = extern union {
 
 // On x86_64 the structure is packed so that it matches the definition of its
 // 32bit counterpart
-pub const epoll_event = if (builtin.arch != .x86_64)
-    extern struct {
+pub const epoll_event = switch (builtin.arch) {
+    .x86_64 => packed struct {
         events: u32,
         data: epoll_data,
-    }
-else
-    packed struct {
+    },
+    else => extern struct {
         events: u32,
         data: epoll_data,
-    };
+    },
+};
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
 pub const _LINUX_CAPABILITY_U32S_1 = 1;

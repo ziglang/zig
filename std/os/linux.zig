@@ -131,7 +131,7 @@ pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usiz
     if (@hasDecl(@This(), "SYS_readlink")) {
         return syscall3(SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
     } else {
-        return syscall4(SYS_readlinkat, AT_FDCWD, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
+        return syscall4(SYS_readlinkat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
     }
 }
 
@@ -145,7 +145,7 @@ pub fn mkdir(path: [*]const u8, mode: u32) usize {
     if (@hasDecl(@This(), "SYS_mkdir")) {
         return syscall2(SYS_mkdir, @ptrToInt(path), mode);
     } else {
-        return syscall3(SYS_mkdirat, AT_FDCWD, @ptrToInt(path), mode);
+        return syscall3(SYS_mkdirat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(path), mode);
     }
 }
 
@@ -206,7 +206,7 @@ pub fn rmdir(path: [*]const u8) usize {
     if (@hasDecl(@This(), "SYS_rmdir")) {
         return syscall1(SYS_rmdir, @ptrToInt(path));
     } else {
-        return syscall3(SYS_unlinkat, AT_FDCWD, @ptrToInt(path), AT_REMOVEDIR);
+        return syscall3(SYS_unlinkat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(path), AT_REMOVEDIR);
     }
 }
 
@@ -215,7 +215,7 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
     if (@hasDecl(@This(), "SYS_symlink")) {
         return syscall2(SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
     } else {
-        return syscall3(SYS_symlinkat, @ptrToInt(existing), AT_FDCWD, @ptrToInt(new));
+        return syscall3(SYS_symlinkat, @ptrToInt(existing), @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(new));
     }
 }
 
@@ -231,12 +231,16 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn access(path: [*]const u8, mode: u32) usize {
-    return syscall2(SYS_access, @ptrToInt(path), mode);
+    if (@hasDecl(@This(), "SYS_access")) {
+        return syscall2(SYS_access, @ptrToInt(path), mode);
+    } else {
+        return syscall4(SYS_faccessat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(path), mode, 0);
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
-pub fn faccessat(dirfd: i32, path: [*]const u8, mode: u32) usize {
-    return syscall3(SYS_faccessat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), mode);
+pub fn faccessat(dirfd: i32, path: [*]const u8, mode: u32, flags: u32) usize {
+    return syscall4(SYS_faccessat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), mode, flags);
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -264,9 +268,9 @@ pub fn rename(old: [*]const u8, new: [*]const u8) usize {
     if (@hasDecl(@This(), "SYS_rename")) {
         return syscall2(SYS_rename, @ptrToInt(old), @ptrToInt(new));
     } else if (@hasDecl(@This(), "SYS_renameat")) {
-        return syscall4(SYS_renameat, AT_FDCWD, @ptrToInt(old), AT_FDCWD, @ptrToInt(new));
+        return syscall4(SYS_renameat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(old), @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(new));
     } else {
-        return syscall5(SYS_renameat2, AT_FDCWD, @ptrToInt(old), AT_FDCWD, @ptrToInt(new), 0);
+        return syscall5(SYS_renameat2, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(old), @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(new), 0);
     }
 }
 
@@ -305,7 +309,17 @@ pub fn renameat2(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn open(path: [*]const u8, flags: u32, perm: usize) usize {
-    return syscall3(SYS_open, @ptrToInt(path), flags, perm);
+    if (@hasDecl(@This(), "SYS_open")) {
+        return syscall3(SYS_open, @ptrToInt(path), flags, perm);
+    } else {
+        return syscall4(
+            SYS_openat,
+            @bitCast(usize, isize(AT_FDCWD)),
+            @ptrToInt(path),
+            flags,
+            perm,
+        );
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -373,7 +387,7 @@ pub fn unlink(path: [*]const u8) usize {
     if (@hasDecl(@This(), "SYS_unlink")) {
         return syscall1(SYS_unlink, @ptrToInt(path));
     } else {
-        return syscall3(SYS_unlinkat, AT_FDCWD, @ptrToInt(path), 0);
+        return syscall3(SYS_unlinkat, @bitCast(usize, isize(AT_FDCWD)), @ptrToInt(path), 0);
     }
 }
 
@@ -759,18 +773,12 @@ pub fn epoll_create1(flags: usize) usize {
     return syscall1(SYS_epoll_create1, flags);
 }
 
-pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: *epoll_event) usize {
+pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: ?*epoll_event) usize {
     return syscall4(SYS_epoll_ctl, @bitCast(usize, isize(epoll_fd)), @intCast(usize, op), @bitCast(usize, isize(fd)), @ptrToInt(ev));
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
-    return syscall4(
-        SYS_epoll_wait,
-        @bitCast(usize, isize(epoll_fd)),
-        @ptrToInt(events),
-        maxevents,
-        @bitCast(usize, isize(timeout)),
-    );
+    return epoll_pwait(epoll_fd, events, maxevents, timeout, null);
 }
 
 pub fn epoll_pwait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32, sigmask: ?*sigset_t) usize {

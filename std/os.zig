@@ -1509,7 +1509,7 @@ pub const EpollCtlError = error{
     Unexpected,
 };
 
-pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: *epoll_event) EpollCtlError!void {
+pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
     switch (errno(rc)) {
         0 => return,
