@@ -1382,6 +1382,9 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
         FnInline fn_inline, bool is_async, IrInstruction *async_allocator, IrInstruction *new_stack,
         ResultLoc *result_loc, ZigType *return_type)
 {
+    // must be resolved before building the call instruction
+    IrInstruction *resolved_result_loc = ir_resolve_result(ira, result_loc, return_type, nullptr);
+
     IrInstructionCallGen *call_instruction = ir_build_instruction<IrInstructionCallGen>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
     call_instruction->base.value.type = return_type;
@@ -1393,7 +1396,7 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
     call_instruction->new_stack = new_stack;
-    call_instruction->result_loc = ir_resolve_result(ira, result_loc, return_type, nullptr);
+    call_instruction->result_loc = resolved_result_loc;
 
     if (fn_ref != nullptr) ir_ref_instruction(fn_ref, ira->new_irb.current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
@@ -14347,10 +14350,14 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, ResultLoc *result_lo
 }
 
 // give nullptr for value to resolve it at runtime
-// returns a result location, or nullptr if the result location was already taken care of by this function
+// returns a result location, or nullptr if the result location was already taken care of
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type,
         IrInstruction *value)
 {
+    if (result_loc->implicit_elem_type != nullptr) {
+        // already resolved
+        return nullptr;
+    }
     result_loc->gen_instruction = value;
     result_loc->implicit_elem_type = value_type;
     switch (result_loc->id) {

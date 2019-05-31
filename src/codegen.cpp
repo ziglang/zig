@@ -1995,7 +1995,7 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     if (!type_has_bits(instruction->value.type))
         return nullptr;
     if (!instruction->llvm_value) {
-        assert(instruction->value.special != ConstValSpecialRuntime);
+        src_assert(instruction->value.special != ConstValSpecialRuntime, instruction->source_node);
         assert(instruction->value.type);
         render_const_val(g, &instruction->value, "");
         // we might have to do some pointer casting here due to the way union
@@ -2388,7 +2388,11 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
         assert(g->cur_ret_ptr);
-        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        if (return_instruction->value->value.special != ConstValSpecialRuntime) {
+            // if it's comptime we have to do this but if it's runtime trust that
+            // result location mechanism took care of it.
+            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
+        }
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
         LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
