@@ -284,7 +284,7 @@ pub const DarwinDynLib = struct {
 
         // see https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlopen.3.html
         return DarwinDynLib{
-            .handle = darwin.dlopen(path, darwin.RTLD_LAZY) orelse {
+            .handle = darwin.dlopen(path.ptr, darwin.RTLD_LAZY) orelse {
                 return error.FileNotFound;
             },
         };
