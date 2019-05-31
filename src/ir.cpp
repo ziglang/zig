@@ -14365,11 +14365,11 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
             assert(result_loc->source_instruction->id == IrInstructionIdAllocaSrc);
             IrInstructionAllocaSrc *alloca_src =
                 reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
-            bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime &&
-                result_loc_var->var->gen_is_const;
             if (alloca_src->base.child == nullptr) {
                 uint32_t align = 0; // TODO
                 bool force_comptime = false; // TODO
+                bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime &&
+                    result_loc_var->var->gen_is_const;
                 IrInstruction *alloca_gen;
                 if (is_comptime) {
                     alloca_gen = ir_get_ref(ira, result_loc->source_instruction, value, true, false);
@@ -14378,10 +14378,13 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
                             alloca_src->name_hint, force_comptime);
                 }
                 alloca_src->base.child = alloca_gen;
+                return is_comptime ? nullptr : alloca_src->base.child;
             }
-            return is_comptime ? nullptr : alloca_src->base.child;
+            return nullptr;
         }
         case ResultLocIdReturn: {
+            bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime;
+            if (is_comptime) return nullptr;
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
             return ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
         }
