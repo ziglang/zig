@@ -23,6 +23,4 @@ inferred comptime
 
 handle if with no else
 
-handle comptime if condition
-
-handle mixed runtime and comptime peers
+audit usage of LVal because that's when ir_lval_wrap is not called which now has build_end_expr

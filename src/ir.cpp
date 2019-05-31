@@ -168,6 +168,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, ZigVar *var);
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op);
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval, ResultLoc *result_loc);
+static IrInstruction *ir_expr_wrap(IrBuilder *irb, Scope *scope, IrInstruction *inst, ResultLoc *result_loc);
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align);
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align);
 static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node, uint8_t *buf, ConstExprValue *val);
@@ -4011,7 +4012,7 @@ static void populate_invalid_variable_in_scope(CodeGen *g, Scope *scope, AstNode
     scope_decls->decl_table.put(var_name, &tld_var->base);
 }
 
-static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
+static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     Error err;
     assert(node->type == NodeTypeSymbol);
 
@@ -4053,10 +4054,11 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     ZigVar *var = find_variable(irb->codegen, scope, variable_name, &crossed_fndef_scope);
     if (var) {
         IrInstruction *var_ptr = ir_build_var_ptr_x(irb, scope, node, var, crossed_fndef_scope);
-        if (lval == LValPtr)
+        if (lval == LValPtr) {
             return var_ptr;
-        else
-            return ir_build_load_ptr(irb, scope, node, var_ptr);
+        } else {
+            return ir_expr_wrap(irb, scope, ir_build_load_ptr(irb, scope, node, var_ptr), result_loc);
+        }
     }
 
     Tld *tld = find_decl(irb->codegen, scope, variable_name);
@@ -5389,6 +5391,12 @@ static IrInstruction *ir_gen_prefix_op_id(IrBuilder *irb, Scope *scope, AstNode 
     return ir_gen_prefix_op_id_lval(irb, scope, node, op_id, LValNone);
 }
 
+static IrInstruction *ir_expr_wrap(IrBuilder *irb, Scope *scope, IrInstruction *inst, ResultLoc *result_loc) {
+    // TODO remove the lval parameter here
+    ir_build_end_expr(irb, scope, inst->source_node, inst, LValNone, result_loc);
+    return inst;
+}
+
 static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LVal lval,
         ResultLoc *result_loc)
 {
@@ -5408,9 +5416,7 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
         return ir_build_ref(irb, scope, value->source_node, value, false, false);
     }
 
-    // TODO remove the lval parameter here
-    ir_build_end_expr(irb, scope, value->source_node, value, lval, result_loc);
-    return value;
+    return ir_expr_wrap(irb, scope, value, result_loc);
 }
 
 static PtrLen star_token_to_ptr_len(TokenId token_id) {
@@ -7747,7 +7753,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeCharLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_char_lit(irb, scope, node), lval, result_loc);
         case NodeTypeSymbol:
-            return ir_gen_symbol(irb, scope, node, lval);
+            return ir_gen_symbol(irb, scope, node, lval, result_loc);
         case NodeTypeFnCallExpr:
             return ir_gen_fn_call(irb, scope, node, lval, result_loc);
         case NodeTypeIfBoolExpr:
@@ -14345,8 +14351,6 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, ResultLoc *result_lo
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type,
         IrInstruction *value)
 {
-    bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime;
-
     result_loc->gen_instruction = value;
     result_loc->implicit_elem_type = value_type;
     switch (result_loc->id) {
@@ -14357,10 +14361,12 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
             return nullptr;
         case ResultLocIdVar: {
             // TODO implicit cast?
-            //ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
+            ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
             assert(result_loc->source_instruction->id == IrInstructionIdAllocaSrc);
             IrInstructionAllocaSrc *alloca_src =
                 reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
+            bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime &&
+                result_loc_var->var->gen_is_const;
             if (alloca_src->base.child == nullptr) {
                 uint32_t align = 0; // TODO
                 bool force_comptime = false; // TODO
