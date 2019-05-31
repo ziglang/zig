@@ -184,7 +184,7 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
         ZigType *ptr_type);
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *dest_type);
-static IrInstruction *ir_resolve_result_runtime(IrAnalyze *ira, ResultLoc *result_loc, ZigType *elem_type);
+static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type, IrInstruction *value);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -1392,7 +1392,7 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
     call_instruction->new_stack = new_stack;
-    call_instruction->result_loc = ir_resolve_result_runtime(ira, result_loc, return_type);
+    call_instruction->result_loc = ir_resolve_result(ira, result_loc, return_type, nullptr);
 
     if (fn_ref != nullptr) ir_ref_instruction(fn_ref, ira->new_irb.current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
@@ -14340,8 +14340,15 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, ResultLoc *result_lo
     zig_unreachable();
 }
 
-static IrInstruction *ir_resolve_result_runtime(IrAnalyze *ira, ResultLoc *result_loc, ZigType *elem_type) {
-    result_loc->implicit_elem_type = elem_type;
+// give nullptr for value to resolve it at runtime
+// returns a result location, or nullptr if the result location was already taken care of by this function
+static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type,
+        IrInstruction *value)
+{
+    bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime;
+
+    result_loc->gen_instruction = value;
+    result_loc->implicit_elem_type = value_type;
     switch (result_loc->id) {
         case ResultLocIdInvalid:
         case ResultLocIdPeerParent:
@@ -14357,11 +14364,16 @@ static IrInstruction *ir_resolve_result_runtime(IrAnalyze *ira, ResultLoc *resul
             if (alloca_src->base.child == nullptr) {
                 uint32_t align = 0; // TODO
                 bool force_comptime = false; // TODO
-                IrInstruction *alloca_gen = ir_analyze_alloca(ira, result_loc->source_instruction, elem_type, align,
-                        alloca_src->name_hint, force_comptime);
+                IrInstruction *alloca_gen;
+                if (is_comptime) {
+                    alloca_gen = ir_get_ref(ira, result_loc->source_instruction, value, true, false);
+                } else {
+                    alloca_gen = ir_analyze_alloca(ira, result_loc->source_instruction, value_type, align,
+                            alloca_src->name_hint, force_comptime);
+                }
                 alloca_src->base.child = alloca_gen;
             }
-            return alloca_src->base.child;
+            return is_comptime ? nullptr : alloca_src->base.child;
         }
         case ResultLocIdReturn: {
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
@@ -14371,12 +14383,6 @@ static IrInstruction *ir_resolve_result_runtime(IrAnalyze *ira, ResultLoc *resul
             return nullptr;
     }
     zig_unreachable();
-}
-
-static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, IrInstruction *value) {
-    IrInstruction *result_inst = ir_resolve_result_runtime(ira, result_loc, value->value.type);
-    result_loc->gen_instruction = value;
-    return result_inst;
 }
 
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction, ZigFn *fn_entry,
@@ -23609,7 +23615,7 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
             return ira_resume(ira);
         }
     }
-    IrInstruction *result_loc = ir_resolve_result(ira, instruction->result_loc, value);
+    IrInstruction *result_loc = ir_resolve_result(ira, instruction->result_loc, value->value.type, value);
     if (result_loc != nullptr) {
         ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
     }
