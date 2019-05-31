@@ -9,7 +9,7 @@ int sigaltstack(const stack_t *restrict ss, stack_t *restrict old)
 			errno = ENOMEM;
 			return -1;
 		}
-		if (ss->ss_flags & ~SS_DISABLE) {
+		if (ss->ss_flags & SS_ONSTACK) {
 			errno = EINVAL;
 			return -1;
 		}

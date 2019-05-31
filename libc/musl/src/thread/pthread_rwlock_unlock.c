@@ -1,6 +1,6 @@
 #include "pthread_impl.h"
 
-int pthread_rwlock_unlock(pthread_rwlock_t *rw)
+int __pthread_rwlock_unlock(pthread_rwlock_t *rw)
 {
 	int val, cnt, waiters, new, priv = rw->_rw_shared^128;
 
@@ -16,3 +16,5 @@ int pthread_rwlock_unlock(pthread_rwlock_t *rw)
 
 	return 0;
 }
+
+weak_alias(__pthread_rwlock_unlock, pthread_rwlock_unlock);

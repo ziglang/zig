@@ -15,12 +15,41 @@ weak_alias(dummy_0, __release_ptc);
 weak_alias(dummy_0, __pthread_tsd_run_dtors);
 weak_alias(dummy_0, __do_orphaned_stdio_locks);
 weak_alias(dummy_0, __dl_thread_cleanup);
+weak_alias(dummy_0, __membarrier_init);
 
-static void *dummy_1(void *p)
+static int tl_lock_count;
+static int tl_lock_waiters;
+
+void __tl_lock(void)
 {
-	return 0;
+	int tid = __pthread_self()->tid;
+	int val = __thread_list_lock;
+	if (val == tid) {
+		tl_lock_count++;
+		return;
+	}
+	while ((val = a_cas(&__thread_list_lock, 0, tid)))
+		__wait(&__thread_list_lock, &tl_lock_waiters, val, 0);
 }
-weak_alias(dummy_1, __start_sched);
+
+void __tl_unlock(void)
+{
+	if (tl_lock_count) {
+		tl_lock_count--;
+		return;
+	}
+	a_store(&__thread_list_lock, 0);
+	if (tl_lock_waiters) __wake(&__thread_list_lock, 1, 0);
+}
+
+void __tl_sync(pthread_t td)
+{
+	a_barrier();
+	int val = __thread_list_lock;
+	if (!val) return;
+	__wait(&__thread_list_lock, &tl_lock_waiters, val, 0);
+	if (tl_lock_waiters) __wake(&__thread_list_lock, 1, 0);
+}
 
 _Noreturn void __pthread_exit(void *result)
 {
@@ -46,23 +75,29 @@ _Noreturn void __pthread_exit(void *result)
 	 * joinable threads it's a valid usage that must be handled. */
 	LOCK(self->killlock);
 
-	/* Block all signals before decrementing the live thread count.
-	 * This is important to ensure that dynamically allocated TLS
-	 * is not under-allocated/over-committed, and possibly for other
-	 * reasons as well. */
-	__block_all_sigs(&set);
+	/* The thread list lock must be AS-safe, and thus requires
+	 * application signals to be blocked before it can be taken. */
+	__block_app_sigs(&set);
+	__tl_lock();
 
-	/* It's impossible to determine whether this is "the last thread"
-	 * until performing the atomic decrement, since multiple threads
-	 * could exit at the same time. For the last thread, revert the
-	 * decrement, restore the tid, and unblock signals to give the
-	 * atexit handlers and stdio cleanup code a consistent state. */
-	if (a_fetch_add(&libc.threads_minus_1, -1)==0) {
-		libc.threads_minus_1 = 0;
-		UNLOCK(self->killlock);
+	/* If this is the only thread in the list, don't proceed with
+	 * termination of the thread, but restore the previous lock and
+	 * signal state to prepare for exit to call atexit handlers. */
+	if (self->next == self) {
+		__tl_unlock();
 		__restore_sigs(&set);
+		UNLOCK(self->killlock);
 		exit(0);
 	}
+
+	/* At this point we are committed to thread termination. Unlink
+	 * the thread from the list. This change will not be visible
+	 * until the lock is released, which only happens after SYS_exit
+	 * has been called, via the exit futex address pointing at the lock. */
+	libc.threads_minus_1--;
+	self->next->prev = self->prev;
+	self->prev->next = self->next;
+	self->prev = self->next = self;
 
 	/* Process robust list in userspace to handle non-pshared mutexes
 	 * and the detached thread case where the robust list head will
@@ -90,15 +125,11 @@ _Noreturn void __pthread_exit(void *result)
 	 * call; the loser is responsible for freeing thread resources. */
 	int state = a_cas(&self->detach_state, DT_JOINABLE, DT_EXITING);
 
-	if (state>=DT_DETACHED && self->map_base) {
-		/* Detached threads must avoid the kernel clear_child_tid
-		 * feature, since the virtual address will have been
-		 * unmapped and possibly already reused by a new mapping
-		 * at the time the kernel would perform the write. In
-		 * the case of threads that started out detached, the
-		 * initial clone flags are correct, but if the thread was
-		 * detached later, we need to clear it here. */
-		if (state == DT_DYNAMIC) __syscall(SYS_set_tid_address, 0);
+	if (state==DT_DETACHED && self->map_base) {
+		/* Detached threads must block even implementation-internal
+		 * signals, since they will not have a stack in their last
+		 * moments of existence. */
+		__block_all_sigs(&set);
 
 		/* Robust list will no longer be valid, and was already
 		 * processed above, so unregister it with the kernel. */
@@ -113,6 +144,9 @@ _Noreturn void __pthread_exit(void *result)
 		 * and then exits without touching the stack. */
 		__unmapself(self->map_base, self->map_size);
 	}
+
+	/* Wake any joiner. */
+	__wake(&self->detach_state, 1, 1);
 
 	/* After the kernel thread exits, its tid may be reused. Clear it
 	 * to prevent inadvertent use and inform functions that would use
@@ -135,21 +169,38 @@ void __do_cleanup_pop(struct __ptcb *cb)
 	__pthread_self()->cancelbuf = cb->__next;
 }
 
+struct start_args {
+	void *(*start_func)(void *);
+	void *start_arg;
+	pthread_attr_t *attr;
+	volatile int *perr;
+	unsigned long sig_mask[_NSIG/8/sizeof(long)];
+};
+
 static int start(void *p)
 {
-	pthread_t self = p;
-	if (self->unblock_cancel)
-		__syscall(SYS_rt_sigprocmask, SIG_UNBLOCK,
-			SIGPT_SET, 0, _NSIG/8);
-	__pthread_exit(self->start(self->start_arg));
+	struct start_args *args = p;
+	if (args->attr) {
+		pthread_t self = __pthread_self();
+		int ret = -__syscall(SYS_sched_setscheduler, self->tid,
+			args->attr->_a_policy, &args->attr->_a_prio);
+		if (a_swap(args->perr, ret)==-2)
+			__wake(args->perr, 1, 1);
+		if (ret) {
+			self->detach_state = DT_DETACHED;
+			__pthread_exit(0);
+		}
+	}
+	__syscall(SYS_rt_sigprocmask, SIG_SETMASK, &args->sig_mask, 0, _NSIG/8);
+	__pthread_exit(args->start_func(args->start_arg));
 	return 0;
 }
 
 static int start_c11(void *p)
 {
-	pthread_t self = p;
-	int (*start)(void*) = (int(*)(void*)) self->start;
-	__pthread_exit((void *)(uintptr_t)start(self->start_arg));
+	struct start_args *args = p;
+	int (*start)(void*) = (int(*)(void*)) args->start_func;
+	__pthread_exit((void *)(uintptr_t)start(args->start_arg));
 	return 0;
 }
 
@@ -160,8 +211,6 @@ static volatile size_t dummy = 0;
 weak_alias(dummy, __pthread_tsd_size);
 static void *dummy_tsd[1] = { 0 };
 weak_alias(dummy_tsd, __pthread_tsd_main);
-
-volatile int __block_new_threads = 0;
 
 static FILE *volatile dummy_file = 0;
 weak_alias(dummy_file, __stdin_used);
@@ -182,9 +231,9 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	unsigned flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND
 		| CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS
 		| CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
-	int do_sched = 0;
 	pthread_attr_t attr = { 0 };
-	struct start_sched_args ssa;
+	sigset_t set;
+	volatile int err = -1;
 
 	if (!libc.can_do_threads) return ENOSYS;
 	self = __pthread_self();
@@ -197,6 +246,7 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		init_file_lock(__stderr_used);
 		__syscall(SYS_rt_sigprocmask, SIG_UNBLOCK, SIGPT_SET, 0, _NSIG/8);
 		self->tsd = (void **)__pthread_tsd_main;
+		__membarrier_init();
 		libc.threaded = 1;
 	}
 	if (attrp && !c11) attr = *attrp;
@@ -206,8 +256,6 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 		attr._a_stacksize = __default_stacksize;
 		attr._a_guardsize = __default_guardsize;
 	}
-
-	if (__block_new_threads) __wait(&__block_new_threads, 0, 1, 1);
 
 	if (attr._a_stackaddr) {
 		size_t need = libc.tls_size + __pthread_tsd_size;
@@ -257,49 +305,71 @@ int __pthread_create(pthread_t *restrict res, const pthread_attr_t *restrict att
 	new->stack = stack;
 	new->stack_size = stack - stack_limit;
 	new->guard_size = guard;
-	new->start = entry;
-	new->start_arg = arg;
 	new->self = new;
 	new->tsd = (void *)tsd;
 	new->locale = &libc.global_locale;
 	if (attr._a_detach) {
 		new->detach_state = DT_DETACHED;
-		flags -= CLONE_CHILD_CLEARTID;
 	} else {
 		new->detach_state = DT_JOINABLE;
 	}
-	if (attr._a_sched) {
-		do_sched = 1;
-		ssa.futex = -1;
-		ssa.start_fn = new->start;
-		ssa.start_arg = new->start_arg;
-		ssa.attr = &attr;
-		new->start = __start_sched;
-		new->start_arg = &ssa;
-		__block_app_sigs(&ssa.mask);
-	}
 	new->robust_list.head = &new->robust_list.head;
-	new->unblock_cancel = self->cancel;
 	new->CANARY = self->CANARY;
 
-	a_inc(&libc.threads_minus_1);
-	ret = __clone((c11 ? start_c11 : start), stack, flags, new, &new->tid, TP_ADJ(new), &new->detach_state);
-
-	__release_ptc();
-
-	if (do_sched) {
-		__restore_sigs(&ssa.mask);
+	/* Setup argument structure for the new thread on its stack.
+	 * It's safe to access from the caller only until the thread
+	 * list is unlocked. */
+	stack -= (uintptr_t)stack % sizeof(uintptr_t);
+	stack -= sizeof(struct start_args);
+	struct start_args *args = (void *)stack;
+	args->start_func = entry;
+	args->start_arg = arg;
+	if (attr._a_sched) {
+		args->attr = &attr;
+		args->perr = &err;
+	} else {
+		args->attr = 0;
+		args->perr = 0;
 	}
 
+	/* Application signals (but not the synccall signal) must be
+	 * blocked before the thread list lock can be taken, to ensure
+	 * that the lock is AS-safe. */
+	__block_app_sigs(&set);
+
+	/* Ensure SIGCANCEL is unblocked in new thread. This requires
+	 * working with a copy of the set so we can restore the
+	 * original mask in the calling thread. */
+	memcpy(&args->sig_mask, &set, sizeof args->sig_mask);
+	args->sig_mask[(SIGCANCEL-1)/8/sizeof(long)] &=
+		~(1UL<<((SIGCANCEL-1)%(8*sizeof(long))));
+
+	__tl_lock();
+	libc.threads_minus_1++;
+	ret = __clone((c11 ? start_c11 : start), stack, flags, args, &new->tid, TP_ADJ(new), &__thread_list_lock);
+
+	/* If clone succeeded, new thread must be linked on the thread
+	 * list before unlocking it, even if scheduling may still fail. */
+	if (ret >= 0) {
+		new->next = self->next;
+		new->prev = self;
+		new->next->prev = new;
+		new->prev->next = new;
+	}
+	__tl_unlock();
+	__restore_sigs(&set);
+	__release_ptc();
+
 	if (ret < 0) {
-		a_dec(&libc.threads_minus_1);
+		libc.threads_minus_1--;
 		if (map) __munmap(map, size);
 		return EAGAIN;
 	}
 
-	if (do_sched) {
-		__futexwait(&ssa.futex, -1, 1);
-		ret = ssa.futex;
+	if (attr._a_sched) {
+		if (a_cas(&err, -1, -2)==-1)
+			__wait(&err, 0, -2, 1);
+		ret = err;
 		if (ret) return ret;
 	}
 

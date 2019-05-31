@@ -1,7 +1,7 @@
 #ifndef TIME_H
 #define TIME_H
 
-#include_next "time.h"
+#include "../../include/time.h"
 
 hidden int __clock_gettime(clockid_t, struct timespec *);
 

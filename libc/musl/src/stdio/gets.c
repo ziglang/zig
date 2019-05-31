@@ -4,7 +4,12 @@
 
 char *gets(char *s)
 {
-	char *ret = fgets(s, INT_MAX, stdin);
-	if (ret && s[strlen(s)-1] == '\n') s[strlen(s)-1] = 0;
-	return ret;
+	size_t i=0;
+	int c;
+	FLOCK(stdin);
+	while ((c=getc_unlocked(stdin)) != EOF && c != '\n') s[i++] = c;
+	s[i] = 0;
+	if (c != '\n' && (!feof(stdin) || !i)) s = 0;
+	FUNLOCK(stdin);
+	return s;
 }

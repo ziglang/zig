@@ -17,28 +17,9 @@ __tlsdesc_dynamic:
 	mov %fs:8,%rdx
 	push %rcx
 	mov (%rax),%rcx
-	cmp %rcx,(%rdx)
-	jc 1f
 	mov 8(%rax),%rax
 	add (%rdx,%rcx,8),%rax
-2:	pop %rcx
+	pop %rcx
 	sub %fs:0,%rax
 	pop %rdx
 	ret
-1:	push %rdi
-	push %rdi
-	push %rsi
-	push %r8
-	push %r9
-	push %r10
-	push %r11
-	mov %rax,%rdi
-	call __tls_get_new
-	pop %r11
-	pop %r10
-	pop %r9
-	pop %r8
-	pop %rsi
-	pop %rdi
-	pop %rdi
-	jmp 2b

@@ -1,7 +1,7 @@
 #ifndef ERRNO_H
 #define ERRNO_H
 
-#include_next "errno.h"
+#include "../../include/errno.h"
 
 hidden int *___errno_location(void);
 

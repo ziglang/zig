@@ -122,6 +122,7 @@ char *dcngettext(const char *domainname, const char *msgid1, const char *msgid2,
 	const struct __locale_map *lm;
 	size_t domlen;
 	struct binding *q;
+	int old_errno = errno;
 
 	if ((unsigned)category >= LC_ALL) goto notrans;
 
@@ -138,6 +139,7 @@ char *dcngettext(const char *domainname, const char *msgid1, const char *msgid2,
 	lm = loc->cat[category];
 	if (!lm) {
 notrans:
+		errno = old_errno;
 		return (char *) ((n == 1) ? msgid1 : msgid2);
 	}
 
@@ -250,6 +252,7 @@ notrans:
 			trans += l+1;
 		}
 	}
+	errno = old_errno;
 	return (char *)trans;
 }
 

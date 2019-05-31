@@ -424,11 +424,15 @@ static void musl_add_cc_args(CodeGen *parent, CFile *c_file, bool want_O3) {
             buf_ptr(parent->zig_lib_dir))));
 
     c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "src" OS_SEP "include",
+            buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "src" OS_SEP "internal",
             buf_ptr(parent->zig_lib_dir))));
 
     c_file->args.append("-I");
-    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "src" OS_SEP "include",
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "musl" OS_SEP "include",
             buf_ptr(parent->zig_lib_dir))));
 
     c_file->args.append("-I");
@@ -505,7 +509,7 @@ static const char *build_musl(CodeGen *parent) {
 
         MuslSrc src_kind;
         if (buf_ends_with_str(src_file, ".c")) {
-            assert(buf_starts_with_str(src_file, "musl/src/"));
+            assert(buf_starts_with_str(src_file, "musl/"));
             bool want_O3 = buf_starts_with_str(src_file, "musl/src/malloc/") ||
                 buf_starts_with_str(src_file, "musl/src/string/") ||
                 buf_starts_with_str(src_file, "musl/src/internal/");
