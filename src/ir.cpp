@@ -14328,13 +14328,14 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, ResultLoc *result_lo
     switch (result_loc->id) {
         case ResultLocIdInvalid:
         case ResultLocIdPeerParent:
-        case ResultLocIdPeer:
             zig_unreachable();
         case ResultLocIdNone:
         case ResultLocIdVar:
             return nullptr;
         case ResultLocIdReturn:
             return ira->explicit_return_type;
+        case ResultLocIdPeer:
+            return reinterpret_cast<ResultLocPeer*>(result_loc)->parent->resolved_type;
     }
     zig_unreachable();
 }
