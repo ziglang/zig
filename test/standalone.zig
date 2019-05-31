@@ -19,10 +19,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/use_alias/build.zig");
     cases.addBuildFile("test/standalone/brace_expansion/build.zig");
     cases.addBuildFile("test/standalone/empty_env/build.zig");
-    if (builtin.os == builtin.Os.linux) {
-        // TODO hook up the DynLib API for windows using LoadLibraryA
-        // TODO figure out how to make this work on darwin - probably libSystem has dlopen/dlsym in it
-        cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
+    switch (builtin.os) {
+        .linux, .windows, .macosx, .tvos, .watchos, .ios => {
+            cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
+        },
+        else => {},
     }
 
     if (builtin.arch == builtin.Arch.x86_64) { // TODO add C ABI support for other architectures

@@ -7,11 +7,13 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
+const darwin = std.os.darwin;
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
     .linux => LinuxDynLib,
     .windows => WindowsDynLib,
+    .macosx, .tvos, .watchos, .ios => DarwinDynLib,
     else => void,
 };
 
@@ -249,7 +251,6 @@ pub const WindowsDynLib = struct {
 
     pub fn open(path: []const u8) !WindowsDynLib {
         const wpath = try windows.sliceToPrefixedFileW(path);
-
         return WindowsDynLib{
             .dll = try windows.LoadLibraryW(&wpath),
         };
@@ -261,7 +262,45 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
-        return @ptrToInt(windows.kernel32.GetProcAddress(self.dll, name.ptr));
+        if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
+            return @ptrToInt(addr);
+        } else {
+            return null;
+        }
+    }
+};
+
+pub const DarwinDynLib = struct {
+    handle: *c_void,
+
+    pub fn open(path: []const u8) !DarwinDynLib {
+        // should we perform this check?
+        if (false) {
+            // check if dynamic library being loaded is compatible
+            if (darwin.dlopen_preflight(path) == 0) {
+                return error.InvalidDynLib;
+            }
+        }
+
+        // see https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlopen.3.html
+        return DarwinDynLib{
+            .handle = darwin.dlopen(path, darwin.RTLD_LAZY) orelse {
+                return error.FileNotFound;
+            },
+        };
+    }
+
+    pub fn close(self: *DarwinDynLib) void {
+        _ = darwin.dlclose(self.handle);
+        self.* = undefined;
+    }
+
+    pub fn lookup(self: *DarwinDynLib, name: []const u8) ?usize {
+        if (darwin.dlsym(self.handle, name.ptr)) |sym| {
+            return @ptrToInt(sym);
+        } else {
+            return null;
+        }
     }
 };
 
@@ -269,6 +308,7 @@ test "dynamic_library" {
     const libname = switch (builtin.os) {
         .linux => "invalid_so.so",
         .windows => "invalid_dll.dll",
+        .macosx, .tvos, .watchos, .ios => "invalid_dylib.dylib",
         else => return,
     };
 
@@ -276,5 +316,4 @@ test "dynamic_library" {
         testing.expect(err == error.FileNotFound);
         return;
     };
-    @panic("Expected error from function");
 }
