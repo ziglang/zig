@@ -30,9 +30,9 @@ pub const DefaultPrng = Xoroshiro128;
 pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
-    pub const RandomImpl = ?*@OpaqueType();
-    
-    impl: RandomImpl,
+    pub const Iface = std.Interface();
+    iface: ?Iface,
+
     fillFn: fn (r: Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until full.
@@ -276,21 +276,6 @@ pub const Random = struct {
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
-    
-    /// Cast the original type to the implementation pointer
-    pub fn ifaceCast(ptr: var) RandomImpl {
-        const T = @typeOf(ptr);
-        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
-        return @ptrCast(RandomImpl, ptr);
-    }
-    
-    /// Cast the implementation pointer back to the original type
-    pub fn implCast(r: Random, comptime T: type) *T {
-        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
-        assert(r.impl != null);
-        const aligned = @alignCast(@alignOf(T), r.impl);
-        return @ptrCast(*T, aligned);
-    }
 };
 
 /// Convert a random integer 0 <= random_int <= maxValue(T),
@@ -318,16 +303,16 @@ const SequentialPrng = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.implCast(SequentialPrng);
+        const self = r.iface.?.implCast(SequentialPrng);
         for (buf) |*b| {
             b.* = self.next_value;
         }
         self.next_value +%= 1;
     }
-    
+
     pub fn random(self: *Self) Random {
-        return Random {
-            .impl = Random.ifaceCast(self),
+        return Random{
+            .iface = Random.Iface.init(self),
             .fillFn = fill,
         };
     }
@@ -395,7 +380,6 @@ test "Random intLessThan" {
     @setEvalBranchQuota(100000);
     testRandomIntLessThan();
     comptime testRandomIntLessThan();
-    
 }
 fn testRandomIntLessThan() void {
     var r = SequentialPrng.init();
@@ -418,14 +402,14 @@ fn testRandomIntLessThan() void {
     expect(r.random().intRangeLessThan(u8, 0, 0x80) == 0x7f);
     r.next_value = 0xff;
     expect(r.random().intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
-    
+
     r.next_value = 0xff;
     expect(r.random().intRangeLessThan(i8, 0, 0x40) == 0x3f);
     r.next_value = 0xff;
     expect(r.random().intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
     r.next_value = 0xff;
     expect(r.random().intRangeLessThan(i8, -0x80, 0) == -1);
-    
+
     r.next_value = 0xff;
     expect(r.random().intRangeLessThan(i3, -4, 0) == -1);
     r.next_value = 0xff;
@@ -583,7 +567,7 @@ pub const Pcg = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.implCast(Pcg);
+        const self = r.iface.?.implCast(Pcg);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -607,10 +591,10 @@ pub const Pcg = struct {
             }
         }
     }
-    
+
     pub fn random(self: *Pcg) Random {
-        return Random {
-            .impl = Random.ifaceCast(self),
+        return Random{
+            .iface = Random.Iface.init(self),
             .fillFn = fill,
         };
     }
@@ -640,7 +624,6 @@ test "pcg sequence" {
 //
 // PRNG
 pub const Xoroshiro128 = struct {
-
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
@@ -698,7 +681,7 @@ pub const Xoroshiro128 = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.implCast(Xoroshiro128);
+        const self = r.iface.?.implCast(Xoroshiro128);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -722,10 +705,10 @@ pub const Xoroshiro128 = struct {
             }
         }
     }
-    
+
     pub fn random(self: *Xoroshiro128) Random {
-        return Random {
-            .impl = Random.ifaceCast(self),
+        return Random{
+            .iface = Random.Iface.init(self),
             .fillFn = fill,
         };
     }
@@ -772,7 +755,6 @@ test "xoroshiro sequence" {
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 pub const Isaac64 = struct {
-
     r: [256]u64,
     m: [256]u64,
     a: u64,
@@ -912,7 +894,7 @@ pub const Isaac64 = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.implCast(Isaac64);
+        const self = r.iface.?.implCast(Isaac64);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -936,10 +918,10 @@ pub const Isaac64 = struct {
             }
         }
     }
-    
+
     pub fn random(self: *Isaac64) Random {
-        return Random {
-            .impl = Random.ifaceCast(self),
+        return Random{
+            .iface = Random.Iface.init(self),
             .fillFn = fill,
         };
     }

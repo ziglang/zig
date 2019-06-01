@@ -345,13 +345,13 @@ pub const OutStream = struct {
     }
 
     async<*mem.Allocator> fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
-        const self = out_stream.implCast(OutStream);
+        const self = out_stream.iface.?.implCast(OutStream);
         return await (async write(self.loop, self.fd, bytes) catch unreachable);
     }
     
     pub fn outStream(self: *OutStream) Stream {
         return Stream {
-            .impl = Stream.ifaceCast(self),
+            .iface = Stream.Iface.init(self),
             .writeFn = writeFn,
         };
     }
@@ -372,13 +372,13 @@ pub const InStream = struct {
     }
 
     async<*mem.Allocator> fn readFn(in_stream: Stream, bytes: []u8) Error!usize {
-        const self = in_stream.implCast(InStream);
+        const self = in_stream.iface.?.implCast(InStream);
         return await (async read(self.loop, self.fd, bytes) catch unreachable);
     }
     
     pub fn outStream(self: *InStream) Stream {
         return Stream {
-            .impl = Stream.ifaceCast(self),
+            .iface = Stream.Iface.init(self),
             .readFn = readFn,
         };
     }

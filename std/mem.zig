@@ -11,11 +11,11 @@ const testing = std.testing;
 //@NOTE: The Fns shouldn't need to take `*const Allocator` once coroutine rewrite (#2377) is complete.
 // just `Allocator`.
 pub const Allocator = struct {
-    pub const AllocatorImpl = ?*@OpaqueType();
     pub const Error = error{OutOfMemory};
-    
-    impl: AllocatorImpl,
-    
+    pub const Iface = std.Interface();
+
+    iface: ?Iface,
+
     /// Realloc is used to modify the size or alignment of an existing allocation,
     /// as well as to provide the allocator with an opportunity to move an allocation
     /// to a better location.
@@ -210,21 +210,6 @@ pub const Allocator = struct {
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
         const shrink_result = self.shrinkFn(&self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
-    }
-    
-    /// Cast the original type to the implementation pointer
-    pub fn ifaceCast(ptr: var) AllocatorImpl {
-        const T = @typeOf(ptr);
-        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
-        return @ptrCast(AllocatorImpl, ptr);
-    }
-
-    /// Cast the implementation pointer back to the original type
-    pub fn implCast(allocator: Allocator, comptime T: type) *T {
-        if(@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway)");
-        debug.assert(allocator.impl != null);
-        const aligned = @alignCast(@alignOf(T), allocator.impl);
-        return @ptrCast(*T, aligned);
     }
 };
 
