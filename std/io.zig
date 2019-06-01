@@ -1131,7 +1131,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
         }
 
         pub fn alignToByte(self: *Self) void {
-            if (!is_packed) return;
+            if (packing == .Byte) return;
             self.in_stream.alignToByte();
         }
 
