@@ -528,9 +528,6 @@ static const char *build_musl(CodeGen *parent) {
     Buf noextbasename = BUF_INIT;
     Buf dirbasename = BUF_INIT;
     Buf before_arch_dir = BUF_INIT;
-    Buf override_c = BUF_INIT;
-    Buf override_s = BUF_INIT;
-    Buf override_S = BUF_INIT;
 
     auto source_it = source_table.entry_iterator();
     for (;;) {
@@ -543,31 +540,37 @@ static const char *build_musl(CodeGen *parent) {
         os_path_split(src_file, &dirname, &basename);
         os_path_extname(&basename, &noextbasename, nullptr);
         os_path_split(&dirname, &before_arch_dir, &dirbasename);
+
+        bool is_arch_specific = false;
+        // Architecture-specific implementations are under a <arch>/ folder.
         if (is_musl_arch_name(buf_ptr(&dirbasename))) {
-            // We find these by explicitly looking for overrides.
-            continue;
+            // Not the architecture we're compiling for.
+            if (strcmp(buf_ptr(&dirbasename), target_musl_arch_name) != 0)
+                continue;
+            is_arch_specific = true;
         }
-        // Look for an arch specific override.
-        buf_resize(&override_c, 0);
-        buf_resize(&override_s, 0);
-        buf_resize(&override_S, 0);
 
-        buf_appendf(&override_c, "%s" OS_SEP "%s" OS_SEP "%s.c",
-                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
-        buf_appendf(&override_s, "%s" OS_SEP "%s" OS_SEP "%s.s",
-                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
-        buf_appendf(&override_S, "%s" OS_SEP "%s" OS_SEP "%s.S",
-                buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+        if (!is_arch_specific) {
+            Buf override_path = BUF_INIT;
 
-        if (source_table.maybe_get(&override_c) != nullptr) {
-            src_file = &override_c;
-            src_kind = (src_kind == MuslSrcAsm) ? MuslSrcNormal : src_kind;
-        } else if (source_table.maybe_get(&override_s) != nullptr) {
-            src_file = &override_s;
-            src_kind = MuslSrcAsm;
-        } else if (source_table.maybe_get(&override_S) != nullptr) {
-            src_file = &override_S;
-            src_kind = MuslSrcAsm;
+            // Look for an arch specific override.
+            buf_resize(&override_path, 0);
+            buf_appendf(&override_path, "%s" OS_SEP "%s" OS_SEP "%s.s",
+                        buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+            if (source_table.maybe_get(&override_path) != nullptr)
+                continue;
+
+            buf_resize(&override_path, 0);
+            buf_appendf(&override_path, "%s" OS_SEP "%s" OS_SEP "%s.S",
+                        buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+            if (source_table.maybe_get(&override_path) != nullptr)
+                continue;
+
+            buf_resize(&override_path, 0);
+            buf_appendf(&override_path, "%s" OS_SEP "%s" OS_SEP "%s.c",
+                        buf_ptr(&dirname), target_musl_arch_name, buf_ptr(&noextbasename));
+            if (source_table.maybe_get(&override_path) != nullptr)
+                continue;
         }
 
         Buf *full_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s",
