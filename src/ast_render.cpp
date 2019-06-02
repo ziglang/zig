@@ -352,7 +352,7 @@ static void string_literal_escape(Buf *source, Buf *dest) {
         } else if (is_printable(c)) {
             buf_append_char(dest, c);
         } else {
-            buf_appendf(dest, "\\x%x", (int)c);
+            buf_appendf(dest, "\\x%02x", (int)c);
         }
     }
 }
