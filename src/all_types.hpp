@@ -2277,6 +2277,7 @@ enum IrInstructionId {
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
+    IrInstructionIdImplicitCast,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
@@ -3581,7 +3582,13 @@ struct IrInstructionEndExpr {
 
     IrInstruction *value;
     ResultLoc *result_loc;
-    LVal lval;
+};
+
+struct IrInstructionImplicitCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
 };
 
 enum ResultLocId {

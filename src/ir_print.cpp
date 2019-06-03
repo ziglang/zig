@@ -158,16 +158,6 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
     zig_unreachable();
 }
 
-static const char *ir_lval_str(LVal lval) {
-    switch (lval) {
-        case LValNone:
-            return "None";
-        case LValPtr:
-            return "Ptr";
-    }
-    zig_unreachable();
-}
-
 static void ir_print_un_op(IrPrint *irp, IrInstructionUnOp *un_op_instruction) {
     fprintf(irp->f, "%s ", ir_un_op_id_str(un_op_instruction->op_id));
     ir_print_other_instruction(irp, un_op_instruction->value);
@@ -1149,7 +1139,7 @@ static void ir_print_end_expr(IrPrint *irp, IrInstructionEndExpr *instruction) {
     ir_print_result_loc(irp, instruction->result_loc);
     fprintf(irp->f, ",value=");
     ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ",lval=%s)", ir_lval_str(instruction->lval));
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
@@ -1269,6 +1259,14 @@ static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instructio
     } else {
         ir_print_other_instruction(irp, instruction->align_bytes);
     }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
+    fprintf(irp->f, "@implicitCast(");
+    ir_print_other_instruction(irp, instruction->dest_type);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
@@ -1911,6 +1909,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAlignCast:
             ir_print_align_cast(irp, (IrInstructionAlignCast *)instruction);
+            break;
+        case IrInstructionIdImplicitCast:
+            ir_print_implicit_cast(irp, (IrInstructionImplicitCast *)instruction);
             break;
         case IrInstructionIdOpaqueType:
             ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);

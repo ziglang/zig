@@ -1,6 +1,14 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
+ * alignment of consts
+ * implicit casts
+ * for loops
+ * switch expression
+ * struct initializations
+ * function call parameters
+ * bitCast
+
 look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated
 
 migrate all the alloca_list to alloca_gen_list
@@ -22,3 +30,42 @@ inferred comptime
     return ir_build_ref(irb, scope, value->source_node, value, false, false);
 
 handle if with no else
+
+for loops:
+    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_val_ptr);
+
+    IrInstruction *elem_var_type;
+    if (node->data.for_expr.elem_is_ptr) {
+        elem_var_type = pointer_type;
+    } else {
+        elem_var_type = ir_build_ptr_type_child(irb, parent_scope, elem_node, pointer_type);
+    }
+    IrInstruction *usize = ir_build_const_type(irb, child_scope, node, irb->codegen->builtin_types.entry_usize);
+- do they need to have an implicit cast in there for the elem variable?
+static IrInstruction *ir_build_to_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr) {
+    IrInstructionToPtrType *instruction = ir_build_instruction<IrInstructionToPtrType>(irb, scope, source_node);
+    instruction->ptr = ptr;
+
+    ir_ref_instruction(ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_ptr_type_child(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *value)
+{
+    IrInstructionPtrTypeChild *instruction = ir_build_instruction<IrInstructionPtrTypeChild>(
+        irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+coroutines
+        ZigType *coro_frame_type = get_promise_frame_type(irb->codegen, return_type);
+        IrInstruction *coro_frame_type_value = ir_build_const_type(irb, coro_scope, node, coro_frame_type);
+- implicit cast for the var decl
+        IrInstruction *await_handle_type_val = ir_build_const_type(irb, coro_scope, node,
+                get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
