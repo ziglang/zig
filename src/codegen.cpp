@@ -6599,7 +6599,8 @@ static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const
         LLVMSetLinkage(global_value, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);
-        LLVMSetAlignment(global_value, get_abi_alignment(g, const_val->type));
+        LLVMSetAlignment(global_value, (const_val->global_refs->align == 0) ?
+                get_abi_alignment(g, const_val->type) : const_val->global_refs->align);
 
         const_val->global_refs->llvm_global = global_value;
     }

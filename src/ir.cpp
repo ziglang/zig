@@ -14363,19 +14363,22 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
             IrInstructionAllocaSrc *alloca_src =
                 reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
             if (alloca_src->base.child == nullptr) {
-                bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime &&
-                    result_loc_var->var->gen_is_const;
+                bool force_comptime;
+                if (!ir_resolve_comptime(ira, alloca_src->is_comptime->child, &force_comptime))
+                    return ira->codegen->invalid_instruction;
+                bool is_comptime = force_comptime || (value != nullptr &&
+                        value->value.special != ConstValSpecialRuntime && result_loc_var->var->gen_is_const);
+                uint32_t align = 0;
+                if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, &align)) {
+                    return ira->codegen->invalid_instruction;
+                }
                 IrInstruction *alloca_gen;
                 if (is_comptime) {
+                    if (align > value->value.global_refs->align) {
+                        value->value.global_refs->align = align;
+                    }
                     alloca_gen = ir_get_ref(ira, result_loc->source_instruction, value, true, false);
                 } else {
-                    uint32_t align = 0;
-                    if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, &align)) {
-                        return ira->codegen->invalid_instruction;
-                    }
-                    bool force_comptime;
-                    if (!ir_resolve_comptime(ira, alloca_src->is_comptime->child, &force_comptime))
-                        return ira->codegen->invalid_instruction;
                     alloca_gen = ir_analyze_alloca(ira, result_loc->source_instruction, value_type, align,
                             alloca_src->name_hint, force_comptime);
                 }

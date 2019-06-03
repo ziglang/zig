@@ -292,6 +292,7 @@ struct RuntimeHintSlice {
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
+    uint32_t align;
 };
 
 struct ConstExprValue {
