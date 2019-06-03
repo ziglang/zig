@@ -14,7 +14,7 @@ pub const Allocator = struct {
     pub const Error = error{OutOfMemory};
     pub const Iface = std.Interface();
 
-    iface: ?Iface,
+    iface: Iface,
 
     /// Realloc is used to modify the size or alignment of an existing allocation,
     /// as well as to provide the allocator with an opportunity to move an allocation

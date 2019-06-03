@@ -19,7 +19,7 @@ pub const COutStream = struct {
     }
 
     fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
-        const self = out_stream.iface.?.implCast(COutStream);
+        const self = out_stream.iface.implCast(COutStream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
         // TODO errno on windows. should we have a posix layer for windows?

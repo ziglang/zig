@@ -25,7 +25,7 @@ pub const FailingAllocator = struct {
     }
 
     fn realloc(a: *const mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) mem.Allocator.Error![]u8 {
-        const self = a.iface.?.implCast(FailingAllocator);
+        const self = a.iface.implCast(FailingAllocator);
 
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
@@ -51,7 +51,7 @@ pub const FailingAllocator = struct {
     }
 
     fn shrink(a: *const mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        const self = a.iface.?.implCast(FailingAllocator);
+        const self = a.iface.implCast(FailingAllocator);
 
         const r = self.internal_allocator.shrinkFn(&self.internal_allocator, old_mem, old_align, new_size, new_align);
         self.freed_bytes += old_mem.len - r.len;

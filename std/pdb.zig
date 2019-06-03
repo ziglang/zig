@@ -683,7 +683,7 @@ const MsfStream = struct {
     }
 
     fn readFn(in_stream: Stream, buffer: []u8) Error!usize {
-        const self = in_stream.iface.?.implCast(MsfStream);
+        const self = in_stream.iface.implCast(MsfStream);
         return self.read(buffer);
     }
 

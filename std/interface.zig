@@ -4,12 +4,15 @@ pub fn Interface() type {
     return struct {
         const Self = @This();
 
-        impl: *Impl,
+        impl: ?*Impl,
+
+        pub fn none() Self {
+            return Self{ .impl = null };
+        }
 
         pub fn init(ptr: var) Self {
             const T = @typeOf(ptr);
-            if (@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use null)");
-            // This @ptrCast keeps causing "cast discards const qualifier" so it cascaded the const everywhere...
+            if (@alignOf(T) == 0) @compileError("0-Bit implementations can't be casted (and casting is unnecessary anyway, use .none)");
             return Self{ .impl = @ptrCast(*Impl, ptr) };
         }
 

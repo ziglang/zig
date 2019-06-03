@@ -454,7 +454,7 @@ pub const File = struct {
         pub const Stream = io.InStream(Error);
 
         fn readFn(in_stream: Stream, buffer: []u8) Error!usize {
-            const self = in_stream.iface.?.implCast(InStreamAdapter);
+            const self = in_stream.iface.implCast(InStreamAdapter);
             return self.file.read(buffer);
         }
 
@@ -474,7 +474,7 @@ pub const File = struct {
         pub const Stream = io.OutStream(Error);
 
         fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
-            const self = out_stream.iface.?.implCast(OutStreamAdapter);
+            const self = out_stream.iface.implCast(OutStreamAdapter);
             return self.file.write(bytes);
         }
 
@@ -493,22 +493,22 @@ pub const File = struct {
         pub const Stream = io.SeekableStream(SeekError, GetSeekPosError);
 
         pub fn seekToFn(seekable_stream: Stream, pos: u64) SeekError!void {
-            const self = seekable_stream.iface.?.implCast(SeekableStreamAdapter);
+            const self = seekable_stream.iface.implCast(SeekableStreamAdapter);
             return self.file.seekTo(pos);
         }
 
         pub fn seekForwardFn(seekable_stream: Stream, amt: i64) SeekError!void {
-            const self = seekable_stream.iface.?.implCast(SeekableStreamAdapter);
+            const self = seekable_stream.iface.implCast(SeekableStreamAdapter);
             return self.file.seekForward(amt);
         }
 
         pub fn getEndPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
-            const self = seekable_stream.iface.?.implCast(SeekableStreamAdapter);
+            const self = seekable_stream.iface.implCast(SeekableStreamAdapter);
             return self.file.getEndPos();
         }
 
         pub fn getPosFn(seekable_stream: Stream) GetSeekPosError!u64 {
-            const self = seekable_stream.iface.?.implCast(SeekableStreamAdapter);
+            const self = seekable_stream.iface.implCast(SeekableStreamAdapter);
             return self.file.getPos();
         }
 

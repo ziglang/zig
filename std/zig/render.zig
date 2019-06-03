@@ -28,7 +28,7 @@ pub fn render(allocator: mem.Allocator, stream: var, tree: *ast.Tree) (@typeOf(s
         source: []const u8,
 
         fn write(iface_stream: Stream, bytes: []const u8) StreamError!void {
-            const self = iface_stream.iface.?.implCast(MyStream);
+            const self = iface_stream.iface.implCast(MyStream);
 
             if (!self.anything_changed_ptr.*) {
                 const end = self.source_index + bytes.len;
@@ -2094,7 +2094,7 @@ const FindByteOutStream = struct {
     }
 
     fn writeFn(out_stream: Stream, bytes: []const u8) Error!void {
-        const self = out_stream.iface.?.implCast(Self);
+        const self = out_stream.iface.implCast(Self);
         if (self.byte_found) return;
         self.byte_found = blk: {
             for (bytes) |b|

@@ -31,7 +31,7 @@ pub const DefaultCsprng = Isaac64;
 
 pub const Random = struct {
     pub const Iface = std.Interface();
-    iface: ?Iface,
+    iface: Iface,
 
     fillFn: fn (r: Random, buf: []u8) void,
 
@@ -303,7 +303,7 @@ const SequentialPrng = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.iface.?.implCast(SequentialPrng);
+        const self = r.iface.implCast(SequentialPrng);
         for (buf) |*b| {
             b.* = self.next_value;
         }
@@ -567,7 +567,7 @@ pub const Pcg = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.iface.?.implCast(Pcg);
+        const self = r.iface.implCast(Pcg);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -681,7 +681,7 @@ pub const Xoroshiro128 = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.iface.?.implCast(Xoroshiro128);
+        const self = r.iface.implCast(Xoroshiro128);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
@@ -894,7 +894,7 @@ pub const Isaac64 = struct {
     }
 
     fn fill(r: Random, buf: []u8) void {
-        const self = r.iface.?.implCast(Isaac64);
+        const self = r.iface.implCast(Isaac64);
 
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
