@@ -516,6 +516,7 @@ set(ZIG_STD_FILES
     "hash/siphash.zig"
     "hash_map.zig"
     "heap.zig"
+    "interface.zig"
     "io.zig"
     "io/seekable_stream.zig"
     "io/c_out_stream.zig"

@@ -7,6 +7,7 @@ pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("io.zig").BufferOutStream;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = @import("hash_map.zig").HashMap;
+pub const Interface = @import("interface.zig").Interface;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const Mutex = @import("mutex.zig").Mutex;
 pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
