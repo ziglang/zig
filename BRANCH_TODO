@@ -22,5 +22,3 @@ inferred comptime
     return ir_build_ref(irb, scope, value->source_node, value, false, false);
 
 handle if with no else
-
-audit usage of LVal because that's when ir_lval_wrap is not called which now has build_end_expr

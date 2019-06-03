@@ -4049,7 +4049,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         if (lval == LValPtr) {
             return ir_build_ref(irb, scope, node, value, false, false);
         } else {
-            return value;
+            return ir_expr_wrap(irb, scope, value, result_loc);
         }
     }
 
@@ -4077,7 +4077,9 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     return ir_build_undeclared_identifier(irb, scope, node, variable_name);
 }
 
-static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
+static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeArrayAccessExpr);
 
     AstNode *array_ref_node = node->data.array_access_expr.array_ref_expr;
@@ -4095,7 +4097,8 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode 
     if (lval == LValPtr)
         return ptr_instruction;
 
-    return ir_build_load_ptr(irb, scope, node, ptr_instruction);
+    IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
+    return ir_expr_wrap(irb, scope, load_ptr, result_loc);
 }
 
 static IrInstruction *ir_gen_field_access(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -4754,7 +4757,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (lval == LValPtr)
                     return ptr_instruction;
 
-                return ir_build_load_ptr(irb, scope, node, ptr_instruction);
+                IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
+                return ir_expr_wrap(irb, scope, load_ptr, result_loc);
             }
         case BuiltinFnIdTypeInfo:
             {
@@ -7772,7 +7776,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeForExpr:
             return ir_lval_wrap(irb, scope, ir_gen_for_expr(irb, scope, node), lval, result_loc);
         case NodeTypeArrayAccessExpr:
-            return ir_gen_array_access(irb, scope, node, lval);
+            return ir_gen_array_access(irb, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:
             return ir_gen_return(irb, scope, node, lval);
         case NodeTypeFieldAccessExpr:
@@ -7783,7 +7787,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
                 if (lval == LValPtr)
                     return ptr_instruction;
 
-                return ir_build_load_ptr(irb, scope, node, ptr_instruction);
+                IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
+                return ir_expr_wrap(irb, scope, load_ptr, result_loc);
             }
         case NodeTypePtrDeref: {
             AstNode *expr_node = node->data.ptr_deref_expr.target;
@@ -7807,7 +7812,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             if (lval == LValPtr)
                 return unwrapped_ptr;
 
-            return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
+            IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
+            return ir_expr_wrap(irb, scope, load_ptr, result_loc);
         }
         case NodeTypeBoolLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_bool_literal(irb, scope, node), lval, result_loc);
@@ -13876,6 +13882,8 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     bool var_class_requires_const = false;
 
     IrInstruction *var_ptr = decl_var_instruction->ptr->child;
+    // if this assertion trips there may be a missing ir_expr_wrap in pass1 IR generation.
+    ir_assert(var_ptr != nullptr, &decl_var_instruction->base);
     if (type_is_invalid(var_ptr->value.type)) {
         var->var_type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->invalid_instruction;
