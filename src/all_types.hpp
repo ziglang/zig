@@ -3087,10 +3087,11 @@ struct IrInstructionTestErr {
     IrInstruction *value;
 };
 
+// Takes an error union pointer, returns a pointer to the error code.
 struct IrInstructionUnwrapErrCode {
     IrInstruction base;
 
-    IrInstruction *err_union;
+    IrInstruction *err_union_ptr;
 };
 
 struct IrInstructionUnwrapErrPayload {

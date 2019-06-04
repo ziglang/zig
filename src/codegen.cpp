@@ -4878,18 +4878,16 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
 static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrCode *instruction)
 {
-    ZigType *ptr_type = instruction->err_union->value.type;
+    ZigType *ptr_type = instruction->err_union_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *err_union_type = ptr_type->data.pointer.child_type;
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
-    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->err_union);
-    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
-
-    if (type_has_bits(payload_type)) {
-        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
-        return gen_load_untyped(g, err_val_ptr, 0, false, "");
+    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->err_union_ptr);
+    if (!type_has_bits(payload_type)) {
+        return err_union_ptr;
     } else {
-        return err_union_handle;
+        LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
+        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
     }
 }
 
