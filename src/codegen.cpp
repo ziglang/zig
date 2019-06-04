@@ -674,7 +674,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             bool is_optimized = g->build_mode != BuildModeDebug;
             bool is_internal_linkage = (fn_table_entry->body_node != nullptr &&
                     fn_table_entry->export_list.length == 0);
-            unsigned flags = 0;
+            unsigned flags = ZigLLVM_DIFlags_StaticMember;
             ZigLLVMDIScope *fn_di_scope = get_di_scope(g, scope->parent);
             assert(fn_di_scope != nullptr);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
@@ -7243,7 +7243,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "void");
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 0,
-                ZigLLVMEncoding_DW_ATE_unsigned());
+                ZigLLVMEncoding_DW_ATE_signed());
         g->builtin_types.entry_void = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }

@@ -406,6 +406,39 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_Wasm,
 };
 
+#define ZigLLVM_DIFlags_Zero 0U
+#define ZigLLVM_DIFlags_Private 1U
+#define ZigLLVM_DIFlags_Protected 2U
+#define ZigLLVM_DIFlags_Public 3U
+#define ZigLLVM_DIFlags_FwdDecl (1U << 2)
+#define ZigLLVM_DIFlags_AppleBlock (1U << 3)
+#define ZigLLVM_DIFlags_BlockByrefStruct (1U << 4)
+#define ZigLLVM_DIFlags_Virtual (1U << 5)
+#define ZigLLVM_DIFlags_Artificial (1U << 6)
+#define ZigLLVM_DIFlags_Explicit (1U << 7)
+#define ZigLLVM_DIFlags_Prototyped (1U << 8)
+#define ZigLLVM_DIFlags_ObjcClassComplete (1U << 9)
+#define ZigLLVM_DIFlags_ObjectPointer (1U << 10)
+#define ZigLLVM_DIFlags_Vector (1U << 11)
+#define ZigLLVM_DIFlags_StaticMember (1U << 12)
+#define ZigLLVM_DIFlags_LValueReference (1U << 13)
+#define ZigLLVM_DIFlags_RValueReference (1U << 14)
+#define ZigLLVM_DIFlags_Reserved (1U << 15)
+#define ZigLLVM_DIFlags_SingleInheritance (1U << 16)
+#define ZigLLVM_DIFlags_MultipleInheritance (2 << 16)
+#define ZigLLVM_DIFlags_VirtualInheritance (3 << 16)
+#define ZigLLVM_DIFlags_IntroducedVirtual (1U << 18)
+#define ZigLLVM_DIFlags_BitField (1U << 19)
+#define ZigLLVM_DIFlags_NoReturn (1U << 20)
+#define ZigLLVM_DIFlags_TypePassByValue (1U << 22)
+#define ZigLLVM_DIFlags_TypePassByReference (1U << 23)
+#define ZigLLVM_DIFlags_EnumClass (1U << 24)
+#define ZigLLVM_DIFlags_Thunk (1U << 25)
+#define ZigLLVM_DIFlags_NonTrivial (1U << 26)
+#define ZigLLVM_DIFlags_BigEndian (1U << 27)
+#define ZigLLVM_DIFlags_LittleEndian (1U << 28)
+#define ZigLLVM_DIFlags_AllCallsDescribed (1U << 29)
+
 ZIG_EXTERN_C const char *ZigLLVMGetArchTypeName(enum ZigLLVM_ArchType arch);
 ZIG_EXTERN_C const char *ZigLLVMGetSubArchTypeName(enum ZigLLVM_SubArchType sub_arch);
 ZIG_EXTERN_C const char *ZigLLVMGetVendorTypeName(enum ZigLLVM_VendorType vendor);
