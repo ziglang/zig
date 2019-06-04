@@ -5590,6 +5590,15 @@ static ResultLocVar *create_var_result_loc(IrInstruction *alloca, ZigVar *var) {
     return result_loc_var;
 }
 
+static void build_decl_var_and_init(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var,
+        IrInstruction *init, const char *name_hint, IrInstruction *is_comptime)
+{
+    IrInstruction *alloca = ir_build_alloca_src(irb, scope, source_node, nullptr, name_hint, is_comptime);
+    ResultLocVar *var_result_loc = create_var_result_loc(alloca, var);
+    ir_build_end_expr(irb, scope, source_node, init, &var_result_loc->base);
+    ir_build_var_decl_src(irb, scope, source_node, var, nullptr, alloca);
+}
+
 static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeVariableDeclaration);
 
@@ -5967,13 +5976,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
         index_var = ir_create_var(irb, node, parent_scope, nullptr, true, false, true, is_comptime);
         index_var_name = "i";
     }
-    parent_scope = index_var->parent_scope;
 
-    IrInstruction *index_alloca = ir_build_alloca_src(irb, parent_scope, node, nullptr, index_var_name, is_comptime);
-    ResultLocVar *var_result_loc = create_var_result_loc(index_alloca, index_var);
     IrInstruction *zero = ir_build_const_usize(irb, parent_scope, node, 0);
-    ir_build_end_expr(irb, parent_scope, node, zero, &var_result_loc->base);
-    ir_build_var_decl_src(irb, parent_scope, index_var_source_node, index_var, nullptr, index_alloca);
+    build_decl_var_and_init(irb, parent_scope, index_var_source_node, index_var, zero, index_var_name, is_comptime);
+    parent_scope = index_var->parent_scope;
 
     IrInstruction *one = ir_build_const_usize(irb, parent_scope, node, 1);
     IrInstruction *index_ptr = ir_build_var_ptr(irb, parent_scope, node, index_var);
@@ -7495,7 +7501,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrInstruction *promise_result_type = ir_build_promise_result_type(irb, scope, node, target_promise_type);
     ir_build_await_bookkeeping(irb, scope, node, promise_result_type);
     IrInstruction *undef_promise_result = ir_build_implicit_cast(irb, scope, node, promise_result_type, undef);
-    ir_build_var_decl_src(irb, scope, node, result_var, nullptr, undef_promise_result);
+    build_decl_var_and_init(irb, scope, node, result_var, undef_promise_result, "result", const_bool_false);
     IrInstruction *my_result_var_ptr = ir_build_var_ptr(irb, scope, node, result_var);
     ir_build_store_ptr(irb, scope, node, result_ptr_field_ptr, my_result_var_ptr);
     IrInstruction *save_token = ir_build_coro_save(irb, scope, node, irb->exec->coro_handle);
@@ -7930,7 +7936,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ZigType *coro_frame_type = get_promise_frame_type(irb->codegen, return_type);
         IrInstruction *coro_frame_type_value = ir_build_const_type(irb, coro_scope, node, coro_frame_type);
         IrInstruction *undef_coro_frame = ir_build_implicit_cast(irb, coro_scope, node, coro_frame_type_value, undef);
-        ir_build_var_decl_src(irb, coro_scope, node, promise_var, nullptr, undef_coro_frame);
+        build_decl_var_and_init(irb, coro_scope, node, promise_var, undef_coro_frame, "promise", const_bool_false);
         coro_promise_ptr = ir_build_var_ptr(irb, coro_scope, node, promise_var);
 
         ZigVar *await_handle_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
@@ -7938,7 +7944,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *await_handle_type_val = ir_build_const_type(irb, coro_scope, node,
                 get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
         IrInstruction *null_await_handle = ir_build_implicit_cast(irb, coro_scope, node, await_handle_type_val, null_value);
-        ir_build_var_decl_src(irb, coro_scope, node, await_handle_var, nullptr, null_await_handle);
+        build_decl_var_and_init(irb, coro_scope, node, await_handle_var, null_await_handle, "await_handle", const_bool_false);
         irb->exec->await_handle_var_ptr = ir_build_var_ptr(irb, coro_scope, node, await_handle_var);
 
         u8_ptr_type = ir_build_const_type(irb, coro_scope, node,
@@ -7948,11 +7954,12 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         coro_id = ir_build_coro_id(irb, coro_scope, node, promise_as_u8_ptr);
         coro_size_var = ir_create_var(irb, node, coro_scope, nullptr, false, false, true, const_bool_false);
         IrInstruction *coro_size = ir_build_coro_size(irb, coro_scope, node);
-        ir_build_var_decl_src(irb, coro_scope, node, coro_size_var, nullptr, coro_size);
+        build_decl_var_and_init(irb, coro_scope, node, coro_size_var, coro_size, "coro_size", const_bool_false);
         IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, coro_scope, node,
                 ImplicitAllocatorIdArg);
         irb->exec->coro_allocator_var = ir_create_var(irb, node, coro_scope, nullptr, true, true, true, const_bool_false);
-        ir_build_var_decl_src(irb, coro_scope, node, irb->exec->coro_allocator_var, nullptr, implicit_allocator_ptr);
+        build_decl_var_and_init(irb, coro_scope, node, irb->exec->coro_allocator_var, implicit_allocator_ptr,
+                "allocator", const_bool_false);
         Buf *realloc_field_name = buf_create_from_str(ASYNC_REALLOC_FIELD_NAME);
         IrInstruction *realloc_fn_ptr = ir_build_field_ptr(irb, coro_scope, node, implicit_allocator_ptr, realloc_field_name);
         IrInstruction *realloc_fn = ir_build_load_ptr(irb, coro_scope, node, realloc_fn_ptr);
