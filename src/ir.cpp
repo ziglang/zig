@@ -6510,7 +6510,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         IrBasicBlock *end_block, IrInstruction *is_comptime, IrInstruction *var_is_comptime,
         IrInstruction *target_value_ptr, IrInstruction **prong_values, size_t prong_values_len,
         ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values,
-        IrInstructionSwitchElseVar **out_switch_else_var)
+        IrInstructionSwitchElseVar **out_switch_else_var, LVal lval, ResultLoc *result_loc)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
     assert(prong_node->type == NodeTypeSwitchProng);
@@ -6528,27 +6528,27 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         ZigVar *var = ir_create_var(irb, var_symbol_node, scope,
                 var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
-        IrInstruction *var_value;
+        IrInstruction *var_ptr;
         if (out_switch_else_var != nullptr) {
             IrInstructionSwitchElseVar *switch_else_var = ir_build_switch_else_var(irb, scope, var_symbol_node,
                     target_value_ptr);
             *out_switch_else_var = switch_else_var;
-            IrInstruction *var_ptr_value = &switch_else_var->base;
-            var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, var_symbol_node, var_ptr_value);
+            IrInstruction *payload_ptr = &switch_else_var->base;
+            var_ptr = var_is_ptr ? ir_build_ref(irb, scope, var_symbol_node, payload_ptr, true, false) : payload_ptr;
         } else if (prong_values != nullptr) {
-            IrInstruction *var_ptr_value = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr,
+            IrInstruction *payload_ptr = ir_build_switch_var(irb, scope, var_symbol_node, target_value_ptr,
                     prong_values, prong_values_len);
-            var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, var_symbol_node, var_ptr_value);
+            var_ptr = var_is_ptr ? ir_build_ref(irb, scope, var_symbol_node, payload_ptr, true, false) : payload_ptr;
         } else {
-            var_value = var_is_ptr ? target_value_ptr : ir_build_load_ptr(irb, scope, var_symbol_node, 
-target_value_ptr);
+            var_ptr = var_is_ptr ?
+                ir_build_ref(irb, scope, var_symbol_node, target_value_ptr, true, false) : target_value_ptr;
         }
-        ir_build_var_decl_src(irb, scope, var_symbol_node, var, nullptr, var_value);
+        ir_build_var_decl_src(irb, scope, var_symbol_node, var, nullptr, var_ptr);
     } else {
         child_scope = scope;
     }
 
-    IrInstruction *expr_result = ir_gen_node(irb, expr_node, child_scope);
+    IrInstruction *expr_result = ir_gen_node_extra(irb, expr_node, child_scope, lval, result_loc);
     if (expr_result == irb->codegen->invalid_instruction)
         return false;
     if (!instr_is_unreachable(expr_result))
@@ -6558,7 +6558,15 @@ target_value_ptr);
     return true;
 }
 
-static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+static void next_peer_block(ZigList<ResultLocPeer> *list, IrBasicBlock *next_bb) {
+    if (list->length >= 2) {
+        list->at(list->length - 2).next_bb = next_bb;
+    }
+}
+
+static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeSwitchExpr);
 
     AstNode *target_node = node->data.switch_expr.expr;
@@ -6589,6 +6597,12 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     IrInstructionSwitchElseVar *switch_else_var = nullptr;
 
+    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    peer_parent->base.id = ResultLocIdPeerParent;
+    peer_parent->parent = result_loc;
+
+    ZigList<ResultLocPeer> peer_result_locs = {};
+
     // First do the else and the ranges
     Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
@@ -6597,6 +6611,9 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         size_t prong_item_count = prong_node->data.switch_prong.items.length;
         if (prong_item_count == 0) {
+            ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+            this_peer_result_loc->base.id = ResultLocIdPeer;
+            this_peer_result_loc->parent = peer_parent;
             if (else_prong) {
                 ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
                         buf_sprintf("multiple else prongs in switch expression"));
@@ -6607,15 +6624,20 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             else_prong = prong_node;
 
             IrBasicBlock *prev_block = irb->current_basic_block;
+            next_peer_block(&peer_result_locs, else_block);
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
-                &switch_else_var))
+                &switch_else_var, lval, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
             ir_set_cursor_at_end(irb, prev_block);
         } else if (prong_node->data.switch_prong.any_items_are_range) {
+            ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+            this_peer_result_loc->base.id = ResultLocIdPeer;
+            this_peer_result_loc->parent = peer_parent;
+
             IrInstruction *ok_bit = nullptr;
             AstNode *last_item_node = nullptr;
             for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
@@ -6675,10 +6697,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_mark_gen(ir_build_cond_br(irb, scope, last_item_node, ok_bit, range_block_yes,
                         range_block_no, is_comptime));
 
+            next_peer_block(&peer_result_locs, range_block_yes);
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0,
-                &incoming_blocks, &incoming_values, nullptr))
+                &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -6695,6 +6718,10 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             continue;
         if (prong_node->data.switch_prong.any_items_are_range)
             continue;
+
+        ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+        this_peer_result_loc->base.id = ResultLocIdPeer;
+        this_peer_result_loc->parent = peer_parent;
 
         IrBasicBlock *prong_block = ir_create_basic_block(irb, scope, "SwitchProng");
         IrInstruction **items = allocate<IrInstruction *>(prong_item_count);
@@ -6719,10 +6746,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         }
 
         IrBasicBlock *prev_block = irb->current_basic_block;
+        next_peer_block(&peer_result_locs, prong_block);
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, items, prong_item_count,
-            &incoming_blocks, &incoming_values, nullptr))
+            &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
         {
             return irb->codegen->invalid_instruction;
         }
@@ -6731,31 +6759,48 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     }
 
-    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length,
-            else_prong != nullptr);
+    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
+            check_ranges.items, check_ranges.length, else_prong != nullptr);
 
+    IrInstruction *br_instruction;
     if (cases.length == 0) {
-        ir_build_br(irb, scope, node, else_block, is_comptime);
+        br_instruction = ir_build_br(irb, scope, node, else_block, is_comptime);
     } else {
         IrInstructionSwitchBr *switch_br = ir_build_switch_br(irb, scope, node, target_value, else_block,
                 cases.length, cases.items, is_comptime, switch_prongs_void);
         if (switch_else_var != nullptr) {
             switch_else_var->switch_br = switch_br;
         }
+        br_instruction = &switch_br->base;
     }
+    for (size_t i = 0; i < peer_result_locs.length; i += 1) {
+        peer_result_locs.at(i).base.source_instruction = br_instruction;
+    }
+    peer_parent->base.source_instruction = br_instruction;
+    peer_parent->peer_count = peer_result_locs.length;
+    peer_parent->peers = peer_result_locs.items;
 
     if (!else_prong) {
+        if (peer_result_locs.length != 0) {
+            peer_result_locs.last().next_bb = else_block;
+        }
         ir_set_cursor_at_end_and_append_block(irb, else_block);
         ir_build_unreachable(irb, scope, node);
+    } else {
+        if (peer_result_locs.length != 0) {
+            peer_result_locs.last().next_bb = end_block;
+        }
     }
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
     assert(incoming_blocks.length == incoming_values.length);
+    IrInstruction *result_instruction;
     if (incoming_blocks.length == 0) {
-        return ir_build_const_void(irb, scope, node);
+        result_instruction = ir_build_const_void(irb, scope, node);
     } else {
-        return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
     }
+    return ir_expr_wrap(irb, scope, result_instruction, result_loc);
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {
@@ -7828,7 +7873,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeIfOptional:
             return ir_lval_wrap(irb, scope, ir_gen_if_optional_expr(irb, scope, node), lval, result_loc);
         case NodeTypeSwitchExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node), lval, result_loc);
+            return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
             return ir_gen_comptime(irb, scope, node, lval);
         case NodeTypeErrorType:

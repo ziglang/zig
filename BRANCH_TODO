@@ -1,14 +1,17 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
-migrate ir_build_var_decl_src to use ir_build_alloca_src and explicitly initialize
-
- * switch expression
+ * if bool - do we need to call lval wrap or just expr wrap?
+ * hook up peer result locs to if optional and if err
+ * hook up peer result locs to while bool, while optional, and while err
+ * hook up peer result locs to for
+ * hook up peer result locs to catch
  * struct initializations
  * function call parameters
  * bitCast
 
 look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated
+            return ir_gen_comptime(irb, scope, node, lval);
 
 migrate all the alloca_list to alloca_gen_list
 
