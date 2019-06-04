@@ -1946,7 +1946,6 @@ pub const MMapError = error{
 
 /// Map files or devices into memory.
 /// Use of a mapped region can result in these signals:
-/// `length` must be page-aligned.
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
