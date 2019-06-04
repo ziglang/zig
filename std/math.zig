@@ -706,23 +706,23 @@ fn testFloorPowerOfTwo() void {
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
+/// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
 pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T.bit_count + 1) {
-    if (T.is_signed) {
-        @compileError("signed integers not supported");
-    }
+    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(!T.is_signed);
+    assert(value != 0);
     comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
     comptime const shiftType = std.math.Log2Int(promotedType);
-    if (value == 0) return promotedType(0);
     return promotedType(1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
+/// Only unsigned integers can be used. Zero is not an allowed input.
 /// If the value doesn't fit, returns an error.
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
-    if (T.is_signed) {
-        @compileError("signed integers not supported");
-    }
+    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(!T.is_signed);
     comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
     comptime const overflowBit = promotedType(1) << T.bit_count;
     var x = ceilPowerOfTwoPromote(T, value);
@@ -738,7 +738,6 @@ test "math.ceilPowerOfTwoPromote" {
 }
 
 fn testCeilPowerOfTwoPromote() void {
-    testing.expectEqual(u33(0), ceilPowerOfTwoPromote(u32, 0));
     testing.expectEqual(u33(1), ceilPowerOfTwoPromote(u32, 1));
     testing.expectEqual(u33(2), ceilPowerOfTwoPromote(u32, 2));
     testing.expectEqual(u33(64), ceilPowerOfTwoPromote(u32, 63));
@@ -756,7 +755,6 @@ test "math.ceilPowerOfTwo" {
 }
 
 fn testCeilPowerOfTwo() !void {
-    testing.expectEqual(u32(0), try ceilPowerOfTwo(u32, 0));
     testing.expectEqual(u32(1), try ceilPowerOfTwo(u32, 1));
     testing.expectEqual(u32(2), try ceilPowerOfTwo(u32, 2));
     testing.expectEqual(u32(64), try ceilPowerOfTwo(u32, 63));
