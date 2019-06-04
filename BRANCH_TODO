@@ -3,7 +3,6 @@ Scratch pad for stuff to do before merging master
 
 migrate ir_build_var_decl_src to use ir_build_alloca_src and explicitly initialize
 
- * for loops
  * switch expression
  * struct initializations
  * function call parameters

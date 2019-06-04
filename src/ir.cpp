@@ -523,14 +523,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeOf *) {
     return IrInstructionIdTypeOf;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionToPtrType *) {
-    return IrInstructionIdToPtrType;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeChild *) {
-    return IrInstructionIdPtrTypeChild;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetCold *) {
     return IrInstructionIdSetCold;
 }
@@ -1650,27 +1642,6 @@ static IrInstruction *ir_build_load_ptr(IrBuilder *irb, Scope *scope, AstNode *s
 
 static IrInstruction *ir_build_typeof(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
     IrInstructionTypeOf *instruction = ir_build_instruction<IrInstructionTypeOf>(irb, scope, source_node);
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_to_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr) {
-    IrInstructionToPtrType *instruction = ir_build_instruction<IrInstructionToPtrType>(irb, scope, source_node);
-    instruction->ptr = ptr;
-
-    ir_ref_instruction(ptr, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_ptr_type_child(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *value)
-{
-    IrInstructionPtrTypeChild *instruction = ir_build_instruction<IrInstructionPtrTypeChild>(
-        irb, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
@@ -5611,6 +5582,14 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
     }
 }
 
+static ResultLocVar *create_var_result_loc(IrInstruction *alloca, ZigVar *var) {
+    ResultLocVar *result_loc_var = allocate<ResultLocVar>(1);
+    result_loc_var->base.id = ResultLocIdVar;
+    result_loc_var->base.source_instruction = alloca;
+    result_loc_var->var = var;
+    return result_loc_var;
+}
+
 static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeVariableDeclaration);
 
@@ -5669,10 +5648,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
             buf_ptr(variable_declaration->symbol), is_comptime);
 
     // Create a result location for the initialization expression.
-    ResultLocVar *result_loc_var = allocate<ResultLocVar>(1);
-    result_loc_var->base.id = ResultLocIdVar;
-    result_loc_var->base.source_instruction = alloca;
-    result_loc_var->var = var;
+    ResultLocVar *result_loc_var = create_var_result_loc(alloca, var);
     ResultLoc *init_result_loc = (type_instruction == nullptr) ? &result_loc_var->base : nullptr;
 
     // Temporarily set the name of the IrExecutable to the VariableDeclaration
@@ -5975,73 +5951,62 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     if (array_val_ptr == irb->codegen->invalid_instruction)
         return array_val_ptr;
 
-    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_val_ptr);
-
-    IrInstruction *elem_var_type;
-    if (node->data.for_expr.elem_is_ptr) {
-        elem_var_type = pointer_type;
-    } else {
-        elem_var_type = ir_build_ptr_type_child(irb, parent_scope, elem_node, pointer_type);
-    }
-
     IrInstruction *is_comptime = ir_build_const_bool(irb, parent_scope, node,
         ir_should_inline(irb->exec, parent_scope) || node->data.for_expr.is_inline);
 
+    AstNode *index_var_source_node;
+    ZigVar *index_var;
+    const char *index_var_name;
+    if (index_node) {
+        index_var_source_node = index_node;
+        Buf *index_var_name_buf = index_node->data.symbol_expr.symbol;
+        index_var = ir_create_var(irb, index_node, parent_scope, index_var_name_buf, true, false, false, is_comptime);
+        index_var_name = buf_ptr(index_var_name_buf);
+    } else {
+        index_var_source_node = node;
+        index_var = ir_create_var(irb, node, parent_scope, nullptr, true, false, true, is_comptime);
+        index_var_name = "i";
+    }
+    parent_scope = index_var->parent_scope;
+
+    IrInstruction *index_alloca = ir_build_alloca_src(irb, parent_scope, node, nullptr, index_var_name, is_comptime);
+    ResultLocVar *var_result_loc = create_var_result_loc(index_alloca, index_var);
+    IrInstruction *zero = ir_build_const_usize(irb, parent_scope, node, 0);
+    ir_build_end_expr(irb, parent_scope, node, zero, &var_result_loc->base);
+    ir_build_var_decl_src(irb, parent_scope, index_var_source_node, index_var, nullptr, index_alloca);
+
+    IrInstruction *one = ir_build_const_usize(irb, parent_scope, node, 1);
+    IrInstruction *index_ptr = ir_build_var_ptr(irb, parent_scope, node, index_var);
+
+
+    IrBasicBlock *cond_block = ir_create_basic_block(irb, parent_scope, "ForCond");
+    IrBasicBlock *body_block = ir_create_basic_block(irb, parent_scope, "ForBody");
+    IrBasicBlock *end_block = ir_create_basic_block(irb, parent_scope, "ForEnd");
+    IrBasicBlock *else_block = else_node ? ir_create_basic_block(irb, parent_scope, "ForElse") : end_block;
+    IrBasicBlock *continue_block = ir_create_basic_block(irb, parent_scope, "ForContinue");
+
+    Buf *len_field_name = buf_create_from_str("len");
+    IrInstruction *len_ref = ir_build_field_ptr(irb, parent_scope, node, array_val_ptr, len_field_name);
+    IrInstruction *len_val = ir_build_load_ptr(irb, parent_scope, node, len_ref);
+    ir_build_br(irb, parent_scope, node, cond_block, is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, cond_block);
+    IrInstruction *index_val = ir_build_load_ptr(irb, parent_scope, node, index_ptr);
+    IrInstruction *cond = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
+    IrBasicBlock *after_cond_block = irb->current_basic_block;
+    IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
+    ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, cond, body_block, else_block, is_comptime));
+
+    ir_set_cursor_at_end_and_append_block(irb, body_block);
+    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, parent_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
     ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
     Scope *child_scope = elem_var->child_scope;
 
-    IrInstruction *undef = ir_build_const_undefined(irb, parent_scope, elem_node);
-    IrInstruction *undef_elem_var_type = ir_build_implicit_cast(irb, parent_scope, elem_node, elem_var_type, undef);
-    ir_build_var_decl_src(irb, child_scope, elem_node, elem_var, nullptr, undef_elem_var_type);
-    IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, child_scope, node, elem_var);
-
-    AstNode *index_var_source_node;
-    ZigVar *index_var;
-    if (index_node) {
-        index_var_source_node = index_node;
-        Buf *index_var_name = index_node->data.symbol_expr.symbol;
-        index_var = ir_create_var(irb, index_node, child_scope, index_var_name, true, false, false, is_comptime);
-    } else {
-        index_var_source_node = node;
-        index_var = ir_create_var(irb, node, child_scope, nullptr, true, false, true, is_comptime);
-    }
-    child_scope = index_var->child_scope;
-
-    IrInstruction *zero = ir_build_const_usize(irb, child_scope, node, 0);
-    IrInstruction *one = ir_build_const_usize(irb, child_scope, node, 1);
-    ir_build_var_decl_src(irb, child_scope, index_var_source_node, index_var, nullptr, zero);
-    IrInstruction *index_ptr = ir_build_var_ptr(irb, child_scope, node, index_var);
-
-
-    IrBasicBlock *cond_block = ir_create_basic_block(irb, child_scope, "ForCond");
-    IrBasicBlock *body_block = ir_create_basic_block(irb, child_scope, "ForBody");
-    IrBasicBlock *end_block = ir_create_basic_block(irb, child_scope, "ForEnd");
-    IrBasicBlock *else_block = else_node ? ir_create_basic_block(irb, child_scope, "ForElse") : end_block;
-    IrBasicBlock *continue_block = ir_create_basic_block(irb, child_scope, "ForContinue");
-
-    Buf *len_field_name = buf_create_from_str("len");
-    IrInstruction *len_ref = ir_build_field_ptr(irb, child_scope, node, array_val_ptr, len_field_name);
-    IrInstruction *len_val = ir_build_load_ptr(irb, child_scope, node, len_ref);
-    ir_build_br(irb, child_scope, node, cond_block, is_comptime);
-
-    ir_set_cursor_at_end_and_append_block(irb, cond_block);
-    IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_ptr);
-    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
-    IrBasicBlock *after_cond_block = irb->current_basic_block;
-    IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
-    ir_mark_gen(ir_build_cond_br(irb, child_scope, node, cond, body_block, else_block, is_comptime));
-
-    ir_set_cursor_at_end_and_append_block(irb, body_block);
-    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, child_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
-    IrInstruction *elem_val;
-    if (node->data.for_expr.elem_is_ptr) {
-        elem_val = elem_ptr;
-    } else {
-        elem_val = ir_build_load_ptr(irb, child_scope, node, elem_ptr);
-    }
-    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, elem_var_ptr, elem_val));
+    IrInstruction *var_ptr = node->data.for_expr.elem_is_ptr ?
+        ir_build_ref(irb, parent_scope, elem_node, elem_ptr, true, false) : elem_ptr;
+    ir_build_var_decl_src(irb, parent_scope, elem_node, elem_var, nullptr, var_ptr);
 
     ZigList<IrInstruction *> incoming_values = {0};
     ZigList<IrBasicBlock *> incoming_blocks = {0};
@@ -16901,64 +16866,6 @@ static IrInstruction *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructio
     return ir_const_type(ira, &typeof_instruction->base, type_entry);
 }
 
-static IrInstruction *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
-        IrInstructionToPtrType *to_ptr_type_instruction)
-{
-    Error err;
-    IrInstruction *ptr_ptr = to_ptr_type_instruction->ptr->child;
-    if (type_is_invalid(ptr_ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    ZigType *ptr_ptr_type = ptr_ptr->value.type;
-    assert(ptr_ptr_type->id == ZigTypeIdPointer);
-    ZigType *type_entry = ptr_ptr_type->data.pointer.child_type;
-
-    ZigType *ptr_type;
-    if (type_entry->id == ZigTypeIdArray) {
-        ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, ptr_ptr_type->data.pointer.is_const);
-    } else if (is_array_ref(type_entry)) {
-        ptr_type = get_pointer_to_type(ira->codegen,
-            type_entry->data.pointer.child_type->data.array.child_type, type_entry->data.pointer.is_const);
-    }  else if (is_slice(type_entry)) {
-        ZigType *slice_ptr_type = type_entry->data.structure.fields[0].type_entry;
-        ptr_type = adjust_ptr_len(ira->codegen, slice_ptr_type, PtrLenSingle);
-        // If the pointer is over-aligned, we may have to reduce it based on the alignment of the element type.
-        if (slice_ptr_type->data.pointer.explicit_alignment != 0) {
-            ZigType *elem_type = slice_ptr_type->data.pointer.child_type;
-            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusAlignmentKnown)))
-                return ira->codegen->invalid_instruction;
-            uint32_t elem_align = get_abi_alignment(ira->codegen, elem_type);
-            uint32_t reduced_align = min(elem_align, slice_ptr_type->data.pointer.explicit_alignment);
-            ptr_type = adjust_ptr_align(ira->codegen, ptr_type, reduced_align);
-        }
-    } else if (type_entry->id == ZigTypeIdArgTuple) {
-        zig_panic("TODO for loop on var args");
-    } else {
-        ir_add_error_node(ira, to_ptr_type_instruction->base.source_node,
-                buf_sprintf("expected array type, found '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    return ir_const_type(ira, &to_ptr_type_instruction->base, ptr_type);
-}
-
-static IrInstruction *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
-        IrInstructionPtrTypeChild *ptr_type_child_instruction)
-{
-    IrInstruction *type_value = ptr_type_child_instruction->value->child;
-    ZigType *type_entry = ir_resolve_type(ira, type_value);
-    if (type_is_invalid(type_entry))
-        return ira->codegen->invalid_instruction;
-
-    if (type_entry->id != ZigTypeIdPointer) {
-        ir_add_error_node(ira, ptr_type_child_instruction->base.source_node,
-                buf_sprintf("expected pointer type, found '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    return ir_const_type(ira, &ptr_type_child_instruction->base, type_entry->data.pointer.child_type);
-}
-
 static IrInstruction *ir_analyze_instruction_set_cold(IrAnalyze *ira, IrInstructionSetCold *instruction) {
     if (ira->new_irb.exec->is_inline) {
         // ignore setCold when running functions at compile time
@@ -23751,10 +23658,6 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_phi(ira, (IrInstructionPhi *)instruction);
         case IrInstructionIdTypeOf:
             return ir_analyze_instruction_typeof(ira, (IrInstructionTypeOf *)instruction);
-        case IrInstructionIdToPtrType:
-            return ir_analyze_instruction_to_ptr_type(ira, (IrInstructionToPtrType *)instruction);
-        case IrInstructionIdPtrTypeChild:
-            return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
         case IrInstructionIdSetCold:
             return ir_analyze_instruction_set_cold(ira, (IrInstructionSetCold *)instruction);
         case IrInstructionIdSetRuntimeSafety:
@@ -24152,8 +24055,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdVarPtr:
         case IrInstructionIdReturnPtr:
         case IrInstructionIdTypeOf:
-        case IrInstructionIdToPtrType:
-        case IrInstructionIdPtrTypeChild:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:

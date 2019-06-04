@@ -414,18 +414,6 @@ static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_to_ptr_type(IrPrint *irp, IrInstructionToPtrType *instruction) {
-    fprintf(irp->f, "@toPtrType(");
-    ir_print_other_instruction(irp, instruction->ptr);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_ptr_type_child(IrPrint *irp, IrInstructionPtrTypeChild *instruction) {
-    fprintf(irp->f, "@ptrTypeChild(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
     if (instruction->field_name_buffer) {
         fprintf(irp->f, "fieldptr ");
@@ -1624,12 +1612,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);
-            break;
-        case IrInstructionIdToPtrType:
-            ir_print_to_ptr_type(irp, (IrInstructionToPtrType *)instruction);
-            break;
-        case IrInstructionIdPtrTypeChild:
-            ir_print_ptr_type_child(irp, (IrInstructionPtrTypeChild *)instruction);
             break;
         case IrInstructionIdFieldPtr:
             ir_print_field_ptr(irp, (IrInstructionFieldPtr *)instruction);

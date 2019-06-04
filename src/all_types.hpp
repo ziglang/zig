@@ -2191,8 +2191,6 @@ enum IrInstructionId {
     IrInstructionIdUnionInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
-    IrInstructionIdToPtrType,
-    IrInstructionIdPtrTypeChild,
     IrInstructionIdSetCold,
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
@@ -2674,18 +2672,6 @@ struct IrInstructionUnreachable {
 };
 
 struct IrInstructionTypeOf {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionToPtrType {
-    IrInstruction base;
-
-    IrInstruction *ptr;
-};
-
-struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
