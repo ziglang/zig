@@ -7243,7 +7243,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "void");
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 0,
-                ZigLLVMEncoding_DW_ATE_unsigned());
+                ZigLLVMEncoding_DW_ATE_signed());
         g->builtin_types.entry_void = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
