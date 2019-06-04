@@ -6373,9 +6373,9 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, is_const, is_const, is_shadowable, is_comptime);
 
-        IrInstruction *var_ptr_value = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node, maybe_val_ptr, false);
-        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, subexpr_scope, node, var_ptr_value);
-        ir_build_var_decl_src(irb, subexpr_scope, node, var, nullptr, var_value);
+        IrInstruction *payload_ptr = ir_build_optional_unwrap_ptr(irb, subexpr_scope, node, maybe_val_ptr, false);
+        IrInstruction *var_ptr = var_is_ptr ? ir_build_ref(irb, subexpr_scope, node, payload_ptr, true, false) : payload_ptr;
+        ir_build_var_decl_src(irb, subexpr_scope, node, var, nullptr, var_ptr);
         var_scope = var->child_scope;
     } else {
         var_scope = subexpr_scope;
@@ -6447,9 +6447,10 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         ZigVar *var = ir_create_var(irb, node, subexpr_scope,
                 var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
-        IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, subexpr_scope, node, err_val_ptr, false);
-        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, subexpr_scope, node, var_ptr_value);
-        ir_build_var_decl_src(irb, subexpr_scope, node, var, nullptr, var_value);
+        IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, subexpr_scope, node, err_val_ptr, false);
+        IrInstruction *var_ptr = var_is_ptr ?
+            ir_build_ref(irb, subexpr_scope, node, payload_ptr, true, false) : payload_ptr;
+        ir_build_var_decl_src(irb, subexpr_scope, node, var, nullptr, var_ptr);
         var_scope = var->child_scope;
     } else {
         var_scope = subexpr_scope;
