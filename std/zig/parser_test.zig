@@ -2223,6 +2223,12 @@ test "zig fmt: multiline string in array" {
         \\    ,
         \\        \\bbb
         \\    };
+        \\    const Bar = [][]const u8{ // comment here
+        \\        \\aaa
+        \\        \\
+        \\    , // and another comment can go here
+        \\        \\bbb
+        \\    };
         \\}
         \\
     );
