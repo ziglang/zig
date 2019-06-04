@@ -727,10 +727,13 @@ fn renderExpression(
                         }
 
                         var new_indent = indent + indent_delta;
-                        try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
 
-                        if (tree.tokens.at(lbrace + 1).id != Token.Id.MultilineStringLiteralLine) {
+                        if (tree.tokens.at(tree.nextToken(lbrace)).id != Token.Id.MultilineStringLiteralLine) {
+                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
                             try stream.writeByteNTimes(' ', new_indent);
+                        } else {
+                            new_indent -= indent_delta;
+                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.None);
                         }
 
                         it.set(0);
@@ -738,9 +741,6 @@ fn renderExpression(
                         var col: usize = 1;
                         while (it.next()) |expr| : (i += 1) {
                             if (it.peek()) |next_expr| {
-                                if (expr.*.id == ast.Node.Id.MultilineStringLiteral) {
-                                    new_indent -= indent_delta;
-                                }
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.None);
 
                                 const comma = tree.nextToken(expr.*.lastToken());
@@ -756,7 +756,11 @@ fn renderExpression(
                                 }
                                 col = 1;
 
-                                try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
+                                if (tree.tokens.at(tree.nextToken(comma)).id != Token.Id.MultilineStringLiteralLine) {
+                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
+                                } else {
+                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.None); // ,
+                                }
 
                                 try renderExtraNewline(tree, stream, start_col, next_expr.*);
                                 if (next_expr.*.id != ast.Node.Id.MultilineStringLiteral) {
@@ -766,7 +770,7 @@ fn renderExpression(
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.Comma); // ,
                             }
                         }
-                        const last_node = it.prev() orelse unreachable;
+                        const last_node = it.prev().?;
                         if (last_node.*.id != ast.Node.Id.MultilineStringLiteral) {
                             try stream.writeByteNTimes(' ', indent);
                         }
