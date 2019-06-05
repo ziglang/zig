@@ -50,7 +50,7 @@ pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFi
 pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) BOOL;
 
-pub extern "kernel32" stdcallcc fn FormatMessageA(dwFlags: DWORD, lpSource: LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: LPSTR, nSize: DWORD, Arguments: ?*va_list) DWORD;
+pub extern "kernel32" stdcallcc fn FormatMessageA(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: LPSTR, nSize: DWORD, Arguments: ?*va_list) DWORD;
 
 pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsW(penv: [*]u16) BOOL;
 

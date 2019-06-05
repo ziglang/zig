@@ -756,7 +756,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     return result;
 }
 
-inline fn MAKELANGID(p: USHORT, s: USHORT) LANGID {
+inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
 }
 
@@ -765,7 +765,7 @@ inline fn MAKELANGID(p: USHORT, s: USHORT) LANGID {
 pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         var buf: LPSTR = undefined;
-        const len = kernel32.FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.LANG_NEUTRAL, LANG.SUBLANG_DEFAULT), buf, 0, null);
+        const len = kernel32.FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.LANG_NEUTRAL, LANG.SUBLANG_DEFAULT), @ptrCast(LPSTR, &buf), 0, null);
         defer _ = kernel32.LocalFree(@ptrCast(HLOCAL, buf));
         std.debug.warn("error.Unexpected: {}: {}\n", err, buf[0..len]);
 
