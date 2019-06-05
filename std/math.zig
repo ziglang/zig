@@ -696,6 +696,76 @@ test "math.floorPowerOfTwo" {
     comptime testFloorPowerOfTwo();
 }
 
+fn testFloorPowerOfTwo() void {
+    testing.expect(floorPowerOfTwo(u32, 63) == 32);
+    testing.expect(floorPowerOfTwo(u32, 64) == 64);
+    testing.expect(floorPowerOfTwo(u32, 65) == 64);
+    testing.expect(floorPowerOfTwo(u4, 7) == 4);
+    testing.expect(floorPowerOfTwo(u4, 8) == 8);
+    testing.expect(floorPowerOfTwo(u4, 9) == 8);
+}
+
+/// Returns the next power of two (if the value is not already a power of two).
+/// Only unsigned integers can be used. Zero is not an allowed input.
+/// Result is a type with 1 more bit than the input type.
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T.bit_count + 1) {
+    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(!T.is_signed);
+    assert(value != 0);
+    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const shiftType = std.math.Log2Int(promotedType);
+    return promotedType(1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
+}
+
+/// Returns the next power of two (if the value is not already a power of two).
+/// Only unsigned integers can be used. Zero is not an allowed input.
+/// If the value doesn't fit, returns an error.
+pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
+    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(!T.is_signed);
+    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const overflowBit = promotedType(1) << T.bit_count;
+    var x = ceilPowerOfTwoPromote(T, value);
+    if (overflowBit & x != 0) {
+        return error.Overflow;
+    }
+    return @intCast(T, x);
+}
+
+test "math.ceilPowerOfTwoPromote" {
+    testCeilPowerOfTwoPromote();
+    comptime testCeilPowerOfTwoPromote();
+}
+
+fn testCeilPowerOfTwoPromote() void {
+    testing.expectEqual(u33(1), ceilPowerOfTwoPromote(u32, 1));
+    testing.expectEqual(u33(2), ceilPowerOfTwoPromote(u32, 2));
+    testing.expectEqual(u33(64), ceilPowerOfTwoPromote(u32, 63));
+    testing.expectEqual(u33(64), ceilPowerOfTwoPromote(u32, 64));
+    testing.expectEqual(u33(128), ceilPowerOfTwoPromote(u32, 65));
+    testing.expectEqual(u6(8), ceilPowerOfTwoPromote(u5, 7));
+    testing.expectEqual(u6(8), ceilPowerOfTwoPromote(u5, 8));
+    testing.expectEqual(u6(16), ceilPowerOfTwoPromote(u5, 9));
+    testing.expectEqual(u5(16), ceilPowerOfTwoPromote(u4, 9));
+}
+
+test "math.ceilPowerOfTwo" {
+    try testCeilPowerOfTwo();
+    comptime try testCeilPowerOfTwo();
+}
+
+fn testCeilPowerOfTwo() !void {
+    testing.expectEqual(u32(1), try ceilPowerOfTwo(u32, 1));
+    testing.expectEqual(u32(2), try ceilPowerOfTwo(u32, 2));
+    testing.expectEqual(u32(64), try ceilPowerOfTwo(u32, 63));
+    testing.expectEqual(u32(64), try ceilPowerOfTwo(u32, 64));
+    testing.expectEqual(u32(128), try ceilPowerOfTwo(u32, 65));
+    testing.expectEqual(u5(8), try ceilPowerOfTwo(u5, 7));
+    testing.expectEqual(u5(8), try ceilPowerOfTwo(u5, 8));
+    testing.expectEqual(u5(16), try ceilPowerOfTwo(u5, 9));
+    testing.expectError(error.Overflow, ceilPowerOfTwo(u4, 9));
+}
+
 pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     assert(x != 0);
     return @intCast(Log2Int(T), T.bit_count - 1 - @clz(T, x));
@@ -720,15 +790,6 @@ test "std.math.log2_int_ceil" {
     testing.expect(log2_int_ceil(u32, 8) == 3);
     testing.expect(log2_int_ceil(u32, 9) == 4);
     testing.expect(log2_int_ceil(u32, 10) == 4);
-}
-
-fn testFloorPowerOfTwo() void {
-    testing.expect(floorPowerOfTwo(u32, 63) == 32);
-    testing.expect(floorPowerOfTwo(u32, 64) == 64);
-    testing.expect(floorPowerOfTwo(u32, 65) == 64);
-    testing.expect(floorPowerOfTwo(u4, 7) == 4);
-    testing.expect(floorPowerOfTwo(u4, 8) == 8);
-    testing.expect(floorPowerOfTwo(u4, 9) == 8);
 }
 
 pub fn lossyCast(comptime T: type, value: var) T {
