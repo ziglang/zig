@@ -35,7 +35,7 @@ env
 "../$ZIG" run update-download-page.zig
 
 mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-s3cmd put -P "../$SRC_TARBALL" s3://ziglang.org/builds/
+s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
 s3cmd put -P "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
 s3cmd put -P www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
 s3cmd put -P www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
