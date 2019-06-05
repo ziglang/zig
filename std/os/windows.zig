@@ -764,11 +764,15 @@ inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
 /// and you get an unexpected error.
 pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        var buf: LPSTR = undefined;
-        const len = kernel32.FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.LANG_NEUTRAL, LANG.SUBLANG_DEFAULT), @ptrCast(LPSTR, &buf), 0, null);
-        defer _ = kernel32.LocalFree(@ptrCast(HLOCAL, buf));
-        std.debug.warn("error.Unexpected: {}: {}\n", err, buf[0..len]);
-
+        // 614 is the length of the longest windows error desciption
+        var buf_u16: [614]u16 = undefined;
+        var buf_u8: [614]u8 = undefined;
+        var len = kernel32.FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
+            buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
+        _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
+        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

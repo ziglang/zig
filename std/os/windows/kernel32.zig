@@ -50,7 +50,7 @@ pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFi
 pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) BOOL;
 
-pub extern "kernel32" stdcallcc fn FormatMessageA(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: LPSTR, nSize: DWORD, Arguments: ?*va_list) DWORD;
+pub extern "kernel32" stdcallcc fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: LPWSTR, nSize: DWORD, Arguments: ?*va_list) DWORD;
 
 pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsW(penv: [*]u16) BOOL;
 
@@ -117,8 +117,6 @@ pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBy
 pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const c_void) BOOL;
-
-pub extern "kernel32" stdcallcc fn LocalFree(hMem: HLOCAL) ?HLOCAL;
 
 pub extern "kernel32" stdcallcc fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) ?LPVOID;
 pub extern "kernel32" stdcallcc fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) BOOL;

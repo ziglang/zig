@@ -7,6 +7,7 @@ const maxInt = std.math.maxInt;
 
 pub const ERROR = @import("error.zig");
 pub const LANG = @import("lang.zig");
+pub const SUBLANG = @import("sublang.zig");
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
 pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
