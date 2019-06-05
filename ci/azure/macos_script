@@ -62,7 +62,7 @@ else
   cd $HOME
   tar cfJ "$CACHE_BASENAME.tar.xz" "$CACHE_BASENAME"
   cp "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P "$CACHE_BASENAME.tar.xz" "s3://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
+  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$CACHE_BASENAME.tar.xz" "s3://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
 fi
 
 cd $ZIGDIR
@@ -85,7 +85,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   tar cfJ "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P "$TARBALL" s3://ziglang.org/builds/
+  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
 
   SHASUM=$(shasum -a 256 $TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $TARBALL)
