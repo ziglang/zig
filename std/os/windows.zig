@@ -756,11 +756,23 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     return result;
 }
 
+inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
+    return (s << 10) | p;
+}
+
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("unexpected GetLastError(): {}\n", err);
+        // 614 is the length of the longest windows error desciption
+        var buf_u16: [614]u16 = undefined;
+        var buf_u8: [614]u8 = undefined;
+        var len = kernel32.FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
+            buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
+        _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
+        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
