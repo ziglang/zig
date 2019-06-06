@@ -155,6 +155,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         /// capacity is greater than the current capacity.
         /// New capacity must be a power of two.
         fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
+            // capacity must always be a power of two to allow for modulo
+            // optimization in the constrainIndex fn
             const is_power_of_two = new_capacity & (new_capacity - 1) == 0;
             assert(is_power_of_two);
 
@@ -209,7 +211,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             {
                 var roll_over: usize = 0;
                 while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = (start_index + roll_over) % hm.entries.len;
+                    const index = hm.constrainIndex(start_index + roll_over);
                     var entry = &hm.entries[index];
 
                     if (!entry.used) return null;
@@ -218,7 +220,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
                     const removed_kv = entry.kv;
                     while (roll_over < hm.entries.len) : (roll_over += 1) {
-                        const next_index = (start_index + roll_over + 1) % hm.entries.len;
+                        const next_index = hm.constrainIndex(start_index + roll_over + 1);
                         const next_entry = &hm.entries[next_index];
                         if (!next_entry.used or next_entry.distance_from_start_index == 0) {
                             entry.used = false;
@@ -301,7 +303,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
                 roll_over += 1;
                 distance_from_start_index += 1;
             }) {
-                const index = (start_index + roll_over) % self.entries.len;
+                const index = self.constrainIndex(start_index + roll_over);
                 const entry = &self.entries[index];
 
                 if (entry.used and !eql(entry.kv.key, key)) {
@@ -358,7 +360,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             {
                 var roll_over: usize = 0;
                 while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
-                    const index = (start_index + roll_over) % hm.entries.len;
+                    const index = hm.constrainIndex(start_index + roll_over);
                     const entry = &hm.entries[index];
 
                     if (!entry.used) return null;
@@ -369,7 +371,13 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         fn keyToIndex(hm: Self, key: K) usize {
-            return usize(hash(key)) % hm.entries.len;
+            return hm.constrainIndex(usize(hash(key)));
+        }
+
+        fn constrainIndex(hm: Self, i: usize) usize {
+            // this is an optimization for modulo of power of two integers;
+            // it requires hm.entries.len to always be a power of two
+            return i & (hm.entries.len - 1);
         }
     };
 }
