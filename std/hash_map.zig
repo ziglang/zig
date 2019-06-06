@@ -139,9 +139,9 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             // ensure that the hash map will be at most 60% full if
             // expected_count items are put into it
             var optimized_capacity = expected_count * 5 / 3;
-            // round capacity to the next power of two
-            const pow = math.log2_int_ceil(usize, optimized_capacity);
-            return math.pow(usize, 2, pow);
+            // an overflow here would mean the amount of memory required would not
+            // be representable in the address space
+            return math.ceilPowerOfTwo(usize, optimized_capacity) catch unreachable;
         }
 
         /// Increases capacity so that the hash map will be at most
