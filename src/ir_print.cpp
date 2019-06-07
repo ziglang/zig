@@ -207,6 +207,12 @@ static void ir_print_result_loc_var(IrPrint *irp, ResultLocVar *result_loc_var) 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_peer(IrPrint *irp, ResultLocPeer *result_loc_peer) {
+    fprintf(irp->f, "peer(next=");
+    ir_print_other_block(irp, result_loc_peer->next_bb);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
@@ -220,8 +226,7 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
         case ResultLocIdVar:
             return ir_print_result_loc_var(irp, (ResultLocVar *)result_loc);
         case ResultLocIdPeer:
-            fprintf(irp->f, "peer");
-            return;
+            return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdPeerParent:
             fprintf(irp->f, "peer_parent");
             return;

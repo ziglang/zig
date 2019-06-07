@@ -185,7 +185,8 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
         ZigType *ptr_type);
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *dest_type);
-static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type, IrInstruction *value);
+static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+        ResultLoc *result_loc, ZigType *value_type, IrInstruction *value);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -1376,11 +1377,8 @@ static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *s
 static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_instruction,
         ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
         FnInline fn_inline, bool is_async, IrInstruction *async_allocator, IrInstruction *new_stack,
-        ResultLoc *result_loc, ZigType *return_type)
+        IrInstruction *result_loc, ZigType *return_type)
 {
-    // must be resolved before building the call instruction
-    IrInstruction *resolved_result_loc = ir_resolve_result(ira, result_loc, return_type, nullptr);
-
     IrInstructionCallGen *call_instruction = ir_build_instruction<IrInstructionCallGen>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
     call_instruction->base.value.type = return_type;
@@ -1392,14 +1390,14 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
     call_instruction->new_stack = new_stack;
-    call_instruction->result_loc = resolved_result_loc;
+    call_instruction->result_loc = result_loc;
 
     if (fn_ref != nullptr) ir_ref_instruction(fn_ref, ira->new_irb.current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
         ir_ref_instruction(args[i], ira->new_irb.current_basic_block);
     if (async_allocator != nullptr) ir_ref_instruction(async_allocator, ira->new_irb.current_basic_block);
     if (new_stack != nullptr) ir_ref_instruction(new_stack, ira->new_irb.current_basic_block);
-    if (call_instruction->result_loc != nullptr) ir_ref_instruction(call_instruction->result_loc, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &call_instruction->base;
 }
@@ -5366,7 +5364,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     incoming_blocks[1] = after_else_block;
 
     IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
-    return ir_lval_wrap(irb, scope, phi, lval, result_loc);
+    return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
 static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, Scope *scope, AstNode *node, IrUnOp op_id, LVal lval) {
@@ -6558,10 +6556,11 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
     return true;
 }
 
-static void next_peer_block(ZigList<ResultLocPeer> *list, IrBasicBlock *next_bb) {
-    if (list->length >= 2) {
-        list->at(list->length - 2).next_bb = next_bb;
+static void next_peer_block(ResultLocPeerParent *peer_parent, IrBasicBlock *next_bb) {
+    if (peer_parent->peer_count > 0) {
+        peer_parent->peers[peer_parent->peer_count - 1].next_bb = next_bb;
     }
+    peer_parent->peer_count += 1;
 }
 
 static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -6600,8 +6599,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
     peer_parent->base.id = ResultLocIdPeerParent;
     peer_parent->parent = result_loc;
-
-    ZigList<ResultLocPeer> peer_result_locs = {};
+    peer_parent->peers = allocate<ResultLocPeer>(prong_count);
+    peer_parent->peer_count = 0;
 
     // First do the else and the ranges
     Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
@@ -6611,7 +6610,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         size_t prong_item_count = prong_node->data.switch_prong.items.length;
         if (prong_item_count == 0) {
-            ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+            ResultLocPeer *this_peer_result_loc = &peer_parent->peers[peer_parent->peer_count];
             this_peer_result_loc->base.id = ResultLocIdPeer;
             this_peer_result_loc->parent = peer_parent;
             if (else_prong) {
@@ -6624,7 +6623,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             else_prong = prong_node;
 
             IrBasicBlock *prev_block = irb->current_basic_block;
-            next_peer_block(&peer_result_locs, else_block);
+            next_peer_block(peer_parent, else_block);
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
@@ -6634,7 +6633,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             }
             ir_set_cursor_at_end(irb, prev_block);
         } else if (prong_node->data.switch_prong.any_items_are_range) {
-            ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+            ResultLocPeer *this_peer_result_loc = &peer_parent->peers[peer_parent->peer_count];
             this_peer_result_loc->base.id = ResultLocIdPeer;
             this_peer_result_loc->parent = peer_parent;
 
@@ -6697,7 +6696,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_mark_gen(ir_build_cond_br(irb, scope, last_item_node, ok_bit, range_block_yes,
                         range_block_no, is_comptime));
 
-            next_peer_block(&peer_result_locs, range_block_yes);
+            next_peer_block(peer_parent, range_block_yes);
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0,
@@ -6719,7 +6718,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         if (prong_node->data.switch_prong.any_items_are_range)
             continue;
 
-        ResultLocPeer *this_peer_result_loc = peer_result_locs.add_one();
+        ResultLocPeer *this_peer_result_loc = &peer_parent->peers[peer_parent->peer_count];
         this_peer_result_loc->base.id = ResultLocIdPeer;
         this_peer_result_loc->parent = peer_parent;
 
@@ -6746,7 +6745,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         }
 
         IrBasicBlock *prev_block = irb->current_basic_block;
-        next_peer_block(&peer_result_locs, prong_block);
+        next_peer_block(peer_parent, prong_block);
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, items, prong_item_count,
@@ -6773,22 +6772,20 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         }
         br_instruction = &switch_br->base;
     }
-    for (size_t i = 0; i < peer_result_locs.length; i += 1) {
-        peer_result_locs.at(i).base.source_instruction = br_instruction;
+    for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
+        peer_parent->peers[i].base.source_instruction = br_instruction;
     }
     peer_parent->base.source_instruction = br_instruction;
-    peer_parent->peer_count = peer_result_locs.length;
-    peer_parent->peers = peer_result_locs.items;
 
     if (!else_prong) {
-        if (peer_result_locs.length != 0) {
-            peer_result_locs.last().next_bb = else_block;
+        if (peer_parent->peer_count != 0) {
+            peer_parent->peers[peer_parent->peer_count - 1].next_bb = else_block;
         }
         ir_set_cursor_at_end_and_append_block(irb, else_block);
         ir_build_unreachable(irb, scope, node);
     } else {
-        if (peer_result_locs.length != 0) {
-            peer_result_locs.last().next_bb = end_block;
+        if (peer_parent->peer_count != 0) {
+            peer_parent->peers[peer_parent->peer_count - 1].next_bb = end_block;
         }
     }
 
@@ -14400,12 +14397,12 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, ResultLoc *result_lo
 
 // give nullptr for value to resolve it at runtime
 // returns a result location, or nullptr if the result location was already taken care of
-static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, ZigType *value_type,
-        IrInstruction *value)
+// when calling this function, at the callsite must check for result type noreturn and propagate it up
+static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+        ResultLoc *result_loc, ZigType *value_type, IrInstruction *value)
 {
-    if (result_loc->implicit_elem_type != nullptr) {
-        // already resolved
-        return nullptr;
+    if (result_loc->resolved_loc != nullptr) {
+        return result_loc->resolved_loc;
     }
     result_loc->gen_instruction = value;
     result_loc->implicit_elem_type = value_type;
@@ -14420,12 +14417,12 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
             assert(result_loc->source_instruction->id == IrInstructionIdAllocaSrc);
             IrInstructionAllocaSrc *alloca_src =
                 reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
+            bool force_comptime;
+            if (!ir_resolve_comptime(ira, alloca_src->is_comptime->child, &force_comptime))
+                return ira->codegen->invalid_instruction;
+            bool is_comptime = force_comptime || (value != nullptr &&
+                    value->value.special != ConstValSpecialRuntime && result_loc_var->var->gen_is_const);
             if (alloca_src->base.child == nullptr) {
-                bool force_comptime;
-                if (!ir_resolve_comptime(ira, alloca_src->is_comptime->child, &force_comptime))
-                    return ira->codegen->invalid_instruction;
-                bool is_comptime = force_comptime || (value != nullptr &&
-                        value->value.special != ConstValSpecialRuntime && result_loc_var->var->gen_is_const);
                 uint32_t align = 0;
                 if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, &align)) {
                     return ira->codegen->invalid_instruction;
@@ -14441,18 +14438,67 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, ResultLoc *result_loc, Z
                             alloca_src->name_hint, force_comptime);
                 }
                 alloca_src->base.child = alloca_gen;
-                return is_comptime ? nullptr : alloca_src->base.child;
             }
-            return nullptr;
+            result_loc->written = true;
+            result_loc->resolved_loc = is_comptime ? nullptr : alloca_src->base.child;
+            return result_loc->resolved_loc;
         }
         case ResultLocIdReturn: {
             bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime;
             if (is_comptime) return nullptr;
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
-            return ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
+            result_loc->written = true;
+            result_loc->resolved_loc = ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
+            return result_loc->resolved_loc;
         }
-        case ResultLocIdPeer:
-            return nullptr;
+        case ResultLocIdPeer: {
+            ResultLocPeer *result_peer = reinterpret_cast<ResultLocPeer *>(result_loc);
+            ResultLocPeerParent *peer_parent = result_peer->parent;
+
+            if (ira->const_predecessor_bb)
+                return nullptr;
+
+            if (peer_parent->resolved_type == nullptr) {
+                IrInstruction *suspended_inst = ira_suspend(ira, suspend_source_instr,
+                        result_peer->next_bb, &result_peer->suspend_pos);
+                bool last_one = (result_peer == &peer_parent->peers[peer_parent->peer_count - 1]);
+                if (!last_one) {
+                    return suspended_inst;
+                }
+                IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
+                for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
+                    ResultLocPeer *this_peer = &peer_parent->peers[i];
+                    ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
+
+                    IrInstruction *gen_instruction = this_peer->base.gen_instruction;
+                    if (gen_instruction == nullptr) {
+                        instructions[i] = ir_const(ira, this_peer->base.source_instruction,
+                                this_peer->base.implicit_elem_type);
+                        instructions[i]->value.special = ConstValSpecialRuntime;
+                    } else {
+                        instructions[i] = gen_instruction;
+                    }
+                    if (opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable) {
+                        ira->resume_stack.append(opposite_peer->suspend_pos);
+                    }
+                }
+                ZigType *expected_type = ir_result_loc_expected_type(ira, peer_parent->parent);
+                peer_parent->resolved_type = ir_resolve_peer_types(ira,
+                        peer_parent->base.source_instruction->source_node, expected_type, instructions,
+                        peer_parent->peer_count);
+                return ira_resume(ira);
+            }
+
+            IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
+                    peer_parent->resolved_type, nullptr);
+            if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
+                parent_result_loc->value.type->id == ZigTypeIdUnreachable)
+            {
+                return parent_result_loc;
+            }
+            result_loc->resolved_loc = parent_result_loc;
+            return result_loc->resolved_loc;
+        }
     }
     zig_unreachable();
 }
@@ -14504,7 +14550,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     ZigType *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
     return ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
-            casted_args, FnInlineAuto, true, async_allocator_inst, nullptr, call_instruction->result_loc,
+            casted_args, FnInlineAuto, true, async_allocator_inst, nullptr, nullptr,
             async_return_type);
 }
 
@@ -15246,6 +15292,14 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         FnTypeId *impl_fn_type_id = &impl_fn->type_entry->data.fn.fn_type_id;
+        IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
+                impl_fn_type_id->return_type, nullptr);
+        if (result_loc != nullptr &&
+            (type_is_invalid(result_loc->value.type) || result_loc->value.type->id == ZigTypeIdUnreachable))
+        {
+            return result_loc;
+        }
+
         if (fn_type_can_fail(impl_fn_type_id)) {
             parent_fn_entry->calls_or_awaits_errorable_fn = true;
         }
@@ -15257,10 +15311,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             return ir_finish_anal(ira, result);
         }
 
+        call_instruction->result_loc->written = true;
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
-                call_instruction->is_async, nullptr, casted_new_stack, call_instruction->result_loc,
+                call_instruction->is_async, nullptr, casted_new_stack, result_loc,
                 impl_fn_type_id->return_type);
 
         return ir_finish_anal(ira, new_call_instruction);
@@ -15355,9 +15410,18 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         return ira->codegen->invalid_instruction;
     }
 
+    IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
+            return_type, nullptr);
+    if (result_loc != nullptr &&
+        (type_is_invalid(result_loc->value.type) || result_loc->value.type->id == ZigTypeIdUnreachable))
+    {
+        return result_loc;
+    }
+
+    call_instruction->result_loc->written = true;
     IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, false, nullptr, casted_new_stack,
-            call_instruction->result_loc, return_type);
+            result_loc, return_type);
     return ir_finish_anal(ira, new_call_instruction);
 }
 
@@ -23619,34 +23683,18 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (instruction->result_loc->id == ResultLocIdPeer) {
-        ResultLocPeer *result_peer = reinterpret_cast<ResultLocPeer *>(instruction->result_loc);
-        ResultLocPeerParent *peer_parent = result_peer->parent;
+    if (!instruction->result_loc->written) {
+        IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+                value->value.type, value);
+        if (result_loc != nullptr) {
+            if (type_is_invalid(result_loc->value.type))
+                return ira->codegen->invalid_instruction;
+            if (result_loc->value.type->id == ZigTypeIdUnreachable)
+                return result_loc;
 
-        if (peer_parent->resolved_type == nullptr && !ira->const_predecessor_bb) {
-            instruction->result_loc->implicit_elem_type = value->value.type;
-            instruction->result_loc->gen_instruction = value;
-            IrInstruction *suspended_inst = ira_suspend(ira, &instruction->base, result_peer->next_bb,
-                    &result_peer->suspend_pos);
-            bool last_one = (result_peer == &peer_parent->peers[peer_parent->peer_count - 1]);
-            if (!last_one) {
-                return suspended_inst;
-            }
-            IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
-            for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
-                instructions[i] = peer_parent->peers[i].base.gen_instruction;
-                ira->resume_stack.append(peer_parent->peers[peer_parent->peer_count - i - 1].suspend_pos);
-            }
-            ZigType *expected_type = ir_result_loc_expected_type(ira, peer_parent->parent);
-            peer_parent->resolved_type = ir_resolve_peer_types(ira,
-                    peer_parent->base.source_instruction->source_node, expected_type, instructions,
-                    peer_parent->peer_count);
-            return ira_resume(ira);
+            instruction->result_loc->written = true;
+            ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
         }
-    }
-    IrInstruction *result_loc = ir_resolve_result(ira, instruction->result_loc, value->value.type, value);
-    if (result_loc != nullptr && !type_is_invalid(result_loc->value.type)) {
-        ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
     }
 
     return ir_const_void(ira, &instruction->base);

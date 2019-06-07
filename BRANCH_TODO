@@ -31,3 +31,11 @@ inferred comptime
 
 handle if with no else
 
+
+
+static IrInstruction *ir_const_unreachable(IrAnalyze *ira, IrInstruction *source_instruction) {
+    IrInstruction *result = ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_unreachable);
+    result->value.special = ConstValSpecialStatic;
+    return result;
+}
+

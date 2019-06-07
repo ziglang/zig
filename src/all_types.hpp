@@ -3590,8 +3590,10 @@ enum ResultLocId {
 
 struct ResultLoc {
     ResultLocId id;
+    bool written;
+    IrInstruction *resolved_loc; // result ptr 
     IrInstruction *source_instruction;
-    IrInstruction *gen_instruction;
+    IrInstruction *gen_instruction; // value to store to the result loc
     ZigType *implicit_elem_type;
 };
 
