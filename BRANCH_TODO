@@ -1,7 +1,6 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
- * hook up peer result locs to while bool, while optional, and while err
  * hook up peer result locs to for
  * hook up peer result locs to catch
  * struct initializations
