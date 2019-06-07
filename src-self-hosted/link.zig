@@ -670,7 +670,7 @@ const DarwinPlatform = struct {
             Compilation.DarwinVersionMin.None => blk: {
                 assert(comp.target.getOs() == .macosx);
                 result.kind = Kind.MacOS;
-                break :blk "10.10";
+                break :blk "10.14";
             },
         };
 

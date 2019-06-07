@@ -48,7 +48,7 @@ static void init_darwin_native(CodeGen *g) {
     } else if (ios_target) {
         g->mios_version_min = buf_create_from_str(ios_target);
     } else if (g->zig_target->os != OsIOS) {
-        g->mmacosx_version_min = buf_create_from_str("10.10");
+        g->mmacosx_version_min = buf_create_from_str("10.14");
     }
 }
 
