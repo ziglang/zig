@@ -1,8 +1,6 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
- * if bool - do we need to call lval wrap or just expr wrap?
- * hook up peer result locs to if optional and if err
  * hook up peer result locs to while bool, while optional, and while err
  * hook up peer result locs to for
  * hook up peer result locs to catch

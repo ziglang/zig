@@ -6339,7 +6339,9 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
             input_list, output_types, output_vars, return_count, is_volatile);
 }
 
-static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeIfOptional);
 
     Buf *var_symbol = node->data.test_expr.var_symbol;
@@ -6365,7 +6367,23 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
     }
-    ir_build_cond_br(irb, scope, node, is_non_null, then_block, else_block, is_comptime);
+    IrInstruction *cond_br_inst = ir_build_cond_br(irb, scope, node, is_non_null,
+            then_block, else_block, is_comptime);
+
+    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    peer_parent->base.id = ResultLocIdPeerParent;
+    peer_parent->base.source_instruction = cond_br_inst;
+    peer_parent->parent = result_loc;
+    peer_parent->peer_count = 2;
+    peer_parent->peers = allocate<ResultLocPeer>(2);
+    peer_parent->peers[0].base.id = ResultLocIdPeer;
+    peer_parent->peers[0].base.source_instruction = cond_br_inst;
+    peer_parent->peers[0].parent = peer_parent;
+    peer_parent->peers[0].next_bb = else_block;
+    peer_parent->peers[1].base.id = ResultLocIdPeer;
+    peer_parent->peers[1].base.source_instruction = cond_br_inst;
+    peer_parent->peers[1].parent = peer_parent;
+    peer_parent->peers[1].next_bb = endif_block;
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
@@ -6384,7 +6402,8 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
+    IrInstruction *then_expr_result = ir_gen_node_extra(irb, then_node, var_scope, lval,
+            &peer_parent->peers[0].base);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
@@ -6394,7 +6413,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     ir_set_cursor_at_end_and_append_block(irb, else_block);
     IrInstruction *else_expr_result;
     if (else_node) {
-        else_expr_result = ir_gen_node(irb, else_node, subexpr_scope);
+        else_expr_result = ir_gen_node_extra(irb, else_node, subexpr_scope, lval, &peer_parent->peers[1].base);
         if (else_expr_result == irb->codegen->invalid_instruction)
             return else_expr_result;
     } else {
@@ -6412,10 +6431,13 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
-static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeIfErrorExpr);
 
     AstNode *target_node = node->data.if_err_expr.target_node;
@@ -6439,7 +6461,22 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     bool force_comptime = ir_should_inline(irb->exec, scope);
     IrInstruction *is_comptime = force_comptime ? ir_build_const_bool(irb, scope, node, true) : ir_build_test_comptime(irb, scope, node, is_err);
-    ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime);
+    IrInstruction *cond_br_inst = ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime);
+
+    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    peer_parent->base.id = ResultLocIdPeerParent;
+    peer_parent->base.source_instruction = cond_br_inst;
+    peer_parent->parent = result_loc;
+    peer_parent->peer_count = 2;
+    peer_parent->peers = allocate<ResultLocPeer>(2);
+    peer_parent->peers[0].base.id = ResultLocIdPeer;
+    peer_parent->peers[0].base.source_instruction = cond_br_inst;
+    peer_parent->peers[0].parent = peer_parent;
+    peer_parent->peers[0].next_bb = else_block;
+    peer_parent->peers[1].base.id = ResultLocIdPeer;
+    peer_parent->peers[1].base.source_instruction = cond_br_inst;
+    peer_parent->peers[1].parent = peer_parent;
+    peer_parent->peers[1].next_bb = endif_block;
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
 
@@ -6459,7 +6496,8 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     } else {
         var_scope = subexpr_scope;
     }
-    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
+    IrInstruction *then_expr_result = ir_gen_node_extra(irb, then_node, var_scope, lval,
+            &peer_parent->peers[0].base);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
@@ -6483,7 +6521,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         } else {
             err_var_scope = subexpr_scope;
         }
-        else_expr_result = ir_gen_node(irb, else_node, err_var_scope);
+        else_expr_result = ir_gen_node_extra(irb, else_node, err_var_scope, lval, &peer_parent->peers[1].base);
         if (else_expr_result == irb->codegen->invalid_instruction)
             return else_expr_result;
     } else {
@@ -6501,7 +6539,8 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
 static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *switch_node, AstNode *prong_node,
@@ -7866,9 +7905,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeNullLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_null_literal(irb, scope, node), lval, result_loc);
         case NodeTypeIfErrorExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_if_err_expr(irb, scope, node), lval, result_loc);
+            return ir_gen_if_err_expr(irb, scope, node, lval, result_loc);
         case NodeTypeIfOptional:
-            return ir_lval_wrap(irb, scope, ir_gen_if_optional_expr(irb, scope, node), lval, result_loc);
+            return ir_gen_if_optional_expr(irb, scope, node, lval, result_loc);
         case NodeTypeSwitchExpr:
             return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
