@@ -3628,6 +3628,7 @@ struct IrSuspendPosition {
 struct ResultLocPeer {
     ResultLoc base;
 
+    bool seen_before;
     ResultLocPeerParent *parent;
     IrBasicBlock *next_bb;
     IrSuspendPosition suspend_pos;

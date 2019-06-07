@@ -10659,6 +10659,12 @@ static IrInstruction *ir_const_undef(IrAnalyze *ira, IrInstruction *source_instr
     return result;
 }
 
+static IrInstruction *ir_const_unreachable(IrAnalyze *ira, IrInstruction *source_instruction) {
+    IrInstruction *result = ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_unreachable);
+    result->value.special = ConstValSpecialStatic;
+    return result;
+}
+
 static IrInstruction *ir_const_void(IrAnalyze *ira, IrInstruction *source_instruction) {
     return ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_void);
 }
@@ -14461,7 +14467,9 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             if (peer_parent->resolved_type == nullptr) {
                 IrInstruction *suspended_inst = ira_suspend(ira, suspend_source_instr,
                         result_peer->next_bb, &result_peer->suspend_pos);
-                bool last_one = (result_peer == &peer_parent->peers[peer_parent->peer_count - 1]);
+                bool last_one = result_peer->seen_before ||
+                    result_peer == &peer_parent->peers[peer_parent->peer_count - 1];
+                result_peer->seen_before = true;
                 if (!last_one) {
                     return suspended_inst;
                 }
@@ -14472,13 +14480,20 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
 
                     IrInstruction *gen_instruction = this_peer->base.gen_instruction;
                     if (gen_instruction == nullptr) {
-                        instructions[i] = ir_const(ira, this_peer->base.source_instruction,
-                                this_peer->base.implicit_elem_type);
-                        instructions[i]->value.special = ConstValSpecialRuntime;
+                        // unreachable instructions will cause implicit_elem_type to be null
+                        if (this_peer->base.implicit_elem_type == nullptr) {
+                            instructions[i] = ir_const_unreachable(ira, this_peer->base.source_instruction);
+                        } else {
+                            instructions[i] = ir_const(ira, this_peer->base.source_instruction,
+                                    this_peer->base.implicit_elem_type);
+                            instructions[i]->value.special = ConstValSpecialRuntime;
+                        }
                     } else {
                         instructions[i] = gen_instruction;
                     }
-                    if (opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable) {
+                    if (opposite_peer->base.implicit_elem_type != nullptr &&
+                        opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable)
+                    {
                         ira->resume_stack.append(opposite_peer->suspend_pos);
                     }
                 }
