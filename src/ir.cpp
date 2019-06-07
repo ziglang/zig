@@ -15311,7 +15311,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             return ir_finish_anal(ira, result);
         }
 
-        call_instruction->result_loc->written = true;
+        call_instruction->result_loc->written = handle_is_ptr(impl_fn_type_id->return_type);
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
@@ -15418,7 +15418,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         return result_loc;
     }
 
-    call_instruction->result_loc->written = true;
+    call_instruction->result_loc->written = handle_is_ptr(return_type);
     IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, false, nullptr, casted_new_stack,
             result_loc, return_type);
