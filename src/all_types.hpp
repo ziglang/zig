@@ -2041,18 +2041,25 @@ struct ScopeCImport {
     Buf buf;
 };
 
+enum LVal {
+    LValNone,
+    LValPtr,
+};
+
 // This scope is created for a loop such as for or while in order to
 // make break and continue statements work.
 // NodeTypeForExpr or NodeTypeWhileExpr
 struct ScopeLoop {
     Scope base;
 
+    LVal lval;
     Buf *name;
     IrBasicBlock *break_block;
     IrBasicBlock *continue_block;
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+    ResultLoc *result_loc;
 };
 
 // This scope blocks certain things from working such as comptime continue
@@ -2141,11 +2148,6 @@ struct IrBasicBlock {
     // if the branch is comptime. The instruction points to the reason
     // the basic block must be comptime.
     IrInstruction *must_be_comptime_source_instr;
-};
-
-enum LVal {
-    LValNone,
-    LValPtr,
 };
 
 // These instructions are in transition to having "pass 1" instructions
