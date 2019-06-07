@@ -5486,8 +5486,8 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
             ptr_len, align_value, bit_offset_start, host_int_bytes, is_allow_zero);
 }
 
-static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node, AstNode *expr_node,
-        LVal lval)
+static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        AstNode *expr_node, LVal lval, ResultLoc *result_loc)
 {
     IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
     if (err_union_ptr == irb->codegen->invalid_instruction)
@@ -5500,7 +5500,8 @@ static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, Ast
     if (lval == LValPtr)
         return payload_ptr;
 
-    return ir_build_load_ptr(irb, scope, source_node, payload_ptr);
+    IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, source_node, payload_ptr);
+    return ir_expr_wrap(irb, scope, load_ptr, result_loc);
 }
 
 static IrInstruction *ir_gen_bool_not(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -6872,6 +6873,7 @@ static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNo
     assert(node->type == NodeTypeCompTime);
 
     Scope *child_scope = create_comptime_scope(irb->codegen, node, parent_scope);
+    // purposefully pass null for result_loc and let EndExpr handle it
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval, nullptr);
 }
 
@@ -7072,7 +7074,9 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
     return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true);
 }
 
-static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeUnwrapErrorExpr);
 
     AstNode *op1_node = node->data.unwrap_err_expr.op1;
@@ -7086,7 +7090,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
             add_node_error(irb->codegen, var_node, buf_sprintf("unused variable: '%s'", buf_ptr(var_name)));
             return irb->codegen->invalid_instruction;
         }
-        return ir_gen_catch_unreachable(irb, parent_scope, node, op1_node, LValNone);
+        return ir_gen_catch_unreachable(irb, parent_scope, node, op1_node, lval, result_loc);
     }
 
 
@@ -7107,7 +7111,9 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrBasicBlock *ok_block = ir_create_basic_block(irb, parent_scope, "UnwrapErrOk");
     IrBasicBlock *err_block = ir_create_basic_block(irb, parent_scope, "UnwrapErrError");
     IrBasicBlock *end_block = ir_create_basic_block(irb, parent_scope, "UnwrapErrEnd");
-    ir_build_cond_br(irb, parent_scope, node, is_err, err_block, ok_block, is_comptime);
+    IrInstruction *cond_br_inst = ir_build_cond_br(irb, parent_scope, node, is_err, err_block, ok_block, is_comptime);
+
+    ResultLocPeerParent *peer_parent = create_binary_result_peers(cond_br_inst, ok_block, end_block, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, err_block);
     Scope *err_scope;
@@ -7124,7 +7130,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     } else {
         err_scope = parent_scope;
     }
-    IrInstruction *err_result = ir_gen_node(irb, op2_node, err_scope);
+    IrInstruction *err_result = ir_gen_node_extra(irb, op2_node, err_scope, lval, &peer_parent->peers[0].base);
     if (err_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
     IrBasicBlock *after_err_block = irb->current_basic_block;
@@ -7134,6 +7140,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
     IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, parent_scope, node, err_union_ptr, false);
     IrInstruction *unwrapped_payload = ir_build_load_ptr(irb, parent_scope, node, unwrapped_ptr);
+    ir_build_end_expr(irb, parent_scope, node, unwrapped_payload, &peer_parent->peers[1].base);
     IrBasicBlock *after_ok_block = irb->current_basic_block;
     ir_build_br(irb, parent_scope, node, end_block, is_comptime);
 
@@ -7144,7 +7151,8 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
-    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
 static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *outer_scope, Scope *inner_scope) {
@@ -7941,7 +7949,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSwitchExpr:
             return ir_gen_switch_expr(irb, scope, node, lval, result_loc);
         case NodeTypeCompTime:
-            return ir_gen_comptime(irb, scope, node, lval);
+            return ir_expr_wrap(irb, scope, ir_gen_comptime(irb, scope, node, lval), result_loc);
         case NodeTypeErrorType:
             return ir_lval_wrap(irb, scope, ir_gen_error_type(irb, scope, node), lval, result_loc);
         case NodeTypeBreak:
@@ -7955,7 +7963,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSliceExpr:
             return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval, result_loc);
         case NodeTypeUnwrapErrorExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_catch(irb, scope, node), lval, result_loc);
+            return ir_gen_catch(irb, scope, node, lval, result_loc);
         case NodeTypeContainerDecl:
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval, result_loc);
         case NodeTypeFnProto:
@@ -14485,8 +14493,21 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         case ResultLocIdInvalid:
         case ResultLocIdPeerParent:
             zig_unreachable();
-        case ResultLocIdNone:
-            return nullptr;
+        case ResultLocIdNone: {
+            if (value != nullptr) {
+                return nullptr;
+            }
+            // need to return a result location and don't have one. use a stack allocation
+            IrInstructionAllocaGen *alloca_gen = ir_create_alloca_gen(ira, suspend_source_instr, 0, "");
+            alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
+                    PtrLenSingle, 0, 0, 0, false);
+            ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+            if (fn_entry != nullptr) {
+                fn_entry->alloca_gen_list.append(alloca_gen);
+            }
+            result_loc->resolved_loc = &alloca_gen->base;
+            return result_loc->resolved_loc;
+        }
         case ResultLocIdVar: {
             ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
             assert(result_loc->source_instruction->id == IrInstructionIdAllocaSrc);
