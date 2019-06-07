@@ -5983,7 +5983,9 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     }
 }
 
-static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeForExpr);
 
     AstNode *array_node = node->data.for_expr.array_expr;
@@ -6043,7 +6045,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *cond = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
     IrBasicBlock *after_cond_block = irb->current_basic_block;
     IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
-    ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, cond, body_block, else_block, is_comptime));
+    IrInstruction *cond_br_inst = ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, cond,
+                body_block, else_block, is_comptime));
+
+    ResultLocPeerParent *peer_parent = create_binary_result_peers(cond_br_inst, else_block, end_block, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
     IrInstruction *elem_ptr = ir_build_elem_ptr(irb, parent_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
@@ -6064,7 +6069,12 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     loop_scope->is_comptime = is_comptime;
     loop_scope->incoming_blocks = &incoming_blocks;
     loop_scope->incoming_values = &incoming_values;
+    loop_scope->lval = lval;
+    loop_scope->result_loc = &peer_parent->peers[0].base;
 
+    // Note the body block of the loop is not the place that lval and result_loc are used -
+    // it's actually in break statements, handled similarly to return statements.
+    // That is why we set those values in loop_scope above and not in this ir_gen_node call.
     IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
 
     if (!instr_is_unreachable(body_result)) {
@@ -6081,7 +6091,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     if (else_node) {
         ir_set_cursor_at_end_and_append_block(irb, else_block);
 
-        else_result = ir_gen_node(irb, else_node, parent_scope);
+        else_result = ir_gen_node_extra(irb, else_node, parent_scope, lval, &peer_parent->peers[1].base);
         if (else_result == irb->codegen->invalid_instruction)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6098,7 +6108,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
         incoming_values.append(void_else_value);
     }
 
-    return ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    return ir_expr_wrap(irb, parent_scope, phi, result_loc);
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -7866,7 +7877,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeWhileExpr:
             return ir_gen_while_expr(irb, scope, node, lval, result_loc);
         case NodeTypeForExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_for_expr(irb, scope, node), lval, result_loc);
+            return ir_gen_for_expr(irb, scope, node, lval, result_loc);
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:
