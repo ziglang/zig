@@ -6,7 +6,7 @@ set -e
 brew install s3cmd gcc@8
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang-8.0.0-macos-x86_64-gcc8-release-static"
+CACHE_BASENAME="llvm+clang-8.0.0-macos-x86_64-gcc8-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 TMPDIR="$HOME/tmpz"
 JOBS="-j2"
