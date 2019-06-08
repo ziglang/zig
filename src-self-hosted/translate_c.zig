@@ -329,9 +329,10 @@ fn transStmt(
     const sc = ZigClangStmt_getStmtClass(stmt);
     switch (sc) {
         .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
+        .CStyleCastExprClass => return transCStyleCastExprClass(rp, scope, @ptrCast(*const ZigClangCStyleCastExpr, stmt), result_used, lrvalue),
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
         .DeclRefExprClass => return transDeclRefExpr(rp, scope, @ptrCast(*const ZigClangDeclRefExpr, stmt), lrvalue),
-        .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt)),
+        .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -375,6 +376,30 @@ fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompo
         .node_scope = inline_result.node_scope,
         .child_scope = inline_result.child_scope,
     };
+}
+
+fn transCStyleCastExprClass(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangCStyleCastExpr,
+    result_used: ResultUsed,
+    lrvalue: LRValue,
+) !TransResult {
+    const sub_expr = ZigClangCStyleCastExpr_getSubExpr(stmt);
+    const cast_node = (try transCCast(
+        rp,
+        scope,
+        ZigClangCStyleCastExpr_getBeginLoc(stmt),
+        ZigClangCStyleCastExpr_getType(stmt),
+        ZigClangExpr_getType(sub_expr),
+        (try transExpr(rp, scope, sub_expr, .used, lrvalue)).node,
+    ));
+    const cast_res = TransResult{
+        .node = cast_node,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
+    return maybeSuppressResult(rp, scope, result_used, cast_res);
 }
 
 fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDeclStmt) !TransResult {
@@ -478,27 +503,23 @@ fn transImplicitCastExpr(
     rp: RestorePoint,
     scope: *Scope,
     expr: *const ZigClangImplicitCastExpr,
+    result_used: ResultUsed,
 ) !TransResult {
     const c = rp.c;
     const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
+    const sub_expr_node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
         .BitCast => {
-            const node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
             const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
             const src_type = getExprQualType(c, sub_expr);
             return TransResult{
-                .node = try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, node.node),
+                .node = try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node.node),
                 .node_scope = scope,
                 .child_scope = scope,
             };
         },
         .FunctionToPointerDecay, .ArrayToPointerDecay => {
-            return maybeSuppressResult(
-                rp,
-                scope,
-                .used,
-                try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value),
-            );
+            return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
         },
         else => |kind| return revertAndWarn(
             rp,

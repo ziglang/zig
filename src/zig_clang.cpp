@@ -1964,3 +1964,18 @@ struct ZigClangQualType ZigClangElaboratedType_getNamedType(const struct ZigClan
     auto casted = reinterpret_cast<const clang::ElaboratedType *>(self);
     return bitcast(casted->getNamedType());
 }
+
+struct ZigClangSourceLocation ZigClangCStyleCastExpr_getBeginLoc(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+const struct ZigClangExpr *ZigClangCStyleCastExpr_getSubExpr(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getSubExpr());
+}
+
+struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return bitcast(casted->getType());
+}

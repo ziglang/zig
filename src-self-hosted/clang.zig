@@ -894,3 +894,7 @@ pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQ
 pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
 
 pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;
+
+pub extern fn ZigClangCStyleCastExpr_getBeginLoc(*const ZigClangCStyleCastExpr) ZigClangSourceLocation;
+pub extern fn ZigClangCStyleCastExpr_getSubExpr(*const ZigClangCStyleCastExpr) *const ZigClangExpr;
+pub extern fn ZigClangCStyleCastExpr_getType(*const ZigClangCStyleCastExpr) ZigClangQualType;
