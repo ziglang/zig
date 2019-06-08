@@ -890,6 +890,11 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
         body = ast_parse_assign_expr(pc);
     }
 
+    if (body == nullptr) {
+	Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected if body, found '%s'", token_name(tok->id));
+    }
+
     Token *err_payload = nullptr;
     AstNode *else_body = nullptr;
     if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
@@ -994,6 +999,11 @@ static AstNode *ast_parse_for_statement(ParseContext *pc) {
         body = ast_parse_assign_expr(pc);
     }
 
+    if (body == nullptr) {
+	Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
+    }
+
     AstNode *else_body = nullptr;
     if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
         else_body = ast_expect(pc, ast_parse_statement);
@@ -1021,6 +1031,11 @@ static AstNode *ast_parse_while_statement(ParseContext *pc) {
     if (body == nullptr) {
         requires_semi = true;
         body = ast_parse_assign_expr(pc);
+    }
+
+    if (body == nullptr) {
+	Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
     }
 
     Token *err_payload = nullptr;
