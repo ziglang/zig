@@ -521,6 +521,9 @@ fn transImplicitCastExpr(
         .FunctionToPointerDecay, .ArrayToPointerDecay => {
             return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
         },
+        .LValueToRValue => {
+            return transExpr(rp, scope, sub_expr, .used, .r_value);
+        },
         else => |kind| return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
