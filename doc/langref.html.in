@@ -3293,6 +3293,7 @@ test "for else" {
     var items = []?i32 { 3, 4, null, 5 };
 
     // For loops can also be used as expressions.
+    // Similar to while loops, when you break from a for loop, the else branch is not evaluated.
     var sum: i32 = 0;
     const result = for (items) |value| {
         if (value == null) {
