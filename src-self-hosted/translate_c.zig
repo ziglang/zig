@@ -847,6 +847,15 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
             }
         },
+        .FunctionProto => {
+            const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
+            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null);
+            return &fn_proto.base;
+        },
+        .Paren => {
+            const paren_ty = @ptrCast(*const ZigClangParenType, ty);
+            return transQualType(rp, ZigClangParenType_getInnerType(paren_ty), source_loc);
+        },
         .Pointer => {
             const child_qt = ZigClangType_getPointeeType(ty);
             const child_node = try transQualType(rp, child_qt, source_loc);
@@ -869,11 +878,6 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 child_node,
                 .BracketStarCBracket,
             );
-        },
-        .FunctionProto => {
-            const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
-            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null);
-            return &fn_proto.base;
         },
         else => {
             const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
