@@ -136,8 +136,32 @@ test "test_memcmp" {
     const arr3 = []u8{ 1, 2, 1 };
 
     std.testing.expect(memcmp(base_arr[0..].ptr, arr1[0..].ptr, base_arr.len) == 0);
-    std.testing.expect(memcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) == 1);
-    std.testing.expect(memcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) == -1);
+    std.testing.expect(memcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) > 0);
+    std.testing.expect(memcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) < 0);
+}
+
+export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) isize {
+    @setRuntimeSafety(false);
+
+    var index: usize = 0;
+    while (index != n) : (index += 1) {
+        if (vl[index] != vr[index]) {
+          return 1;
+        }
+    }
+
+    return 0;
+}
+
+test "test_bcmp" {
+    const base_arr = []u8{ 1, 1, 1 };
+    const arr1 = []u8{ 1, 1, 1 };
+    const arr2 = []u8{ 1, 0, 1 };
+    const arr3 = []u8{ 1, 2, 1 };
+
+    std.testing.expect(bcmp(base_arr[0..].ptr, arr1[0..].ptr, base_arr.len) == 0);
+    std.testing.expect(bcmp(base_arr[0..].ptr, arr2[0..].ptr, base_arr.len) != 0);
+    std.testing.expect(bcmp(base_arr[0..].ptr, arr3[0..].ptr, base_arr.len) != 0);
 }
 
 comptime {
