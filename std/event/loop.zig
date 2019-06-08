@@ -50,7 +50,7 @@ pub const Loop = struct {
         };
 
         pub const EventFd = switch (builtin.os) {
-            .macosx, .freebsd, .netbsd => KEventFd,
+            .macosx, .freebsd, .netbsd, .dragonfly => KEventFd,
             .linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
@@ -69,7 +69,7 @@ pub const Loop = struct {
         };
 
         pub const Basic = switch (builtin.os) {
-            .macosx, .freebsd, .netbsd => KEventBasic,
+            .macosx, .freebsd, .netbsd, .dragonfly => KEventBasic,
             .linux => struct {
                 base: ResumeNode,
             },
@@ -221,7 +221,7 @@ pub const Loop = struct {
                     self.extra_threads[extra_thread_index] = try Thread.spawn(self, workerRun);
                 }
             },
-            .macosx, .freebsd, .netbsd => {
+            .macosx, .freebsd, .netbsd, .dragonfly => {
                 self.os_data.kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.kqfd);
 
@@ -386,7 +386,7 @@ pub const Loop = struct {
                 os.close(self.os_data.epollfd);
                 self.allocator.free(self.eventfd_resume_nodes);
             },
-            .macosx, .freebsd, .netbsd => {
+            .macosx, .freebsd, .netbsd, .dragonfly => {
                 os.close(self.os_data.kqfd);
                 os.close(self.os_data.fs_kqfd);
             },
@@ -501,7 +501,7 @@ pub const Loop = struct {
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os) {
-                .macosx, .freebsd, .netbsd => {
+                .macosx, .freebsd, .netbsd, .dragonfly => {
                     const kevent_array = (*const [1]os.Kevent)(&eventfd_node.kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                     _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
@@ -561,11 +561,7 @@ pub const Loop = struct {
         self.workerRun();
 
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
-            => self.os_data.fs_thread.wait(),
+            .linux, .macosx, .freebsd, .netbsd, .dragonfly => self.os_data.fs_thread.wait(),
             else => {},
         }
 
@@ -629,7 +625,7 @@ pub const Loop = struct {
                     os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
-                .macosx, .freebsd, .netbsd => {
+                .macosx, .freebsd, .netbsd, .dragonfly => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     const final_kevent = (*const [1]os.Kevent)(&self.os_data.final_kevent);
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
@@ -687,7 +683,7 @@ pub const Loop = struct {
                         }
                     }
                 },
-                .macosx, .freebsd, .netbsd => {
+                .macosx, .freebsd, .netbsd, .dragonfly => {
                     var eventlist: [1]os.Kevent = undefined;
                     const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
@@ -750,12 +746,12 @@ pub const Loop = struct {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            .macosx, .freebsd, .netbsd, .dragonfly => {
                 const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wake);
                 const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                 _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
-            builtin.Os.linux => {
+            .linux => {
                 _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
                 const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
@@ -776,7 +772,7 @@ pub const Loop = struct {
 
     fn posixFsRun(self: *Loop) void {
         while (true) {
-            if (builtin.os == builtin.Os.linux) {
+            if (builtin.os == .linux) {
                 _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
@@ -813,14 +809,14 @@ pub const Loop = struct {
                 self.finishOneEvent();
             }
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
                         0, os.EINTR, os.EAGAIN => continue,
                         else => unreachable,
                     }
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd, .dragonfly => {
                     const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
                     _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
@@ -832,7 +828,7 @@ pub const Loop = struct {
 
     const OsData = switch (builtin.os) {
         .linux => LinuxOsData,
-        .macosx, .freebsd, .netbsd => KEventData,
+        .macosx, .freebsd, .netbsd, .dragonfly => KEventData,
         .windows => struct {
             io_port: windows.HANDLE,
             extra_thread_count: usize,

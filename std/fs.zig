@@ -29,7 +29,7 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// fit into a UTF-8 encoded array of this length.
 /// path being too long if it is this 0long
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    .linux, .macosx, .ios, .freebsd, .netbsd => os.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -366,7 +366,7 @@ pub const Dir = struct {
     allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
-        .macosx, .ios, .freebsd, .netbsd => struct {
+        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
             fd: i32,
             seek: i64,
             buf: []u8,
@@ -442,7 +442,7 @@ pub const Dir = struct {
                         .name_data = undefined,
                     };
                 },
-                .macosx, .ios, .freebsd, .netbsd => Handle{
+                .macosx, .ios, .freebsd, .netbsd, .dragonfly => Handle{
                     .fd = try os.open(dir_path, os.O_RDONLY | os.O_NONBLOCK | os.O_DIRECTORY | os.O_CLOEXEC, 0),
                     .seek = 0,
                     .index = 0,
@@ -477,6 +477,7 @@ pub const Dir = struct {
             .windows => return self.nextWindows(),
             .freebsd => return self.nextBsd(),
             .netbsd => return self.nextBsd(),
+            .dragonfly => return self.nextDragonFly(),
             else => @compileError("unimplemented"),
         }
     }
@@ -681,6 +682,65 @@ pub const Dir = struct {
             };
         }
     }
+
+    fn nextDragonFly(self: *Dir) !?Entry {
+        start_over: while (true) {
+            if (self.handle.index >= self.handle.end_index) {
+                if (self.handle.buf.len == 0) {
+                    self.handle.buf = try self.allocator.alloc(u8, mem.page_size);
+                }
+
+                while (true) {
+                    const rc = os.system.getdirentries(
+                        self.handle.fd,
+                        self.handle.buf.ptr,
+                        self.handle.buf.len,
+                        &self.handle.seek,
+                    );
+                    switch (os.errno(rc)) {
+                        0 => {},
+                        os.EBADF => unreachable,
+                        os.EFAULT => unreachable,
+                        os.ENOTDIR => unreachable,
+                        os.EINVAL => {
+                            self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
+                            continue;
+                        },
+                        else => |err| return os.unexpectedErrno(err),
+                    }
+                    if (rc == 0) return null;
+                    self.handle.index = 0;
+                    self.handle.end_index = @intCast(usize, rc);
+                    break;
+                }
+            }
+            const dragonfly_entry = @ptrCast(*align(1) os.dirent, &self.handle.buf[self.handle.index]);
+            const next_index = self.handle.index + ((@byteOffsetOf(os.dirent, "d_name") + dragonfly_entry.d_namlen + 1 + 7) & ~usize(7));
+            self.handle.index = next_index;
+
+            const name = @ptrCast([*]u8, &dragonfly_entry.d_name)[0..dragonfly_entry.d_namlen];
+
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const entry_kind = switch (dragonfly_entry.d_type) {
+                os.DT_BLK => Entry.Kind.BlockDevice,
+                os.DT_CHR => Entry.Kind.CharacterDevice,
+                os.DT_DIR => Entry.Kind.Directory,
+                os.DT_FIFO => Entry.Kind.NamedPipe,
+                os.DT_LNK => Entry.Kind.SymLink,
+                os.DT_REG => Entry.Kind.File,
+                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                os.DT_WHT => Entry.Kind.Whiteout,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry{
+                .name = name,
+                .kind = entry_kind,
+            };
+        }
+    }
 };
 
 /// Read value of a symbolic link.
@@ -713,7 +773,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        .linux, .macosx, .ios, .windows, .freebsd => (try openSelfExe()).close(),
+        .linux, .macosx, .ios, .windows, .freebsd, .dragonfly => (try openSelfExe()).close(),
         else => return error.SkipZigTest, // Unsupported OS.
     }
 }
@@ -739,7 +799,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
     }
     switch (builtin.os) {
         .linux => return os.readlinkC(c"/proc/self/exe", out_buffer),
-        .freebsd => {
+        .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer, &out_len, null, 0);

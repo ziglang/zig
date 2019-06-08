@@ -51,7 +51,7 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 #include <link.h>
 #endif
 
@@ -59,7 +59,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/auxv.h>
 #endif
 
-#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 #include <sys/sysctl.h>
 #endif
 
@@ -84,7 +84,7 @@ static clock_serv_t macos_monotonic_clock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 extern char **environ;
 #endif
 
@@ -1428,7 +1428,7 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, amt);
     return ErrorNone;
-#elif defined(ZIG_OS_FREEBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_DRAGONFLY)
     buf_resize(out_path, PATH_MAX);
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
     size_t cb = PATH_MAX;
@@ -1770,7 +1770,7 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 }
 
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1781,7 +1781,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;

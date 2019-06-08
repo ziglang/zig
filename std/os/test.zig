@@ -15,6 +15,9 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
+    if (builtin.os == .dragonfly) {
+        return error.SkipZigTest;
+    }
     try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
@@ -27,6 +30,9 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
+    if (builtin.os == .dragonfly) {
+        return error.SkipZigTest;
+    }
     try fs.makePath(a, "os_test_tmp");
     if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
         @panic("expected error");
@@ -94,6 +100,9 @@ test "cpu count" {
 }
 
 test "AtomicFile" {
+    if (builtin.os == .dragonfly) {
+        return error.SkipZigTest;
+    }
     var buffer: [1024]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
     const test_out_file = "tmp_atomic_file_test_dest.txt";
@@ -114,6 +123,9 @@ test "AtomicFile" {
 }
 
 test "thread local storage" {
+    if (builtin.os == .dragonfly) {
+        return error.SkipZigTest;
+    }
     if (builtin.single_threaded) return error.SkipZigTest;
     const thread1 = try Thread.spawn({}, testTls);
     const thread2 = try Thread.spawn({}, testTls);

@@ -152,6 +152,9 @@ const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.Queue" {
+    if (builtin.os == .dragonfly) {
+        return error.SkipZigTest;
+    }
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 

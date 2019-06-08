@@ -87,6 +87,7 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
         builtin.Os.linux,
         builtin.Os.freebsd,
         builtin.Os.netbsd,
+        builtin.Os.dragonfly,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec_const, data.len);
             defer loop.allocator.free(iovecs);
@@ -224,6 +225,7 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
         builtin.Os.linux,
         builtin.Os.freebsd,
         builtin.Os.netbsd,
+        builtin.Os.dragonfly,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec, data.len);
             defer loop.allocator.free(iovecs);
@@ -403,7 +405,7 @@ pub async fn openPosix(
 
 pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
-        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
+        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => {
             const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
@@ -435,6 +437,7 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.
         builtin.Os.linux,
         builtin.Os.freebsd,
         builtin.Os.netbsd,
+        builtin.Os.dragonfly,
         => {
             const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
@@ -459,7 +462,7 @@ pub async fn openReadWrite(
     mode: File.Mode,
 ) File.OpenError!fd_t {
     switch (builtin.os) {
-        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
+        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => {
             const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, mode) catch unreachable);
         },
@@ -489,7 +492,7 @@ pub const CloseOperation = struct {
     os_data: OsData,
 
     const OsData = switch (builtin.os) {
-        builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => OsDataPosix,
+        builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => OsDataPosix,
 
         builtin.Os.windows => struct {
             handle: ?fd_t,
@@ -508,7 +511,7 @@ pub const CloseOperation = struct {
         self.* = CloseOperation{
             .loop = loop,
             .os_data = switch (builtin.os) {
-                builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => initOsDataPosix(self),
+                builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => initOsDataPosix(self),
                 builtin.Os.windows => OsData{ .handle = null },
                 else => @compileError("Unsupported OS"),
             },
@@ -539,6 +542,7 @@ pub const CloseOperation = struct {
             builtin.Os.macosx,
             builtin.Os.freebsd,
             builtin.Os.netbsd,
+            builtin.Os.dragonfly,
             => {
                 if (self.os_data.have_fd) {
                     self.loop.posixFsRequest(&self.os_data.close_req_node);
@@ -562,6 +566,7 @@ pub const CloseOperation = struct {
             builtin.Os.macosx,
             builtin.Os.freebsd,
             builtin.Os.netbsd,
+            builtin.Os.dragonfly,
             => {
                 self.os_data.close_req_node.data.msg.Close.fd = handle;
                 self.os_data.have_fd = true;
@@ -580,6 +585,7 @@ pub const CloseOperation = struct {
             builtin.Os.macosx,
             builtin.Os.freebsd,
             builtin.Os.netbsd,
+            builtin.Os.dragonfly,
             => {
                 self.os_data.have_fd = false;
             },
@@ -596,6 +602,7 @@ pub const CloseOperation = struct {
             builtin.Os.macosx,
             builtin.Os.freebsd,
             builtin.Os.netbsd,
+            builtin.Os.dragonfly,
             => {
                 assert(self.os_data.have_fd);
                 return self.os_data.close_req_node.data.msg.Close.fd;
@@ -621,6 +628,7 @@ pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, 
         builtin.Os.macosx,
         builtin.Os.freebsd,
         builtin.Os.netbsd,
+        builtin.Os.dragonfly,
         => return await (async writeFileModeThread(loop, path, contents, mode) catch unreachable),
         builtin.Os.windows => return await (async writeFileWindows(loop, path, contents) catch unreachable),
         else => @compileError("Unsupported OS"),
@@ -728,7 +736,7 @@ pub fn Watch(comptime V: type) type {
         os_data: OsData,
 
         const OsData = switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => struct {
+            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => struct {
                 file_table: FileTable,
                 table_lock: event.Lock,
 
@@ -817,7 +825,7 @@ pub fn Watch(comptime V: type) type {
                     return self;
                 },
 
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => {
                     const self = try loop.allocator.create(Self);
                     errdefer loop.allocator.destroy(self);
 
@@ -837,7 +845,7 @@ pub fn Watch(comptime V: type) type {
         /// All addFile calls and removeFile calls must have completed.
         pub fn destroy(self: *Self) void {
             switch (builtin.os) {
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => {
                     // TODO we need to cancel the coroutines before destroying the lock
                     self.os_data.table_lock.deinit();
                     var it = self.os_data.file_table.iterator();
@@ -879,7 +887,7 @@ pub fn Watch(comptime V: type) type {
 
         pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
             switch (builtin.os) {
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => return await (async addFileKEvent(self, file_path, value) catch unreachable),
+                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd, builtin.Os.dragonfly => return await (async addFileKEvent(self, file_path, value) catch unreachable),
                 builtin.Os.linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
                 builtin.Os.windows => return await (async addFileWindows(self, file_path, value) catch unreachable),
                 else => @compileError("Unsupported OS"),

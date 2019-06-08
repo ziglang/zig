@@ -26,6 +26,7 @@ comptime {
 }
 
 pub const darwin = @import("os/darwin.zig");
+pub const dragonfly = @import("os/dragonfly.zig");
 pub const freebsd = @import("os/freebsd.zig");
 pub const linux = @import("os/linux.zig");
 pub const netbsd = @import("os/netbsd.zig");
@@ -37,6 +38,7 @@ pub const zen = @import("os/zen.zig");
 /// When linking libc, this is the C API. Otherwise, it is the OS-specific system interface.
 pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => darwin,
+    .dragonfly => dragonfly,
     .freebsd => freebsd,
     .linux => linux,
     .netbsd => netbsd,
@@ -2444,6 +2446,7 @@ pub fn unexpectedErrno(err: usize) UnexpectedError {
 
 test "" {
     _ = @import("os/darwin.zig");
+    _ = @import("os/dragonfly.zig");
     _ = @import("os/freebsd.zig");
     _ = @import("os/linux.zig");
     _ = @import("os/netbsd.zig");

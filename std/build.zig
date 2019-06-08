@@ -898,6 +898,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isDragonFly(self: Target) bool {
+        return switch (self.getOs()) {
+            .dragonfly => true,
+            else => false,
+        };
+    }
+
     pub fn wantSharedLibSymLinks(self: Target) bool {
         return !self.isWindows();
     }
