@@ -1,8 +1,8 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
- * struct initializations
- * function call parameters
+ * array initializations
+ * union initializations
  * bitCast
 
 look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated
@@ -25,7 +25,3 @@ inferred comptime
     return ir_build_ref(irb, scope, value->source_node, value, false, false);
 
 handle if with no else
-
-
-
-

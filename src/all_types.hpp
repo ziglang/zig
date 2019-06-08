@@ -1957,6 +1957,7 @@ enum ScopeId {
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
     ScopeIdRuntime,
+    ScopeIdElide,
 };
 
 struct Scope {
@@ -1968,6 +1969,14 @@ struct Scope {
 
     ZigLLVMDIScope *di_scope;
     ScopeId id;
+};
+
+// This scope, when activated, causes all the instructions in the scope to be omitted
+// from the generated code.
+struct ScopeElide {
+    Scope base;
+
+    bool activated;
 };
 
 // This scope comes from global declarations or from
@@ -2189,7 +2198,6 @@ enum IrInstructionId {
     IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
-    IrInstructionIdStructInit,
     IrInstructionIdUnionInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
@@ -2279,6 +2287,7 @@ enum IrInstructionId {
     IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
     IrInstructionIdImplicitCast,
+    IrInstructionIdResolveResult,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
@@ -2366,6 +2375,7 @@ struct IrInstructionCondBr {
     IrBasicBlock *then_block;
     IrBasicBlock *else_block;
     IrInstruction *is_comptime;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionBr {
@@ -2644,20 +2654,6 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
-};
-
-struct IrInstructionStructInitField {
-    IrInstruction *value;
-    TypeStructField *type_struct_field;
-};
-
-struct IrInstructionStructInit {
-    IrInstruction base;
-
-    ZigType *struct_type;
-    size_t field_count;
-    IrInstructionStructInitField *fields;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionUnionInit {
@@ -3581,13 +3577,22 @@ struct IrInstructionImplicitCast {
     IrInstruction *target;
 };
 
+struct IrInstructionResolveResult {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+    IrInstruction *ty;
+};
+
 enum ResultLocId {
     ResultLocIdInvalid,
     ResultLocIdNone,
     ResultLocIdVar,
+    ResultLocIdField,
     ResultLocIdReturn,
     ResultLocIdPeer,
     ResultLocIdPeerParent,
+    ResultLocIdInstruction,
 };
 
 struct ResultLoc {
@@ -3597,6 +3602,7 @@ struct ResultLoc {
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc
     ZigType *implicit_elem_type;
+    ScopeElide *scope_elide;
 };
 
 struct ResultLocNone {
@@ -3607,6 +3613,14 @@ struct ResultLocVar {
     ResultLoc base;
 
     ZigVar *var;
+};
+
+struct ResultLocField {
+    ResultLoc base;
+
+    ResultLoc *parent;
+    Buf *name;
+    IrInstruction *container_type;
 };
 
 struct ResultLocReturn {
@@ -3634,6 +3648,11 @@ struct ResultLocPeer {
     ResultLocPeerParent *parent;
     IrBasicBlock *next_bb;
     IrSuspendPosition suspend_pos;
+};
+
+// The result location is the source instruction
+struct ResultLocInstruction {
+    ResultLoc base;
 };
 
 static const size_t slice_ptr_index = 0;

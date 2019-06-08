@@ -121,6 +121,7 @@ ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
+ScopeElide *create_elide_scope(CodeGen *g, AstNode *node, Scope *parent);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);

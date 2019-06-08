@@ -207,6 +207,18 @@ static void ir_print_result_loc_var(IrPrint *irp, ResultLocVar *result_loc_var) 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_instruction(IrPrint *irp, ResultLocInstruction *result_loc_inst) {
+    fprintf(irp->f, "inst(");
+    ir_print_other_instruction(irp, result_loc_inst->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_result_loc_field(IrPrint *irp, ResultLocField *result_loc_field) {
+    fprintf(irp->f, "field(name=%s,type=", buf_ptr(result_loc_field->name));
+    ir_print_other_instruction(irp, result_loc_field->container_type);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc_peer(IrPrint *irp, ResultLocPeer *result_loc_peer) {
     fprintf(irp->f, "peer(next=");
     ir_print_other_block(irp, result_loc_peer->next_bb);
@@ -225,6 +237,10 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return;
         case ResultLocIdVar:
             return ir_print_result_loc_var(irp, (ResultLocVar *)result_loc);
+        case ResultLocIdInstruction:
+            return ir_print_result_loc_instruction(irp, (ResultLocInstruction *)result_loc);
+        case ResultLocIdField:
+            return ir_print_result_loc_field(irp, (ResultLocField *)result_loc);
         case ResultLocIdPeer:
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdPeerParent:
@@ -350,18 +366,6 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
         ir_print_other_instruction(irp, field->value);
     }
     fprintf(irp->f, "} // container init");
-}
-
-static void ir_print_struct_init(IrPrint *irp, IrInstructionStructInit *instruction) {
-    fprintf(irp->f, "%s {", buf_ptr(&instruction->struct_type->name));
-    for (size_t i = 0; i < instruction->field_count; i += 1) {
-        IrInstructionStructInitField *field = &instruction->fields[i];
-        Buf *field_name = field->type_struct_field->name;
-        const char *comma = (i == 0) ? "" : ", ";
-        fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field_name));
-        ir_print_other_instruction(irp, field->value);
-    }
-    fprintf(irp->f, "} // struct init");
 }
 
 static void ir_print_union_init(IrPrint *irp, IrInstructionUnionInit *instruction) {
@@ -1265,6 +1269,12 @@ static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *inst
     fprintf(irp->f, ")");
 }
 
+static void ir_print_resolve_result(IrPrint *irp, IrInstructionResolveResult *instruction) {
+    fprintf(irp->f, "ResolveResult(");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_opaque_type(IrPrint *irp, IrInstructionOpaqueType *instruction) {
     fprintf(irp->f, "@OpaqueType()");
 }
@@ -1588,9 +1598,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdContainerInitFields:
             ir_print_container_init_fields(irp, (IrInstructionContainerInitFields *)instruction);
             break;
-        case IrInstructionIdStructInit:
-            ir_print_struct_init(irp, (IrInstructionStructInit *)instruction);
-            break;
         case IrInstructionIdUnionInit:
             ir_print_union_init(irp, (IrInstructionUnionInit *)instruction);
             break;
@@ -1899,6 +1906,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdImplicitCast:
             ir_print_implicit_cast(irp, (IrInstructionImplicitCast *)instruction);
+            break;
+        case IrInstructionIdResolveResult:
+            ir_print_resolve_result(irp, (IrInstructionResolveResult *)instruction);
             break;
         case IrInstructionIdOpaqueType:
             ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);

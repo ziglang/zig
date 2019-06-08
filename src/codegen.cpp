@@ -715,6 +715,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdCompTime:
         case ScopeIdCoroPrelude:
         case ScopeIdRuntime:
+        case ScopeIdElide:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -2383,7 +2384,6 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
-    LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     ZigType *return_type = return_instruction->value->value.type;
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
@@ -2391,13 +2391,16 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         if (return_instruction->value->value.special != ConstValSpecialRuntime) {
             // if it's comptime we have to do this but if it's runtime trust that
             // result location mechanism took care of it.
+            LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
             gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
         }
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
+        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
         LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
         LLVMBuildRet(g->builder, by_val_value);
     } else {
+        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
         LLVMBuildRet(g->builder, value);
     }
     return nullptr;
@@ -5032,29 +5035,6 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
 }
 
-static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, IrInstructionStructInit *instruction) {
-    for (size_t i = 0; i < instruction->field_count; i += 1) {
-        IrInstructionStructInitField *field = &instruction->fields[i];
-        TypeStructField *type_struct_field = field->type_struct_field;
-        if (!type_has_bits(type_struct_field->type_entry))
-            continue;
-
-        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
-                (unsigned)type_struct_field->gen_index, "");
-        LLVMValueRef value = ir_llvm_value(g, field->value);
-
-        uint32_t field_align_bytes = get_abi_alignment(g, type_struct_field->type_entry);
-        uint32_t host_int_bytes = get_host_int_bytes(g, instruction->struct_type, type_struct_field);
-
-        ZigType *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
-                false, false, PtrLenSingle, field_align_bytes,
-                (uint32_t)type_struct_field->bit_offset_in_host, host_int_bytes, false);
-
-        gen_assign_raw(g, field_ptr, ptr_type, value);
-    }
-    return instruction->tmp_ptr;
-}
-
 static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, IrInstructionUnionInit *instruction) {
     TypeUnionField *type_union_field = instruction->field;
 
@@ -5531,10 +5511,6 @@ static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
 }
 
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
-    if (!g->strip_debug_symbols) {
-        set_debug_location(g, instruction);
-    }
-
     switch (instruction->id) {
         case IrInstructionIdInvalid:
         case IrInstructionIdConst:
@@ -5609,6 +5585,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEndExpr:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdImplicitCast:
+        case IrInstructionIdResolveResult:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5705,8 +5682,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdUnionTag:
             return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
-        case IrInstructionIdStructInit:
-            return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
         case IrInstructionIdUnionInit:
             return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
         case IrInstructionIdPtrCastGen:
@@ -5791,6 +5766,34 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
     zig_unreachable();
 }
 
+static bool scope_is_elided(Scope *scope) {
+    for (;;) {
+        switch (scope->id) {
+            case ScopeIdDecls:
+            case ScopeIdCompTime:
+            case ScopeIdCImport:
+                zig_unreachable();
+            case ScopeIdElide:
+                if (reinterpret_cast<ScopeElide *>(scope)->activated)
+                    return true;
+                // fallthrough
+            case ScopeIdBlock:
+            case ScopeIdDefer:
+            case ScopeIdDeferExpr:
+            case ScopeIdVarDecl:
+            case ScopeIdLoop:
+            case ScopeIdSuspend:
+            case ScopeIdCoroPrelude:
+            case ScopeIdRuntime:
+                scope = scope->parent;
+                continue;
+            case ScopeIdFnDef:
+                return false;
+        }
+        zig_unreachable();
+    }
+}
+
 static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     assert(fn_entry);
 
@@ -5806,7 +5809,12 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
                 continue;
 
-            instruction->llvm_value = ir_render_instruction(g, executable, instruction);
+            if (!scope_is_elided(instruction->scope)) {
+                if (!g->strip_debug_symbols) {
+                    set_debug_location(g, instruction);
+                }
+                instruction->llvm_value = ir_render_instruction(g, executable, instruction);
+            }
         }
         current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
     }
@@ -6891,9 +6899,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdContainerInitList) {
                 IrInstructionContainerInitList *container_init_list_instruction = (IrInstructionContainerInitList *)instruction;
                 slot = &container_init_list_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdStructInit) {
-                IrInstructionStructInit *struct_init_instruction = (IrInstructionStructInit *)instruction;
-                slot = &struct_init_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdUnionInit) {
                 IrInstructionUnionInit *union_init_instruction = (IrInstructionUnionInit *)instruction;
                 slot = &union_init_instruction->tmp_ptr;

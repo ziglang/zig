@@ -166,6 +166,12 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruct
     return &scope->base;
 }
 
+ScopeElide *create_elide_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeElide *scope = allocate<ScopeElide>(1);
+    init_scope(g, &scope->base, ScopeIdElide, node, parent);
+    return scope;
+}
+
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
