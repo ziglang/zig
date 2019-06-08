@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const macho = std.macho;
 
-use @import("../os/bits.zig");
+usingnamespace @import("../os/bits.zig");
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
@@ -54,3 +54,5 @@ pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t
 pub fn sigaddset(set: *sigset_t, signo: u5) void {
     set.* |= u32(1) << (signo - 1);
 }
+
+pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;

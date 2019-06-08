@@ -177,7 +177,7 @@ fn testEnum() void {
     expect(mem.eql(u8, os_info.Enum.fields[1].name, "Macos"));
     expect(os_info.Enum.fields[3].value == 3);
     expect(os_info.Enum.tag_type == u2);
-    expect(os_info.Enum.defs.len == 0);
+    expect(os_info.Enum.decls.len == 0);
 }
 
 test "type info: union info" {
@@ -194,7 +194,7 @@ fn testUnion() void {
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.defs.len == 21);
+    expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -232,12 +232,12 @@ fn testStruct() void {
     expect(struct_info.Struct.fields.len == 3);
     expect(struct_info.Struct.fields[1].offset == null);
     expect(struct_info.Struct.fields[2].field_type == *TestStruct);
-    expect(struct_info.Struct.defs.len == 2);
-    expect(struct_info.Struct.defs[0].is_pub);
-    expect(!struct_info.Struct.defs[0].data.Fn.is_extern);
-    expect(struct_info.Struct.defs[0].data.Fn.lib_name == null);
-    expect(struct_info.Struct.defs[0].data.Fn.return_type == void);
-    expect(struct_info.Struct.defs[0].data.Fn.fn_type == fn (*const TestStruct) void);
+    expect(struct_info.Struct.decls.len == 2);
+    expect(struct_info.Struct.decls[0].is_pub);
+    expect(!struct_info.Struct.decls[0].data.Fn.is_extern);
+    expect(struct_info.Struct.decls[0].data.Fn.lib_name == null);
+    expect(struct_info.Struct.decls[0].data.Fn.return_type == void);
+    expect(struct_info.Struct.decls[0].data.Fn.fn_type == fn (*const TestStruct) void);
 }
 
 const TestStruct = packed struct {

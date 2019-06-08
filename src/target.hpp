@@ -62,7 +62,6 @@ enum SubArchList {
 };
 
 enum TargetSubsystem {
-    TargetSubsystemAuto, // Zig should infer the subsystem
     TargetSubsystemConsole,
     TargetSubsystemWindows,
     TargetSubsystemPosix,
@@ -71,6 +70,11 @@ enum TargetSubsystem {
     TargetSubsystemEfiBootServiceDriver,
     TargetSubsystemEfiRom,
     TargetSubsystemEfiRuntimeDriver,
+
+    // This means Zig should infer the subsystem.
+    // It's last so that the indexes of other items can line up
+    // with the enum in builtin.zig.
+    TargetSubsystemAuto
 };
 
 struct ZigTarget {
@@ -172,6 +176,7 @@ bool target_is_glibc(const ZigTarget *target);
 bool target_is_musl(const ZigTarget *target);
 bool target_is_wasm(const ZigTarget *target);
 bool target_is_single_threaded(const ZigTarget *target);
+bool target_supports_stack_probing(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 

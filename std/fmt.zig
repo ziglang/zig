@@ -145,23 +145,7 @@ pub fn formatType(
             return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
         },
         builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-            const has_cust_fmt = comptime cf: {
-                const info = @typeInfo(T);
-                const defs = switch (info) {
-                    builtin.TypeId.Struct => |s| s.defs,
-                    builtin.TypeId.Union => |u| u.defs,
-                    builtin.TypeId.Enum => |e| e.defs,
-                    else => unreachable,
-                };
-
-                for (defs) |def| {
-                    if (mem.eql(u8, def.name, "format")) {
-                        break :cf true;
-                    }
-                }
-                break :cf false;
-            };
-            if (has_cust_fmt) return value.format(fmt, context, Errors, output);
+            if (comptime std.meta.trait.hasFn("format")(T)) return value.format(fmt, context, Errors, output);
 
             try output(context, @typeName(T));
             switch (comptime @typeId(T)) {
@@ -236,8 +220,10 @@ pub fn formatType(
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
                     return formatText(value, fmt, context, Errors, output);
                 }
-                const casted_value = ([]const u8)(value);
-                return output(context, casted_value);
+                if (ptr_info.child == u8) {
+                    return formatText(value, fmt, context, Errors, output);
+                }
+                return format(context, Errors, output, "{}@{x}", @typeName(ptr_info.child), @ptrToInt(value.ptr));
             },
             builtin.TypeInfo.Pointer.Size.C => {
                 return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
@@ -1024,6 +1010,10 @@ test "fmt.format" {
     {
         const value: []const u8 = "abc";
         try testFmt("slice: abc\n", "slice: {}\n", value);
+    }
+    {
+        const value = @intToPtr([*]const []const u8, 0xdeadbeef)[0..0];
+        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", value);
     }
     {
         const value = @intToPtr(*i32, 0xdeadbeef);

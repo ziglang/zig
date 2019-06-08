@@ -20,6 +20,13 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
+pub const dl_phdr_info = extern struct {
+    dlpi_addr: usize,
+    dlpi_name: ?[*]const u8,
+    dlpi_phdr: [*]std.elf.Phdr,
+    dlpi_phnum: u16,
+};
+
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,
@@ -835,3 +842,19 @@ pub const ENOTRECOVERABLE = 95; // State not recoverable
 pub const EOWNERDEAD = 96; // Previous owner died
 
 pub const ELAST = 96; // Must be equal largest errno
+
+pub const MINSIGSTKSZ = switch (builtin.arch) {
+    .i386, .x86_64 => 2048,
+    .arm, .aarch64 => 4096,
+    else => @compileError("MINSIGSTKSZ not defined for this architecture"),
+};
+pub const SIGSTKSZ = MINSIGSTKSZ + 32768;
+
+pub const SS_ONSTACK = 1;
+pub const SS_DISABLE = 4;
+
+pub const stack_t = extern struct {
+    ss_sp: [*]u8,
+    ss_size: isize,
+    ss_flags: i32,
+};

@@ -630,9 +630,11 @@ set(ZIG_STD_FILES
     "os/windows/bits.zig"
     "os/windows/error.zig"
     "os/windows/kernel32.zig"
+    "os/windows/lang.zig"
     "os/windows/ntdll.zig"
     "os/windows/ole32.zig"
     "os/windows/shell32.zig"
+    "os/windows/sublang.zig"
     "os/zen.zig"
     "packed_int_array.zig"
     "pdb.zig"
@@ -6066,6 +6068,8 @@ set(ZIG_LIBC_FILES
     "include/x86_64-linux-musl/bits/stat.h"
     "include/x86_64-linux-musl/bits/syscall.h"
     "include/x86_64-linux-musl/bits/user.h"
+    "include/wasm32-freestanding-musl/bits/alltypes.h"
+    "include/wasm32-freestanding-musl/errno.h"
     "musl/arch/aarch64/atomic_arch.h"
     "musl/arch/aarch64/bits/alltypes.h.in"
     "musl/arch/aarch64/bits/endian.h"
@@ -6726,9 +6730,13 @@ add_custom_command(
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     DEPENDS
+        "${CMAKE_SOURCE_DIR}/src-self-hosted/dep_tokenizer.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
         "${CMAKE_SOURCE_DIR}/build.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/parse.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/render.zig"
+        "${CMAKE_SOURCE_DIR}/std/zig/tokenizer.zig"
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")

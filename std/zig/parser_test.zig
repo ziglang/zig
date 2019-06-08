@@ -1,3 +1,42 @@
+// TODO remove `use` keyword eventually
+test "zig fmt: change use to usingnamespace" {
+    try testTransform(
+        \\use @import("std");
+    ,
+        \\usingnamespace @import("std");
+        \\
+    );
+}
+
+test "zig fmt: while else err prong with no block" {
+    try testCanonical(
+        \\test "" {
+        \\    const result = while (returnError()) |value| {
+        \\        break value;
+        \\    } else |err| i32(2);
+        \\    expect(result == 2);
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: tagged union with enum values" {
+    try testCanonical(
+        \\const MultipleChoice2 = union(enum(u32)) {
+        \\    Unspecified1: i32,
+        \\    A: f32 = 20,
+        \\    Unspecified2: void,
+        \\    B: bool = 40,
+        \\    Unspecified3: i32,
+        \\    C: i8 = 60,
+        \\    Unspecified4: void,
+        \\    D: void = 1000,
+        \\    Unspecified5: i32,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
@@ -2090,8 +2129,8 @@ test "zig fmt: Block after if" {
 
 test "zig fmt: use" {
     try testCanonical(
-        \\use @import("std");
-        \\pub use @import("std");
+        \\usingnamespace @import("std");
+        \\pub usingnamespace @import("std");
         \\
     );
 }
@@ -2165,6 +2204,31 @@ test "zig fmt: inline asm parameter alignment" {
         \\          [_] "" (0)
         \\        : "", ""
         \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: multiline string in array" {
+    try testCanonical(
+        \\const Foo = [][]const u8{
+        \\    \\aaa
+        \\,
+        \\    \\bbb
+        \\};
+        \\
+        \\fn bar() void {
+        \\    const Foo = [][]const u8{
+        \\        \\aaa
+        \\    ,
+        \\        \\bbb
+        \\    };
+        \\    const Bar = [][]const u8{ // comment here
+        \\        \\aaa
+        \\        \\
+        \\    , // and another comment can go here
+        \\        \\bbb
+        \\    };
         \\}
         \\
     );

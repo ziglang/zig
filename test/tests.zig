@@ -341,7 +341,7 @@ pub const CompareOutputContext = struct {
                     \\
                     \\========= Expected this output: =========
                     \\{}
-                    \\================================================
+                    \\========= But found: ====================
                     \\{}
                     \\
                 , self.expected_output, stdout.toSliceConst());
@@ -1036,7 +1036,7 @@ pub const TranslateCContext = struct {
                         \\
                         \\========= Expected this output: ================
                         \\{}
-                        \\================================================
+                        \\========= But found: ===========================
                         \\{}
                         \\
                     , expected_line, stdout);
@@ -1211,7 +1211,7 @@ pub const GenHContext = struct {
                         \\
                         \\========= Expected this output: ================
                         \\{}
-                        \\================================================
+                        \\========= But found: ===========================
                         \\{}
                         \\
                     , expected_line, actual_h);

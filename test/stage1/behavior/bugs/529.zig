@@ -12,4 +12,3 @@ test "issue 529 fixed" {
     @import("529_other_file.zig").issue529(null);
     issue529(null);
 }
-

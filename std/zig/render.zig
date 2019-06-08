@@ -168,7 +168,9 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             if (use_decl.visib_token) |visib_token| {
                 try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
             }
-            try renderToken(tree, stream, use_decl.use_token, indent, start_col, Space.Space); // use
+            // TODO after depracating use, go back to this:
+            //try renderToken(tree, stream, use_decl.use_token, indent, start_col, Space.Space); // usingnamespace
+            try stream.write("usingnamespace ");
             try renderExpression(allocator, stream, tree, indent, start_col, use_decl.expr, Space.None);
             try renderToken(tree, stream, use_decl.semicolon_token, indent, start_col, Space.Newline); // ;
         },
@@ -212,7 +214,7 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
                 try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
-                try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
+                try renderToken(tree, stream, tree.nextToken(field.type_expr.?.lastToken()), indent, start_col, Space.Space); // =
                 return renderExpression(allocator, stream, tree, indent, start_col, field.value_expr.?, Space.Comma); // value,
             }
         },
@@ -724,9 +726,15 @@ fn renderExpression(
                             expr_widths[i] = width;
                         }
 
-                        const new_indent = indent + indent_delta;
-                        try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
-                        try stream.writeByteNTimes(' ', new_indent);
+                        var new_indent = indent + indent_delta;
+
+                        if (tree.tokens.at(tree.nextToken(lbrace)).id != Token.Id.MultilineStringLiteralLine) {
+                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
+                            try stream.writeByteNTimes(' ', new_indent);
+                        } else {
+                            new_indent -= indent_delta;
+                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.None);
+                        }
 
                         it.set(0);
                         i = 0;
@@ -748,15 +756,24 @@ fn renderExpression(
                                 }
                                 col = 1;
 
-                                try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
+                                if (tree.tokens.at(tree.nextToken(comma)).id != Token.Id.MultilineStringLiteralLine) {
+                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
+                                } else {
+                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.None); // ,
+                                }
 
                                 try renderExtraNewline(tree, stream, start_col, next_expr.*);
-                                try stream.writeByteNTimes(' ', new_indent);
+                                if (next_expr.*.id != ast.Node.Id.MultilineStringLiteral) {
+                                    try stream.writeByteNTimes(' ', new_indent);
+                                }
                             } else {
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.Comma); // ,
                             }
                         }
-                        try stream.writeByteNTimes(' ', indent);
+                        const last_node = it.prev().?;
+                        if (last_node.*.id != ast.Node.Id.MultilineStringLiteral) {
+                            try stream.writeByteNTimes(' ', indent);
+                        }
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     } else {
                         try renderToken(tree, stream, lbrace, indent, start_col, Space.Space);
@@ -1037,6 +1054,8 @@ fn renderExpression(
         },
 
         ast.Node.Id.MultilineStringLiteral => {
+            // TODO: Don't indent in this function, but let the caller indent.
+            // If this has been implemented, a lot of hacky solutions in i.e. ArrayInit and FunctionCall can be removed
             const multiline_str_literal = @fieldParentPtr(ast.Node.MultilineStringLiteral, "base", base);
 
             var skip_first_indent = true;

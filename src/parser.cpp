@@ -668,7 +668,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
         return res;
     }
 
-    Token *use = eat_token_if(pc, TokenIdKeywordUse);
+    Token *use = eat_token_if(pc, TokenIdKeywordUsingNamespace);
     if (use != nullptr) {
         AstNode *expr = ast_expect(pc, ast_parse_expr);
         expect_token(pc, TokenIdSemicolon);

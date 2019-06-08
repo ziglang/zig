@@ -20,6 +20,13 @@ pub const pthread_attr_t = extern struct {
     pta_private: *c_void,
 };
 
+pub const dl_phdr_info = extern struct {
+    dlpi_addr: usize,
+    dlpi_name: ?[*]const u8,
+    dlpi_phdr: [*]std.elf.Phdr,
+    dlpi_phnum: u16,
+};
+
 pub const msghdr = extern struct {
     /// optional address
     msg_name: ?*sockaddr,
@@ -723,3 +730,15 @@ pub const ENOLINK = 95; // Link has been severed
 pub const EPROTO = 96; // Protocol error
 
 pub const ELAST = 96; // Must equal largest errno
+
+pub const MINSIGSTKSZ = 8192;
+pub const SIGSTKSZ = MINSIGSTKSZ + 32768;
+
+pub const SS_ONSTACK = 1;
+pub const SS_DISABLE = 4;
+
+pub const stack_t = extern struct {
+    ss_sp: [*]u8,
+    ss_size: isize,
+    ss_flags: i32,
+};

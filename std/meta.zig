@@ -160,16 +160,16 @@ test "std.meta.containerLayout" {
     testing.expect(containerLayout(U3) == TypeInfo.ContainerLayout.Extern);
 }
 
-pub fn definitions(comptime T: type) []TypeInfo.Definition {
+pub fn declarations(comptime T: type) []TypeInfo.Declaration {
     return switch (@typeInfo(T)) {
-        TypeId.Struct => |info| info.defs,
-        TypeId.Enum => |info| info.defs,
-        TypeId.Union => |info| info.defs,
+        TypeId.Struct => |info| info.decls,
+        TypeId.Enum => |info| info.decls,
+        TypeId.Union => |info| info.decls,
         else => @compileError("Expected struct, enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
-test "std.meta.definitions" {
+test "std.meta.declarations" {
     const E1 = enum {
         A,
 
@@ -184,28 +184,28 @@ test "std.meta.definitions" {
         fn a() void {}
     };
 
-    const defs = comptime [][]TypeInfo.Definition{
-        definitions(E1),
-        definitions(S1),
-        definitions(U1),
+    const decls = comptime [][]TypeInfo.Declaration{
+        declarations(E1),
+        declarations(S1),
+        declarations(U1),
     };
 
-    inline for (defs) |def| {
-        testing.expect(def.len == 1);
-        testing.expect(comptime mem.eql(u8, def[0].name, "a"));
+    inline for (decls) |decl| {
+        testing.expect(decl.len == 1);
+        testing.expect(comptime mem.eql(u8, decl[0].name, "a"));
     }
 }
 
-pub fn definitionInfo(comptime T: type, comptime def_name: []const u8) TypeInfo.Definition {
-    inline for (comptime definitions(T)) |def| {
-        if (comptime mem.eql(u8, def.name, def_name))
-            return def;
+pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) TypeInfo.Declaration {
+    inline for (comptime declarations(T)) |decl| {
+        if (comptime mem.eql(u8, decl.name, decl_name))
+            return decl;
     }
 
-    @compileError("'" ++ @typeName(T) ++ "' has no definition '" ++ def_name ++ "'");
+    @compileError("'" ++ @typeName(T) ++ "' has no declaration '" ++ decl_name ++ "'");
 }
 
-test "std.meta.definitionInfo" {
+test "std.meta.declarationInfo" {
     const E1 = enum {
         A,
 
@@ -220,10 +220,10 @@ test "std.meta.definitionInfo" {
         fn a() void {}
     };
 
-    const infos = comptime []TypeInfo.Definition{
-        definitionInfo(E1, "a"),
-        definitionInfo(S1, "a"),
-        definitionInfo(U1, "a"),
+    const infos = comptime []TypeInfo.Declaration{
+        declarationInfo(E1, "a"),
+        declarationInfo(S1, "a"),
+        declarationInfo(U1, "a"),
     };
 
     inline for (infos) |info| {

@@ -19,6 +19,8 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
+const elf = std.elf;
+const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
 comptime {
@@ -46,7 +48,7 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     else => struct {},
 };
 
-pub use @import("os/bits.zig");
+pub usingnamespace @import("os/bits.zig");
 
 /// See also `getenv`. Populated by startup code before main().
 pub var environ: [][*]u8 = undefined;
@@ -1509,7 +1511,7 @@ pub const EpollCtlError = error{
     Unexpected,
 };
 
-pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: *epoll_event) EpollCtlError!void {
+pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
     switch (errno(rc)) {
         0 => return,
@@ -1883,20 +1885,29 @@ pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
 }
 
 pub const MProtectError = error{
+    /// The memory cannot be given the specified access.  This can happen, for example, if you
+    /// mmap(2)  a  file  to  which  you have read-only access, then ask mprotect() to mark it
+    /// PROT_WRITE.
     AccessDenied,
+
+    /// Changing  the  protection  of a memory region would result in the total number of map‐
+    /// pings with distinct attributes (e.g., read versus read/write protection) exceeding the
+    /// allowed maximum.  (For example, making the protection of a range PROT_READ in the mid‐
+    /// dle of a region currently protected as PROT_READ|PROT_WRITE would result in three map‐
+    /// pings: two read/write mappings at each end and a read-only mapping in the middle.)
     OutOfMemory,
     Unexpected,
 };
 
 /// `memory.len` must be page-aligned.
-pub fn mprotect(memory: [*]align(mem.page_size) u8, protection: u32) MProtectError!void {
+pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
     assert(mem.isAligned(memory.len, mem.page_size));
     switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
         0 => return,
         EINVAL => unreachable,
         EACCES => return error.AccessDenied,
         ENOMEM => return error.OutOfMemory,
-        else => return unexpectedErrno(err),
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1935,7 +1946,6 @@ pub const MMapError = error{
 
 /// Map files or devices into memory.
 /// Use of a mapped region can result in these signals:
-/// `length` must be page-aligned.
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
@@ -1946,7 +1956,6 @@ pub fn mmap(
     fd: fd_t,
     offset: isize,
 ) MMapError![]align(mem.page_size) u8 {
-    assert(mem.isAligned(length, mem.page_size));
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
         if (rc != MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
@@ -2359,6 +2368,70 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     }
 }
 
+pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*T) i32, data: ?*T) isize {
+    // This is implemented only for systems using ELF executables
+    if (windows.is_the_target or builtin.os == .uefi or wasi.is_the_target or darwin.is_the_target)
+        @compileError("dl_iterate_phdr is not available for this target");
+
+    if (builtin.link_libc) {
+        return system.dl_iterate_phdr(
+            @ptrCast(std.c.dl_iterate_phdr_callback, callback),
+            @ptrCast(?*c_void, data),
+        );
+    }
+
+    const elf_base = std.process.getBaseAddress();
+    const ehdr = @intToPtr(*elf.Ehdr, elf_base);
+    // Make sure the base address points to an ELF image
+    assert(mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF"));
+    const n_phdr = ehdr.e_phnum;
+    const phdrs = (@intToPtr([*]elf.Phdr, elf_base + ehdr.e_phoff))[0..n_phdr];
+
+    var it = dl.linkmap_iterator(phdrs) catch unreachable;
+
+    // The executable has no dynamic link segment, create a single entry for
+    // the whole ELF image
+    if (it.end()) {
+        var info = dl_phdr_info{
+            .dlpi_addr = elf_base,
+            .dlpi_name = c"/proc/self/exe",
+            .dlpi_phdr = phdrs.ptr,
+            .dlpi_phnum = ehdr.e_phnum,
+        };
+
+        return callback(&info, @sizeOf(dl_phdr_info), data);
+    }
+
+    // Last return value from the callback function
+    var last_r: isize = 0;
+    while (it.next()) |entry| {
+        var dlpi_phdr: [*]elf.Phdr = undefined;
+        var dlpi_phnum: u16 = undefined;
+
+        if (entry.l_addr != 0) {
+            const elf_header = @intToPtr(*elf.Ehdr, entry.l_addr);
+            dlpi_phdr = @intToPtr([*]elf.Phdr, entry.l_addr + elf_header.e_phoff);
+            dlpi_phnum = elf_header.e_phnum;
+        } else {
+            // This is the running ELF image
+            dlpi_phdr = @intToPtr([*]elf.Phdr, elf_base + ehdr.e_phoff);
+            dlpi_phnum = ehdr.e_phnum;
+        }
+
+        var info = dl_phdr_info{
+            .dlpi_addr = entry.l_addr,
+            .dlpi_name = entry.l_name,
+            .dlpi_phdr = dlpi_phdr,
+            .dlpi_phnum = dlpi_phnum,
+        };
+
+        last_r = callback(&info, @sizeOf(dl_phdr_info), data);
+        if (last_r != 0) break;
+    }
+
+    return last_r;
+}
+
 pub const ClockGetTimeError = error{
     UnsupportedClock,
     Unexpected,
@@ -2431,6 +2504,29 @@ pub fn unexpectedErrno(err: usize) UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub const SigaltstackError = error{
+    /// The supplied stack size was less than MINSIGSTKSZ.
+    SizeTooSmall,
+
+    /// Attempted to change the signal stack while it was active.
+    PermissionDenied,
+    Unexpected,
+};
+
+pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
+    if (windows.is_the_target or uefi.is_the_target or wasi.is_the_target)
+        @compileError("std.os.sigaltstack not available for this target");
+
+    switch (errno(system.sigaltstack(ss, old_ss))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        ENOMEM => return error.SizeTooSmall,
+        EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
 }
 
 test "" {

@@ -1078,3 +1078,15 @@ pub const EQFULL = 106;
 
 /// Must be equal largest errno
 pub const ELAST = 106;
+
+pub const SIGSTKSZ = 131072;
+pub const MINSIGSTKSZ = 32768;
+
+pub const SS_ONSTACK = 1;
+pub const SS_DISABLE = 4;
+
+pub const stack_t = extern struct {
+    ss_sp: [*]u8,
+    ss_size: isize,
+    ss_flags: i32,
+};

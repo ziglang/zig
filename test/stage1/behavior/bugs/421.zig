@@ -13,4 +13,3 @@ fn extractOne64(a: u128) u64 {
     const x = @bitCast([2]u64, a);
     return x[1];
 }
-

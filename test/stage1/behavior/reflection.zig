@@ -93,4 +93,3 @@ const Bar = union(enum) {
     Three: bool,
     Four: f64,
 };
-

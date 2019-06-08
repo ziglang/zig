@@ -6,6 +6,8 @@ const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
 pub const ERROR = @import("error.zig");
+pub const LANG = @import("lang.zig");
+pub const SUBLANG = @import("sublang.zig");
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
 pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
@@ -55,6 +57,10 @@ pub const ULONG = u32;
 pub const LONG = i32;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
+pub const HLOCAL = HANDLE;
+pub const LANGID = c_ushort;
+
+pub const va_list = *@OpaqueType();
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -525,3 +531,11 @@ pub const COINIT = extern enum {
 /// > this expansion applies to the total length.
 /// from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
 pub const PATH_MAX_WIDE = 32767;
+
+pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
+pub const FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
+pub const FORMAT_MESSAGE_FROM_HMODULE = 0x00000800;
+pub const FORMAT_MESSAGE_FROM_STRING = 0x00000400;
+pub const FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000;
+pub const FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200;
+pub const FORMAT_MESSAGE_MAX_WIDTH_MASK = 0x000000FF;

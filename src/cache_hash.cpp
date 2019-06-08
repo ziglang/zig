@@ -5,6 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
+#include "userland.h"
 #include "cache_hash.hpp"
 #include "all_types.hpp"
 #include "buffer.hpp"
@@ -473,71 +474,62 @@ Error cache_add_dep_file(CacheHash *ch, Buf *dep_file_path, bool verbose) {
         if (err == ErrorFileNotFound)
             return err;
         if (verbose) {
-            fprintf(stderr, "unable to read .d file: %s\n", err_str(err));
+            fprintf(stderr, "%s: unable to read .d file: %s\n", err_str(err), buf_ptr(dep_file_path));
         }
         return ErrorReadingDepFile;
     }
-    SplitIterator it = memSplit(buf_to_slice(contents), str("\r\n"));
-    // skip first line
-    SplitIterator_next(&it);
-    for (;;) {
-        Optional<Slice<uint8_t>> opt_line = SplitIterator_next(&it);
-        if (!opt_line.is_some)
-            break;
-        if (opt_line.value.len == 0)
-            continue;
-        // skip over indentation
-        while (opt_line.value.len != 0 && (opt_line.value.ptr[0] == ' ' || opt_line.value.ptr[0] == '\t')) {
-            opt_line.value.ptr += 1;
-            opt_line.value.len -= 1;
-        }
-        if (opt_line.value.len == 0)
-            continue;
-
-        if (opt_line.value.ptr[0] == '"') {
-            if (opt_line.value.len < 2) {
+    auto it = stage2_DepTokenizer_init(buf_ptr(contents), buf_len(contents));
+    // skip first token: target
+    {
+        auto result = stage2_DepTokenizer_next(&it);
+        switch (result.type_id) {
+            case stage2_DepNextResult::error:
                 if (verbose) {
-                    fprintf(stderr, "unable to process invalid .d file %s: line too short\n", buf_ptr(dep_file_path));
+                    fprintf(stderr, "%s: failed processing .d file: %s\n", result.textz, buf_ptr(dep_file_path));
                 }
-                return ErrorInvalidDepFile;
-            }
-            opt_line.value.ptr += 1;
-            opt_line.value.len -= 2;
-            while (opt_line.value.len != 0 && opt_line.value.ptr[opt_line.value.len] != '"') {
-                opt_line.value.len -= 1;
-            }
-            if (opt_line.value.len == 0) {
-                if (verbose) {
-                    fprintf(stderr, "unable to process invalid .d file %s: missing double quote\n", buf_ptr(dep_file_path));
-                }
-                return ErrorInvalidDepFile;
-            }
-            Buf *filename_buf = buf_create_from_slice(opt_line.value);
-            if ((err = cache_add_file(ch, filename_buf))) {
-                if (verbose) {
-                    fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
-                    fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
-                }
-                return err;
-            }
-        } else {
-            // sometimes there are multiple files on the same line; we actually need space tokenization.
-            SplitIterator line_it = memSplit(opt_line.value, str(" \t"));
-            Slice<uint8_t> filename;
-            while (SplitIterator_next(&line_it).unwrap(&filename)) {
-                Buf *filename_buf = buf_create_from_slice(filename);
-                if (buf_eql_str(filename_buf, "\\")) continue;
-                if ((err = cache_add_file(ch, filename_buf))) {
-                    if (verbose) {
-                        fprintf(stderr, "unable to add %s to cache: %s\n", buf_ptr(filename_buf), err_str(err));
-                        fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
-                    }
-                    return err;
-                }
-            }
+                err = ErrorInvalidDepFile;
+                goto finish;
+            case stage2_DepNextResult::null:
+                err = ErrorNone;
+                goto finish;
+            case stage2_DepNextResult::target:
+            case stage2_DepNextResult::prereq:
+                err = ErrorNone;
+                break;
         }
     }
-    return ErrorNone;
+    // Process 0+ preqreqs.
+    // clang is invoked in single-source mode so we never get more targets.
+    for (;;) {
+        auto result = stage2_DepTokenizer_next(&it);
+        switch (result.type_id) {
+            case stage2_DepNextResult::error:
+                if (verbose) {
+                    fprintf(stderr, "%s: failed processing .d file: %s\n", result.textz, buf_ptr(dep_file_path));
+                }
+                err = ErrorInvalidDepFile;
+                goto finish;
+            case stage2_DepNextResult::null:
+            case stage2_DepNextResult::target:
+                err = ErrorNone;
+                goto finish;
+            case stage2_DepNextResult::prereq:
+                break;
+        }
+        auto textbuf = buf_alloc();
+        buf_init_from_str(textbuf, result.textz);
+        if ((err = cache_add_file(ch, textbuf))) {
+            if (verbose) {
+                fprintf(stderr, "unable to add %s to cache: %s\n", result.textz, err_str(err));
+                fprintf(stderr, "when processing .d file: %s\n", buf_ptr(dep_file_path));
+            }
+            goto finish;
+        }
+    }
+
+    finish:
+    stage2_DepTokenizer_deinit(&it);
+    return err;
 }
 
 static Error write_manifest_file(CacheHash *ch) {

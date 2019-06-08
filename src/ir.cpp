@@ -1015,6 +1015,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionHasDecl *) {
     return IrInstructionIdHasDecl;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUndeclaredIdent *) {
+    return IrInstructionIdUndeclaredIdent;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3031,6 +3035,15 @@ static IrInstruction *ir_build_has_decl(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_undeclared_identifier(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        Buf *name)
+{
+    IrInstructionUndeclaredIdent *instruction = ir_build_instruction<IrInstructionUndeclaredIdent>(irb, scope, source_node);
+    instruction->name = name;
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *scope_is_comptime, IrInstruction *is_comptime) {
     IrInstructionCheckRuntimeScope *instruction = ir_build_instruction<IrInstructionCheckRuntimeScope>(irb, scope, source_node);
     instruction->scope_is_comptime = scope_is_comptime;
@@ -3896,13 +3909,18 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
 
     Buf *variable_name = node->data.symbol_expr.symbol;
 
-    if (buf_eql_str(variable_name, "_") && lval == LValPtr) {
-        IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
-        const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
-                irb->codegen->builtin_types.entry_void, false);
-        const_instruction->base.value.special = ConstValSpecialStatic;
-        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
-        return &const_instruction->base;
+    if (buf_eql_str(variable_name, "_")) {
+        if (lval == LValPtr) {
+            IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
+            const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
+                    irb->codegen->builtin_types.entry_void, false);
+            const_instruction->base.value.special = ConstValSpecialStatic;
+            const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
+            return &const_instruction->base;
+        } else {
+            add_node_error(irb->codegen, node, buf_sprintf("`_` may only be used to assign things to"));
+            return irb->codegen->invalid_instruction;
+        }
     }
 
     ZigType *primitive_type;
@@ -3943,11 +3961,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return irb->codegen->invalid_instruction;
     }
 
-    // put a variable of same name with invalid type in global scope
-    // so that future references to this same name will find a variable with an invalid type
-    populate_invalid_variable_in_scope(irb->codegen, scope, node, variable_name);
-    add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
-    return irb->codegen->invalid_instruction;
+    return ir_build_undeclared_identifier(irb, scope, node, variable_name);
 }
 
 static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
@@ -10252,12 +10266,6 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
     return result;
 }
 
-static bool is_container(ZigType *type) {
-    return type->id == ZigTypeIdStruct ||
-        type->id == ZigTypeIdEnum ||
-        type->id == ZigTypeIdUnion;
-}
-
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstruction *ref_old_instruction) {
     assert(old_bb);
 
@@ -16165,7 +16173,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
     if (type_is_invalid(container_type)) {
         return ira->codegen->invalid_instruction;
-    } else if (is_container_ref(container_type)) {
+    } else if (is_slice(container_type) || is_container_ref(container_type)) {
         assert(container_ptr->value.type->id == ZigTypeIdPointer);
         if (container_type->id == ZigTypeIdPointer) {
             ZigType *bare_type = container_ref_type(container_type);
@@ -16235,7 +16243,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
         if (type_is_invalid(child_type)) {
             return ira->codegen->invalid_instruction;
-        } else if (is_container(child_type) && !is_slice(child_type)) {
+        } else if (is_container(child_type)) {
             if (child_type->id == ZigTypeIdEnum) {
                 if ((err = ensure_complete_type(ira->codegen, child_type)))
                     return ira->codegen->invalid_instruction;
@@ -17879,10 +17887,37 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 
     bool any_missing = false;
     for (size_t i = 0; i < actual_field_count; i += 1) {
-        if (!field_assign_nodes[i]) {
-            ir_add_error_node(ira, instruction->source_node,
-                buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
-            any_missing = true;
+        if (field_assign_nodes[i]) continue;
+
+        // look for a default field value
+        TypeStructField *field = &container_type->data.structure.fields[i];
+        if (field->init_val == nullptr) {
+            // it's not memoized. time to go analyze it
+            assert(field->decl_node->type == NodeTypeStructField);
+            AstNode *init_node = field->decl_node->data.struct_field.value;
+            if (init_node == nullptr) {
+                ir_add_error_node(ira, instruction->source_node,
+                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
+                any_missing = true;
+                continue;
+            }
+            // scope is not the scope of the struct init, it's the scope of the struct type decl
+            Scope *analyze_scope = &get_container_scope(container_type)->base;
+            // memoize it
+            field->init_val = analyze_const_value(ira->codegen, analyze_scope, init_node,
+                    field->type_entry, nullptr);
+        }
+        if (type_is_invalid(field->init_val->type))
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *runtime_inst = ir_const(ira, instruction, field->init_val->type);
+        copy_const_val(&runtime_inst->value, field->init_val, true);
+
+        new_fields[i].value = runtime_inst;
+        new_fields[i].type_struct_field = field;
+
+        if (const_val.special == ConstValSpecialStatic) {
+            copy_const_val(&const_val.data.x_struct.fields[i], field->init_val, true);
         }
     }
     if (any_missing)
@@ -18372,37 +18407,37 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
     return var->const_value->data.x_type;
 }
 
-static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *out_val,
+static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *out_val,
         ScopeDecls *decls_scope)
 {
     Error err;
-    ZigType *type_info_definition_type = ir_type_info_get_type(ira, "Definition", nullptr);
-    if ((err = type_resolve(ira->codegen, type_info_definition_type, ResolveStatusSizeKnown)))
+    ZigType *type_info_declaration_type = ir_type_info_get_type(ira, "Declaration", nullptr);
+    if ((err = type_resolve(ira->codegen, type_info_declaration_type, ResolveStatusSizeKnown)))
         return err;
 
-    ensure_field_index(type_info_definition_type, "name", 0);
-    ensure_field_index(type_info_definition_type, "is_pub", 1);
-    ensure_field_index(type_info_definition_type, "data", 2);
+    ensure_field_index(type_info_declaration_type, "name", 0);
+    ensure_field_index(type_info_declaration_type, "is_pub", 1);
+    ensure_field_index(type_info_declaration_type, "data", 2);
 
-    ZigType *type_info_definition_data_type = ir_type_info_get_type(ira, "Data", type_info_definition_type);
-    if ((err = ensure_complete_type(ira->codegen, type_info_definition_data_type)))
+    ZigType *type_info_declaration_data_type = ir_type_info_get_type(ira, "Data", type_info_declaration_type);
+    if ((err = ensure_complete_type(ira->codegen, type_info_declaration_data_type)))
         return err;
 
-    ZigType *type_info_fn_def_type = ir_type_info_get_type(ira, "FnDef", type_info_definition_data_type);
-    if ((err = ensure_complete_type(ira->codegen, type_info_fn_def_type)))
+    ZigType *type_info_fn_decl_type = ir_type_info_get_type(ira, "FnDecl", type_info_declaration_data_type);
+    if ((err = ensure_complete_type(ira->codegen, type_info_fn_decl_type)))
         return err;
 
-    ZigType *type_info_fn_def_inline_type = ir_type_info_get_type(ira, "Inline", type_info_fn_def_type);
-    if ((err = ensure_complete_type(ira->codegen, type_info_fn_def_inline_type)))
+    ZigType *type_info_fn_decl_inline_type = ir_type_info_get_type(ira, "Inline", type_info_fn_decl_type);
+    if ((err = ensure_complete_type(ira->codegen, type_info_fn_decl_inline_type)))
         return err;
 
-    // Loop through our definitions once to figure out how many definitions we will generate info for.
+    // Loop through our declarations once to figure out how many declarations we will generate info for.
     auto decl_it = decls_scope->decl_table.entry_iterator();
     decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
-    int definition_count = 0;
+    int declaration_count = 0;
 
     while ((curr_entry = decl_it.next()) != nullptr) {
-        // If the definition is unresolved, force it to be resolved again.
+        // If the declaration is unresolved, force it to be resolved again.
         if (curr_entry->value->resolution == TldResolutionUnresolved) {
             resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node);
             if (curr_entry->value->resolution != TldResolutionOk) {
@@ -18418,21 +18453,21 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                     continue;
             }
 
-            definition_count += 1;
+            declaration_count += 1;
         }
     }
 
-    ConstExprValue *definition_array = create_const_vals(1);
-    definition_array->special = ConstValSpecialStatic;
-    definition_array->type = get_array_type(ira->codegen, type_info_definition_type, definition_count);
-    definition_array->data.x_array.special = ConstArraySpecialNone;
-    definition_array->data.x_array.data.s_none.elements = create_const_vals(definition_count);
-    init_const_slice(ira->codegen, out_val, definition_array, 0, definition_count, false);
+    ConstExprValue *declaration_array = create_const_vals(1);
+    declaration_array->special = ConstValSpecialStatic;
+    declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count);
+    declaration_array->data.x_array.special = ConstArraySpecialNone;
+    declaration_array->data.x_array.data.s_none.elements = create_const_vals(declaration_count);
+    init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false);
 
-    // Loop through the definitions and generate info.
+    // Loop through the declarations and generate info.
     decl_it = decls_scope->decl_table.entry_iterator();
     curr_entry = nullptr;
-    int definition_index = 0;
+    int declaration_index = 0;
     while ((curr_entry = decl_it.next()) != nullptr) {
         // Skip comptime blocks and test functions.
         if (curr_entry->value->id == TldIdCompTime) {
@@ -18443,10 +18478,10 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                 continue;
         }
 
-        ConstExprValue *definition_val = &definition_array->data.x_array.data.s_none.elements[definition_index];
+        ConstExprValue *declaration_val = &declaration_array->data.x_array.data.s_none.elements[declaration_index];
 
-        definition_val->special = ConstValSpecialStatic;
-        definition_val->type = type_info_definition_type;
+        declaration_val->special = ConstValSpecialStatic;
+        declaration_val->type = type_info_declaration_type;
 
         ConstExprValue *inner_fields = create_const_vals(3);
         ConstExprValue *name = create_const_str_lit(ira->codegen, curr_entry->key);
@@ -18455,9 +18490,9 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
         inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
         inner_fields[1].data.x_bool = curr_entry->value->visib_mod == VisibModPub;
         inner_fields[2].special = ConstValSpecialStatic;
-        inner_fields[2].type = type_info_definition_data_type;
+        inner_fields[2].type = type_info_declaration_data_type;
         inner_fields[2].parent.id = ConstParentIdStruct;
-        inner_fields[2].parent.data.p_struct.struct_val = definition_val;
+        inner_fields[2].parent.data.p_struct.struct_val = declaration_val;
         inner_fields[2].parent.data.p_struct.field_index = 1;
 
         switch (curr_entry->value->id) {
@@ -18468,7 +18503,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                         return ErrorSemanticAnalyzeFail;
 
                     if (var->const_value->type->id == ZigTypeIdMetaType) {
-                        // We have a variable of type 'type', so it's actually a type definition.
+                        // We have a variable of type 'type', so it's actually a type declaration.
                         // 0: Data.Type: type
                         bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
                         inner_fields[2].data.x_union.payload = var->const_value;
@@ -18488,7 +18523,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                 }
             case TldIdFn:
                 {
-                    // 2: Data.Fn: Data.FnDef
+                    // 2: Data.Fn: Data.FnDecl
                     bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 2);
 
                     ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
@@ -18499,70 +18534,70 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                         return ErrorSemanticAnalyzeFail;
                     }
 
-                    AstNodeFnProto *fn_node = (AstNodeFnProto *)(fn_entry->proto_node);
+                    AstNodeFnProto *fn_node = &fn_entry->proto_node->data.fn_proto;
 
-                    ConstExprValue *fn_def_val = create_const_vals(1);
-                    fn_def_val->special = ConstValSpecialStatic;
-                    fn_def_val->type = type_info_fn_def_type;
-                    fn_def_val->parent.id = ConstParentIdUnion;
-                    fn_def_val->parent.data.p_union.union_val = &inner_fields[2];
+                    ConstExprValue *fn_decl_val = create_const_vals(1);
+                    fn_decl_val->special = ConstValSpecialStatic;
+                    fn_decl_val->type = type_info_fn_decl_type;
+                    fn_decl_val->parent.id = ConstParentIdUnion;
+                    fn_decl_val->parent.data.p_union.union_val = &inner_fields[2];
 
-                    ConstExprValue *fn_def_fields = create_const_vals(9);
-                    fn_def_val->data.x_struct.fields = fn_def_fields;
+                    ConstExprValue *fn_decl_fields = create_const_vals(9);
+                    fn_decl_val->data.x_struct.fields = fn_decl_fields;
 
                     // fn_type: type
-                    ensure_field_index(fn_def_val->type, "fn_type", 0);
-                    fn_def_fields[0].special = ConstValSpecialStatic;
-                    fn_def_fields[0].type = ira->codegen->builtin_types.entry_type;
-                    fn_def_fields[0].data.x_type = fn_entry->type_entry;
-                    // inline_type: Data.FnDef.Inline
-                    ensure_field_index(fn_def_val->type, "inline_type", 1);
-                    fn_def_fields[1].special = ConstValSpecialStatic;
-                    fn_def_fields[1].type = type_info_fn_def_inline_type;
-                    bigint_init_unsigned(&fn_def_fields[1].data.x_enum_tag, fn_entry->fn_inline);
+                    ensure_field_index(fn_decl_val->type, "fn_type", 0);
+                    fn_decl_fields[0].special = ConstValSpecialStatic;
+                    fn_decl_fields[0].type = ira->codegen->builtin_types.entry_type;
+                    fn_decl_fields[0].data.x_type = fn_entry->type_entry;
+                    // inline_type: Data.FnDecl.Inline
+                    ensure_field_index(fn_decl_val->type, "inline_type", 1);
+                    fn_decl_fields[1].special = ConstValSpecialStatic;
+                    fn_decl_fields[1].type = type_info_fn_decl_inline_type;
+                    bigint_init_unsigned(&fn_decl_fields[1].data.x_enum_tag, fn_entry->fn_inline);
                     // calling_convention: TypeInfo.CallingConvention
-                    ensure_field_index(fn_def_val->type, "calling_convention", 2);
-                    fn_def_fields[2].special = ConstValSpecialStatic;
-                    fn_def_fields[2].type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
-                    bigint_init_unsigned(&fn_def_fields[2].data.x_enum_tag, fn_node->cc);
+                    ensure_field_index(fn_decl_val->type, "calling_convention", 2);
+                    fn_decl_fields[2].special = ConstValSpecialStatic;
+                    fn_decl_fields[2].type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
+                    bigint_init_unsigned(&fn_decl_fields[2].data.x_enum_tag, fn_node->cc);
                     // is_var_args: bool
-                    ensure_field_index(fn_def_val->type, "is_var_args", 3);
+                    ensure_field_index(fn_decl_val->type, "is_var_args", 3);
                     bool is_varargs = fn_node->is_var_args;
-                    fn_def_fields[3].special = ConstValSpecialStatic;
-                    fn_def_fields[3].type = ira->codegen->builtin_types.entry_bool;
-                    fn_def_fields[3].data.x_bool = is_varargs;
+                    fn_decl_fields[3].special = ConstValSpecialStatic;
+                    fn_decl_fields[3].type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[3].data.x_bool = is_varargs;
                     // is_extern: bool
-                    ensure_field_index(fn_def_val->type, "is_extern", 4);
-                    fn_def_fields[4].special = ConstValSpecialStatic;
-                    fn_def_fields[4].type = ira->codegen->builtin_types.entry_bool;
-                    fn_def_fields[4].data.x_bool = fn_node->is_extern;
+                    ensure_field_index(fn_decl_val->type, "is_extern", 4);
+                    fn_decl_fields[4].special = ConstValSpecialStatic;
+                    fn_decl_fields[4].type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[4].data.x_bool = fn_node->is_extern;
                     // is_export: bool
-                    ensure_field_index(fn_def_val->type, "is_export", 5);
-                    fn_def_fields[5].special = ConstValSpecialStatic;
-                    fn_def_fields[5].type = ira->codegen->builtin_types.entry_bool;
-                    fn_def_fields[5].data.x_bool = fn_node->is_export;
+                    ensure_field_index(fn_decl_val->type, "is_export", 5);
+                    fn_decl_fields[5].special = ConstValSpecialStatic;
+                    fn_decl_fields[5].type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[5].data.x_bool = fn_node->is_export;
                     // lib_name: ?[]const u8
-                    ensure_field_index(fn_def_val->type, "lib_name", 6);
-                    fn_def_fields[6].special = ConstValSpecialStatic;
+                    ensure_field_index(fn_decl_val->type, "lib_name", 6);
+                    fn_decl_fields[6].special = ConstValSpecialStatic;
                     ZigType *u8_ptr = get_pointer_to_type_extra(
                         ira->codegen, ira->codegen->builtin_types.entry_u8,
                         true, false, PtrLenUnknown,
                         0, 0, 0, false);
-                    fn_def_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
+                    fn_decl_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0) {
-                        fn_def_fields[6].data.x_optional = create_const_vals(1);
+                        fn_decl_fields[6].data.x_optional = create_const_vals(1);
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
-                        init_const_slice(ira->codegen, fn_def_fields[6].data.x_optional, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0, buf_len(fn_node->lib_name), true);
                     } else {
-                        fn_def_fields[6].data.x_optional = nullptr;
+                        fn_decl_fields[6].data.x_optional = nullptr;
                     }
                     // return_type: type
-                    ensure_field_index(fn_def_val->type, "return_type", 7);
-                    fn_def_fields[7].special = ConstValSpecialStatic;
-                    fn_def_fields[7].type = ira->codegen->builtin_types.entry_type;
-                    fn_def_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    ensure_field_index(fn_decl_val->type, "return_type", 7);
+                    fn_decl_fields[7].special = ConstValSpecialStatic;
+                    fn_decl_fields[7].type = ira->codegen->builtin_types.entry_type;
+                    fn_decl_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
-                    ensure_field_index(fn_def_val->type, "arg_names", 8);
+                    ensure_field_index(fn_decl_val->type, "arg_names", 8);
                     size_t fn_arg_count = fn_entry->variable_list.length;
                     ConstExprValue *fn_arg_name_array = create_const_vals(1);
                     fn_arg_name_array->special = ConstValSpecialStatic;
@@ -18571,7 +18606,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
-                    init_const_slice(ira->codegen, &fn_def_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
+                    init_const_slice(ira->codegen, &fn_decl_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
@@ -18583,7 +18618,7 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                         fn_arg_name_val->parent.data.p_array.elem_index = fn_arg_index;
                     }
 
-                    inner_fields[2].data.x_union.payload = fn_def_val;
+                    inner_fields[2].data.x_union.payload = fn_decl_val;
                     break;
                 }
             case TldIdContainer:
@@ -18607,11 +18642,11 @@ static Error ir_make_type_info_defs(IrAnalyze *ira, IrInstruction *source_instr,
                 zig_unreachable();
         }
 
-        definition_val->data.x_struct.fields = inner_fields;
-        definition_index++;
+        declaration_val->data.x_struct.fields = inner_fields;
+        declaration_index++;
     }
 
-    assert(definition_index == definition_count);
+    assert(declaration_index == declaration_count);
     return ErrorNone;
 }
 
@@ -18919,9 +18954,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     enum_field_val->parent.data.p_array.array_val = enum_field_array;
                     enum_field_val->parent.data.p_array.elem_index = enum_field_index;
                 }
-                // defs: []TypeInfo.Definition
-                ensure_field_index(result->type, "defs", 3);
-                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[3],
+                // decls: []TypeInfo.Declaration
+                ensure_field_index(result->type, "decls", 3);
+                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[3],
                             type_entry->data.enumeration.decls_scope)))
                 {
                     return err;
@@ -19086,9 +19121,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     union_field_val->parent.data.p_array.array_val = union_field_array;
                     union_field_val->parent.data.p_array.elem_index = union_field_index;
                 }
-                // defs: []TypeInfo.Definition
-                ensure_field_index(result->type, "defs", 3);
-                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[3],
+                // decls: []TypeInfo.Declaration
+                ensure_field_index(result->type, "decls", 3);
+                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[3],
                                 type_entry->data.unionation.decls_scope)))
                 {
                     return err;
@@ -19167,9 +19202,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     struct_field_val->parent.data.p_array.array_val = struct_field_array;
                     struct_field_val->parent.data.p_array.elem_index = struct_field_index;
                 }
-                // defs: []TypeInfo.Definition
-                ensure_field_index(result->type, "defs", 2);
-                if ((err = ir_make_type_info_defs(ira, source_instr, &fields[2],
+                // decls: []TypeInfo.Declaration
+                ensure_field_index(result->type, "decls", 2);
+                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[2],
                                 type_entry->data.structure.decls_scope)))
                 {
                     return err;
@@ -23237,6 +23272,16 @@ static IrInstruction *ir_analyze_instruction_has_decl(IrAnalyze *ira, IrInstruct
     return ir_const_bool(ira, &instruction->base, true);
 }
 
+static IrInstruction *ir_analyze_instruction_undeclared_ident(IrAnalyze *ira, IrInstructionUndeclaredIdent *instruction) {
+    // put a variable of same name with invalid type in global scope
+    // so that future references to this same name will find a variable with an invalid type
+    populate_invalid_variable_in_scope(ira->codegen, instruction->base.scope, instruction->base.source_node,
+            instruction->name);
+    ir_add_error(ira, &instruction->base,
+            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(instruction->name)));
+    return ira->codegen->invalid_instruction;
+}
+
 static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -23533,6 +23578,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_check_runtime_scope(ira, (IrInstructionCheckRuntimeScope *)instruction);
         case IrInstructionIdHasDecl:
             return ir_analyze_instruction_has_decl(ira, (IrInstructionHasDecl *)instruction);
+        case IrInstructionIdUndeclaredIdent:
+            return ir_analyze_instruction_undeclared_ident(ira, (IrInstructionUndeclaredIdent *)instruction);
     }
     zig_unreachable();
 }
@@ -23667,6 +23714,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAssertNonNull:
         case IrInstructionIdResizeSlice:
         case IrInstructionIdGlobalAsm:
+        case IrInstructionIdUndeclaredIdent:
             return true;
 
         case IrInstructionIdPhi:

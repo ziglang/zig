@@ -28,7 +28,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm8-1 -j2 $BUILD_SOURCEVERSION
   TARBALL="$(ls $ARTIFACTSDIR)"
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
-  s3cmd put -P "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
+  s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
 
   SHASUM=$(sha256sum $ARTIFACTSDIR/$TARBALL | cut '-d ' -f1)
   BYTESIZE=$(wc -c < $ARTIFACTSDIR/$TARBALL)

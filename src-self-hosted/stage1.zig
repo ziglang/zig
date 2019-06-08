@@ -15,10 +15,15 @@ const self_hosted_main = @import("main.zig");
 const Args = arg.Args;
 const Flag = arg.Flag;
 const errmsg = @import("errmsg.zig");
+const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
 var stdout: *io.OutStream(fs.File.WriteError) = undefined;
+
+comptime {
+    _ = @import("dep_tokenizer.zig");
+}
 
 // ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
@@ -393,3 +398,60 @@ fn printErrMsgToFile(
     try stream.writeByteNTimes('~', last_token.end - first_token.start);
     try stream.write("\n");
 }
+
+export fn stage2_DepTokenizer_init(input: [*]const u8, len: usize) stage2_DepTokenizer {
+    const t = std.heap.c_allocator.create(DepTokenizer) catch @panic("failed to create .d tokenizer");
+    t.* = DepTokenizer.init(std.heap.c_allocator, input[0..len]);
+    return stage2_DepTokenizer{
+        .handle = t,
+    };
+}
+
+export fn stage2_DepTokenizer_deinit(self: *stage2_DepTokenizer) void {
+    self.handle.deinit();
+}
+
+export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextResult {
+    const otoken = self.handle.next() catch {
+        const textz = std.Buffer.init(&self.handle.arena.allocator, self.handle.error_text) catch @panic("failed to create .d tokenizer error text");
+        return stage2_DepNextResult{
+            .type_id = .error_,
+            .textz = textz.toSlice().ptr,
+        };
+    };
+    const token = otoken orelse {
+        return stage2_DepNextResult{
+            .type_id = .null_,
+            .textz = undefined,
+        };
+    };
+    const textz = std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
+    return stage2_DepNextResult{
+        .type_id = switch (token.id) {
+            .target => stage2_DepNextResult.TypeId.target,
+            .prereq => stage2_DepNextResult.TypeId.prereq,
+        },
+        .textz = textz.toSlice().ptr,
+    };
+}
+
+export const stage2_DepTokenizer = extern struct {
+    handle: *DepTokenizer,
+};
+
+export const stage2_DepNextResult = extern struct {
+    type_id: TypeId,
+
+    // when type_id == error --> error text
+    // when type_id == null --> undefined
+    // when type_id == target --> target pathname
+    // when type_id == prereq --> prereq pathname
+    textz: [*]const u8,
+
+    export const TypeId = extern enum {
+        error_,
+        null_,
+        target,
+        prereq,
+    };
+};

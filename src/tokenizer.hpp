@@ -96,7 +96,7 @@ enum TokenId {
     TokenIdKeywordUndefined,
     TokenIdKeywordUnion,
     TokenIdKeywordUnreachable,
-    TokenIdKeywordUse,
+    TokenIdKeywordUsingNamespace,
     TokenIdKeywordVar,
     TokenIdKeywordVolatile,
     TokenIdKeywordWhile,

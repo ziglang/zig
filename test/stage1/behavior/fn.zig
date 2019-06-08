@@ -205,4 +205,3 @@ test "extern struct with stdcallcc fn pointer" {
     s.ptr = S.foo;
     expect(s.ptr() == 1234);
 }
-

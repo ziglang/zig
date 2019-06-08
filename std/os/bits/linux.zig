@@ -1,10 +1,10 @@
 const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
-use @import("../bits.zig");
+usingnamespace @import("../bits.zig");
 
-pub use @import("linux/errno.zig");
-pub use switch (builtin.arch) {
+pub usingnamespace @import("linux/errno.zig");
+pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     else => struct {},
@@ -762,16 +762,16 @@ pub const epoll_data = extern union {
 
 // On x86_64 the structure is packed so that it matches the definition of its
 // 32bit counterpart
-pub const epoll_event = if (builtin.arch != .x86_64)
-    extern struct {
+pub const epoll_event = switch (builtin.arch) {
+    .x86_64 => packed struct {
         events: u32,
         data: epoll_data,
-    }
-else
-    packed struct {
+    },
+    else => extern struct {
         events: u32,
         data: epoll_data,
-    };
+    },
+};
 
 pub const _LINUX_CAPABILITY_VERSION_1 = 0x19980330;
 pub const _LINUX_CAPABILITY_U32S_1 = 1;
@@ -929,3 +929,24 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 //#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t),set)
 //#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t),set)
 //#define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
+
+pub const MINSIGSTKSZ = switch (builtin.arch) {
+    .i386, .x86_64, .arm => 2048,
+    .aarch64 => 5120,
+    else => @compileError("MINSIGSTKSZ not defined for this architecture"),
+};
+pub const SIGSTKSZ = switch (builtin.arch) {
+    .i386, .x86_64, .arm => 8192,
+    .aarch64 => 16384,
+    else => @compileError("SIGSTKSZ not defined for this architecture"),
+};
+
+pub const SS_ONSTACK = 1;
+pub const SS_DISABLE = 2;
+pub const SS_AUTODISARM = 1 << 31;
+
+pub const stack_t = extern struct {
+    ss_sp: [*]u8,
+    ss_flags: i32,
+    ss_size: isize,
+};

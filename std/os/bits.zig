@@ -3,7 +3,7 @@
 
 const builtin = @import("builtin");
 
-pub use switch (builtin.os) {
+pub usingnamespace switch (builtin.os) {
     .macosx, .ios, .tvos, .watchos => @import("bits/darwin.zig"),
     .freebsd => @import("bits/freebsd.zig"),
     .linux => @import("bits/linux.zig"),

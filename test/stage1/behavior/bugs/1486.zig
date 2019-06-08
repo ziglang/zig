@@ -8,4 +8,3 @@ test "constant pointer to global variable causes runtime load" {
     expect(&global == ptr);
     expect(ptr.* == 1234);
 }
-

@@ -93,11 +93,13 @@ pub const Vec3 = struct {
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
-    return Vec3{ .data = []f32{
-        x,
-        y,
-        z,
-    } };
+    return Vec3{
+        .data = []f32{
+            x,
+            y,
+            z,
+        },
+    };
 }
 
 test "constant expressions" {
@@ -775,4 +777,10 @@ fn oneItem(x: i32) [1]i32 {
 
 fn scalar(x: u32) u32 {
     return x;
+}
+
+test "no undeclared identifier error in unanalyzed branches" {
+    if (false) {
+        lol_this_doesnt_exist = nonsense;
+    }
 }

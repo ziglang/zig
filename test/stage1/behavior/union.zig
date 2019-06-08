@@ -374,7 +374,7 @@ const Attribute = union(enum) {
 fn setAttribute(attr: Attribute) void {}
 
 fn Setter(attr: Attribute) type {
-    return struct{
+    return struct {
         fn set() void {
             setAttribute(attr);
         }

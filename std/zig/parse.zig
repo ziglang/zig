@@ -203,7 +203,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 /// TopLevelDecl
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
-///      / KEYWORD_use Expr SEMICOLON
+///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
@@ -1026,7 +1026,7 @@ fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         else_node.* = Node.Else{
             .base = Node{ .id = .Else },
             .else_token = else_token,
-            .payload = null,
+            .payload = payload,
             .body = body,
         };
 
@@ -2809,7 +2809,7 @@ fn parseTry(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const token = eatToken(it, .Keyword_use) orelse return null;
+    const token = eatToken(it, .Keyword_usingnamespace) orelse return null;
     const node = try arena.create(Node.Use);
     node.* = Node.Use{
         .base = Node{ .id = .Use },

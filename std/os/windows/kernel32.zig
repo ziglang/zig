@@ -1,4 +1,4 @@
-use @import("bits.zig");
+usingnamespace @import("bits.zig");
 
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
@@ -49,6 +49,8 @@ pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
 pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFindFileData: *WIN32_FIND_DATAW) HANDLE;
 pub extern "kernel32" stdcallcc fn FindClose(hFindFile: HANDLE) BOOL;
 pub extern "kernel32" stdcallcc fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) BOOL;
+
+pub extern "kernel32" stdcallcc fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: LPWSTR, nSize: DWORD, Arguments: ?*va_list) DWORD;
 
 pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsW(penv: [*]u16) BOOL;
 

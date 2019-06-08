@@ -12,7 +12,7 @@ test "importing the same thing gives the same import" {
 
 test "import in non-toplevel scope" {
     const S = struct {
-        use @import("import/a_namespace.zig");
+        usingnamespace @import("import/a_namespace.zig");
     };
     expectEqual(i32(1234), S.foo());
 }

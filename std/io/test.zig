@@ -417,6 +417,7 @@ fn testIntSerializerDeserializerInfNaN(
     const nan_check_f16 = try deserializer.deserialize(f16);
     const inf_check_f16 = try deserializer.deserialize(f16);
     const nan_check_f32 = try deserializer.deserialize(f32);
+    deserializer.alignToByte();
     const inf_check_f32 = try deserializer.deserialize(f32);
     const nan_check_f64 = try deserializer.deserialize(f64);
     const inf_check_f64 = try deserializer.deserialize(f64);
