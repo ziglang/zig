@@ -2993,7 +2993,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeGroupedExpr:
         case NodeTypeBinOpExpr:
-        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeCatchExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:

@@ -430,7 +430,7 @@ enum NodeType {
     NodeTypeVariableDeclaration,
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
-    NodeTypeUnwrapErrorExpr,
+    NodeTypeCatchExpr,
     NodeTypeFloatLiteral,
     NodeTypeIntLiteral,
     NodeTypeStringLiteral,

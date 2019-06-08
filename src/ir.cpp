@@ -3383,7 +3383,7 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_cond_br(irb, scope, node, is_canceled_bool, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, is_comptime);
 }
 
-static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
+static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeReturnExpr);
 
     ZigFn *fn_entry = exec_fn_entry(irb->exec);
@@ -3508,7 +3508,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 if (lval == LValPtr)
                     return unwrapped_ptr;
                 else
-                    return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
+                    return ir_expr_wrap(irb, scope, ir_build_load_ptr(irb, scope, node, unwrapped_ptr), result_loc);
             }
     }
     zig_unreachable();
@@ -7083,7 +7083,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
 static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
         ResultLoc *result_loc)
 {
-    assert(node->type == NodeTypeUnwrapErrorExpr);
+    assert(node->type == NodeTypeCatchExpr);
 
     AstNode *op1_node = node->data.unwrap_err_expr.op1;
     AstNode *op2_node = node->data.unwrap_err_expr.op2;
@@ -7895,7 +7895,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, scope, node, lval, result_loc);
         case NodeTypeReturnExpr:
-            return ir_gen_return(irb, scope, node, lval);
+            return ir_gen_return(irb, scope, node, lval, result_loc);
         case NodeTypeFieldAccessExpr:
             {
                 IrInstruction *ptr_instruction = ir_gen_field_access(irb, scope, node);
@@ -7968,7 +7968,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval, result_loc);
         case NodeTypeSliceExpr:
             return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval, result_loc);
-        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeCatchExpr:
             return ir_gen_catch(irb, scope, node, lval, result_loc);
         case NodeTypeContainerDecl:
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval, result_loc);
