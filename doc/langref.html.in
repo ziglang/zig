@@ -3296,15 +3296,14 @@ test "for else" {
     // Similar to while loops, when you break from a for loop, the else branch is not evaluated.
     var sum: i32 = 0;
     const result = for (items) |value| {
-        if (value == null) {
-            break 9;
-        } else {
+        if (value != null) {
             sum += value.?;
         }
     } else blk: {
-        assert(sum == 7);
+        assert(sum == 12);
         break :blk sum;
     };
+    assert(result == 12);
 }
       {#code_end#}
       {#header_open|Labeled for#}
