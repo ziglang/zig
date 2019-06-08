@@ -3795,7 +3795,29 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 }
 
-static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+static ResultLocPeerParent *create_binary_result_peers(IrInstruction *cond_br_inst,
+        IrBasicBlock *else_block, IrBasicBlock *endif_block, ResultLoc *parent)
+{
+    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    peer_parent->base.id = ResultLocIdPeerParent;
+    peer_parent->base.source_instruction = cond_br_inst;
+    peer_parent->parent = parent;
+    peer_parent->peer_count = 2;
+    peer_parent->peers = allocate<ResultLocPeer>(2);
+    peer_parent->peers[0].base.id = ResultLocIdPeer;
+    peer_parent->peers[0].base.source_instruction = cond_br_inst;
+    peer_parent->peers[0].parent = peer_parent;
+    peer_parent->peers[0].next_bb = else_block;
+    peer_parent->peers[1].base.id = ResultLocIdPeer;
+    peer_parent->peers[1].base.source_instruction = cond_br_inst;
+    peer_parent->peers[1].parent = peer_parent;
+    peer_parent->peers[1].next_bb = endif_block;
+    return peer_parent;
+}
+
+static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeBinOpExpr);
 
     AstNode *op1_node = node->data.bin_op_expr.op1;
@@ -3818,10 +3840,12 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
     IrBasicBlock *ok_block = ir_create_basic_block(irb, parent_scope, "OptionalNonNull");
     IrBasicBlock *null_block = ir_create_basic_block(irb, parent_scope, "OptionalNull");
     IrBasicBlock *end_block = ir_create_basic_block(irb, parent_scope, "OptionalEnd");
-    ir_build_cond_br(irb, parent_scope, node, is_non_null, ok_block, null_block, is_comptime);
+    IrInstruction *cond_br_inst = ir_build_cond_br(irb, parent_scope, node, is_non_null, ok_block, null_block, is_comptime);
+
+    ResultLocPeerParent *peer_parent = create_binary_result_peers(cond_br_inst, ok_block, end_block, result_loc);
 
     ir_set_cursor_at_end_and_append_block(irb, null_block);
-    IrInstruction *null_result = ir_gen_node(irb, op2_node, parent_scope);
+    IrInstruction *null_result = ir_gen_node_extra(irb, op2_node, parent_scope, lval, &peer_parent->peers[0].base);
     if (null_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
     IrBasicBlock *after_null_block = irb->current_basic_block;
@@ -3831,6 +3855,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
     IrInstruction *unwrapped_ptr = ir_build_optional_unwrap_ptr(irb, parent_scope, node, maybe_ptr, false);
     IrInstruction *unwrapped_payload = ir_build_load_ptr(irb, parent_scope, node, unwrapped_ptr);
+    ir_build_end_expr(irb, parent_scope, node, unwrapped_payload, &peer_parent->peers[1].base);
     IrBasicBlock *after_ok_block = irb->current_basic_block;
     ir_build_br(irb, parent_scope, node, end_block, is_comptime);
 
@@ -3841,7 +3866,8 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
     IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
-    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_error_union(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -3861,7 +3887,7 @@ static IrInstruction *ir_gen_error_union(IrBuilder *irb, Scope *parent_scope, As
     return ir_build_error_union(irb, parent_scope, node, err_set, payload);
 }
 
-static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeBinOpExpr);
 
     BinOpType bin_op_type = node->data.bin_op_expr.bin_op;
@@ -3869,87 +3895,87 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeInvalid:
             zig_unreachable();
         case BinOpTypeAssign:
-            return ir_gen_assign(irb, scope, node);
+            return ir_lval_wrap(irb, scope, ir_gen_assign(irb, scope, node), lval, result_loc);
         case BinOpTypeAssignTimes:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpMult);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeAssignTimesWrap:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpMultWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMultWrap), lval, result_loc);
         case BinOpTypeAssignDiv:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpDivUnspecified);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeAssignMod:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpRemUnspecified);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpRemUnspecified), lval, result_loc);
         case BinOpTypeAssignPlus:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpAdd);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAssignPlusWrap:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpAddWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpAddWrap), lval, result_loc);
         case BinOpTypeAssignMinus:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpSub);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeAssignMinusWrap:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap), lval, result_loc);
         case BinOpTypeAssignBitShiftLeft:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
         case BinOpTypeAssignBitShiftRight:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAssignBitAnd:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd), lval, result_loc);
         case BinOpTypeAssignBitXor:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBinXor);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinXor), lval, result_loc);
         case BinOpTypeAssignBitOr:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBinOr);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpBinOr), lval, result_loc);
         case BinOpTypeAssignMergeErrorSets:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpMergeErrorSets);
+            return ir_lval_wrap(irb, scope, ir_gen_assign_op(irb, scope, node, IrBinOpMergeErrorSets), lval, result_loc);
         case BinOpTypeBoolOr:
-            return ir_gen_bool_or(irb, scope, node);
+            return ir_lval_wrap(irb, scope, ir_gen_bool_or(irb, scope, node), lval, result_loc);
         case BinOpTypeBoolAnd:
-            return ir_gen_bool_and(irb, scope, node);
+            return ir_lval_wrap(irb, scope, ir_gen_bool_and(irb, scope, node), lval, result_loc);
         case BinOpTypeCmpEq:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpEq);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpEq), lval, result_loc);
         case BinOpTypeCmpNotEq:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpNotEq);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpNotEq), lval, result_loc);
         case BinOpTypeCmpLessThan:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessThan);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessThan), lval, result_loc);
         case BinOpTypeCmpGreaterThan:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterThan);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterThan), lval, result_loc);
         case BinOpTypeCmpLessOrEq:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessOrEq);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpLessOrEq), lval, result_loc);
         case BinOpTypeCmpGreaterOrEq:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterOrEq);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpGreaterOrEq), lval, result_loc);
         case BinOpTypeBinOr:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBinOr);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinOr), lval, result_loc);
         case BinOpTypeBinXor:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBinXor);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinXor), lval, result_loc);
         case BinOpTypeBinAnd:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd), lval, result_loc);
         case BinOpTypeBitShiftLeft:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy), lval, result_loc);
         case BinOpTypeBitShiftRight:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy), lval, result_loc);
         case BinOpTypeAdd:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd), lval, result_loc);
         case BinOpTypeAddWrap:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpAddWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpAddWrap), lval, result_loc);
         case BinOpTypeSub:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpSub);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpSub), lval, result_loc);
         case BinOpTypeSubWrap:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpSubWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpSubWrap), lval, result_loc);
         case BinOpTypeMult:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpMult);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMult), lval, result_loc);
         case BinOpTypeMultWrap:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpMultWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMultWrap), lval, result_loc);
         case BinOpTypeDiv:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpDivUnspecified);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpDivUnspecified), lval, result_loc);
         case BinOpTypeMod:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpRemUnspecified);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpRemUnspecified), lval, result_loc);
         case BinOpTypeArrayCat:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat), lval, result_loc);
         case BinOpTypeArrayMult:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayMult);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayMult), lval, result_loc);
         case BinOpTypeMergeErrorSets:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpMergeErrorSets);
+            return ir_lval_wrap(irb, scope, ir_gen_bin_op_id(irb, scope, node, IrBinOpMergeErrorSets), lval, result_loc);
         case BinOpTypeUnwrapOptional:
-            return ir_gen_orelse(irb, scope, node);
+            return ir_gen_orelse(irb, scope, node, lval, result_loc);
         case BinOpTypeErrorUnion:
-            return ir_gen_error_union(irb, scope, node);
+            return ir_lval_wrap(irb, scope, ir_gen_error_union(irb, scope, node), lval, result_loc);
     }
     zig_unreachable();
 }
@@ -5288,26 +5314,6 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     IrInstruction *fn_call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto,
             is_async, async_allocator, nullptr, result_loc);
     return ir_lval_wrap(irb, scope, fn_call, lval, result_loc);
-}
-
-static ResultLocPeerParent *create_binary_result_peers(IrInstruction *cond_br_inst,
-        IrBasicBlock *else_block, IrBasicBlock *endif_block, ResultLoc *parent)
-{
-    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
-    peer_parent->base.id = ResultLocIdPeerParent;
-    peer_parent->base.source_instruction = cond_br_inst;
-    peer_parent->parent = parent;
-    peer_parent->peer_count = 2;
-    peer_parent->peers = allocate<ResultLocPeer>(2);
-    peer_parent->peers[0].base.id = ResultLocIdPeer;
-    peer_parent->peers[0].base.source_instruction = cond_br_inst;
-    peer_parent->peers[0].parent = peer_parent;
-    peer_parent->peers[0].next_bb = else_block;
-    peer_parent->peers[1].base.id = ResultLocIdPeer;
-    peer_parent->peers[1].base.source_instruction = cond_br_inst;
-    peer_parent->peers[1].parent = peer_parent;
-    peer_parent->peers[1].next_bb = endif_block;
-    return peer_parent;
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -7863,7 +7869,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeGroupedExpr:
             return ir_gen_node_raw(irb, node->data.grouped_expr, scope, lval, result_loc);
         case NodeTypeBinOpExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_bin_op(irb, scope, node), lval, result_loc);
+            return ir_gen_bin_op(irb, scope, node, lval, result_loc);
         case NodeTypeIntLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_int_lit(irb, scope, node), lval, result_loc);
         case NodeTypeFloatLiteral:
