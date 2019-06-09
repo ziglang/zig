@@ -14504,28 +14504,6 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, IrInstruction *suspe
             return nullptr;
         case ResultLocIdInstruction:
             return result_loc->source_instruction->child->value.type;
-        case ResultLocIdField: {
-            if (result_loc->resolved_loc != nullptr) {
-                ZigType *ptr_type = result_loc->resolved_loc->value.type;
-                assert(ptr_type->id == ZigTypeIdPointer);
-                return ptr_type->data.pointer.child_type;
-            }
-            ResultLocField *result_loc_field = reinterpret_cast<ResultLocField *>(result_loc);
-            ZigType *container_type = ir_resolve_type(ira, result_loc_field->container_type->child);
-            if (type_is_invalid(container_type))
-                return ira->codegen->builtin_types.entry_invalid;
-            if (container_type->id == ZigTypeIdStruct) {
-                TypeStructField *field = find_struct_type_field(container_type, result_loc_field->name);
-                if (field == nullptr) {
-                    return ira->codegen->builtin_types.entry_invalid;
-                }
-                return field->type_entry;
-            } else if (container_type->id == ZigTypeIdUnion) {
-                zig_panic("TODO");
-            } else {
-                zig_unreachable();
-            }
-        }
         case ResultLocIdReturn:
             return ira->explicit_return_type;
         case ResultLocIdPeer:
@@ -14604,26 +14582,6 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         case ResultLocIdInstruction: {
             result_loc->written = true;
             result_loc->resolved_loc = result_loc->source_instruction->child;
-            return result_loc->resolved_loc;
-        }
-        case ResultLocIdField: {
-            ResultLocField *result_loc_field = reinterpret_cast<ResultLocField *>(result_loc);
-
-            ZigType *container_type = ir_resolve_type(ira, result_loc_field->container_type->child);
-            if (type_is_invalid(container_type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr,
-                    result_loc_field->parent, container_type, nullptr);
-            if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
-                parent_result_loc->value.type->id == ZigTypeIdUnreachable)
-            {
-                return parent_result_loc;
-            }
-
-            result_loc->written = true;
-            result_loc->resolved_loc = ir_analyze_container_field_ptr(ira, result_loc_field->name,
-                    suspend_source_instr, parent_result_loc, container_type);
             return result_loc->resolved_loc;
         }
         case ResultLocIdReturn: {

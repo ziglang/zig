@@ -3588,7 +3588,6 @@ enum ResultLocId {
     ResultLocIdInvalid,
     ResultLocIdNone,
     ResultLocIdVar,
-    ResultLocIdField,
     ResultLocIdReturn,
     ResultLocIdPeer,
     ResultLocIdPeerParent,
@@ -3613,14 +3612,6 @@ struct ResultLocVar {
     ResultLoc base;
 
     ZigVar *var;
-};
-
-struct ResultLocField {
-    ResultLoc base;
-
-    ResultLoc *parent;
-    Buf *name;
-    IrInstruction *container_type;
 };
 
 struct ResultLocReturn {

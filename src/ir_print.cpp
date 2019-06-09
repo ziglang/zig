@@ -213,12 +213,6 @@ static void ir_print_result_loc_instruction(IrPrint *irp, ResultLocInstruction *
     fprintf(irp->f, ")");
 }
 
-static void ir_print_result_loc_field(IrPrint *irp, ResultLocField *result_loc_field) {
-    fprintf(irp->f, "field(name=%s,type=", buf_ptr(result_loc_field->name));
-    ir_print_other_instruction(irp, result_loc_field->container_type);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_result_loc_peer(IrPrint *irp, ResultLocPeer *result_loc_peer) {
     fprintf(irp->f, "peer(next=");
     ir_print_other_block(irp, result_loc_peer->next_bb);
@@ -239,8 +233,6 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return ir_print_result_loc_var(irp, (ResultLocVar *)result_loc);
         case ResultLocIdInstruction:
             return ir_print_result_loc_instruction(irp, (ResultLocInstruction *)result_loc);
-        case ResultLocIdField:
-            return ir_print_result_loc_field(irp, (ResultLocField *)result_loc);
         case ResultLocIdPeer:
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdPeerParent:
