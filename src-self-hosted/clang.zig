@@ -723,6 +723,7 @@ pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: str
 pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) ?*const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(self: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getCanonicalType(self: struct_ZigClangQualType) struct_ZigClangQualType;
+pub extern fn ZigClangQualType_getTypeClass(self: struct_ZigClangQualType) ZigClangTypeClass;
 pub extern fn ZigClangQualType_getTypePtr(self: struct_ZigClangQualType) *const struct_ZigClangType;
 pub extern fn ZigClangQualType_addConst(self: [*c]struct_ZigClangQualType) void;
 pub extern fn ZigClangQualType_eq(self: struct_ZigClangQualType, arg1: struct_ZigClangQualType) bool;
@@ -730,6 +731,7 @@ pub extern fn ZigClangQualType_isConstQualified(self: struct_ZigClangQualType) b
 pub extern fn ZigClangQualType_isVolatileQualified(self: struct_ZigClangQualType) bool;
 pub extern fn ZigClangQualType_isRestrictQualified(self: struct_ZigClangQualType) bool;
 pub extern fn ZigClangType_getTypeClass(self: ?*const struct_ZigClangType) ZigClangTypeClass;
+pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) struct_ZigClangQualType;
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*]const u8;
 pub extern fn ZigClangStmt_getBeginLoc(self: *const struct_ZigClangStmt) struct_ZigClangSourceLocation;
@@ -894,3 +896,35 @@ pub const ZigClangCompoundStmt_const_body_iterator = [*c]const *struct_ZigClangS
 
 pub extern fn ZigClangCompoundStmt_body_begin(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 pub extern fn ZigClangCompoundStmt_body_end(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
+
+pub const ZigClangDeclStmt_const_decl_iterator = [*c]const *struct_ZigClangDecl;
+
+pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
+pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
+
+pub extern fn ZigClangVarDecl_getType(self: ?*const struct_ZigClangVarDecl) struct_ZigClangQualType;
+pub extern fn ZigClangVarDecl_getInit(*const ZigClangVarDecl) ?*const ZigClangExpr;
+pub extern fn ZigClangVarDecl_getTLSKind(self: ?*const struct_ZigClangVarDecl) ZigClangVarDecl_TLSKind;
+pub const ZigClangVarDecl_TLSKind = extern enum {
+    None,
+    Static,
+    Dynamic,
+};
+
+pub extern fn ZigClangImplicitCastExpr_getBeginLoc(*const ZigClangImplicitCastExpr) ZigClangSourceLocation;
+pub extern fn ZigClangImplicitCastExpr_getCastKind(*const ZigClangImplicitCastExpr) ZigClangCK;
+pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExpr) *const ZigClangExpr;
+
+pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
+
+pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const ZigClangValueDecl;
+
+pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
+
+pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
+
+pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;
+
+pub extern fn ZigClangCStyleCastExpr_getBeginLoc(*const ZigClangCStyleCastExpr) ZigClangSourceLocation;
+pub extern fn ZigClangCStyleCastExpr_getSubExpr(*const ZigClangCStyleCastExpr) *const ZigClangExpr;
+pub extern fn ZigClangCStyleCastExpr_getType(*const ZigClangCStyleCastExpr) ZigClangQualType;
