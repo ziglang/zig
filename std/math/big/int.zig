@@ -415,13 +415,13 @@ pub const Int = struct {
             i += 1;
         }
 
-        const ap_base = Int.initFixed(([]Limb{base})[0..]);
+        const ap_base = Int.initFixed(([_]Limb{base})[0..]);
         try self.set(0);
 
         for (value[i..]) |ch| {
             const d = try charToDigit(ch, base);
 
-            const ap_d = Int.initFixed(([]Limb{d})[0..]);
+            const ap_d = Int.initFixed(([_]Limb{d})[0..]);
 
             try self.mul(self.*, ap_base);
             try self.add(self.*, ap_d);
@@ -828,7 +828,7 @@ pub const Int = struct {
 
         // Trunc -> Floor.
         if (!q.isPositive()) {
-            const one = Int.initFixed(([]Limb{1})[0..]);
+            const one = Int.initFixed(([_]Limb{1})[0..]);
             try q.sub(q.*, one);
             try r.add(q.*, one);
         }

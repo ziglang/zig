@@ -293,7 +293,7 @@ pub fn formatIntValue(
             'c' => {
                 if (@typeOf(int_value).bit_count <= 8) {
                     if (fmt.len > 1)
-                        @compileError("Unknown format character: " ++ []u8{fmt[1]});
+                        @compileError("Unknown format character: " ++ [_]u8{fmt[1]});
                     return formatAsciiChar(u8(int_value), context, Errors, output);
                 }
             },
@@ -317,7 +317,7 @@ pub fn formatIntValue(
                 uppercase = true;
                 width = 0;
             },
-            else => @compileError("Unknown format character: " ++ []u8{fmt[0]}),
+            else => @compileError("Unknown format character: " ++ [_]u8{fmt[0]}),
         }
         if (fmt.len > 1) width = comptime (parseUnsigned(usize, fmt[1..], 10) catch unreachable);
     }
@@ -341,7 +341,7 @@ fn formatFloatValue(
     switch (float_fmt) {
         'e' => try formatFloatScientific(value, width, context, Errors, output),
         '.' => try formatFloatDecimal(value, width, context, Errors, output),
-        else => @compileError("Unknown format character: " ++ []u8{float_fmt}),
+        else => @compileError("Unknown format character: " ++ [_]u8{float_fmt}),
     }
 }
 
@@ -362,7 +362,7 @@ pub fn formatText(
                 try formatInt(c, 16, fmt[0] == 'X', 2, context, Errors, output);
             }
             return;
-        } else @compileError("Unknown format character: " ++ []u8{fmt[0]});
+        } else @compileError("Unknown format character: " ++ [_]u8{fmt[0]});
     }
     return output(context, bytes);
 }
@@ -668,8 +668,8 @@ pub fn formatBytes(
     }
 
     const buf = switch (radix) {
-        1000 => []u8{ suffix, 'B' },
-        1024 => []u8{ suffix, 'i', 'B' },
+        1000 => [_]u8{ suffix, 'B' },
+        1024 => [_]u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
     return output(context, buf);

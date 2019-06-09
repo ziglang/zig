@@ -262,8 +262,8 @@ pub fn secureZero(comptime T: type, s: []T) void {
 }
 
 test "mem.secureZero" {
-    var a = []u8{0xfe} ** 8;
-    var b = []u8{0xfe} ** 8;
+    var a = [_]u8{0xfe} ** 8;
+    var b = [_]u8{0xfe} ** 8;
 
     set(u8, a[0..], 0);
     secureZero(u8, b[0..]);
@@ -598,23 +598,23 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
-    testing.expect(readIntSliceBig(u0, []u8{}) == 0x0);
-    testing.expect(readIntSliceLittle(u0, []u8{}) == 0x0);
+    testing.expect(readIntSliceBig(u0, [_]u8{}) == 0x0);
+    testing.expect(readIntSliceLittle(u0, [_]u8{}) == 0x0);
 
-    testing.expect(readIntSliceBig(u8, []u8{0x32}) == 0x32);
-    testing.expect(readIntSliceLittle(u8, []u8{0x12}) == 0x12);
+    testing.expect(readIntSliceBig(u8, [_]u8{0x32}) == 0x32);
+    testing.expect(readIntSliceLittle(u8, [_]u8{0x12}) == 0x12);
 
-    testing.expect(readIntSliceBig(u16, []u8{ 0x12, 0x34 }) == 0x1234);
-    testing.expect(readIntSliceLittle(u16, []u8{ 0x12, 0x34 }) == 0x3412);
+    testing.expect(readIntSliceBig(u16, [_]u8{ 0x12, 0x34 }) == 0x1234);
+    testing.expect(readIntSliceLittle(u16, [_]u8{ 0x12, 0x34 }) == 0x3412);
 
-    testing.expect(readIntSliceBig(u72, []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
-    testing.expect(readIntSliceLittle(u72, []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
+    testing.expect(readIntSliceBig(u72, [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }) == 0x123456789abcdef024);
+    testing.expect(readIntSliceLittle(u72, [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }) == 0xfedcba9876543210ec);
 
-    testing.expect(readIntSliceBig(i8, []u8{0xff}) == -1);
-    testing.expect(readIntSliceLittle(i8, []u8{0xfe}) == -2);
+    testing.expect(readIntSliceBig(i8, [_]u8{0xff}) == -1);
+    testing.expect(readIntSliceLittle(i8, [_]u8{0xfe}) == -2);
 
-    testing.expect(readIntSliceBig(i16, []u8{ 0xff, 0xfd }) == -3);
-    testing.expect(readIntSliceLittle(i16, []u8{ 0xfc, 0xff }) == -4);
+    testing.expect(readIntSliceBig(i16, [_]u8{ 0xff, 0xfd }) == -3);
+    testing.expect(readIntSliceLittle(i16, [_]u8{ 0xfc, 0xff }) == -4);
 }
 
 /// Writes an integer to memory, storing it in twos-complement.
@@ -723,34 +723,34 @@ test "writeIntBig and writeIntLittle" {
     var buf9: [9]u8 = undefined;
 
     writeIntBig(u0, &buf0, 0x0);
-    testing.expect(eql_slice_u8(buf0[0..], []u8{}));
+    testing.expect(eql_slice_u8(buf0[0..], [_]u8{}));
     writeIntLittle(u0, &buf0, 0x0);
-    testing.expect(eql_slice_u8(buf0[0..], []u8{}));
+    testing.expect(eql_slice_u8(buf0[0..], [_]u8{}));
 
     writeIntBig(u8, &buf1, 0x12);
-    testing.expect(eql_slice_u8(buf1[0..], []u8{0x12}));
+    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0x12}));
     writeIntLittle(u8, &buf1, 0x34);
-    testing.expect(eql_slice_u8(buf1[0..], []u8{0x34}));
+    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0x34}));
 
     writeIntBig(u16, &buf2, 0x1234);
-    testing.expect(eql_slice_u8(buf2[0..], []u8{ 0x12, 0x34 }));
+    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0x12, 0x34 }));
     writeIntLittle(u16, &buf2, 0x5678);
-    testing.expect(eql_slice_u8(buf2[0..], []u8{ 0x78, 0x56 }));
+    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0x78, 0x56 }));
 
     writeIntBig(u72, &buf9, 0x123456789abcdef024);
-    testing.expect(eql_slice_u8(buf9[0..], []u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
+    testing.expect(eql_slice_u8(buf9[0..], [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
     writeIntLittle(u72, &buf9, 0xfedcba9876543210ec);
-    testing.expect(eql_slice_u8(buf9[0..], []u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
+    testing.expect(eql_slice_u8(buf9[0..], [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
     writeIntBig(i8, &buf1, -1);
-    testing.expect(eql_slice_u8(buf1[0..], []u8{0xff}));
+    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0xff}));
     writeIntLittle(i8, &buf1, -2);
-    testing.expect(eql_slice_u8(buf1[0..], []u8{0xfe}));
+    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0xfe}));
 
     writeIntBig(i16, &buf2, -3);
-    testing.expect(eql_slice_u8(buf2[0..], []u8{ 0xff, 0xfd }));
+    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0xff, 0xfd }));
     writeIntLittle(i16, &buf2, -4);
-    testing.expect(eql_slice_u8(buf2[0..], []u8{ 0xfc, 0xff }));
+    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0xfc, 0xff }));
 }
 
 pub fn hash_slice_u8(k: []const u8) u32 {
@@ -991,9 +991,9 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 test "mem.join" {
     var buf: [1024]u8 = undefined;
     const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "b", "c" }), "a,b,c"));
-    testing.expect(eql(u8, try join(a, ",", [][]const u8{"a"}), "a"));
-    testing.expect(eql(u8, try join(a, ",", [][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
+    testing.expect(eql(u8, try join(a, ",", [_][]const u8{ "a", "b", "c" }), "a,b,c"));
+    testing.expect(eql(u8, try join(a, ",", [_][]const u8{"a"}), "a"));
+    testing.expect(eql(u8, try join(a, ",", [_][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
 }
 
 test "testStringEquality" {
@@ -1008,7 +1008,7 @@ test "testReadInt" {
 }
 fn testReadIntImpl() void {
     {
-        const bytes = []u8{
+        const bytes = [_]u8{
             0x12,
             0x34,
             0x56,
@@ -1022,7 +1022,7 @@ fn testReadIntImpl() void {
         testing.expect(readIntLittle(i32, &bytes) == 0x78563412);
     }
     {
-        const buf = []u8{
+        const buf = [_]u8{
             0x00,
             0x00,
             0x12,
@@ -1032,7 +1032,7 @@ fn testReadIntImpl() void {
         testing.expect(answer == 0x00001234);
     }
     {
-        const buf = []u8{
+        const buf = [_]u8{
             0x12,
             0x34,
             0x00,
@@ -1042,7 +1042,7 @@ fn testReadIntImpl() void {
         testing.expect(answer == 0x00003412);
     }
     {
-        const bytes = []u8{
+        const bytes = [_]u8{
             0xff,
             0xfe,
         };
@@ -1061,19 +1061,19 @@ fn testWriteIntImpl() void {
     var bytes: [8]u8 = undefined;
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u0, bytes[0..], 0, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
     }));
 
     writeIntSlice(u64, bytes[0..], 0x12345678CAFEBABE, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x12,
         0x34,
         0x56,
@@ -1085,7 +1085,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u64, bytes[0..], 0xBEBAFECA78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x12,
         0x34,
         0x56,
@@ -1097,7 +1097,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x12345678, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x00,
         0x00,
         0x00,
@@ -1109,7 +1109,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u32, bytes[0..], 0x78563412, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x12,
         0x34,
         0x56,
@@ -1121,7 +1121,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Big);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x00,
         0x00,
         0x00,
@@ -1133,7 +1133,7 @@ fn testWriteIntImpl() void {
     }));
 
     writeIntSlice(u16, bytes[0..], 0x1234, builtin.Endian.Little);
-    testing.expect(eql(u8, bytes, []u8{
+    testing.expect(eql(u8, bytes, [_]u8{
         0x34,
         0x12,
         0x00,
@@ -1185,7 +1185,7 @@ pub fn reverse(comptime T: type, items: []T) void {
 }
 
 test "reverse" {
-    var arr = []i32{
+    var arr = [_]i32{
         5,
         3,
         1,
@@ -1194,7 +1194,7 @@ test "reverse" {
     };
     reverse(i32, arr[0..]);
 
-    testing.expect(eql(i32, arr, []i32{
+    testing.expect(eql(i32, arr, [_]i32{
         4,
         2,
         1,
@@ -1212,7 +1212,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
 }
 
 test "rotate" {
-    var arr = []i32{
+    var arr = [_]i32{
         5,
         3,
         1,
@@ -1221,7 +1221,7 @@ test "rotate" {
     };
     rotate(i32, arr[0..], 2);
 
-    testing.expect(eql(i32, arr, []i32{
+    testing.expect(eql(i32, arr, [_]i32{
         1,
         2,
         4,

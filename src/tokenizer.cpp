@@ -224,6 +224,7 @@ enum TokenizeState {
     TokenizeStateLBracket,
     TokenizeStateLBracketStar,
     TokenizeStateLBracketStarC,
+    TokenizeStateLBracketUnderscore,
 };
 
 
@@ -774,9 +775,27 @@ void tokenize(Buf *buf, Tokenization *out) {
                     case '*':
                         t.state = TokenizeStateLBracketStar;
                         break;
+                    case '_':
+                        t.state = TokenizeStateLBracketUnderscore;
+                        break;
                     default:
                         // reinterpret as just an lbracket
                         t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateLBracketUnderscore:
+                switch (c) {
+                    case ']':
+                        set_token_id(&t, t.cur_tok, TokenIdBracketUnderscoreBracket);
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        // reinterpret as just an lbracket
+                        t.pos -= 2;
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         continue;
@@ -1443,6 +1462,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateLineStringContinueC:
         case TokenizeStateLBracketStar:
         case TokenizeStateLBracketStarC:
+        case TokenizeStateLBracketUnderscore:
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
@@ -1581,6 +1601,7 @@ const char * token_name(TokenId id) {
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
         case TokenIdBarBarEq: return "||=";
+        case TokenIdBracketUnderscoreBracket: return "[_]";
         case TokenIdCount:
             zig_unreachable();
     }

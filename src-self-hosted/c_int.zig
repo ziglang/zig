@@ -15,7 +15,7 @@ pub const CInt = struct {
         ULongLong,
     };
 
-    pub const list = []CInt{
+    pub const list = [_]CInt{
         CInt{
             .id = Id.Short,
             .zig_name = "c_short",

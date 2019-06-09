@@ -40,7 +40,7 @@ async fn testAsyncSeq() void {
     suspend;
     seq('d');
 }
-var points = []u8{0} ** "abcdefg".len;
+var points = [_]u8{0} ** "abcdefg".len;
 var index: usize = 0;
 
 fn seq(c: u8) void {
@@ -106,7 +106,7 @@ async fn await_another() i32 {
     return 1234;
 }
 
-var await_points = []u8{0} ** "abcdefghi".len;
+var await_points = [_]u8{0} ** "abcdefghi".len;
 var await_seq_index: usize = 0;
 
 fn await_seq(c: u8) void {
@@ -138,7 +138,7 @@ async fn early_another() i32 {
     return 1234;
 }
 
-var early_points = []u8{0} ** "abcdef".len;
+var early_points = [_]u8{0} ** "abcdef".len;
 var early_seq_index: usize = 0;
 
 fn early_seq(c: u8) void {

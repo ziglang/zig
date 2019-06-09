@@ -35,7 +35,7 @@ pub const LibCInstallation = struct {
     ) !void {
         self.initEmpty();
 
-        const keys = []const []const u8{
+        const keys = [_][]const u8{
             "include_dir",
             "lib_dir",
             "static_lib_dir",
@@ -183,7 +183,7 @@ pub const LibCInstallation = struct {
 
     async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
         const cc_exe = std.os.getenv("CC") orelse "cc";
-        const argv = []const []const u8{
+        const argv = [_][]const u8{
             cc_exe,
             "-E",
             "-Wp,-v",
@@ -231,7 +231,7 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try fs.path.join(loop.allocator, [][]const u8{ search_path, "stdlib.h" });
+            const stdlib_path = try fs.path.join(loop.allocator, [_][]const u8{ search_path, "stdlib.h" });
             defer loop.allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -257,7 +257,7 @@ pub const LibCInstallation = struct {
 
             const stdlib_path = try fs.path.join(
                 loop.allocator,
-                [][]const u8{ result_buf.toSliceConst(), "stdlib.h" },
+                [_][]const u8{ result_buf.toSliceConst(), "stdlib.h" },
             );
             defer loop.allocator.free(stdlib_path);
 
@@ -289,7 +289,7 @@ pub const LibCInstallation = struct {
             }
             const ucrt_lib_path = try fs.path.join(
                 loop.allocator,
-                [][]const u8{ result_buf.toSliceConst(), "ucrt.lib" },
+                [_][]const u8{ result_buf.toSliceConst(), "ucrt.lib" },
             );
             defer loop.allocator.free(ucrt_lib_path);
             if (try fileExists(ucrt_lib_path)) {
@@ -309,7 +309,7 @@ pub const LibCInstallation = struct {
     }
 
     async fn findNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        var dyn_tests = []DynTest{
+        var dyn_tests = [_]DynTest{
             DynTest{
                 .name = "ld-linux-x86-64.so.2",
                 .result = null,
@@ -367,7 +367,7 @@ pub const LibCInstallation = struct {
             }
             const kernel32_path = try fs.path.join(
                 loop.allocator,
-                [][]const u8{ result_buf.toSliceConst(), "kernel32.lib" },
+                [_][]const u8{ result_buf.toSliceConst(), "kernel32.lib" },
             );
             defer loop.allocator.free(kernel32_path);
             if (try fileExists(kernel32_path)) {
@@ -395,7 +395,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     const cc_exe = std.os.getenv("CC") orelse "cc";
     const arg1 = try std.fmt.allocPrint(loop.allocator, "-print-file-name={}", o_file);
     defer loop.allocator.free(arg1);
-    const argv = []const []const u8{ cc_exe, arg1 };
+    const argv = [_][]const u8{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
     await (async loop.yield() catch unreachable);

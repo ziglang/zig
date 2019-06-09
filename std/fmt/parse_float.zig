@@ -390,7 +390,7 @@ test "fmt.parseFloat" {
     const approxEq = std.math.approxEq;
     const epsilon = 1e-7;
 
-    inline for ([]type{ f16, f32, f64, f128 }) |T| {
+    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const Z = @IntType(false, T.bit_count);
 
         testing.expectError(error.InvalidCharacter, parseFloat(T, ""));

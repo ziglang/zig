@@ -39,7 +39,7 @@ test "timer" {
     expect(err == 0);
 
     const events_one: linux.epoll_event = undefined;
-    var events = []linux.epoll_event{events_one} ** 8;
+    var events = [_]linux.epoll_event{events_one} ** 8;
 
     // TODO implicit cast from *[N]T to [*]T
     err = linux.epoll_wait(@intCast(i32, epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);

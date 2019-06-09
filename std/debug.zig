@@ -820,7 +820,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
 
-    const path = try fs.path.resolve(allocator, [][]const u8{raw_path});
+    const path = try fs.path.resolve(allocator, [_][]const u8{raw_path});
 
     try di.pdb.openFile(di.coff, path);
 
@@ -1418,7 +1418,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else
                 self.include_dirs[file_entry.dir_index];
-            const file_name = try fs.path.join(self.file_entries.allocator, [][]const u8{ dir_name, file_entry.file_name });
+            const file_name = try fs.path.join(self.file_entries.allocator, [_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,

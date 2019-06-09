@@ -391,7 +391,7 @@ pub const Value = struct {
                     const array_llvm_value = (try base_array.val.getLlvmConst(ofile)).?;
                     const ptr_bit_count = ofile.comp.target_ptr_bits;
                     const usize_llvm_type = llvm.IntTypeInContext(ofile.context, ptr_bit_count) orelse return error.OutOfMemory;
-                    const indices = []*llvm.Value{
+                    const indices = [_]*llvm.Value{
                         llvm.ConstNull(usize_llvm_type) orelse return error.OutOfMemory,
                         llvm.ConstInt(usize_llvm_type, base_array.elem_index, 0) orelse return error.OutOfMemory,
                     };

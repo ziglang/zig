@@ -77,7 +77,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .entries = []Entry{},
+                .entries = [_]Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
@@ -436,12 +436,12 @@ test "iterator hash map" {
     testing.expect((try reset_map.put(2, 22)) == null);
     testing.expect((try reset_map.put(3, 33)) == null);
 
-    var keys = []i32{
+    var keys = [_]i32{
         3,
         2,
         1,
     };
-    var values = []i32{
+    var values = [_]i32{
         33,
         22,
         11,

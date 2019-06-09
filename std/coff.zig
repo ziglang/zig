@@ -57,7 +57,7 @@ pub const Coff = struct {
 
         var pe_header_magic: [4]u8 = undefined;
         try in.readNoEof(pe_header_magic[0..]);
-        if (!mem.eql(u8, pe_header_magic, []u8{ 'P', 'E', 0, 0 }))
+        if (!mem.eql(u8, pe_header_magic, [_]u8{ 'P', 'E', 0, 0 }))
             return error.InvalidPEHeader;
 
         self.coff_header = CoffHeader{

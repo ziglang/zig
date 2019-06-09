@@ -345,7 +345,7 @@ test "quad hex float literal parsing accurate" {
                 var f: f128 = 0x1.ed8764648369535adf4be3214567fp-9;
                 expect(@bitCast(u128, f) == 0x3ff6ed8764648369535adf4be3214568);
             }
-            const exp2ft = []f64{
+            const exp2ft = [_]f64{
                 0x1.6a09e667f3bcdp-1,
                 0x1.7a11473eb0187p-1,
                 0x1.8ace5422aa0dbp-1,
@@ -371,7 +371,7 @@ test "quad hex float literal parsing accurate" {
                 -0x1.0p-149,
             };
 
-            const answers = []u64{
+            const answers = [_]u64{
                 0x3fe6a09e667f3bcd,
                 0x3fe7a11473eb0187,
                 0x3fe8ace5422aa0db,
@@ -601,11 +601,11 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
 test "vector integer addition" {
     const S = struct {
         fn doTheTest() void {
-            var a: @Vector(4, i32) = []i32{ 1, 2, 3, 4 };
-            var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
+            var a: @Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+            var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
             var result = a + b;
             var result_array: [4]i32 = result;
-            const expected = []i32{ 6, 8, 10, 12 };
+            const expected = [_]i32{ 6, 8, 10, 12 };
             expectEqualSlices(i32, &expected, &result_array);
         }
     };

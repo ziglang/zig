@@ -1223,7 +1223,7 @@ pub fn isCygwinPty(handle: fd_t) bool {
     if (!windows.is_the_target) return false;
 
     const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (size + windows.MAX_PATH);
 
     if (windows.kernel32.GetFileInformationByHandleEx(
         handle,
@@ -1237,8 +1237,8 @@ pub fn isCygwinPty(handle: fd_t) bool {
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
     const name_bytes = name_info_bytes[size .. size + usize(name_info.FileNameLength)];
     const name_wide = @bytesToSlice(u16, name_bytes);
-    return mem.indexOf(u16, name_wide, []u16{ 'm', 's', 'y', 's', '-' }) != null or
-        mem.indexOf(u16, name_wide, []u16{ '-', 'p', 't', 'y' }) != null;
+    return mem.indexOf(u16, name_wide, [_]u16{ 'm', 's', 'y', 's', '-' }) != null or
+        mem.indexOf(u16, name_wide, [_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
 pub const SocketError = error{
@@ -2335,7 +2335,7 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.
-    const prefix = []u16{ '\\', '\\', '?', '\\' };
+    const prefix = [_]u16{ '\\', '\\', '?', '\\' };
     const start_index = if (mem.startsWith(u16, wide_slice, prefix)) prefix.len else 0;
 
     // Trust that Windows gives us valid UTF-16LE.

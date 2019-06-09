@@ -76,7 +76,7 @@ test "BufferOutStream" {
 }
 
 test "SliceInStream" {
-    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7 };
+    const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
     var ss = io.SliceInStream.init(bytes);
 
     var dest: [4]u8 = undefined;
@@ -94,7 +94,7 @@ test "SliceInStream" {
 }
 
 test "PeekStream" {
-    const bytes = []const u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(bytes);
     var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 
@@ -147,8 +147,8 @@ test "SliceOutStream" {
 }
 
 test "BitInStream" {
-    const mem_be = []u8{ 0b11001101, 0b00001011 };
-    const mem_le = []u8{ 0b00011101, 0b10010101 };
+    const mem_be = [_]u8{ 0b11001101, 0b00001011 };
+    const mem_le = [_]u8{ 0b00011101, 0b10010101 };
 
     var mem_in_be = io.SliceInStream.init(mem_be[0..]);
     const InError = io.SliceInStream.Error;
@@ -219,8 +219,8 @@ test "BitInStream" {
 }
 
 test "BitOutStream" {
-    var mem_be = []u8{0} ** 2;
-    var mem_le = []u8{0} ** 2;
+    var mem_be = [_]u8{0} ** 2;
+    var mem_le = [_]u8{0} ** 2;
 
     var mem_out_be = io.SliceOutStream.init(mem_be[0..]);
     const OutError = io.SliceOutStream.Error;

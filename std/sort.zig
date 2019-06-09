@@ -132,7 +132,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
     // http://pages.ripco.net/~jgamble/nw.html
     var iterator = Iterator.init(items.len, 4);
     while (!iterator.finished()) {
-        var order = []u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
+        var order = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
         const range = iterator.nextRange();
 
         const sliced_items = items[range.start..];
@@ -322,7 +322,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) vo
             var find: usize = 0;
             var start: usize = 0;
             var pull_index: usize = 0;
-            var pull = []Pull{
+            var pull = [_]Pull{
                 Pull{
                     .from = 0,
                     .to = 0,
@@ -994,7 +994,7 @@ test "stable sort" {
     comptime testStableSort();
 }
 fn testStableSort() void {
-    var expected = []IdAndValue{
+    var expected = [_]IdAndValue{
         IdAndValue{ .id = 0, .value = 0 },
         IdAndValue{ .id = 1, .value = 0 },
         IdAndValue{ .id = 2, .value = 0 },
@@ -1005,8 +1005,8 @@ fn testStableSort() void {
         IdAndValue{ .id = 1, .value = 2 },
         IdAndValue{ .id = 2, .value = 2 },
     };
-    var cases = [][9]IdAndValue{
-        []IdAndValue{
+    var cases = [_][9]IdAndValue{
+        [_]IdAndValue{
             IdAndValue{ .id = 0, .value = 0 },
             IdAndValue{ .id = 0, .value = 1 },
             IdAndValue{ .id = 0, .value = 2 },
@@ -1017,7 +1017,7 @@ fn testStableSort() void {
             IdAndValue{ .id = 2, .value = 1 },
             IdAndValue{ .id = 2, .value = 2 },
         },
-        []IdAndValue{
+        [_]IdAndValue{
             IdAndValue{ .id = 0, .value = 2 },
             IdAndValue{ .id = 0, .value = 1 },
             IdAndValue{ .id = 0, .value = 0 },
@@ -1046,28 +1046,28 @@ fn cmpByValue(a: IdAndValue, b: IdAndValue) bool {
 }
 
 test "std.sort" {
-    const u8cases = [][]const []const u8{
-        [][]const u8{
+    const u8cases = [_][]const []const u8{
+        [_][]const u8{
             "",
             "",
         },
-        [][]const u8{
+        [_][]const u8{
             "a",
             "a",
         },
-        [][]const u8{
+        [_][]const u8{
             "az",
             "az",
         },
-        [][]const u8{
+        [_][]const u8{
             "za",
             "az",
         },
-        [][]const u8{
+        [_][]const u8{
             "asdf",
             "adfs",
         },
-        [][]const u8{
+        [_][]const u8{
             "one",
             "eno",
         },
@@ -1081,30 +1081,30 @@ test "std.sort" {
         testing.expect(mem.eql(u8, slice, case[1]));
     }
 
-    const i32cases = [][]const []const i32{
-        [][]const i32{
-            []i32{},
-            []i32{},
+    const i32cases = [_][]const []const i32{
+        [_][]const i32{
+            [_]i32{},
+            [_]i32{},
         },
-        [][]const i32{
-            []i32{1},
-            []i32{1},
+        [_][]const i32{
+            [_]i32{1},
+            [_]i32{1},
         },
-        [][]const i32{
-            []i32{ 0, 1 },
-            []i32{ 0, 1 },
+        [_][]const i32{
+            [_]i32{ 0, 1 },
+            [_]i32{ 0, 1 },
         },
-        [][]const i32{
-            []i32{ 1, 0 },
-            []i32{ 0, 1 },
+        [_][]const i32{
+            [_]i32{ 1, 0 },
+            [_]i32{ 0, 1 },
         },
-        [][]const i32{
-            []i32{ 1, -1, 0 },
-            []i32{ -1, 0, 1 },
+        [_][]const i32{
+            [_]i32{ 1, -1, 0 },
+            [_]i32{ -1, 0, 1 },
         },
-        [][]const i32{
-            []i32{ 2, 1, 3 },
-            []i32{ 1, 2, 3 },
+        [_][]const i32{
+            [_]i32{ 2, 1, 3 },
+            [_]i32{ 1, 2, 3 },
         },
     };
 
@@ -1118,30 +1118,30 @@ test "std.sort" {
 }
 
 test "std.sort descending" {
-    const rev_cases = [][]const []const i32{
-        [][]const i32{
-            []i32{},
-            []i32{},
+    const rev_cases = [_][]const []const i32{
+        [_][]const i32{
+            [_]i32{},
+            [_]i32{},
         },
-        [][]const i32{
-            []i32{1},
-            []i32{1},
+        [_][]const i32{
+            [_]i32{1},
+            [_]i32{1},
         },
-        [][]const i32{
-            []i32{ 0, 1 },
-            []i32{ 1, 0 },
+        [_][]const i32{
+            [_]i32{ 0, 1 },
+            [_]i32{ 1, 0 },
         },
-        [][]const i32{
-            []i32{ 1, 0 },
-            []i32{ 1, 0 },
+        [_][]const i32{
+            [_]i32{ 1, 0 },
+            [_]i32{ 1, 0 },
         },
-        [][]const i32{
-            []i32{ 1, -1, 0 },
-            []i32{ 1, 0, -1 },
+        [_][]const i32{
+            [_]i32{ 1, -1, 0 },
+            [_]i32{ 1, 0, -1 },
         },
-        [][]const i32{
-            []i32{ 2, 1, 3 },
-            []i32{ 3, 2, 1 },
+        [_][]const i32{
+            [_]i32{ 2, 1, 3 },
+            [_]i32{ 3, 2, 1 },
         },
     };
 
@@ -1155,10 +1155,10 @@ test "std.sort descending" {
 }
 
 test "another sort case" {
-    var arr = []i32{ 5, 3, 1, 2, 4 };
+    var arr = [_]i32{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], asc(i32));
 
-    testing.expect(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }));
+    testing.expect(mem.eql(i32, arr, [_]i32{ 1, 2, 3, 4, 5 }));
 }
 
 test "sort fuzz testing" {

@@ -14,7 +14,7 @@ pub const Base64Encoder = struct {
     /// a bunch of assertions, then simply pass the data right through.
     pub fn init(alphabet_chars: []const u8, pad_char: u8) Base64Encoder {
         assert(alphabet_chars.len == 64);
-        var char_in_alphabet = []bool{false} ** 256;
+        var char_in_alphabet = [_]bool{false} ** 256;
         for (alphabet_chars) |c| {
             assert(!char_in_alphabet[c]);
             assert(c != pad_char);
@@ -92,7 +92,7 @@ pub const Base64Decoder = struct {
 
         var result = Base64Decoder{
             .char_to_index = undefined,
-            .char_in_alphabet = []bool{false} ** 256,
+            .char_in_alphabet = [_]bool{false} ** 256,
             .pad_char = pad_char,
         };
 
@@ -160,7 +160,7 @@ pub const Base64DecoderWithIgnore = struct {
     pub fn init(alphabet_chars: []const u8, pad_char: u8, ignore_chars: []const u8) Base64DecoderWithIgnore {
         var result = Base64DecoderWithIgnore{
             .decoder = Base64Decoder.init(alphabet_chars, pad_char),
-            .char_is_ignored = []bool{false} ** 256,
+            .char_is_ignored = [_]bool{false} ** 256,
         };
 
         for (ignore_chars) |c| {

@@ -22,7 +22,7 @@ test "reinterpret bytes of an array into an extern struct" {
 }
 
 fn testReinterpretBytesAsExternStruct() void {
-    var bytes align(2) = []u8{ 1, 2, 3, 4, 5, 6 };
+    var bytes align(2) = [_]u8{ 1, 2, 3, 4, 5, 6 };
 
     const S = extern struct {
         a: u8,
@@ -37,7 +37,7 @@ fn testReinterpretBytesAsExternStruct() void {
 
 test "reinterpret struct field at comptime" {
     const numLittle = comptime Bytes.init(0x12345678);
-    expect(std.mem.eql(u8, []u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+    expect(std.mem.eql(u8, [_]u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
 }
 
 const Bytes = struct {

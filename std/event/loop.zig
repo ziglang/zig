@@ -143,7 +143,7 @@ pub const Loop = struct {
         Thread.SpawnError || os.EpollCtlError || os.KEventError ||
         windows.CreateIoCompletionPortError;
 
-    const wakeup_bytes = []u8{0x1} ** 8;
+    const wakeup_bytes = [_]u8{0x1} ** 8;
 
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {

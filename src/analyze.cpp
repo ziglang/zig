@@ -3024,6 +3024,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeContainerInitExpr:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeInferredArrayType:
         case NodeTypeErrorType:
         case NodeTypeIfErrorExpr:
         case NodeTypeIfOptional:

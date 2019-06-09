@@ -14,7 +14,7 @@ test "compile time slice of pointer to hard coded address" {
 }
 
 test "runtime safety lets us slice from len..len" {
-    var an_array = []u8{
+    var an_array = [_]u8{
         1,
         2,
         3,
@@ -27,7 +27,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 }
 
 test "implicitly cast array of size 0 to slice" {
-    var msg = []u8{};
+    var msg = [_]u8{};
     assertLenIsZero(msg);
 }
 
@@ -51,6 +51,6 @@ fn sliceSum(comptime q: []const u8) i32 {
 }
 
 test "comptime slices are disambiguated" {
-    expect(sliceSum([]u8{ 1, 2 }) == 3);
-    expect(sliceSum([]u8{ 3, 4 }) == 7);
+    expect(sliceSum([_]u8{ 1, 2 }) == 3);
+    expect(sliceSum([_]u8{ 3, 4 }) == 7);
 }

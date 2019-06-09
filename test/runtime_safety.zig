@@ -112,7 +112,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    const a = []i32{1, 2, 3, 4};
+        \\    const a = [_]i32{1, 2, 3, 4};
         \\    baz(bar(a));
         \\}
         \\fn bar(a: []const i32) i32 {
@@ -139,8 +139,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: @Vector(4, i32) = []i32{ 1, 2, 2147483643, 4 };
-        \\    var b: @Vector(4, i32) = []i32{ 5, 6, 7, 8 };
+        \\    var a: @Vector(4, i32) = [_]i32{ 1, 2, 2147483643, 4 };
+        \\    var b: @Vector(4, i32) = [_]i32{ 5, 6, 7, 8 };
         \\    const x = add(a, b);
         \\}
         \\fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
@@ -153,8 +153,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: @Vector(4, u32) = []u32{ 1, 2, 8, 4 };
-        \\    var b: @Vector(4, u32) = []u32{ 5, 6, 7, 8 };
+        \\    var a: @Vector(4, u32) = [_]u32{ 1, 2, 8, 4 };
+        \\    var b: @Vector(4, u32) = [_]u32{ 5, 6, 7, 8 };
         \\    const x = sub(b, a);
         \\}
         \\fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
@@ -167,8 +167,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: @Vector(4, u8) = []u8{ 1, 2, 200, 4 };
-        \\    var b: @Vector(4, u8) = []u8{ 5, 6, 2, 8 };
+        \\    var a: @Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
+        \\    var b: @Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
         \\    const x = mul(b, a);
         \\}
         \\fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
@@ -181,7 +181,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var a: @Vector(4, i16) = []i16{ 1, -32768, 200, 4 };
+        \\    var a: @Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
         \\    const x = neg(a);
         \\}
         \\fn neg(a: @Vector(4, i16)) @Vector(4, i16) {
@@ -323,7 +323,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
+        \\    const x = widenSlice([_]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
@@ -426,7 +426,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    var array align(4) = []u32{0x11111111, 0x11111111};
+        \\    var array align(4) = [_]u32{0x11111111, 0x11111111};
         \\    const bytes = @sliceToBytes(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}

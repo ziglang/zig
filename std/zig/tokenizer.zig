@@ -11,7 +11,7 @@ pub const Token = struct {
         id: Id,
     };
 
-    pub const keywords = []Keyword{
+    pub const keywords = [_]Keyword{
         Keyword{ .bytes = "align", .id = Id.Keyword_align },
         Keyword{ .bytes = "allowzero", .id = Id.Keyword_allowzero },
         Keyword{ .bytes = "and", .id = Id.Keyword_and },
@@ -1190,14 +1190,14 @@ pub const Tokenizer = struct {
 };
 
 test "tokenizer" {
-    testTokenize("test", []Token.Id{Token.Id.Keyword_test});
+    testTokenize("test", [_]Token.Id{Token.Id.Keyword_test});
 }
 
 test "tokenizer - unknown length pointer and then c pointer" {
     testTokenize(
         \\[*]u8
         \\[*c]u8
-    , []Token.Id{
+    , [_]Token.Id{
         Token.Id.BracketStarBracket,
         Token.Id.Identifier,
         Token.Id.BracketStarCBracket,
@@ -1208,11 +1208,11 @@ test "tokenizer - unknown length pointer and then c pointer" {
 test "tokenizer - char literal with hex escape" {
     testTokenize(
         \\'\x1b'
-    , []Token.Id{Token.Id.CharLiteral});
+    , [_]Token.Id{Token.Id.CharLiteral});
 }
 
 test "tokenizer - float literal e exponent" {
-    testTokenize("a = 4.94065645841246544177e-324;\n", []Token.Id{
+    testTokenize("a = 4.94065645841246544177e-324;\n", [_]Token.Id{
         Token.Id.Identifier,
         Token.Id.Equal,
         Token.Id.FloatLiteral,
@@ -1221,7 +1221,7 @@ test "tokenizer - float literal e exponent" {
 }
 
 test "tokenizer - float literal p exponent" {
-    testTokenize("a = 0x1.a827999fcef32p+1022;\n", []Token.Id{
+    testTokenize("a = 0x1.a827999fcef32p+1022;\n", [_]Token.Id{
         Token.Id.Identifier,
         Token.Id.Equal,
         Token.Id.FloatLiteral,
@@ -1230,71 +1230,71 @@ test "tokenizer - float literal p exponent" {
 }
 
 test "tokenizer - chars" {
-    testTokenize("'c'", []Token.Id{Token.Id.CharLiteral});
+    testTokenize("'c'", [_]Token.Id{Token.Id.CharLiteral});
 }
 
 test "tokenizer - invalid token characters" {
-    testTokenize("#", []Token.Id{Token.Id.Invalid});
-    testTokenize("`", []Token.Id{Token.Id.Invalid});
-    testTokenize("'c", []Token.Id{Token.Id.Invalid});
-    testTokenize("'", []Token.Id{Token.Id.Invalid});
-    testTokenize("''", []Token.Id{ Token.Id.Invalid, Token.Id.Invalid });
+    testTokenize("#", [_]Token.Id{Token.Id.Invalid});
+    testTokenize("`", [_]Token.Id{Token.Id.Invalid});
+    testTokenize("'c", [_]Token.Id{Token.Id.Invalid});
+    testTokenize("'", [_]Token.Id{Token.Id.Invalid});
+    testTokenize("''", [_]Token.Id{ Token.Id.Invalid, Token.Id.Invalid });
 }
 
 test "tokenizer - invalid literal/comment characters" {
-    testTokenize("\"\x00\"", []Token.Id{
+    testTokenize("\"\x00\"", [_]Token.Id{
         Token.Id.StringLiteral,
         Token.Id.Invalid,
     });
-    testTokenize("//\x00", []Token.Id{
+    testTokenize("//\x00", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\x1f", []Token.Id{
+    testTokenize("//\x1f", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\x7f", []Token.Id{
+    testTokenize("//\x7f", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
 }
 
 test "tokenizer - utf8" {
-    testTokenize("//\xc2\x80", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xf4\x8f\xbf\xbf", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x80", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xf4\x8f\xbf\xbf", [_]Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - invalid utf8" {
-    testTokenize("//\x80", []Token.Id{
+    testTokenize("//\x80", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xbf", []Token.Id{
+    testTokenize("//\xbf", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xf8", []Token.Id{
+    testTokenize("//\xf8", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xff", []Token.Id{
+    testTokenize("//\xff", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xc2\xc0", []Token.Id{
+    testTokenize("//\xc2\xc0", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xe0", []Token.Id{
+    testTokenize("//\xe0", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xf0", []Token.Id{
+    testTokenize("//\xf0", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xf0\x90\x80\xc0", []Token.Id{
+    testTokenize("//\xf0\x90\x80\xc0", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
@@ -1302,28 +1302,28 @@ test "tokenizer - invalid utf8" {
 
 test "tokenizer - illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
-    testTokenize("//\xc2\x84", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xc2\x85", []Token.Id{
+    testTokenize("//\xc2\x84", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xc2\x85", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xc2\x86", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xe2\x80\xa7", []Token.Id{Token.Id.LineComment});
-    testTokenize("//\xe2\x80\xa8", []Token.Id{
+    testTokenize("//\xc2\x86", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa7", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xa8", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xe2\x80\xa9", []Token.Id{
+    testTokenize("//\xe2\x80\xa9", [_]Token.Id{
         Token.Id.LineComment,
         Token.Id.Invalid,
     });
-    testTokenize("//\xe2\x80\xaa", []Token.Id{Token.Id.LineComment});
+    testTokenize("//\xe2\x80\xaa", [_]Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - string identifier and builtin fns" {
     testTokenize(
         \\const @"if" = @import("std");
-    , []Token.Id{
+    , [_]Token.Id{
         Token.Id.Keyword_const,
         Token.Id.Identifier,
         Token.Id.Equal,
@@ -1336,19 +1336,19 @@ test "tokenizer - string identifier and builtin fns" {
 }
 
 test "tokenizer - pipe and then invalid" {
-    testTokenize("||=", []Token.Id{
+    testTokenize("||=", [_]Token.Id{
         Token.Id.PipePipe,
         Token.Id.Equal,
     });
 }
 
 test "tokenizer - line comment and doc comment" {
-    testTokenize("//", []Token.Id{Token.Id.LineComment});
-    testTokenize("// a / b", []Token.Id{Token.Id.LineComment});
-    testTokenize("// /", []Token.Id{Token.Id.LineComment});
-    testTokenize("/// a", []Token.Id{Token.Id.DocComment});
-    testTokenize("///", []Token.Id{Token.Id.DocComment});
-    testTokenize("////", []Token.Id{Token.Id.LineComment});
+    testTokenize("//", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("// a / b", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("// /", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("/// a", [_]Token.Id{Token.Id.DocComment});
+    testTokenize("///", [_]Token.Id{Token.Id.DocComment});
+    testTokenize("////", [_]Token.Id{Token.Id.LineComment});
 }
 
 test "tokenizer - line comment followed by identifier" {
@@ -1356,7 +1356,7 @@ test "tokenizer - line comment followed by identifier" {
         \\    Unexpected,
         \\    // another
         \\    Another,
-    , []Token.Id{
+    , [_]Token.Id{
         Token.Id.Identifier,
         Token.Id.Comma,
         Token.Id.LineComment,
