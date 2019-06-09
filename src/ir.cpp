@@ -1484,17 +1484,15 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, IrInstruction *elem_type, size_t item_count, IrInstruction **items)
+        IrInstruction *container_type, size_t item_count, IrInstruction **items)
 {
     IrInstructionContainerInitList *container_init_list_instruction =
         ir_build_instruction<IrInstructionContainerInitList>(irb, scope, source_node);
     container_init_list_instruction->container_type = container_type;
-    container_init_list_instruction->elem_type = elem_type;
     container_init_list_instruction->item_count = item_count;
     container_init_list_instruction->items = items;
 
-    if (container_type != nullptr) ir_ref_instruction(container_type, irb->current_basic_block);
-    if (elem_type != nullptr) ir_ref_instruction(elem_type, irb->current_basic_block);
+    ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < item_count; i += 1) {
         ir_ref_instruction(items[i], irb->current_basic_block);
     }
@@ -5620,11 +5618,17 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             src_assert(result_loc->scope_elide == nullptr, node);
             result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
 
+            size_t item_count = container_init_expr->entries.length;
+
+            if (container_type == nullptr) {
+                IrInstruction *item_count_inst = ir_build_const_usize(irb, scope, node, item_count);
+                container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type);
+            }
+
             src_assert(result_loc != nullptr, node);
             IrInstruction *container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
                     node, result_loc, container_type);
 
-            size_t item_count = container_init_expr->entries.length;
             IrInstruction **values = allocate<IrInstruction *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
@@ -5644,7 +5648,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
 
                 values[i] = expr_value;
             }
-            IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type, elem_type,
+            IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type,
                     item_count, values);
             return ir_lval_wrap(irb, scope, init_list, lval, result_loc);
         }
@@ -18538,22 +18542,11 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
 {
     Error err;
 
-    size_t elem_count = instruction->item_count;
+    ZigType *container_type = ir_resolve_type(ira, instruction->container_type->child);
+    if (type_is_invalid(container_type))
+        return ira->codegen->invalid_instruction;
 
-    ZigType *container_type;
-    if (instruction->container_type != nullptr) {
-        container_type = ir_resolve_type(ira, instruction->container_type->child);
-        if (type_is_invalid(container_type))
-            return ira->codegen->invalid_instruction;
-    } else {
-        ZigType *elem_type = ir_resolve_type(ira, instruction->elem_type->child);
-        if (type_is_invalid(elem_type))
-            return ira->codegen->invalid_instruction;
-        if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown))) {
-            return ira->codegen->invalid_instruction;
-        }
-        container_type = get_array_type(ira->codegen, elem_type, elem_count);
-    }
+    size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
         ir_add_error(ira, &instruction->base,
