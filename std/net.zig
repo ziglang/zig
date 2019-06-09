@@ -25,7 +25,7 @@ pub const Address = struct {
                     .family = os.AF_INET,
                     .port = mem.nativeToBig(u16, _port),
                     .addr = ip4,
-                    .zero = []u8{0} ** 8,
+                    .zero = [_]u8{0} ** 8,
                 },
             },
         };

@@ -23,7 +23,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .items = []align(A) T{},
+                .items = [_]T{},
                 .len = 0,
                 .allocator = allocator,
             };
@@ -265,7 +265,7 @@ test "std.ArrayList.basic" {
     testing.expect(list.pop() == 10);
     testing.expect(list.len == 9);
 
-    list.appendSlice([]const i32{
+    list.appendSlice([_]i32{
         1,
         2,
         3,
@@ -276,7 +276,7 @@ test "std.ArrayList.basic" {
     testing.expect(list.pop() == 1);
     testing.expect(list.len == 9);
 
-    list.appendSlice([]const i32{}) catch unreachable;
+    list.appendSlice([_]i32{}) catch unreachable;
     testing.expect(list.len == 9);
 
     // can only set on indices < self.len
@@ -423,7 +423,7 @@ test "std.ArrayList.insertSlice" {
     try list.append(2);
     try list.append(3);
     try list.append(4);
-    try list.insertSlice(1, []const i32{
+    try list.insertSlice(1, [_]i32{
         9,
         8,
     });
@@ -434,7 +434,7 @@ test "std.ArrayList.insertSlice" {
     testing.expect(list.items[4] == 3);
     testing.expect(list.items[5] == 4);
 
-    const items = []const i32{1};
+    const items = [_]i32{1};
     try list.insertSlice(0, items[0..0]);
     testing.expect(list.len == 6);
     testing.expect(list.items[0] == 1);

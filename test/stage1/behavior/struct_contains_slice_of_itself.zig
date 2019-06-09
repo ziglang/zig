@@ -11,24 +11,24 @@ const NodeAligned = struct {
 };
 
 test "struct contains slice of itself" {
-    var other_nodes = []Node{
+    var other_nodes = [_]Node{
         Node{
             .payload = 31,
-            .children = []Node{},
+            .children = [_]Node{},
         },
         Node{
             .payload = 32,
-            .children = []Node{},
+            .children = [_]Node{},
         },
     };
-    var nodes = []Node{
+    var nodes = [_]Node{
         Node{
             .payload = 1,
-            .children = []Node{},
+            .children = [_]Node{},
         },
         Node{
             .payload = 2,
-            .children = []Node{},
+            .children = [_]Node{},
         },
         Node{
             .payload = 3,
@@ -48,24 +48,24 @@ test "struct contains slice of itself" {
 }
 
 test "struct contains aligned slice of itself" {
-    var other_nodes = []NodeAligned{
+    var other_nodes = [_]NodeAligned{
         NodeAligned{
             .payload = 31,
-            .children = []NodeAligned{},
+            .children = [_]NodeAligned{},
         },
         NodeAligned{
             .payload = 32,
-            .children = []NodeAligned{},
+            .children = [_]NodeAligned{},
         },
     };
-    var nodes = []NodeAligned{
+    var nodes = [_]NodeAligned{
         NodeAligned{
             .payload = 1,
-            .children = []NodeAligned{},
+            .children = [_]NodeAligned{},
         },
         NodeAligned{
             .payload = 2,
-            .children = []NodeAligned{},
+            .children = [_]NodeAligned{},
         },
         NodeAligned{
             .payload = 3,

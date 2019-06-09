@@ -15,7 +15,7 @@ pub fn PriorityQueue(comptime T: type) type {
 
         pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
             return Self{
-                .items = []T{},
+                .items = [_]T{},
                 .len = 0,
                 .allocator = allocator,
                 .compareFn = compareFn,
@@ -276,12 +276,12 @@ test "std.PriorityQueue: peek" {
 test "std.PriorityQueue: sift up with odd indices" {
     var queue = PQ.init(debug.global_allocator, lessThan);
     defer queue.deinit();
-    const items = []u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
+    const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
         try queue.add(e);
     }
 
-    const sorted_items = []u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
+    const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
         expectEqual(e, queue.remove());
     }
@@ -290,22 +290,22 @@ test "std.PriorityQueue: sift up with odd indices" {
 test "std.PriorityQueue: addSlice" {
     var queue = PQ.init(debug.global_allocator, lessThan);
     defer queue.deinit();
-    const items = []u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
+    const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     try queue.addSlice(items[0..]);
 
-    const sorted_items = []u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
+    const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
         expectEqual(e, queue.remove());
     }
 }
 
 test "std.PriorityQueue: fromOwnedSlice" {
-    const items = []u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
+    const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     const heap_items = try std.mem.dupe(debug.global_allocator, u32, items[0..]);
     var queue = PQ.fromOwnedSlice(debug.global_allocator, lessThan, heap_items[0..]);
     defer queue.deinit();
 
-    const sorted_items = []u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
+    const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
         expectEqual(e, queue.remove());
     }
@@ -355,7 +355,7 @@ test "std.PriorityQueue: iterator" {
         map.deinit();
     }
 
-    const items = []u32{ 54, 12, 7, 23, 25, 13 };
+    const items = [_]u32{ 54, 12, 7, 23, 25, 13 };
     for (items) |e| {
         _ = try queue.add(e);
         _ = try map.put(e, {});

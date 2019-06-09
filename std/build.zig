@@ -153,8 +153,8 @@ pub const Builder = struct {
 
     pub fn setInstallPrefix(self: *Builder, maybe_prefix: ?[]const u8) void {
         self.prefix = maybe_prefix orelse "/usr/local"; // TODO better default
-        self.lib_dir = fs.path.join(self.allocator, [][]const u8{ self.prefix, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, [][]const u8{ self.prefix, "bin" }) catch unreachable;
+        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ self.prefix, "lib" }) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ self.prefix, "bin" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -653,7 +653,7 @@ pub const Builder = struct {
     pub fn addInstallFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
         const full_dest_path = fs.path.resolve(
             self.allocator,
-            [][]const u8{ self.prefix, dest_rel_path },
+            [_][]const u8{ self.prefix, dest_rel_path },
         ) catch unreachable;
         self.pushInstalledFile(full_dest_path);
 
@@ -689,7 +689,7 @@ pub const Builder = struct {
     }
 
     fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
-        return fs.path.resolve(self.allocator, [][]const u8{ self.build_root, rel_path }) catch unreachable;
+        return fs.path.resolve(self.allocator, [_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
     pub fn fmt(self: *Builder, comptime format: []const u8, args: ...) []u8 {
@@ -704,7 +704,7 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = try fs.path.join(self.allocator, [][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
                 if (fs.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -719,7 +719,7 @@ pub const Builder = struct {
                 }
                 var it = mem.tokenize(PATH, []u8{fs.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = try fs.path.join(self.allocator, [][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                    const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
                     if (fs.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;
                     } else |_| {
@@ -733,7 +733,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = try fs.path.join(self.allocator, [][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
                 if (fs.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -928,7 +928,7 @@ const CSourceFile = struct {
 };
 
 fn isLibCLibrary(name: []const u8) bool {
-    const libc_libraries = [][]const u8{ "c", "m", "dl", "rt", "pthread" };
+    const libc_libraries = [_][]const u8{ "c", "m", "dl", "rt", "pthread" };
     for (libc_libraries) |libc_lib_name| {
         if (mem.eql(u8, name, libc_lib_name))
             return true;
@@ -1247,7 +1247,7 @@ pub const LibExeObjStep = struct {
     pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
         return fs.path.join(
             self.builder.allocator,
-            [][]const u8{ self.output_dir.?, self.out_filename },
+            [_][]const u8{ self.output_dir.?, self.out_filename },
         ) catch unreachable;
     }
 
@@ -1257,7 +1257,7 @@ pub const LibExeObjStep = struct {
         assert(self.kind == Kind.Lib);
         return fs.path.join(
             self.builder.allocator,
-            [][]const u8{ self.output_dir.?, self.out_lib_filename },
+            [_][]const u8{ self.output_dir.?, self.out_lib_filename },
         ) catch unreachable;
     }
 
@@ -1268,7 +1268,7 @@ pub const LibExeObjStep = struct {
         assert(!self.disable_gen_h);
         return fs.path.join(
             self.builder.allocator,
-            [][]const u8{ self.output_dir.?, self.out_h_filename },
+            [_][]const u8{ self.output_dir.?, self.out_h_filename },
         ) catch unreachable;
     }
 
@@ -1410,7 +1410,7 @@ pub const LibExeObjStep = struct {
         if (self.build_options_contents.len() > 0) {
             const build_options_file = try fs.path.join(
                 builder.allocator,
-                [][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", self.name) },
+                [_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", self.name) },
             );
             try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
             try zig_args.append("--pkg-begin");
@@ -1737,7 +1737,7 @@ const InstallArtifactStep = struct {
             .artifact = artifact,
             .dest_file = fs.path.join(
                 builder.allocator,
-                [][]const u8{ dest_dir, artifact.out_filename },
+                [_][]const u8{ dest_dir, artifact.out_filename },
             ) catch unreachable,
         };
         self.step.dependOn(&artifact.step);
@@ -1745,11 +1745,11 @@ const InstallArtifactStep = struct {
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and self.artifact.is_dynamic) {
             builder.pushInstalledFile(fs.path.join(
                 builder.allocator,
-                [][]const u8{ builder.lib_dir, artifact.major_only_filename },
+                [_][]const u8{ builder.lib_dir, artifact.major_only_filename },
             ) catch unreachable);
             builder.pushInstalledFile(fs.path.join(
                 builder.allocator,
-                [][]const u8{ builder.lib_dir, artifact.name_only_filename },
+                [_][]const u8{ builder.lib_dir, artifact.name_only_filename },
             ) catch unreachable);
         }
         return self;
@@ -1909,7 +1909,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = fs.path.join(
         allocator,
-        [][]const u8{ out_dir, filename_major_only },
+        [_][]const u8{ out_dir, filename_major_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
@@ -1918,7 +1918,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = fs.path.join(
         allocator,
-        [][]const u8{ out_dir, filename_name_only },
+        [_][]const u8{ out_dir, filename_name_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);

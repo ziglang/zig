@@ -38,7 +38,7 @@ async fn await_another() Foo {
     return Foo{ .x = 1234 };
 }
 
-var await_points = []u8{0} ** "abcdefghi".len;
+var await_points = [_]u8{0} ** "abcdefghi".len;
 var await_seq_index: usize = 0;
 
 fn await_seq(c: u8) void {

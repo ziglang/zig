@@ -464,6 +464,7 @@ enum NodeType {
     NodeTypeContainerInitExpr,
     NodeTypeStructValueField,
     NodeTypeArrayType,
+    NodeTypeInferredArrayType,
     NodeTypeErrorType,
     NodeTypeIfErrorExpr,
     NodeTypeIfOptional,
@@ -687,6 +688,10 @@ struct AstNodePointerType {
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
+};
+
+struct AstNodeInferredArrayType {
+    AstNode *child_type;
 };
 
 struct AstNodeArrayType {
@@ -993,6 +998,7 @@ struct AstNode {
         AstNodeContinueExpr continue_expr;
         AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
+        AstNodeInferredArrayType inferred_array_type;
         AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeCancelExpr cancel_expr;
@@ -2636,6 +2642,7 @@ struct IrInstructionContainerInitList {
     IrInstruction base;
 
     IrInstruction *container_type;
+    IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **items;
     LLVMValueRef tmp_ptr;

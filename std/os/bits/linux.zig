@@ -691,8 +691,8 @@ pub const winsize = extern struct {
 
 pub const NSIG = 65;
 pub const sigset_t = [128 / @sizeOf(usize)]usize;
-pub const all_mask = []u32{ 0xffffffff, 0xffffffff };
-pub const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
+pub const all_mask = [_]u32{ 0xffffffff, 0xffffffff };
+pub const app_mask = [_]u32{ 0xfffffffc, 0x7fffffff };
 
 pub const k_sigaction = extern struct {
     handler: extern fn (i32) void,
@@ -711,7 +711,7 @@ pub const Sigaction = struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+pub const empty_sigset = [_]usize{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;

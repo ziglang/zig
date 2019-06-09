@@ -3030,6 +3030,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeContainerInitExpr:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeInferredArrayType:
         case NodeTypeErrorType:
         case NodeTypeIfErrorExpr:
         case NodeTypeIfOptional:
@@ -6394,12 +6395,14 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
                     len_debug_size_in_bits,
                     len_debug_align_in_bits,
                     len_offset_in_bits,
-                    0, usize_llvm_di_type),
+                    ZigLLVM_DIFlags_Zero,
+                    usize_llvm_di_type),
         };
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
                 compile_unit_scope,
                 buf_ptr(&type->name),
-                di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+                di_file, line, debug_size_in_bits, debug_align_in_bits,
+                ZigLLVM_DIFlags_Zero,
                 nullptr, di_element_types, 1, 0, nullptr, "");
 
         ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);
@@ -6431,18 +6434,19 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
                 ptr_debug_size_in_bits,
                 ptr_debug_align_in_bits,
                 ptr_offset_in_bits,
-                0, get_llvm_di_type(g, ptr_type)),
+                ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, ptr_type)),
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "len", di_file, line,
                 len_debug_size_in_bits,
                 len_debug_align_in_bits,
                 len_offset_in_bits,
-                0, usize_llvm_di_type),
+                ZigLLVM_DIFlags_Zero, usize_llvm_di_type),
     };
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             compile_unit_scope,
             buf_ptr(&type->name),
-            di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+            di_file, line, debug_size_in_bits, debug_align_in_bits,
+            ZigLLVM_DIFlags_Zero,
             nullptr, di_element_types, 2, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);
@@ -6603,7 +6607,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
-                0, field_di_type);
+                ZigLLVM_DIFlags_Zero, field_di_type);
         assert(di_element_types[debug_field_index]);
         debug_field_index += 1;
     }
@@ -6616,7 +6620,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             di_file, line,
             debug_size_in_bits,
             debug_align_in_bits,
-            0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+            ZigLLVM_DIFlags_Zero,
+            nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->llvm_di_type, replacement_di_type);
     struct_type->llvm_di_type = replacement_di_type;
@@ -6645,7 +6650,8 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
                 import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
-                0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+                ZigLLVM_DIFlags_Zero,
+                nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
         return;
     }
 
@@ -6729,7 +6735,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
                 store_size_in_bits,
                 abi_align_in_bits,
                 0,
-                0, field_di_type);
+                ZigLLVM_DIFlags_Zero, field_di_type);
 
     }
 
@@ -6758,7 +6764,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             union_type->data.unionation.union_abi_size * 8,
             most_aligned_union_member->abi_align * 8,
-            0, union_inner_di_types,
+            ZigLLVM_DIFlags_Zero, union_inner_di_types,
             gen_field_count, 0, "");
 
         ZigLLVMReplaceTemporary(g->dbuilder, union_type->llvm_di_type, replacement_di_type);
@@ -6792,7 +6798,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             ZigLLVMTypeToScope(union_type->llvm_di_type), "AnonUnion",
             import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             most_aligned_union_member->size_in_bits, 8*most_aligned_union_member->abi_align,
-            0, union_inner_di_types, gen_field_count, 0, "");
+            ZigLLVM_DIFlags_Zero, union_inner_di_types, gen_field_count, 0, "");
 
     uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, union_type->llvm_type,
             union_type->data.unionation.gen_union_index);
@@ -6805,7 +6811,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             most_aligned_union_member->size_in_bits,
             8*most_aligned_union_member->abi_align,
             union_offset_in_bits,
-            0, union_di_type);
+            ZigLLVM_DIFlags_Zero, union_di_type);
 
     uint64_t tag_debug_size_in_bits = tag_type->size_in_bits;
     uint64_t tag_debug_align_in_bits = 8*tag_type->abi_align;
@@ -6816,7 +6822,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             tag_offset_in_bits,
-            0, get_llvm_di_type(g, tag_type));
+            ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, tag_type));
 
     ZigLLVMDIType *di_root_members[2];
     di_root_members[union_type->data.unionation.gen_tag_index] = tag_member_di_type;
@@ -6830,7 +6836,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
             import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
             debug_size_in_bits,
             debug_align_in_bits,
-            0, nullptr, di_root_members, 2, 0, nullptr, "");
+            ZigLLVM_DIFlags_Zero, nullptr, di_root_members, 2, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, union_type->llvm_di_type, replacement_di_type);
     union_type->llvm_di_type = replacement_di_type;
@@ -6958,18 +6964,18 @@ static void resolve_llvm_types_optional(CodeGen *g, ZigType *type) {
                 val_debug_size_in_bits,
                 val_debug_align_in_bits,
                 val_offset_in_bits,
-                0, child_llvm_di_type),
+                ZigLLVM_DIFlags_Zero, child_llvm_di_type),
         ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                 "maybe", di_file, line,
                 maybe_debug_size_in_bits,
                 maybe_debug_align_in_bits,
                 maybe_offset_in_bits,
-                0, bool_llvm_di_type),
+                ZigLLVM_DIFlags_Zero, bool_llvm_di_type),
     };
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             compile_unit_scope,
             buf_ptr(&type->name),
-            di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+            di_file, line, debug_size_in_bits, debug_align_in_bits, ZigLLVM_DIFlags_Zero,
             nullptr, di_element_types, 2, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);
@@ -7022,13 +7028,13 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     tag_offset_in_bits,
-                    0, get_llvm_di_type(g, err_set_type)),
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, err_set_type)),
             ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
                     "value", di_file, line,
                     value_debug_size_in_bits,
                     value_debug_align_in_bits,
                     value_offset_in_bits,
-                    0, get_llvm_di_type(g, payload_type)),
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, payload_type)),
         };
 
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
@@ -7037,7 +7043,7 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
                 di_file, line,
                 debug_size_in_bits,
                 debug_align_in_bits,
-                0,
+                ZigLLVM_DIFlags_Zero,
                 nullptr, di_element_types, 2, 0, nullptr, "");
 
         ZigLLVMReplaceTemporary(g->dbuilder, type->llvm_di_type, replacement_di_type);

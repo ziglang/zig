@@ -1,5 +1,5 @@
 const std = @import("../std.zig");
-use std.c;
+usingnamespace std.c;
 
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;

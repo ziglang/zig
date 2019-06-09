@@ -1,4 +1,4 @@
-pub const enum3 = []u64{
+pub const enum3 = [_]u64{
     0x4e2e2785c3a2a20b,
     0x240a28877a09a4e1,
     0x728fca36c06cf106,
@@ -445,7 +445,7 @@ fn slab(str: []const u8, exp: i32) Slab {
     };
 }
 
-pub const enum3_data = []Slab{
+pub const enum3_data = [_]Slab{
     slab("40648030339495312", 69),
     slab("4498645355592131", -134),
     slab("678321594594593", 244),

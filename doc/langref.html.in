@@ -1530,10 +1530,10 @@ value == null{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}const mem = @import("std").mem;
-const array1 = []u32{1,2};
-const array2 = []u32{3,4};
+const array1 = [_]u32{1,2};
+const array2 = [_]u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, []u32{1,2,3,4}){#endsyntax#}</pre>
+mem.eql(u32, together, [_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1628,7 +1628,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 // array literal
-const message = []u8{ 'h', 'e', 'l', 'l', 'o' };
+const message = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
 
 // get the size of an array
 comptime {
@@ -1664,11 +1664,11 @@ test "modify an array" {
 
 // array concatenation works if the values are known
 // at compile time
-const part_one = []i32{ 1, 2, 3, 4 };
-const part_two = []i32{ 5, 6, 7, 8 };
+const part_one = [_]i32{ 1, 2, 3, 4 };
+const part_two = [_]i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, []i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    assert(mem.eql(i32, all_of_it, [_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -1686,7 +1686,7 @@ comptime {
 }
 
 // initialize an array to zero
-const all_zero = []u16{0} ** 10;
+const all_zero = [_]u16{0} ** 10;
 
 comptime {
     assert(all_zero.len == 10);
@@ -1715,7 +1715,7 @@ test "compile-time array initalization" {
 }
 
 // call a function to initialize an array
-var more_points = []Point{makePoint(3)} ** 10;
+var more_points = [_]Point{makePoint(3)} ** 10;
 fn makePoint(x: i32) Point {
     return Point{
         .x = x,
@@ -1819,7 +1819,7 @@ test "pointer array access" {
     // Taking an address of an individual element gives a
     // pointer to a single item. This kind of pointer
     // does not support pointer arithmetic.
-    var array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
     assert(@typeOf(ptr) == *u8);
 
@@ -1841,7 +1841,7 @@ test "pointer array access" {
 const assert = @import("std").debug.assert;
 
 test "pointer slicing" {
-    var array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const slice = array[2..4];
     assert(slice.len == 2);
 
@@ -1922,7 +1922,7 @@ test "volatile" {
 const assert = @import("std").debug.assert;
 
 test "pointer casting" {
-    const bytes align(@alignOf(u32)) = []u8{ 0x12, 0x12, 0x12, 0x12 };
+    const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
     const u32_ptr = @ptrCast(*const u32, &bytes);
     assert(u32_ptr.* == 0x12121212);
 
@@ -2011,7 +2011,7 @@ test "function alignment" {
 const assert = @import("std").debug.assert;
 
 test "pointer alignment safety" {
-    var array align(4) = []u32{ 0x11111111, 0x11111111 };
+    var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = @sliceToBytes(array[0..]);
     assert(foo(bytes) == 0x11111111);
 }
@@ -2026,9 +2026,9 @@ fn foo(bytes: []u8) u32 {
       {#header_open|allowzero#}
       <p>
       This pointer attribute allows a pointer to have address zero. This is only ever needed on the
-      freestanding OS target, where the address zero is mappable. In this code example, if the pointer
-      did not have the {#syntax#}allowzero{#endsyntax#} attribute, this would be a
-      {#link|Pointer Cast Invalid Null#} panic:
+      freestanding OS target, where the address zero is mappable. If you want to represent null pointers, use
+      {#link|Optional Pointers#} instead. In this code example, if the pointer did not have the
+      {#syntax#}allowzero{#endsyntax#} attribute, this would be a {#link|Pointer Cast Invalid Null#} panic:
       </p>
       {#code_begin|test|allowzero#}
 const std = @import("std");
@@ -2048,7 +2048,7 @@ test "allowzero" {
 const assert = @import("std").debug.assert;
 
 test "basic slices" {
-    var array = []i32{ 1, 2, 3, 4 };
+    var array = [_]i32{ 1, 2, 3, 4 };
     // A slice is a pointer and a length. The difference between an array and
     // a slice is that the array's length is part of the type and known at
     // compile-time, whereas the slice's length is known at runtime.
@@ -2116,7 +2116,7 @@ test "slice pointer" {
 test "slice widening" {
     // Zig supports slice widening and slice narrowing. Cast a slice of u8
     // to a slice of anything else, and Zig will perform the length conversion.
-    const array align(@alignOf(u32)) = []u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
+    const array align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
     const slice = @bytesToSlice(u32, array[0..]);
     assert(slice.len == 2);
     assert(slice[0] == 0x12121212);
@@ -3245,7 +3245,7 @@ fn typeNameLength(comptime T: type) usize {
 const assert = @import("std").debug.assert;
 
 test "for basics" {
-    const items = []i32 { 4, 5, 3, 4, 0 };
+    const items = [_]i32 { 4, 5, 3, 4, 0 };
     var sum: i32 = 0;
 
     // For loops iterate over slices and arrays.
@@ -3275,7 +3275,7 @@ test "for basics" {
 }
 
 test "for reference" {
-    var items = []i32 { 3, 4, 2 };
+    var items = [_]i32 { 3, 4, 2 };
 
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
@@ -3290,20 +3290,20 @@ test "for reference" {
 
 test "for else" {
     // For allows an else attached to it, the same as a while loop.
-    var items = []?i32 { 3, 4, null, 5 };
+    var items = [_]?i32 { 3, 4, null, 5 };
 
     // For loops can also be used as expressions.
+    // Similar to while loops, when you break from a for loop, the else branch is not evaluated.
     var sum: i32 = 0;
     const result = for (items) |value| {
-        if (value == null) {
-            break 9;
-        } else {
+        if (value != null) {
             sum += value.?;
         }
     } else blk: {
-        assert(sum == 7);
+        assert(sum == 12);
         break :blk sum;
     };
+    assert(result == 12);
 }
       {#code_end#}
       {#header_open|Labeled for#}
@@ -3315,8 +3315,8 @@ const assert = std.debug.assert;
 
 test "nested break" {
     var count: usize = 0;
-    outer: for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
-        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
             count += 1;
             break :outer;
         }
@@ -3326,8 +3326,8 @@ test "nested break" {
 
 test "nested continue" {
     var count: usize = 0;
-    outer: for ([]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
-        for ([]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for ([_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
+        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
             count += 1;
             continue :outer;
         }
@@ -3349,7 +3349,7 @@ test "nested continue" {
 const assert = @import("std").debug.assert;
 
 test "inline for loop" {
-    const nums = []i32{2, 4, 6};
+    const nums = [_]i32{2, 4, 6};
     var sum: usize = 0;
     inline for (nums) |i| {
         const T = switch (i) {
@@ -4698,7 +4698,7 @@ test "implicit casting to optionals wrapped in error union" {
       {#code_end#}
       {#header_close#}
       {#header_open|Implicit Cast: Error Unions#}
-      <p>The the payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
+      <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
       implicitly cast to the error union type:
       </p>
       {#code_begin|test#}
@@ -4883,7 +4883,7 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return []const u8{};
+        return [_]u8{};
     }
 
     return slice[0..1];
@@ -4904,7 +4904,7 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return []u8{};
+        return [_]u8{};
     }
 
     return slice[0..1];
@@ -4985,7 +4985,7 @@ fn eql_i32(a: i32, b: i32) bool {
     return a == b;
 }
       {#code_end#}
-      <p>Note that this is different than using a dummy value for the hash map value.
+      <p>Note that this is different from using a dummy value for the hash map value.
       By using {#syntax#}void{#endsyntax#} as the type of the value, the hash map entry type has no value field, and
       thus the hash map takes up less space. Further, all the code that deals with storing and loading the
       value is deleted, as seen above.
@@ -5192,7 +5192,7 @@ const CmdFn = struct {
     func: fn(i32) i32,
 };
 
-const cmd_fns = []CmdFn{
+const cmd_fns = [_]CmdFn{
     CmdFn {.name = "one", .func = one},
     CmdFn {.name = "two", .func = two},
     CmdFn {.name = "three", .func = three},
@@ -5933,7 +5933,7 @@ async fn testAsyncSeq() void {
     suspend;
     seq('d');
 }
-var points = []u8{0} ** "abcdefg".len;
+var points = [_]u8{0} ** "abcdefg".len;
 var index: usize = 0;
 
 fn seq(c: u8) void {
@@ -6071,7 +6071,7 @@ async fn another() i32 {
     return 1234;
 }
 
-var seq_points = []u8{0} ** "abcdefghi".len;
+var seq_points = [_]u8{0} ** "abcdefghi".len;
 var seq_index: usize = 0;
 
 fn seq(c: u8) void {
@@ -6225,7 +6225,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@bitOffsetOf#}
-      <pre>{#syntax#}@bitOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitOffsetOf(comptime T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
       <p>
       Returns the bit offset of a field relative to its containing struct.
       </p>
@@ -6283,7 +6283,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@byteOffsetOf#}
-      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: [] const u8) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@byteOffsetOf(comptime T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
       <p>
       Returns the byte offset of a field relative to its containing struct.
       </p>
@@ -7391,7 +7391,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "@This()" {
-    var items = []i32{ 1, 2, 3, 4 };
+    var items = [_]i32{ 1, 2, 3, 4 };
     const list = List(i32){ .items = items[0..] };
     assert(list.length() == 4);
 }
@@ -8305,7 +8305,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err#}
 pub fn main() !void {
-    var array align(4) = []u32{ 0x11111111, 0x11111111 };
+    var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = @sliceToBytes(array[0..]);
     if (foo(bytes) != 0x11111111) return error.Wrong;
 }
@@ -8937,7 +8937,7 @@ pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -9002,7 +9002,7 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
-    exe.addCompileFlags([][]const u8 {
+    exe.addCompileFlags([_][]const u8 {
         "-std=c99",
     });
     exe.addSourceFile("test.c");

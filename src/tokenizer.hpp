@@ -30,6 +30,7 @@ enum TokenId {
     TokenIdBitXorEq,
     TokenIdBracketStarBracket,
     TokenIdBracketStarCBracket,
+    TokenIdBracketUnderscoreBracket,
     TokenIdCharLiteral,
     TokenIdCmpEq,
     TokenIdCmpGreaterOrEq,

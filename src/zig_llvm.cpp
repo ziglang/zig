@@ -318,12 +318,12 @@ ZigLLVMDIType *ZigLLVMCreateDebugMemberType(ZigLLVMDIBuilder *dibuilder, ZigLLVM
         const char *name, ZigLLVMDIFile *file, unsigned line, uint64_t size_in_bits,
         uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, ZigLLVMDIType *type)
 {
-    assert(flags == 0);
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createMemberType(
             reinterpret_cast<DIScope*>(scope),
             name,
             reinterpret_cast<DIFile*>(file),
-            line, size_in_bits, align_in_bits, offset_in_bits, DINode::FlagZero,
+            line, size_in_bits, align_in_bits, offset_in_bits,
+            static_cast<DINode::DIFlags>(flags),
             reinterpret_cast<DIType*>(type));
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
@@ -338,12 +338,12 @@ ZigLLVMDIType *ZigLLVMCreateDebugUnionType(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
         DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
         fields.push_back(ditype);
     }
-    assert(flags == 0);
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createUnionType(
             reinterpret_cast<DIScope*>(scope),
             name,
             reinterpret_cast<DIFile*>(file),
-            line_number, size_in_bits, align_in_bits, DINode::FlagZero,
+            line_number, size_in_bits, align_in_bits,
+            static_cast<DINode::DIFlags>(flags),
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
             run_time_lang, unique_id);
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
@@ -360,12 +360,12 @@ ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVM
         DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
         fields.push_back(ditype);
     }
-    assert(flags == 0);
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createStructType(
             reinterpret_cast<DIScope*>(scope),
             name,
             reinterpret_cast<DIFile*>(file),
-            line_number, size_in_bits, align_in_bits, DINode::FlagZero,
+            line_number, size_in_bits, align_in_bits,
+            static_cast<DINode::DIFlags>(flags),
             reinterpret_cast<DIType*>(derived_from),
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
             run_time_lang,
@@ -426,11 +426,10 @@ ZigLLVMDIType *ZigLLVMCreateSubroutineType(ZigLLVMDIBuilder *dibuilder_wrapped,
         DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
         types.push_back(ditype);
     }
-    assert(flags == 0);
     DIBuilder *dibuilder = reinterpret_cast<DIBuilder*>(dibuilder_wrapped);
     DISubroutineType *subroutine_type = dibuilder->createSubroutineType(
             dibuilder->getOrCreateTypeArray(types),
-            DINode::FlagZero);
+            static_cast<DINode::DIFlags>(flags));
     DIType *ditype = subroutine_type;
     return reinterpret_cast<ZigLLVMDIType*>(ditype);
 }
@@ -516,7 +515,6 @@ ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
         ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
         ZigLLVMDIType *type, bool always_preserve, unsigned flags)
 {
-    assert(flags == 0);
     DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createAutoVariable(
             reinterpret_cast<DIScope*>(scope),
             name,
@@ -524,7 +522,7 @@ ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
             line_no,
             reinterpret_cast<DIType*>(type),
             always_preserve,
-            DINode::FlagZero);
+            static_cast<DINode::DIFlags>(flags));
     return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
@@ -547,7 +545,6 @@ ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilde
         ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
         ZigLLVMDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
 {
-    assert(flags == 0);
     assert(arg_no != 0);
     DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createParameterVariable(
             reinterpret_cast<DIScope*>(scope),
@@ -557,7 +554,7 @@ ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilde
             line_no,
             reinterpret_cast<DIType*>(type),
             always_preserve,
-            DINode::FlagZero);
+            static_cast<DINode::DIFlags>(flags));
     return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
@@ -612,7 +609,6 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
         unsigned flags, bool is_optimized, ZigLLVMDISubprogram *decl_subprogram)
 {
     DISubroutineType *di_sub_type = static_cast<DISubroutineType*>(reinterpret_cast<DIType*>(fn_di_type));
-    assert(flags == 0);
     DISubprogram *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFunction(
             reinterpret_cast<DIScope*>(scope),
             name, linkage_name,
@@ -620,7 +616,7 @@ ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
             lineno,
             di_sub_type,
             scope_line,
-            DINode::FlagStaticMember,
+            static_cast<DINode::DIFlags>(flags),
             DISubprogram::toSPFlags(is_local_to_unit, is_definition, is_optimized),
             nullptr,
             reinterpret_cast<DISubprogram *>(decl_subprogram),

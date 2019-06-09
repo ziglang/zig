@@ -311,7 +311,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
-    const full_path = try std.fs.path.join(&ctx.arena.allocator, [][]const u8{ dirname, basename });
+    const full_path = try std.fs.path.join(&ctx.arena.allocator, [_][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
     try ctx.args.append(full_path_with_null.ptr);
 }
@@ -670,7 +670,7 @@ const DarwinPlatform = struct {
             Compilation.DarwinVersionMin.None => blk: {
                 assert(comp.target.getOs() == .macosx);
                 result.kind = Kind.MacOS;
-                break :blk "10.10";
+                break :blk "10.14";
             },
         };
 
@@ -722,7 +722,7 @@ fn darwinGetReleaseVersion(str: []const u8, major: *u32, minor: *u32, micro: *u3
         return error.InvalidDarwinVersionString;
 
     var start_pos: usize = 0;
-    for ([]*u32{ major, minor, micro }) |v| {
+    for ([_]*u32{ major, minor, micro }) |v| {
         const dot_pos = mem.indexOfScalarPos(u8, str, start_pos, '.');
         const end_pos = dot_pos orelse str.len;
         v.* = std.fmt.parseUnsigned(u32, str[start_pos..end_pos], 10) catch return error.InvalidDarwinVersionString;

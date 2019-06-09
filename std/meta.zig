@@ -184,7 +184,7 @@ test "std.meta.declarations" {
         fn a() void {}
     };
 
-    const decls = comptime [][]TypeInfo.Declaration{
+    const decls = comptime [_][]TypeInfo.Declaration{
         declarations(E1),
         declarations(S1),
         declarations(U1),
@@ -220,7 +220,7 @@ test "std.meta.declarationInfo" {
         fn a() void {}
     };
 
-    const infos = comptime []TypeInfo.Declaration{
+    const infos = comptime [_]TypeInfo.Declaration{
         declarationInfo(E1, "a"),
         declarationInfo(S1, "a"),
         declarationInfo(U1, "a"),

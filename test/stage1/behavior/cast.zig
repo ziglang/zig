@@ -150,7 +150,7 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return []const u8{};
+        return [_]u8{};
     }
 
     return slice[0..1];
@@ -175,7 +175,7 @@ fn testCastZeroArrayToErrSliceMut() void {
 }
 
 fn gimmeErrOrSlice() anyerror![]u8 {
-    return []u8{};
+    return [_]u8{};
 }
 
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
@@ -194,7 +194,7 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return []u8{};
+        return [_]u8{};
     }
 
     return slice[0..1];
@@ -287,7 +287,7 @@ fn cast128Float(x: u128) f128 {
 }
 
 test "const slice widen cast" {
-    const bytes align(4) = []u8{
+    const bytes align(4) = [_]u8{
         0x12,
         0x12,
         0x12,
@@ -364,7 +364,7 @@ test "comptime_int @intToFloat" {
 }
 
 test "@bytesToSlice keeps pointer alignment" {
-    var bytes = []u8{ 0x01, 0x02, 0x03, 0x04 };
+    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
     comptime expect(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
 }
@@ -415,9 +415,9 @@ fn incrementVoidPtrValue(value: ?*c_void) void {
 }
 
 test "implicit cast from [*]T to ?*c_void" {
-    var a = []u8{ 3, 2, 1 };
+    var a = [_]u8{ 3, 2, 1 };
     incrementVoidPtrArray(a[0..].ptr, 3);
-    expect(std.mem.eql(u8, a, []u8{ 4, 3, 2 }));
+    expect(std.mem.eql(u8, a, [_]u8{ 4, 3, 2 }));
 }
 
 fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {

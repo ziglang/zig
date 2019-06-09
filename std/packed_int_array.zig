@@ -351,7 +351,7 @@ test "PackedIntArray" {
 
 test "PackedIntArray init" {
     const PackedArray = PackedIntArray(u3, 8);
-    var packed_array = PackedArray.init([]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
+    var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
     var i = usize(0);
     while (i < packed_array.len()) : (i += 1) testing.expect(packed_array.get(i) == i);
 }
@@ -487,7 +487,7 @@ test "PackedIntSlice accumulating bit offsets" {
 // big endian values were not tested
 test "PackedInt(Array/Slice) sliceCast" {
     const PackedArray = PackedIntArray(u1, 16);
-    var packed_array = PackedArray.init([]u1{ 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 });
+    var packed_array = PackedArray.init([_]u1{ 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 });
     const packed_slice_cast_2 = packed_array.sliceCast(u2);
     const packed_slice_cast_4 = packed_slice_cast_2.sliceCast(u4);
     var packed_slice_cast_9 = packed_array.slice(0, (packed_array.len() / 9) * 9).sliceCast(u9);
@@ -528,7 +528,7 @@ test "PackedInt(Array/Slice) sliceCast" {
 test "PackedInt(Array/Slice)Endian" {
     {
         const PackedArrayBe = PackedIntArrayEndian(u4, .Big, 8);
-        var packed_array_be = PackedArrayBe.init([]u4{
+        var packed_array_be = PackedArrayBe.init([_]u4{
             0,
             1,
             2,
@@ -563,7 +563,7 @@ test "PackedInt(Array/Slice)Endian" {
 
     {
         const PackedArrayBe = PackedIntArrayEndian(u11, .Big, 8);
-        var packed_array_be = PackedArrayBe.init([]u11{
+        var packed_array_be = PackedArrayBe.init([_]u11{
             0,
             1,
             2,

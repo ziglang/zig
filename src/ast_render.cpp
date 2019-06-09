@@ -239,6 +239,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ContainerInitExpr";
         case NodeTypeArrayType:
             return "ArrayType";
+        case NodeTypeInferredArrayType:
+            return "InferredArrayType";
         case NodeTypeErrorType:
             return "ErrorType";
         case NodeTypeIfErrorExpr:
@@ -352,7 +354,7 @@ static void string_literal_escape(Buf *source, Buf *dest) {
         } else if (is_printable(c)) {
             buf_append_char(dest, c);
         } else {
-            buf_appendf(dest, "\\x%x", (int)c);
+            buf_appendf(dest, "\\x%02x", (int)c);
         }
     }
 }
@@ -846,6 +848,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "const ");
                 }
                 render_node_ungrouped(ar, node->data.array_type.child_type);
+                break;
+            }
+        case NodeTypeInferredArrayType:
+            {
+                fprintf(ar->f, "[_]");
+                render_node_ungrouped(ar, node->data.inferred_array_type.child_type);
                 break;
             }
         case NodeTypePromiseType:

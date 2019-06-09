@@ -45,7 +45,7 @@ fn test__cmpsf2(vector: TestVector) bool {
     return true;
 }
 
-const arguments = []f32{
+const arguments = [_]f32{
     std.math.nan(f32),
     -std.math.inf(f32),
     -0x1.fffffep127,

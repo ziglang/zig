@@ -11,7 +11,7 @@ const A = union(enum) {
 };
 
 test "union that needs padding bytes inside an array" {
-    var as = []A{
+    var as = [_]A{
         A{ .B = B{ .D = 1 } },
         A{ .B = B{ .D = 1 } },
     };

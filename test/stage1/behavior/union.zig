@@ -11,14 +11,14 @@ const Agg = struct {
 };
 
 const v1 = Value{ .Int = 1234 };
-const v2 = Value{ .Array = []u8{3} ** 9 };
+const v2 = Value{ .Array = [_]u8{3} ** 9 };
 
 const err = (anyerror!Agg)(Agg{
     .val1 = v1,
     .val2 = v2,
 });
 
-const array = []Value{
+const array = [_]Value{
     v1,
     v2,
     v1,
@@ -240,7 +240,7 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
-    testConstPackedUnion([]PackThis{PackThis{ .StringLiteral = 1 }});
+    testConstPackedUnion([_]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
 fn testConstPackedUnion(expected_tokens: []const PackThis) void {

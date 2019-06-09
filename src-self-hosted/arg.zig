@@ -178,7 +178,7 @@ pub const Args = struct {
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return []const []const u8{};
+            return [_][]const u8{};
         }
     }
 };
@@ -238,11 +238,11 @@ pub const Flag = struct {
 };
 
 test "parse arguments" {
-    const spec1 = comptime []const Flag{
+    const spec1 = comptime [_]Flag{
         Flag.Bool("--help"),
         Flag.Bool("--init"),
         Flag.Arg1("--build-file"),
-        Flag.Option("--color", []const []const u8{
+        Flag.Option("--color", [_][]const u8{
             "on",
             "off",
             "auto",
@@ -252,7 +252,7 @@ test "parse arguments" {
         Flag.ArgN("--library", 1),
     };
 
-    const cliargs = []const []const u8{
+    const cliargs = [_][]const u8{
         "build",
         "--help",
         "pos1",
