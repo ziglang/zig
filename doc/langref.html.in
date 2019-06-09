@@ -4698,7 +4698,7 @@ test "implicit casting to optionals wrapped in error union" {
       {#code_end#}
       {#header_close#}
       {#header_open|Implicit Cast: Error Unions#}
-      <p>The the payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
+      <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
       implicitly cast to the error union type:
       </p>
       {#code_begin|test#}
@@ -4985,7 +4985,7 @@ fn eql_i32(a: i32, b: i32) bool {
     return a == b;
 }
       {#code_end#}
-      <p>Note that this is different than using a dummy value for the hash map value.
+      <p>Note that this is different from using a dummy value for the hash map value.
       By using {#syntax#}void{#endsyntax#} as the type of the value, the hash map entry type has no value field, and
       thus the hash map takes up less space. Further, all the code that deals with storing and loading the
       value is deleted, as seen above.
