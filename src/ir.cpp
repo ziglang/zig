@@ -2032,8 +2032,7 @@ static IrInstruction *ir_build_embed_file(IrBuilder *irb, Scope *scope, AstNode 
 
 static IrInstruction *ir_build_cmpxchg_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
     IrInstruction *type_value, IrInstruction *ptr, IrInstruction *cmp_value, IrInstruction *new_value,
-    IrInstruction *success_order_value, IrInstruction *failure_order_value,
-    bool is_weak)
+    IrInstruction *success_order_value, IrInstruction *failure_order_value, bool is_weak, ResultLoc *result_loc)
 {
     IrInstructionCmpxchgSrc *instruction = ir_build_instruction<IrInstructionCmpxchgSrc>(irb, scope, source_node);
     instruction->type_value = type_value;
@@ -2043,6 +2042,7 @@ static IrInstruction *ir_build_cmpxchg_src(IrBuilder *irb, Scope *scope, AstNode
     instruction->success_order_value = success_order_value;
     instruction->failure_order_value = failure_order_value;
     instruction->is_weak = is_weak;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
     ir_ref_instruction(ptr, irb->current_basic_block);
@@ -2054,22 +2054,25 @@ static IrInstruction *ir_build_cmpxchg_src(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_cmpxchg_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+static IrInstruction *ir_build_cmpxchg_gen(IrAnalyze *ira, IrInstruction *source_instruction, ZigType *result_type,
     IrInstruction *ptr, IrInstruction *cmp_value, IrInstruction *new_value,
-    AtomicOrder success_order, AtomicOrder failure_order, bool is_weak)
+    AtomicOrder success_order, AtomicOrder failure_order, bool is_weak, IrInstruction *result_loc)
 {
     IrInstructionCmpxchgGen *instruction = ir_build_instruction<IrInstructionCmpxchgGen>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
     instruction->ptr = ptr;
     instruction->cmp_value = cmp_value;
     instruction->new_value = new_value;
     instruction->success_order = success_order;
     instruction->failure_order = failure_order;
     instruction->is_weak = is_weak;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
     ir_ref_instruction(cmp_value, ira->new_irb.current_basic_block);
     ir_ref_instruction(new_value, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -4420,7 +4423,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg5_value;
 
                 IrInstruction *cmpxchg = ir_build_cmpxchg_src(irb, scope, node, arg0_value, arg1_value,
-                    arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak));
+                    arg2_value, arg3_value, arg4_value, arg5_value, (builtin_fn->id == BuiltinFnIdCmpxchgWeak),
+                    result_loc);
                 return ir_lval_wrap(irb, scope, cmpxchg, lval, result_loc);
             }
         case BuiltinFnIdFence:
@@ -20439,6 +20443,18 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
     if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
 
+    ZigType *result_type = get_optional_type(ira->codegen, operand_type);
+    IrInstruction *result_loc;
+    if (handle_is_ptr(result_type)) {
+        result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+                result_type, nullptr);
+        if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+            return result_loc;
+        }
+    } else {
+        result_loc = nullptr;
+    }
+
     // TODO let this be volatile
     ZigType *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
     IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr, ptr_type);
@@ -20502,12 +20518,9 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
         zig_panic("TODO compile-time execution of cmpxchg");
     }
 
-    IrInstruction *result = ir_build_cmpxchg_gen(ira, &instruction->base,
+    return ir_build_cmpxchg_gen(ira, &instruction->base, result_type,
             casted_ptr, casted_cmp_value, casted_new_value,
-            success_order, failure_order, instruction->is_weak);
-    result->value.type = get_optional_type(ira->codegen, operand_type);
-    ir_add_alloca(ira, result, result->value.type);
-    return result;
+            success_order, failure_order, instruction->is_weak, result_loc);
 }
 
 static IrInstruction *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructionFence *instruction) {

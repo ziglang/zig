@@ -730,7 +730,8 @@ static void ir_print_cmpxchg_src(IrPrint *irp, IrInstructionCmpxchgSrc *instruct
     ir_print_other_instruction(irp, instruction->success_order_value);
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->failure_order_value);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, instruction->result_loc);
 }
 
 static void ir_print_cmpxchg_gen(IrPrint *irp, IrInstructionCmpxchgGen *instruction) {
@@ -740,7 +741,8 @@ static void ir_print_cmpxchg_gen(IrPrint *irp, IrInstructionCmpxchgGen *instruct
     ir_print_other_instruction(irp, instruction->cmp_value);
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->new_value);
-    fprintf(irp->f, ", TODO print atomic orders)");
+    fprintf(irp->f, ", TODO print atomic orders)result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {

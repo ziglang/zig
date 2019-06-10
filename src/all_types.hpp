@@ -2862,26 +2862,26 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchgSrc {
     IrInstruction base;
 
+    bool is_weak;
     IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
     IrInstruction *success_order_value;
     IrInstruction *failure_order_value;
-
-    bool is_weak;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionCmpxchgGen {
     IrInstruction base;
 
+    bool is_weak;
+    AtomicOrder success_order;
+    AtomicOrder failure_order;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
-    LLVMValueRef tmp_ptr;
-    AtomicOrder success_order;
-    AtomicOrder failure_order;
-    bool is_weak;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionFence {

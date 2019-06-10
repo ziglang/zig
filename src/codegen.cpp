@@ -4516,28 +4516,28 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
             success_order, failure_order, instruction->is_weak);
 
-    ZigType *maybe_type = instruction->base.value.type;
-    assert(maybe_type->id == ZigTypeIdOptional);
-    ZigType *child_type = maybe_type->data.maybe.child_type;
+    ZigType *optional_type = instruction->base.value.type;
+    assert(optional_type->id == ZigTypeIdOptional);
+    ZigType *child_type = optional_type->data.maybe.child_type;
 
-    if (!handle_is_ptr(maybe_type)) {
+    if (!handle_is_ptr(optional_type)) {
         LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
         LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
         return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(get_llvm_type(g, child_type)), payload_val, "");
     }
 
-    assert(instruction->tmp_ptr != nullptr);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     assert(type_has_bits(child_type));
 
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
-    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
 
     LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
     LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
-    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
     gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
-    return instruction->tmp_ptr;
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
@@ -6840,9 +6840,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdCmpxchgGen) {
-                IrInstructionCmpxchgGen *cmpxchg_instruction = (IrInstructionCmpxchgGen *)instruction;
-                slot = &cmpxchg_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdResizeSlice) {
                 IrInstructionResizeSlice *resize_slice_instruction = (IrInstructionResizeSlice *)instruction;
                 slot = &resize_slice_instruction->tmp_ptr;
