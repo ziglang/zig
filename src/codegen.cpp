@@ -3376,13 +3376,13 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
 
     if (handle_is_ptr(child_type)) {
-        assert(instruction->tmp_ptr != nullptr);
+        LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
         LLVMTypeRef same_size_int = LLVMIntType(size_in_bits);
         LLVMValueRef truncated_int = LLVMBuildTrunc(g->builder, shifted_value, same_size_int, "");
-        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, result_loc,
                                                       LLVMPointerType(same_size_int, 0), "");
         LLVMBuildStore(g->builder, truncated_int, bitcasted_ptr);
-        return instruction->tmp_ptr;
+        return result_loc;
     }
 
     if (child_type->id == ZigTypeIdFloat) {
@@ -6838,9 +6838,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdLoadPtrGen) {
-                IrInstructionLoadPtrGen *load_ptr_inst = (IrInstructionLoadPtrGen *)instruction;
-                slot = &load_ptr_inst->tmp_ptr;
             } else if (instruction->id == IrInstructionIdVectorToArray) {
                 IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
                 alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);

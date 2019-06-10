@@ -397,8 +397,10 @@ static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
 }
 
 static void ir_print_load_ptr_gen(IrPrint *irp, IrInstructionLoadPtrGen *instruction) {
+    fprintf(irp->f, "loadptr(");
     ir_print_other_instruction(irp, instruction->ptr);
-    fprintf(irp->f, ".*");
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {

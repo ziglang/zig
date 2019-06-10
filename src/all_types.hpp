@@ -2449,8 +2449,9 @@ struct IrInstructionUnOp {
     IrInstruction base;
 
     IrUnOp op_id;
-    IrInstruction *value;
     LVal lval;
+    IrInstruction *value;
+    ResultLoc *result_loc;
 };
 
 enum IrBinOp {
@@ -2507,7 +2508,7 @@ struct IrInstructionLoadPtrGen {
     IrInstruction base;
 
     IrInstruction *ptr;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionStorePtr {

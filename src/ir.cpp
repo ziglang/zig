@@ -161,7 +161,8 @@ static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc);
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, ZigType *expected_type);
-static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr);
+static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr,
+        ResultLoc *result_loc);
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
 static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type, bool initializing);
@@ -1467,12 +1468,13 @@ static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *s
 }
 
 static IrInstruction *ir_build_un_op_lval(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id,
-        IrInstruction *value, LVal lval)
+        IrInstruction *value, LVal lval, ResultLoc *result_loc)
 {
     IrInstructionUnOp *instruction = ir_build_instruction<IrInstructionUnOp>(irb, scope, source_node);
     instruction->op_id = op_id;
     instruction->value = value;
     instruction->lval = lval;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -1482,7 +1484,7 @@ static IrInstruction *ir_build_un_op_lval(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id,
         IrInstruction *value)
 {
-    return ir_build_un_op_lval(irb, scope, source_node, op_id, value, LValNone);
+    return ir_build_un_op_lval(irb, scope, source_node, op_id, value, LValNone, nullptr);
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -2471,14 +2473,16 @@ static IrInstruction *ir_build_ptr_cast_gen(IrAnalyze *ira, IrInstruction *sourc
 }
 
 static IrInstruction *ir_build_load_ptr_gen(IrAnalyze *ira, IrInstruction *source_instruction,
-        IrInstruction *ptr, ZigType *ty)
+        IrInstruction *ptr, ZigType *ty, IrInstruction *result_loc)
 {
     IrInstructionLoadPtrGen *instruction = ir_build_instruction<IrInstructionLoadPtrGen>(
             &ira->new_irb, source_instruction->scope, source_instruction->source_node);
     instruction->base.value.type = ty;
     instruction->ptr = ptr;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -8028,7 +8032,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             // We essentially just converted any lvalue from &(x.*) to (&x).*;
             // this inhibits checking that x is a pointer later, so we directly
             // record whether the pointer check is needed
-            return ir_build_un_op_lval(irb, scope, node, IrUnOpDereference, value, lval);
+            IrInstruction *un_op = ir_build_un_op_lval(irb, scope, node, IrUnOpDereference, value, lval, result_loc);
+            return ir_expr_wrap(irb, scope, un_op, result_loc);
         }
         case NodeTypeUnwrapOptional: {
             AstNode *expr_node = node->data.unwrap_optional.expr;
@@ -11312,7 +11317,7 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     IrInstruction *array_ptr = nullptr;
     IrInstruction *array;
     if (array_arg->value.type->id == ZigTypeIdPointer) {
-        array = ir_get_deref(ira, source_instr, array_arg);
+        array = ir_get_deref(ira, source_instr, array_arg, nullptr);
         array_ptr = array_arg;
     } else {
         array = array_arg;
@@ -12512,60 +12517,71 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Zig
     return ir_implicit_cast_with_result(ira, value, expected_type, nullptr);
 }
 
-static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr) {
+static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr,
+        ResultLoc *result_loc)
+{
     Error err;
     ZigType *type_entry = ptr->value.type;
-    if (type_is_invalid(type_entry)) {
+    if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
-    } else if (type_entry->id == ZigTypeIdPointer) {
-        ZigType *child_type = type_entry->data.pointer.child_type;
-        // if the child type has one possible value, the deref is comptime
-        switch (type_has_one_possible_value(ira->codegen, child_type)) {
-            case OnePossibleValueInvalid:
-                return ira->codegen->invalid_instruction;
-            case OnePossibleValueYes:
-                return ir_const(ira, source_instruction, child_type);
-            case OnePossibleValueNo:
-                break;
-        }
-        if (instr_is_comptime(ptr)) {
-            if (ptr->value.special == ConstValSpecialUndef) {
-                ir_add_error(ira, ptr, buf_sprintf("attempt to dereference undefined value"));
-                return ira->codegen->invalid_instruction;
-            }
-            if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
-                ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
-            {
-                ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
-                if (pointee->special != ConstValSpecialRuntime) {
-                    IrInstruction *result = ir_const(ira, source_instruction, child_type);
 
-                    if ((err = ir_read_const_ptr(ira, ira->codegen, source_instruction->source_node, &result->value,
-                                    &ptr->value)))
-                    {
-                        return ira->codegen->invalid_instruction;
-                    }
-                    result->value.type = child_type;
-                    return result;
-                }
-            }
-        }
-        // if the instruction is a const ref instruction we can skip it
-        if (ptr->id == IrInstructionIdRef) {
-            IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr);
-            return ref_inst->value;
-        }
-        IrInstruction *result = ir_build_load_ptr_gen(ira, source_instruction, ptr, child_type);
-        if (type_entry->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
-            ir_add_alloca(ira, result, child_type);
-        }
-        return result;
-    } else {
+    if (type_entry->id != ZigTypeIdPointer) {
         ir_add_error_node(ira, source_instruction->source_node,
             buf_sprintf("attempt to dereference non-pointer type '%s'",
                 buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    ZigType *child_type = type_entry->data.pointer.child_type;
+    // if the child type has one possible value, the deref is comptime
+    switch (type_has_one_possible_value(ira->codegen, child_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            return ir_const(ira, source_instruction, child_type);
+        case OnePossibleValueNo:
+            break;
+    }
+    if (instr_is_comptime(ptr)) {
+        if (ptr->value.special == ConstValSpecialUndef) {
+            ir_add_error(ira, ptr, buf_sprintf("attempt to dereference undefined value"));
+            return ira->codegen->invalid_instruction;
+        }
+        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst ||
+            ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
+        {
+            ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
+            if (pointee->special != ConstValSpecialRuntime) {
+                IrInstruction *result = ir_const(ira, source_instruction, child_type);
+
+                if ((err = ir_read_const_ptr(ira, ira->codegen, source_instruction->source_node, &result->value,
+                                &ptr->value)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                result->value.type = child_type;
+                return result;
+            }
+        }
+    }
+    // if the instruction is a const ref instruction we can skip it
+    if (ptr->id == IrInstructionIdRef) {
+        IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr);
+        return ref_inst->value;
+    }
+
+    IrInstruction *result_loc_inst;
+    if (type_entry->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
+        if (result_loc == nullptr) result_loc = no_result_loc();
+        result_loc_inst = ir_resolve_result(ira, source_instruction, result_loc, child_type, nullptr);
+        if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+            return result_loc_inst;
+        }
+    } else {
+        result_loc_inst = nullptr;
+    }
+
+    return ir_build_load_ptr_gen(ira, source_instruction, ptr, child_type, result_loc_inst);
 }
 
 static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out) {
@@ -14585,7 +14601,7 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
                 ZigVar *coro_allocator_var = ira->old_irb.exec->coro_allocator_var;
                 assert(coro_allocator_var != nullptr);
                 IrInstruction *var_ptr_inst = ir_get_var_ptr(ira, source_instr, coro_allocator_var);
-                IrInstruction *result = ir_get_deref(ira, source_instr, var_ptr_inst);
+                IrInstruction *result = ir_get_deref(ira, source_instr, var_ptr_inst, nullptr);
                 assert(result->value.type != nullptr);
                 return result;
             }
@@ -15313,7 +15329,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (!first_arg_known_bare && handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
                 first_arg = first_arg_ptr;
             } else {
-                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr, nullptr);
                 if (type_is_invalid(first_arg->value.type))
                     return ira->codegen->invalid_instruction;
             }
@@ -15472,7 +15488,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (!first_arg_known_bare && handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
                 first_arg = first_arg_ptr;
             } else {
-                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr, nullptr);
                 if (type_is_invalid(first_arg->value.type))
                     return ira->codegen->invalid_instruction;
             }
@@ -15516,7 +15532,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     if (type_is_invalid(arg_var_ptr_inst->value.type))
                         return ira->codegen->invalid_instruction;
 
-                    IrInstruction *arg_tuple_arg = ir_get_deref(ira, arg, arg_var_ptr_inst);
+                    IrInstruction *arg_tuple_arg = ir_get_deref(ira, arg, arg_var_ptr_inst, nullptr);
                     if (type_is_invalid(arg_tuple_arg->value.type))
                         return ira->codegen->invalid_instruction;
 
@@ -15702,7 +15718,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         {
             first_arg = first_arg_ptr;
         } else {
-            first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+            first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr, nullptr);
             if (type_is_invalid(first_arg->value.type))
                 return ira->codegen->invalid_instruction;
         }
@@ -16113,7 +16129,7 @@ static IrInstruction *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstruction
                 return ira->codegen->invalid_instruction;
             }
 
-            IrInstruction *result = ir_get_deref(ira, &instruction->base, ptr);
+            IrInstruction *result = ir_get_deref(ira, &instruction->base, ptr, instruction->result_loc);
             if (result == ira->codegen->invalid_instruction)
                 return ira->codegen->invalid_instruction;
 
@@ -16994,7 +17010,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
         assert(container_ptr->value.type->id == ZigTypeIdPointer);
         if (container_type->id == ZigTypeIdPointer) {
             ZigType *bare_type = container_ref_type(container_type);
-            IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr);
+            IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr, nullptr);
             IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_child, bare_type, field_ptr_instruction->initializing);
             return result;
         } else {
@@ -17339,7 +17355,7 @@ static IrInstruction *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstruct
     IrInstruction *ptr = instruction->ptr->child;
     if (type_is_invalid(ptr->value.type))
         return ira->codegen->invalid_instruction;
-    return ir_get_deref(ira, &instruction->base, ptr);
+    return ir_get_deref(ira, &instruction->base, ptr, nullptr);
 }
 
 static IrInstruction *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructionTypeOf *typeof_instruction) {
@@ -17807,7 +17823,7 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
         }
         if (!safety_check_on)
             return base_ptr;
-        IrInstruction *c_ptr_val = ir_get_deref(ira, source_instr, base_ptr);
+        IrInstruction *c_ptr_val = ir_get_deref(ira, source_instr, base_ptr, nullptr);
         ir_build_assert_non_null(ira, source_instr, c_ptr_val);
         return base_ptr;
     }
@@ -18162,7 +18178,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *result = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
+            IrInstruction *result = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr, nullptr);
             result->value.type = target_type;
             return result;
         }
@@ -18192,7 +18208,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *union_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
+            IrInstruction *union_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr, nullptr);
             union_value->value.type = target_type;
 
             IrInstruction *union_tag_inst = ir_build_union_tag(&ira->new_irb, switch_target_instruction->base.scope,
@@ -18216,7 +18232,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 return result;
             }
 
-            IrInstruction *enum_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr);
+            IrInstruction *enum_value = ir_get_deref(ira, &switch_target_instruction->base, target_value_ptr, nullptr);
             enum_value->value.type = target_type;
             return enum_value;
         }
@@ -23105,7 +23121,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             if (lval == LValPtr) {
                 return var_ptr;
             } else {
-                return ir_get_deref(ira, &instruction->base, var_ptr);
+                return ir_get_deref(ira, &instruction->base, var_ptr, nullptr);
             }
         }
         case TldIdFn: {
@@ -23640,7 +23656,7 @@ static IrInstruction *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstr
     }
 
     if (instr_is_comptime(casted_ptr)) {
-        IrInstruction *result = ir_get_deref(ira, &instruction->base, casted_ptr);
+        IrInstruction *result = ir_get_deref(ira, &instruction->base, casted_ptr, nullptr);
         ir_assert(result->value.type != nullptr, &instruction->base);
         return result;
     }
@@ -24474,7 +24490,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdUnOp:
         case IrInstructionIdBinOp:
         case IrInstructionIdLoadPtr:
-        case IrInstructionIdLoadPtrGen:
         case IrInstructionIdConst:
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
@@ -24585,6 +24600,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             return reinterpret_cast<IrInstructionErrWrapPayload *>(instruction)->result_loc != nullptr;
         case IrInstructionIdErrWrapCode:
             return reinterpret_cast<IrInstructionErrWrapCode *>(instruction)->result_loc != nullptr;
+        case IrInstructionIdLoadPtrGen:
+            return reinterpret_cast<IrInstructionLoadPtrGen *>(instruction)->result_loc != nullptr;
     }
     zig_unreachable();
 }
