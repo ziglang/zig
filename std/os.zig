@@ -559,7 +559,7 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
 /// TODO provide execveC which does not take an allocator
 pub fn execve(allocator: *mem.Allocator, argv_slice: []const []const u8, env_map: *const std.BufMap) !void {
     const argv_buf = try allocator.alloc(?[*]u8, argv_slice.len + 1);
-    mem.set(?[*]u8, argv_buf, null);
+    mem.set(argv_buf, null);
     defer {
         for (argv_buf) |arg| {
             const arg_buf = if (arg) |ptr| mem.toSlice(u8, ptr) else break;
@@ -615,7 +615,7 @@ pub fn execve(allocator: *mem.Allocator, argv_slice: []const []const u8, env_map
 pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*]u8 {
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
-    mem.set(?[*]u8, envp_buf, null);
+    mem.set(envp_buf, null);
     errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();

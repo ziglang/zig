@@ -88,7 +88,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
         pub fn final(d: *Self) T {
             // Padding
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(d.buf[d.buf_len..], 0);
             d.buf[7] = d.msg_len;
             d.round(d.buf[0..]);
 

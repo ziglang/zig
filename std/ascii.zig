@@ -137,7 +137,7 @@ const combinedTable = init: {
             u8(punct[i]) << @enumToInt(tIndex.Punct) |
             u8(graph[i]) << @enumToInt(tIndex.Graph);
     }
-    mem.set(u8, table[128..256], 0);
+    mem.set(table[128..256], 0);
     break :init table;
 };
 

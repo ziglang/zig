@@ -27,7 +27,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
         }
 
         pub fn reset(d: *Self) void {
-            mem.set(u8, d.s[0..], 0);
+            mem.set(d.s[0..], 0);
             d.offset = 0;
             d.rate = 200 - (bits / 4);
         }

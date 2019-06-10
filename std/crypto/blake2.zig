@@ -116,7 +116,7 @@ fn Blake2s(comptime out_len: usize) type {
         pub fn final(d: *Self, out: []u8) void {
             debug.assert(out.len >= out_len / 8);
 
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 
@@ -351,7 +351,7 @@ fn Blake2b(comptime out_len: usize) type {
         }
 
         pub fn final(d: *Self, out: []u8) void {
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
 

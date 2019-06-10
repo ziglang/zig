@@ -140,7 +140,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             debug.assert(out.len >= params.out_len / 8);
 
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(d.buf[d.buf_len..], 0);
 
             // Append padding bits.
             d.buf[d.buf_len] = 0x80;
@@ -149,7 +149,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             // > 448 mod 512 so need to add an extra round to wrap around.
             if (64 - d.buf_len < 8) {
                 d.round(d.buf[0..]);
-                mem.set(u8, d.buf[0..], 0);
+                mem.set(d.buf[0..], 0);
             }
 
             // Append message length.
@@ -482,7 +482,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             debug.assert(out.len >= params.out_len / 8);
 
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            mem.set(d.buf[d.buf_len..], 0);
 
             // Append padding bits.
             d.buf[d.buf_len] = 0x80;
@@ -491,7 +491,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             // > 896 mod 1024 so need to add an extra round to wrap around.
             if (128 - d.buf_len < 16) {
                 d.round(d.buf[0..]);
-                mem.set(u8, d.buf[0..], 0);
+                mem.set(d.buf[0..], 0);
             }
 
             // Append message length.

@@ -27,7 +27,7 @@ pub const Poly1305 = struct {
     c_idx: usize,
 
     fn secureZero(self: *Self) void {
-        std.mem.secureZero(u8, @ptrCast([*]u8, self)[0..@sizeOf(Poly1305)]);
+        std.mem.secureZero(@ptrCast([*]u8, self)[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: []u8, msg: []const u8, key: []const u8) void {

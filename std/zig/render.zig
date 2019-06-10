@@ -704,7 +704,7 @@ fn renderExpression(
                         // A place to store the width of each expression and its column's maximum
                         var widths = try allocator.alloc(usize, exprs.len + row_size);
                         defer allocator.free(widths);
-                        mem.set(usize, widths, 0);
+                        mem.set(widths, 0);
 
                         var expr_widths = widths[0 .. widths.len - row_size];
                         var column_widths = widths[widths.len - row_size ..];

@@ -807,7 +807,7 @@ pub const Int = struct {
         debug.assert(a.len >= b.len);
         debug.assert(r.len >= a.len + b.len);
 
-        mem.set(Limb, r[0 .. a.len + b.len], 0);
+        mem.set(r[0 .. a.len + b.len], 0);
 
         var i: usize = 0;
         while (i < a.len) : (i += 1) {
@@ -974,7 +974,7 @@ pub const Int = struct {
 
         // 1.
         q.metadata = n - t + 1;
-        mem.set(Limb, q.limbs[0..q.len()], 0);
+        mem.set(q.limbs[0..q.len()], 0);
 
         // 2.
         try tmp.shiftLeft(y.*, Limb.bit_count * (n - t));
@@ -1066,7 +1066,7 @@ pub const Int = struct {
         }
 
         r[limb_shift - 1] = carry;
-        mem.set(Limb, r[0 .. limb_shift - 1], 0);
+        mem.set(r[0 .. limb_shift - 1], 0);
     }
 
     /// r = a >> shift

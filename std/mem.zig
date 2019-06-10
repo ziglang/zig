@@ -248,16 +248,16 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
-pub fn set(comptime T: type, dest: []T, value: T) void {
+pub fn set(dest: var, value: @typeInfo(@typeOf(dest)).Pointer.child) void {
     for (dest) |*d|
         d.* = value;
 }
 
-pub fn secureZero(comptime T: type, s: []T) void {
+pub fn secureZero(s: var) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
     const ptr = @ptrCast([*]volatile u8, s.ptr);
-    const length = s.len * @sizeOf(T);
+    const length = s.len * @sizeOf(@typeInfo(@typeOf(s)).Pointer.child);
     @memset(ptr, 0, length);
 }
 
@@ -265,8 +265,8 @@ test "mem.secureZero" {
     var a = [_]u8{0xfe} ** 8;
     var b = [_]u8{0xfe} ** 8;
 
-    set(u8, a[0..], 0);
-    secureZero(u8, b[0..]);
+    set(a[0..], 0);
+    secureZero(b[0..]);
 
     testing.expectEqualSlices(u8, a[0..], b[0..]);
 }

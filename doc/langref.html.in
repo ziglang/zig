@@ -6964,7 +6964,7 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       </p>
       <p>There is also a standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
-mem.set(u8, dest, c);{#endsyntax#}</pre>
+mem.set(dest, c);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@mod#}

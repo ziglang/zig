@@ -32,10 +32,10 @@ pub fn Hmac(comptime Hash: type) type {
             // Normalize key length to block size of hash
             if (key.len > Hash.block_length) {
                 Hash.hash(key, ctx.scratch[0..mac_length]);
-                mem.set(u8, ctx.scratch[mac_length..Hash.block_length], 0);
+                mem.set(ctx.scratch[mac_length..Hash.block_length], 0);
             } else if (key.len < Hash.block_length) {
                 mem.copy(u8, ctx.scratch[0..key.len], key);
-                mem.set(u8, ctx.scratch[key.len..Hash.block_length], 0);
+                mem.set(ctx.scratch[key.len..Hash.block_length], 0);
             } else {
                 mem.copy(u8, ctx.scratch[0..], key);
             }

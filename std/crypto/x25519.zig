@@ -108,7 +108,7 @@ pub const X25519 = struct {
         t1.secureZero();
         z2.secureZero();
         z3.secureZero();
-        std.mem.secureZero(u8, e[0..]);
+        std.mem.secureZero(e[0..]);
 
         // Returns false if the output is all zero
         // (happens with some malicious public keys)
@@ -141,7 +141,7 @@ const Fe = struct {
     b: [10]i32,
 
     fn secureZero(self: *Fe) void {
-        std.mem.secureZero(u8, @ptrCast([*]u8, self)[0..@sizeOf(Fe)]);
+        std.mem.secureZero(@ptrCast([*]u8, self)[0..@sizeOf(Fe)]);
     }
 
     fn init0(h: *Fe) void {
@@ -554,7 +554,7 @@ const Fe = struct {
         writeIntSliceLittle(u32, s[24..28], (ut[7] >> 13) | (ut[8] << 12));
         writeIntSliceLittle(u32, s[28..], (ut[8] >> 20) | (ut[9] << 6));
 
-        std.mem.secureZero(i64, t[0..]);
+        std.mem.secureZero(t[0..]);
     }
 
     //  Parity check.  Returns 0 if even, 1 if odd

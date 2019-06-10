@@ -88,7 +88,7 @@ pub const Md5 = struct {
         debug.assert(out.len >= 16);
 
         // The buffer here will never be completely full.
-        mem.set(u8, d.buf[d.buf_len..], 0);
+        mem.set(d.buf[d.buf_len..], 0);
 
         // Append padding bits.
         d.buf[d.buf_len] = 0x80;
@@ -97,7 +97,7 @@ pub const Md5 = struct {
         // > 448 mod 512 so need to add an extra round to wrap around.
         if (64 - d.buf_len < 8) {
             d.round(d.buf[0..]);
-            mem.set(u8, d.buf[0..], 0);
+            mem.set(d.buf[0..], 0);
         }
 
         // Append message length.
