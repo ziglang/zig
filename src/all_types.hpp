@@ -2635,7 +2635,7 @@ struct IrInstructionResizeSlice {
     IrInstruction base;
 
     IrInstruction *operand;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitList {
@@ -2925,6 +2925,7 @@ struct IrInstructionToBytes {
     IrInstruction base;
 
     IrInstruction *target;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionFromBytes {
@@ -2932,6 +2933,7 @@ struct IrInstructionFromBytes {
 
     IrInstruction *dest_child_type;
     IrInstruction *target;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionIntToFloat {

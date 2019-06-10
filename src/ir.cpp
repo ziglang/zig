@@ -1574,14 +1574,16 @@ static IrInstruction *ir_build_var_decl_gen(IrAnalyze *ira, IrInstruction *sourc
 }
 
 static IrInstruction *ir_build_resize_slice(IrAnalyze *ira, IrInstruction *source_instruction,
-        IrInstruction *operand, ZigType *ty)
+        IrInstruction *operand, ZigType *ty, IrInstruction *result_loc)
 {
     IrInstructionResizeSlice *instruction = ir_build_instruction<IrInstructionResizeSlice>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
     instruction->base.value.type = ty;
     instruction->operand = operand;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -2131,19 +2133,25 @@ static IrInstruction *ir_build_err_set_cast(IrBuilder *irb, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_to_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target) {
+static IrInstruction *ir_build_to_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *target,
+        ResultLoc *result_loc)
+{
     IrInstructionToBytes *instruction = ir_build_instruction<IrInstructionToBytes>(irb, scope, source_node);
     instruction->target = target;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_from_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_child_type, IrInstruction *target) {
+static IrInstruction *ir_build_from_bytes(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *dest_child_type, IrInstruction *target, ResultLoc *result_loc)
+{
     IrInstructionFromBytes *instruction = ir_build_instruction<IrInstructionFromBytes>(irb, scope, source_node);
     instruction->dest_child_type = dest_child_type;
     instruction->target = target;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(dest_child_type, irb->current_basic_block);
     ir_ref_instruction(target, irb->current_basic_block);
@@ -4599,7 +4607,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *result = ir_build_from_bytes(irb, scope, node, arg0_value, arg1_value);
+                IrInstruction *result = ir_build_from_bytes(irb, scope, node, arg0_value, arg1_value, result_loc);
                 return ir_lval_wrap(irb, scope, result, lval, result_loc);
             }
         case BuiltinFnIdToBytes:
@@ -4609,7 +4617,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *result = ir_build_to_bytes(irb, scope, node, arg0_value);
+                IrInstruction *result = ir_build_to_bytes(irb, scope, node, arg0_value, result_loc);
                 return ir_lval_wrap(irb, scope, result, lval, result_loc);
             }
         case BuiltinFnIdIntToFloat:
@@ -5681,7 +5689,8 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 ir_ref_instruction(elem_ptr, irb->current_basic_block);
                 ResultLoc *child_result_loc = &result_loc_inst->base;
 
-                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, scope, LValNone, child_result_loc);
+                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, &result_loc->scope_elide->base,
+                        LValNone, child_result_loc);
                 if (expr_value == irb->codegen->invalid_instruction)
                     return expr_value;
 
@@ -14687,6 +14696,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             if (fn_entry != nullptr) {
                 fn_entry->alloca_gen_list.append(alloca_gen);
             }
+            result_loc->written = true;
             result_loc->resolved_loc = &alloca_gen->base;
             return result_loc->resolved_loc;
         }
@@ -20766,6 +20776,12 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         }
     }
 
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+            dest_slice_type, nullptr);
+    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+        return result_loc;
+    }
+
     if (casted_value->value.data.rh_slice.id == RuntimeHintSliceIdLen) {
         known_len = casted_value->value.data.rh_slice.len;
         have_known_len = true;
@@ -20785,9 +20801,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         }
     }
 
-    IrInstruction *result = ir_build_resize_slice(ira, &instruction->base, casted_value, dest_slice_type);
-    ir_add_alloca(ira, result, dest_slice_type);
-    return result;
+    return ir_build_resize_slice(ira, &instruction->base, casted_value, dest_slice_type, result_loc);
 }
 
 static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstructionToBytes *instruction) {
@@ -20839,9 +20853,13 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
         return result;
     }
 
-    IrInstruction *result = ir_build_resize_slice(ira, &instruction->base, target, dest_slice_type);
-    ir_add_alloca(ira, result, dest_slice_type);
-    return result;
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+            dest_slice_type, nullptr);
+    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+        return result_loc;
+    }
+
+    return ir_build_resize_slice(ira, &instruction->base, target, dest_slice_type, result_loc);
 }
 
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align) {

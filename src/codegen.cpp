@@ -2943,7 +2943,7 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
     LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
     assert(expr_val);
 
-    assert(instruction->tmp_ptr);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     assert(wanted_type->id == ZigTypeIdStruct);
     assert(wanted_type->data.structure.is_slice);
     assert(actual_type->id == ZigTypeIdStruct);
@@ -2964,7 +2964,7 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
     LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
     LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
             get_llvm_type(g, wanted_type->data.structure.fields[0].type_entry), "");
-    LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
+    LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, result_loc,
             (unsigned)wanted_ptr_index, "");
     gen_store_untyped(g, src_ptr_casted, dest_ptr_ptr, 0, false);
 
@@ -2997,12 +2997,10 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
         zig_unreachable();
     }
 
-    LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
-            (unsigned)wanted_len_index, "");
+    LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, result_loc, (unsigned)wanted_len_index, "");
     gen_store_untyped(g, new_len, dest_len_ptr, 0, false);
 
-
-    return instruction->tmp_ptr;
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
@@ -6840,9 +6838,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdResizeSlice) {
-                IrInstructionResizeSlice *resize_slice_instruction = (IrInstructionResizeSlice *)instruction;
-                slot = &resize_slice_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdLoadPtrGen) {
                 IrInstructionLoadPtrGen *load_ptr_inst = (IrInstructionLoadPtrGen *)instruction;
                 slot = &load_ptr_inst->tmp_ptr;

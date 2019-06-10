@@ -1125,7 +1125,8 @@ static void ir_print_assert_non_null(IrPrint *irp, IrInstructionAssertNonNull *i
 static void ir_print_resize_slice(IrPrint *irp, IrInstructionResizeSlice *instruction) {
     fprintf(irp->f, "@resizeSlice(");
     ir_print_other_instruction(irp, instruction->operand);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_alloca_src(IrPrint *irp, IrInstructionAllocaSrc *instruction) {
