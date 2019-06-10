@@ -2204,7 +2204,6 @@ enum IrInstructionId {
     IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
-    IrInstructionIdUnionInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
     IrInstructionIdSetCold,
@@ -2520,6 +2519,7 @@ struct IrInstructionStorePtr {
 struct IrInstructionFieldPtr {
     IrInstruction base;
 
+    bool initializing;
     IrInstruction *container_ptr;
     Buf *field_name_buffer;
     IrInstruction *field_name_expr;
@@ -2536,9 +2536,9 @@ struct IrInstructionStructFieldPtr {
 struct IrInstructionUnionFieldPtr {
     IrInstruction base;
 
+    bool initializing;
     IrInstruction *union_ptr;
     TypeUnionField *field;
-    bool is_const;
 };
 
 struct IrInstructionElemPtr {
@@ -2661,15 +2661,6 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
-};
-
-struct IrInstructionUnionInit {
-    IrInstruction base;
-
-    ZigType *union_type;
-    TypeUnionField *field;
-    IrInstruction *init_value;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionUnreachable {

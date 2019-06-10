@@ -360,15 +360,6 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
     fprintf(irp->f, "} // container init");
 }
 
-static void ir_print_union_init(IrPrint *irp, IrInstructionUnionInit *instruction) {
-    Buf *field_name = instruction->field->enum_field->name;
-
-    fprintf(irp->f, "%s {", buf_ptr(&instruction->union_type->name));
-    fprintf(irp->f, ".%s = ", buf_ptr(field_name));
-    ir_print_other_instruction(irp, instruction->init_value);
-    fprintf(irp->f, "} // union init");
-}
-
 static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {
     fprintf(irp->f, "unreachable");
 }
@@ -1589,9 +1580,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdContainerInitFields:
             ir_print_container_init_fields(irp, (IrInstructionContainerInitFields *)instruction);
-            break;
-        case IrInstructionIdUnionInit:
-            ir_print_union_init(irp, (IrInstructionUnionInit *)instruction);
             break;
         case IrInstructionIdUnreachable:
             ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);

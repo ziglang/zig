@@ -3859,7 +3859,12 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         return bitcasted_union_field_ptr;
     }
 
-    if (ir_want_runtime_safety(g, &instruction->base)) {
+    if (instruction->initializing) {
+        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
+        LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
+                &field->enum_field->value);
+        gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
+    } else if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
 
@@ -5035,43 +5040,6 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
 }
 
-static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, IrInstructionUnionInit *instruction) {
-    TypeUnionField *type_union_field = instruction->field;
-
-    if (!type_has_bits(type_union_field->type_entry))
-        return nullptr;
-
-    uint32_t field_align_bytes = get_abi_alignment(g, type_union_field->type_entry);
-    ZigType *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
-            false, false, PtrLenSingle, field_align_bytes,
-            0, 0, false);
-
-    LLVMValueRef uncasted_union_ptr;
-    // Even if safety is off in this block, if the union type has the safety field, we have to populate it
-    // correctly. Otherwise safety code somewhere other than here could fail.
-    ZigType *union_type = instruction->union_type;
-    if (union_type->data.unionation.gen_tag_index != SIZE_MAX) {
-        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
-                union_type->data.unionation.gen_tag_index, "");
-
-        LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
-                &type_union_field->enum_field->value);
-        gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
-
-        uncasted_union_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
-                (unsigned)union_type->data.unionation.gen_union_index, "");
-    } else {
-        uncasted_union_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, (unsigned)0, "");
-    }
-
-    LLVMValueRef field_ptr = LLVMBuildBitCast(g->builder, uncasted_union_ptr, get_llvm_type(g, ptr_type), "");
-    LLVMValueRef value = ir_llvm_value(g, instruction->init_value);
-
-    gen_assign_raw(g, field_ptr, ptr_type, value);
-
-    return instruction->tmp_ptr;
-}
-
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
     gen_panic(g, ir_llvm_value(g, instruction->msg), get_cur_err_ret_trace_val(g, instruction->base.scope));
     return nullptr;
@@ -5659,8 +5627,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdUnionTag:
             return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
-        case IrInstructionIdUnionInit:
-            return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
         case IrInstructionIdPtrCastGen:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCastGen *)instruction);
         case IrInstructionIdBitCastGen:
@@ -6874,9 +6840,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdContainerInitList) {
                 IrInstructionContainerInitList *container_init_list_instruction = (IrInstructionContainerInitList *)instruction;
                 slot = &container_init_list_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdUnionInit) {
-                IrInstructionUnionInit *union_init_instruction = (IrInstructionUnionInit *)instruction;
-                slot = &union_init_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
