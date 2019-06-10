@@ -891,7 +891,7 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
     }
 
     if (body == nullptr) {
-	Token *tok = eat_token(pc);
+        Token *tok = eat_token(pc);
         ast_error(pc, tok, "expected if body, found '%s'", token_name(tok->id));
     }
 
@@ -1000,7 +1000,7 @@ static AstNode *ast_parse_for_statement(ParseContext *pc) {
     }
 
     if (body == nullptr) {
-	Token *tok = eat_token(pc);
+        Token *tok = eat_token(pc);
         ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
     }
 
@@ -1034,7 +1034,7 @@ static AstNode *ast_parse_while_statement(ParseContext *pc) {
     }
 
     if (body == nullptr) {
-	Token *tok = eat_token(pc);
+        Token *tok = eat_token(pc);
         ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
     }
 
