@@ -80,9 +80,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         const prealloc_exp = blk: {
             // we don't use the prealloc_exp constant when prealloc_item_count is 0.
             assert(prealloc_item_count != 0);
+            assert(std.math.isPowerOfTwo(prealloc_item_count));
 
             const value = std.math.log2_int(usize, prealloc_item_count);
-            assert((1 << value) == prealloc_item_count); // prealloc_item_count must be a power of 2
             break :blk @typeOf(1)(value);
         };
         const ShelfIndex = std.math.Log2Int(usize);
