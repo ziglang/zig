@@ -1773,11 +1773,17 @@ static IrInstruction *ir_build_optional_wrap(IrAnalyze *ira, IrInstruction *sour
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_err_wrap_payload(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionErrWrapPayload *instruction = ir_build_instruction<IrInstructionErrWrapPayload>(irb, scope, source_node);
-    instruction->value = value;
+static IrInstruction *ir_build_err_wrap_payload(IrAnalyze *ira, IrInstruction *source_instruction,
+        ZigType *result_type, IrInstruction *operand, IrInstruction *result_loc)
+{
+    IrInstructionErrWrapPayload *instruction = ir_build_instruction<IrInstructionErrWrapPayload>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
+    instruction->operand = operand;
+    instruction->result_loc = result_loc;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -11078,12 +11084,13 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
 }
 
 static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *value, ZigType *wanted_type)
+        IrInstruction *value, ZigType *wanted_type, ResultLoc *result_loc)
 {
     assert(wanted_type->id == ZigTypeIdErrorUnion);
 
+    ZigType *payload_type = wanted_type->data.error_union.payload_type;
+    ZigType *err_set_type = wanted_type->data.error_union.err_set_type;
     if (instr_is_comptime(value)) {
-        ZigType *payload_type = wanted_type->data.error_union.payload_type;
         IrInstruction *casted_payload = ir_implicit_cast(ira, value, payload_type);
         if (type_is_invalid(casted_payload->value.type))
             return ira->codegen->invalid_instruction;
@@ -11093,7 +11100,7 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
             return ira->codegen->invalid_instruction;
 
         ConstExprValue *err_set_val = create_const_vals(1);
-        err_set_val->type = wanted_type->data.error_union.err_set_type;
+        err_set_val->type = err_set_type;
         err_set_val->special = ConstValSpecialStatic;
         err_set_val->data.x_err_set = nullptr;
 
@@ -11106,10 +11113,19 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_err_wrap_payload(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->value.type = wanted_type;
+    IrInstruction *result_loc_inst;
+    if (handle_is_ptr(wanted_type)) {
+        if (result_loc == nullptr) result_loc = no_result_loc();
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr);
+        if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+            return result_loc_inst;
+        }
+    } else {
+        result_loc_inst = nullptr;
+    }
+
+    IrInstruction *result = ir_build_err_wrap_payload(ira, source_instr, wanted_type, value, result_loc_inst);
     result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
-    ir_add_alloca(ira, result, wanted_type);
     return result;
 }
 
@@ -12057,12 +12073,12 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (types_match_const_cast_only(ira, wanted_type->data.error_union.payload_type, actual_type,
             source_node, false).id == ConstCastResultIdOk)
         {
-            return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+            return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type, result_loc);
         } else if (actual_type->id == ZigTypeIdComptimeInt ||
                    actual_type->id == ZigTypeIdComptimeFloat)
         {
             if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error_union.payload_type, true)) {
-                return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
+                return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type, result_loc);
             } else {
                 return ira->codegen->invalid_instruction;
             }
@@ -24447,7 +24463,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
         case IrInstructionIdErrWrapCode:
-        case IrInstructionIdErrWrapPayload:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
@@ -24512,6 +24527,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
                     (IrInstructionUnwrapErrPayload *)instruction;
                 return unwrap_err_payload_instruction->safety_check_on;
             }
+        case IrInstructionIdErrWrapPayload:
+            return reinterpret_cast<IrInstructionErrWrapPayload *>(instruction)->result_loc != nullptr;
     }
     zig_unreachable();
 }

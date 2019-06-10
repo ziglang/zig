@@ -5002,7 +5002,7 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     ZigType *err_set_type = wanted_type->data.error_union.err_set_type;
 
     if (!type_has_bits(err_set_type)) {
-        return ir_llvm_value(g, instruction->value);
+        return ir_llvm_value(g, instruction->operand);
     }
 
     LLVMValueRef ok_err_val = LLVMConstNull(get_llvm_type(g, g->err_tag_type));
@@ -5010,17 +5010,18 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     if (!type_has_bits(payload_type))
         return ok_err_val;
 
-    assert(instruction->tmp_ptr);
 
-    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
-    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+    LLVMValueRef payload_val = ir_llvm_value(g, instruction->operand);
+
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
     gen_store_untyped(g, ok_err_val, err_tag_ptr, 0, false);
 
-    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_payload_index, "");
     gen_assign_raw(g, payload_ptr, get_pointer_to_type(g, payload_type, false), payload_val);
 
-    return instruction->tmp_ptr;
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, IrInstructionUnionTag *instruction) {
@@ -6840,9 +6841,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdErrWrapPayload) {
-                IrInstructionErrWrapPayload *err_wrap_payload_instruction = (IrInstructionErrWrapPayload *)instruction;
-                slot = &err_wrap_payload_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdErrWrapCode) {
                 IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
                 slot = &err_wrap_code_instruction->tmp_ptr;
