@@ -3131,16 +3131,16 @@ static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope,
 }
 
 static IrInstruction *ir_build_vector_to_array(IrAnalyze *ira, IrInstruction *source_instruction,
-        IrInstruction *vector, ZigType *result_type)
+        ZigType *result_type, IrInstruction *vector, IrInstruction *result_loc)
 {
     IrInstructionVectorToArray *instruction = ir_build_instruction<IrInstructionVectorToArray>(&ira->new_irb,
         source_instruction->scope, source_instruction->source_node);
     instruction->base.value.type = result_type;
     instruction->vector = vector;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(vector, ira->new_irb.current_basic_block);
-
-    ir_add_alloca(ira, &instruction->base, result_type);
+    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -11985,7 +11985,7 @@ static IrInstruction *ir_analyze_array_to_vector(IrAnalyze *ira, IrInstruction *
 }
 
 static IrInstruction *ir_analyze_vector_to_array(IrAnalyze *ira, IrInstruction *source_instr,
-    IrInstruction *vector, ZigType *array_type)
+    IrInstruction *vector, ZigType *array_type, ResultLoc *result_loc)
 {
     if (instr_is_comptime(vector)) {
         // arrays and vectors have the same ConstExprValue representation
@@ -11994,7 +11994,11 @@ static IrInstruction *ir_analyze_vector_to_array(IrAnalyze *ira, IrInstruction *
         result->value.type = array_type;
         return result;
     }
-    return ir_build_vector_to_array(ira, source_instr, vector, array_type);
+    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, array_type, nullptr);
+    if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+        return result_loc_inst;
+    }
+    return ir_build_vector_to_array(ira, source_instr, array_type, vector, result_loc_inst);
 }
 
 static IrInstruction *ir_analyze_int_to_c_ptr(IrAnalyze *ira, IrInstruction *source_instr,
@@ -12453,7 +12457,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         types_match_const_cast_only(ira, wanted_type->data.array.child_type,
             actual_type->data.vector.elem_type, source_node, false).id == ConstCastResultIdOk)
     {
-        return ir_analyze_vector_to_array(ira, source_instr, value, wanted_type);
+        return ir_analyze_vector_to_array(ira, source_instr, value, wanted_type, result_loc);
     }
 
     // cast from [N]T to @Vector(N, T)
@@ -24484,6 +24488,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrOfArrayToSlice:
         case IrInstructionIdSliceGen:
         case IrInstructionIdOptionalWrap:
+        case IrInstructionIdVectorToArray:
             return true;
 
         case IrInstructionIdPhi:
@@ -24578,7 +24583,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFromBytes:
         case IrInstructionIdToBytes:
         case IrInstructionIdEnumToInt:
-        case IrInstructionIdVectorToArray:
         case IrInstructionIdArrayToVector:
         case IrInstructionIdHasDecl:
         case IrInstructionIdAllocaSrc:

@@ -5386,12 +5386,12 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executab
     ZigType *array_type = instruction->base.value.type;
     assert(array_type->id == ZigTypeIdArray);
     assert(handle_is_ptr(array_type));
-    assert(instruction->tmp_ptr);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
-    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr,
+    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
             LLVMPointerType(get_llvm_type(g, instruction->vector->value.type), 0), "");
     gen_store_untyped(g, vector, casted_ptr, 0, false);
-    return instruction->tmp_ptr;
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executable,
@@ -6838,10 +6838,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdVectorToArray) {
-                IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
-                alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);
-                slot = &vector_to_array_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }

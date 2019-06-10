@@ -1102,7 +1102,8 @@ static void ir_print_array_to_vector(IrPrint *irp, IrInstructionArrayToVector *i
 static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *instruction) {
     fprintf(irp->f, "VectorToArray(");
     ir_print_other_instruction(irp, instruction->vector);
-    fprintf(irp->f, ")");
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_ptr_of_array_to_slice(IrPrint *irp, IrInstructionPtrOfArrayToSlice *instruction) {

@@ -3522,7 +3522,7 @@ struct IrInstructionVectorToArray {
     IrInstruction base;
 
     IrInstruction *vector;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionAssertZero {
