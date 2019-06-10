@@ -1,4 +1,3 @@
-pub const struct_ZigClangAPValue = @OpaqueType();
 pub const struct_ZigClangAPSInt = @OpaqueType();
 pub const struct_ZigClangAPFloat = @OpaqueType();
 pub const struct_ZigClangASTContext = @OpaqueType();
@@ -928,3 +927,34 @@ pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributed
 pub extern fn ZigClangCStyleCastExpr_getBeginLoc(*const ZigClangCStyleCastExpr) ZigClangSourceLocation;
 pub extern fn ZigClangCStyleCastExpr_getSubExpr(*const ZigClangCStyleCastExpr) *const ZigClangExpr;
 pub extern fn ZigClangCStyleCastExpr_getType(*const ZigClangCStyleCastExpr) ZigClangQualType;
+
+pub const ZigClangExprEvalResult = struct_ZigClangExprEvalResult;
+pub const struct_ZigClangExprEvalResult = extern struct {
+    HasSideEffects: bool,
+    HasUndefinedBehavior: bool,
+    SmallVectorImpl: ?*c_void,
+    Val: ZigClangAPValue,
+};
+
+pub const struct_ZigClangAPValue = extern struct {
+    Kind: ZigClangAPValue_ValueKind,
+    Data: [68]u8, // TODO: is there a way to statically assert that this matches the .h?
+};
+
+pub const ZigClangAPValue_ValueKind = extern enum {
+    ZigClangAPValue_ValueKind_Uninitialized,
+    ZigClangAPValue_ValueKind_Int,
+    ZigClangAPValue_ValueKind_Float,
+    ZigClangAPValue_ValueKind_ComplexInt,
+    ZigClangAPValue_ValueKind_ComplexFloat,
+    ZigClangAPValue_ValueKind_LValue,
+    ZigClangAPValue_ValueKind_Vector,
+    ZigClangAPValue_ValueKind_Array,
+    ZigClangAPValue_ValueKind_Struct,
+    ZigClangAPValue_ValueKind_Union,
+    ZigClangAPValue_ValueKind_MemberPointer,
+    ZigClangAPValue_ValueKind_AddrLabelDiff,
+};
+
+pub extern fn ZigClangIntegerLiteral_EvaluateAsInt(*const ZigClangIntegerLiteral, *ZigClangExprEvalResult, *const ZigClangASTContext) bool;
+pub extern fn ZigClangIntegerLiteral_getBeginLoc(*const ZigClangIntegerLiteral) ZigClangSourceLocation;

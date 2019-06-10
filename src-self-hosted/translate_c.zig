@@ -333,6 +333,7 @@ fn transStmt(
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
         .DeclRefExprClass => return transDeclRefExpr(rp, scope, @ptrCast(*const ZigClangDeclRefExpr, stmt), lrvalue),
         .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt), result_used),
+        .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -534,6 +535,26 @@ fn transImplicitCastExpr(
     }
 }
 
+fn transIntegerLiteral(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangIntegerLiteral,
+    result_used: ResultUsed,
+) !TransResult {
+    var eval_result: ZigClangExprEvalResult = undefined;
+    if (!ZigClangIntegerLiteral_EvaluateAsInt(expr, &eval_result, rp.c.clang_context)) {
+        const loc = ZigClangIntegerLiteral_getBeginLoc(expr);
+        return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal");
+    }
+    const node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
+    const res = TransResult{
+        .node = node,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
+    return maybeSuppressResult(rp, scope, result_used, res);
+}
+
 fn transCCast(
     rp: RestorePoint,
     scope: *Scope,
@@ -547,14 +568,17 @@ fn transCCast(
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
     if (cIsUnsignedInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "ptrToInt");
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
         try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &(try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc), &builtin_node.base)).base;
     }
     if (cIsUnsignedInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "intToPtr");
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
         try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
     // TODO: maybe widen to increase size
@@ -599,25 +623,28 @@ fn transCPtrCast(
 ) !*ast.Node {
     const ty = ZigClangQualType_getTypePtr(dst_type);
     const child_type = ZigClangType_getPointeeType(ty);
-    const dst_type_node = try transType(rp, ty, loc);
-    const child_type_node = try transQualType(rp, child_type, loc);
 
     // Implicit downcasting from higher to lower alignment values is forbidden,
     // use @alignCast to side-step this problem
-    const ptrcast_node = try transCreateNodeBuiltinFnCall(rp.c, "ptrCast");
+    const ptrcast_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrCast");
+    const dst_type_node = try transType(rp, ty, loc);
     try ptrcast_node.params.push(dst_type_node);
+    _ = try appendToken(rp.c, .Comma, ",");
 
     if (ZigClangType_isVoidType(qualTypeCanon(child_type))) {
         // void has 1-byte alignment, so @alignCast is not needed
         try ptrcast_node.params.push(expr);
     } else {
-        const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "alignOf");
+        const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignOf");
+        const child_type_node = try transQualType(rp, child_type, loc);
         try alignof_node.params.push(child_type_node);
-        const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "alignCast");
+        const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
         try aligncast_node.params.push(&alignof_node.base);
+        _ = try appendToken(rp.c, .Comma, ",");
         try aligncast_node.params.push(expr);
         try ptrcast_node.params.push(&aligncast_node.base);
     }
+    ptrcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
     return &ptrcast_node.base;
 }
@@ -740,17 +767,20 @@ fn cIsUnsignedInteger(qt: ZigClangQualType) bool {
 }
 
 fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.BuiltinCall {
+    const builtin_token = try appendToken(c, .Builtin, name);
+    _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.BuiltinCall);
     node.* = ast.Node.BuiltinCall{
         .base = ast.Node{ .id = .BuiltinCall },
-        .builtin_token = try appendToken(c, .Builtin, name),
+        .builtin_token = builtin_token,
         .params = ast.Node.BuiltinCall.ParamList.init(c.a()),
-        .rparen_token = undefined, // TODO TokenIndex,
+        .rparen_token = undefined, // set after appending args
     };
     return node;
 }
 
 fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node, first_arg: *ast.Node) !*ast.Node.SuffixOp {
+    _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
         .base = ast.Node{ .id = .SuffixOp },
@@ -761,16 +791,23 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node, first_arg: *ast.Node) 
                 .async_attr = null,
             },
         },
-        .rtoken = undefined, // TODO TokenIndex
+        .rtoken = try appendToken(c, .RParen, ")"),
     };
+    try node.op.Call.params.push(first_arg);
     return node;
 }
 
-fn transCreateNodePrefixOp(c: *Context, op: ast.Node.PrefixOp.Op, rhs: *ast.Node) !*ast.Node {
+fn transCreateNodePrefixOp(
+    c: *Context,
+    op: ast.Node.PrefixOp.Op,
+    rhs: *ast.Node,
+    op_tok_id: std.zig.Token.Id,
+    bytes: []const u8,
+) !*ast.Node {
     const node = try c.a().create(ast.Node.PrefixOp);
     node.* = ast.Node.PrefixOp{
         .base = ast.Node{ .id = .PrefixOp },
-        .op_token = undefined, // TODO TokenIndex,
+        .op_token = try appendToken(c, op_tok_id, bytes),
         .op = op,
         .rhs = rhs,
     };
@@ -783,11 +820,12 @@ fn transCreateNodePtrType(
     is_volatile: bool,
     rhs: *ast.Node,
     op_tok_id: std.zig.Token.Id,
+    bytes: []const u8,
 ) !*ast.Node {
     const node = try c.a().create(ast.Node.PrefixOp);
     node.* = ast.Node.PrefixOp{
         .base = ast.Node{ .id = .PrefixOp },
-        .op_token = try appendToken(c, op_tok_id, ""), // TODO TokenIndex,
+        .op_token = try appendToken(c, op_tok_id, bytes),
         .op = ast.Node.PrefixOp.Op{
             .PtrType = ast.Node.PrefixOp.PtrInfo{
                 .allowzero_token = null,
@@ -797,6 +835,15 @@ fn transCreateNodePtrType(
             },
         },
         .rhs = rhs,
+    };
+    return &node.base;
+}
+
+fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
+    const node = try c.a().create(ast.Node.IntegerLiteral);
+    node.* = ast.Node.IntegerLiteral{
+        .base = ast.Node{ .id = .IntegerLiteral },
+        .token = try appendToken(c, .IntegerLiteral, "3333333"), // TODO
     };
     return &node.base;
 }
@@ -860,7 +907,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             const child_qt = ZigClangType_getPointeeType(ty);
             const child_node = try transQualType(rp, child_qt, source_loc);
             if (qualTypeChildIsFnProto(child_qt))
-                return transCreateNodePrefixOp(rp.c, .OptionalType, child_node);
+                return transCreateNodePrefixOp(rp.c, .OptionalType, child_node, .QuestionMark, "?");
             if (typeIsOpaque(rp.c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
                 const pointer_node = try transCreateNodePtrType(
                     rp.c,
@@ -868,8 +915,9 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                     ZigClangQualType_isVolatileQualified(child_qt),
                     child_node,
                     .Asterisk,
+                    "*",
                 );
-                return transCreateNodePrefixOp(rp.c, .OptionalType, pointer_node);
+                return transCreateNodePrefixOp(rp.c, .OptionalType, pointer_node, .QuestionMark, "?");
             }
             return transCreateNodePtrType(
                 rp.c,
@@ -877,6 +925,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 ZigClangQualType_isVolatileQualified(child_qt),
                 child_node,
                 .BracketStarCBracket,
+                "[*c]",
             );
         },
         else => {

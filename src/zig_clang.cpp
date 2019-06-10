@@ -21,6 +21,7 @@
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
+#include <clang/AST/APValue.h>
 #include <clang/AST/Expr.h>
 
 #if __GNUC__ >= 8
@@ -1287,6 +1288,20 @@ static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF16 == clang::StringLiteral::UTF16, "");
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF32 == clang::StringLiteral::UTF32, "");
 
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Uninitialized == clang::APValue::ValueKind::Uninitialized, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Int == clang::APValue::ValueKind::Int, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Float == clang::APValue::ValueKind::Float, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexInt == clang::APValue::ValueKind::ComplexInt, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexFloat == clang::APValue::ValueKind::ComplexFloat, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_LValue == clang::APValue::ValueKind::LValue, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Vector == clang::APValue::ValueKind::Vector, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Array == clang::APValue::ValueKind::Array, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Struct == clang::APValue::ValueKind::Struct, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Union == clang::APValue::ValueKind::Union, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_MemberPointer == clang::APValue::ValueKind::MemberPointer, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_AddrLabelDiff == clang::APValue::ValueKind::AddrLabelDiff, "");
+
+static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1309,6 +1324,13 @@ static ZigClangQualType bitcast(clang::QualType src) {
 static clang::QualType bitcast(ZigClangQualType src) {
     clang::QualType dest;
     memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
+    return dest;
+}
+
+static_assert(sizeof(ZigClangExprEvalResult) == sizeof(clang::Expr::EvalResult), "");
+static ZigClangExprEvalResult bitcast(clang::Expr::EvalResult src) {
+    ZigClangExprEvalResult dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangExprEvalResult));
     return dest;
 }
 
@@ -1978,4 +2000,20 @@ const struct ZigClangExpr *ZigClangCStyleCastExpr_getSubExpr(const struct ZigCla
 struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct ZigClangCStyleCastExpr *self) {
     auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
     return bitcast(casted->getType());
+}
+
+bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *self, struct ZigClangExprEvalResult *result, const struct ZigClangASTContext *ctx) {
+    auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    clang::Expr::EvalResult eval_result;
+    if (!casted_self->EvaluateAsInt(eval_result, *casted_ctx)) {
+        return false;
+    }
+    *result = bitcast(eval_result);
+    return true;
+}
+
+struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct ZigClangIntegerLiteral *self) {
+    auto casted = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    return bitcast(casted->getBeginLoc());
 }
