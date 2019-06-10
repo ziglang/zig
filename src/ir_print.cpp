@@ -970,10 +970,11 @@ static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayl
     }
 }
 
-static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionOptionalWrap *instruction) {
-    fprintf(irp->f, "@maybeWrap(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
+static void ir_print_optional_wrap(IrPrint *irp, IrInstructionOptionalWrap *instruction) {
+    fprintf(irp->f, "@optionalWrap(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_err_wrap_code(IrPrint *irp, IrInstructionErrWrapCode *instruction) {
@@ -1820,7 +1821,7 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_unwrap_err_payload(irp, (IrInstructionUnwrapErrPayload *)instruction);
             break;
         case IrInstructionIdOptionalWrap:
-            ir_print_maybe_wrap(irp, (IrInstructionOptionalWrap *)instruction);
+            ir_print_optional_wrap(irp, (IrInstructionOptionalWrap *)instruction);
             break;
         case IrInstructionIdErrWrapCode:
             ir_print_err_wrap_code(irp, (IrInstructionErrWrapCode *)instruction);

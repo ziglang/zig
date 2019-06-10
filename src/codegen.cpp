@@ -4956,20 +4956,20 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
         return LLVMConstInt(LLVMInt1Type(), 1, false);
     }
 
-    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
+    LLVMValueRef payload_val = ir_llvm_value(g, instruction->operand);
     if (!handle_is_ptr(wanted_type)) {
         return payload_val;
     }
 
-    assert(instruction->tmp_ptr);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
-    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
     // child_type and instruction->value->value.type may differ by constness
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
-    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
     gen_store_untyped(g, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr, 0, false);
 
-    return instruction->tmp_ptr;
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapCode *instruction) {
@@ -6840,9 +6840,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdOptionalWrap) {
-                IrInstructionOptionalWrap *maybe_wrap_instruction = (IrInstructionOptionalWrap *)instruction;
-                slot = &maybe_wrap_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdErrWrapPayload) {
                 IrInstructionErrWrapPayload *err_wrap_payload_instruction = (IrInstructionErrWrapPayload *)instruction;
                 slot = &err_wrap_payload_instruction->tmp_ptr;

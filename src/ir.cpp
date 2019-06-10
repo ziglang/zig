@@ -1758,11 +1758,17 @@ static IrInstruction *ir_build_optional_unwrap_ptr(IrBuilder *irb, Scope *scope,
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_maybe_wrap(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionOptionalWrap *instruction = ir_build_instruction<IrInstructionOptionalWrap>(irb, scope, source_node);
-    instruction->value = value;
+static IrInstruction *ir_build_optional_wrap(IrAnalyze *ira, IrInstruction *source_instruction, ZigType *result_ty,
+        IrInstruction *operand, IrInstruction *result_loc)
+{
+    IrInstructionOptionalWrap *instruction = ir_build_instruction<IrInstructionOptionalWrap>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_ty;
+    instruction->operand = operand;
+    instruction->result_loc = result_loc;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -11035,7 +11041,7 @@ static ZigFn *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
 }
 
 static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
-        ZigType *wanted_type)
+        ZigType *wanted_type, ResultLoc *result_loc)
 {
     assert(wanted_type->id == ZigTypeIdOptional);
 
@@ -11061,10 +11067,13 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->value.type = wanted_type;
+    if (result_loc == nullptr) result_loc = no_result_loc();
+    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr);
+    if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+        return result_loc_inst;
+    }
+    IrInstruction *result = ir_build_optional_wrap(ira, source_instr, wanted_type, value, result_loc_inst);
     result->value.data.rh_maybe = RuntimeHintOptionalNonNull;
-    ir_add_alloca(ira, result, wanted_type);
     return result;
 }
 
@@ -12009,12 +12018,12 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node,
             false).id == ConstCastResultIdOk)
         {
-            return ir_analyze_optional_wrap(ira, source_instr, value, wanted_type);
+            return ir_analyze_optional_wrap(ira, source_instr, value, wanted_type, result_loc);
         } else if (actual_type->id == ZigTypeIdComptimeInt ||
                    actual_type->id == ZigTypeIdComptimeFloat)
         {
             if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
-                return ir_analyze_optional_wrap(ira, source_instr, value, wanted_type);
+                return ir_analyze_optional_wrap(ira, source_instr, value, wanted_type, result_loc);
             } else {
                 return ira->codegen->invalid_instruction;
             }
@@ -12038,7 +12047,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                         wanted_child_type);
                 if (type_is_invalid(cast1->value.type))
                     return ira->codegen->invalid_instruction;
-                return ir_analyze_optional_wrap(ira, source_instr, cast1, wanted_type);
+                return ir_analyze_optional_wrap(ira, source_instr, cast1, wanted_type, result_loc);
             }
         }
     }
@@ -24387,6 +24396,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEndExpr:
         case IrInstructionIdPtrOfArrayToSlice:
         case IrInstructionIdSliceGen:
+        case IrInstructionIdOptionalWrap:
             return true;
 
         case IrInstructionIdPhi:
@@ -24436,7 +24446,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdHandle:
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
-        case IrInstructionIdOptionalWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdFnProto:
