@@ -447,7 +447,7 @@ pub const Int = struct {
         }
 
         // Power of two: can do a single pass and use masks to extract digits.
-        if (base & (base - 1) == 0) {
+        if (math.isPowerOfTwo(base)) {
             const base_shift = math.log2_int(Limb, base);
 
             for (self.limbs[0..self.len()]) |limb| {

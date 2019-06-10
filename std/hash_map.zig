@@ -157,8 +157,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
             // capacity must always be a power of two to allow for modulo
             // optimization in the constrainIndex fn
-            const is_power_of_two = new_capacity & (new_capacity - 1) == 0;
-            assert(is_power_of_two);
+            assert(math.isPowerOfTwo(new_capacity));
 
             if (new_capacity <= self.entries.len) {
                 return;
