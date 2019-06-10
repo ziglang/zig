@@ -2267,7 +2267,6 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdPtrCastSrc,
     IrInstructionIdPtrCastGen,
-    IrInstructionIdBitCast,
     IrInstructionIdBitCastGen,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
@@ -2645,7 +2644,6 @@ struct IrInstructionContainerInitList {
     IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **items;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -3136,18 +3134,10 @@ struct IrInstructionPtrCastGen {
     bool safety_check_on;
 };
 
-struct IrInstructionBitCast {
-    IrInstruction base;
-
-    IrInstruction *dest_type;
-    IrInstruction *value;
-};
-
 struct IrInstructionBitCastGen {
     IrInstruction base;
 
     IrInstruction *operand;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionWidenOrShorten {
@@ -3590,6 +3580,7 @@ enum ResultLocId {
     ResultLocIdPeer,
     ResultLocIdPeerParent,
     ResultLocIdInstruction,
+    ResultLocIdBitCast,
 };
 
 struct ResultLoc {
@@ -3642,6 +3633,13 @@ struct ResultLocPeer {
 // The result location is the source instruction
 struct ResultLocInstruction {
     ResultLoc base;
+};
+
+// The source_instruction is the destination type
+struct ResultLocBitCast {
+    ResultLoc base;
+
+    ResultLoc *parent;
 };
 
 static const size_t slice_ptr_index = 0;

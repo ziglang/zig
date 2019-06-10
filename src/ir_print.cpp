@@ -219,6 +219,12 @@ static void ir_print_result_loc_peer(IrPrint *irp, ResultLocPeer *result_loc_pee
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_bit_cast(IrPrint *irp, ResultLocBitCast *result_loc_bit_cast) {
+    fprintf(irp->f, "bitcast(ty=");
+    ir_print_other_instruction(irp, result_loc_bit_cast->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
@@ -235,6 +241,8 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return ir_print_result_loc_instruction(irp, (ResultLocInstruction *)result_loc);
         case ResultLocIdPeer:
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
+        case ResultLocIdBitCast:
+            return ir_print_result_loc_bit_cast(irp, (ResultLocBitCast *)result_loc);
         case ResultLocIdPeerParent:
             fprintf(irp->f, "peer_parent");
             return;
@@ -1008,14 +1016,6 @@ static void ir_print_ptr_cast_src(IrPrint *irp, IrInstructionPtrCastSrc *instruc
 static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruction) {
     fprintf(irp->f, "@ptrCast(");
     ir_print_other_instruction(irp, instruction->ptr);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
-    fprintf(irp->f, "@bitCast(");
-    ir_print_other_instruction(irp, instruction->dest_type);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
 }
 
@@ -1817,9 +1817,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPtrCastGen:
             ir_print_ptr_cast_gen(irp, (IrInstructionPtrCastGen *)instruction);
-            break;
-        case IrInstructionIdBitCast:
-            ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
             break;
         case IrInstructionIdBitCastGen:
             ir_print_bit_cast_gen(irp, (IrInstructionBitCastGen *)instruction);

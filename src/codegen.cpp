@@ -3145,12 +3145,7 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
         uint32_t alignment = get_abi_alignment(g, actual_type);
         return gen_load_untyped(g, bitcasted_ptr, alignment, false, "");
     } else {
-        assert(instruction->tmp_ptr != nullptr);
-        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, actual_type), 0);
-        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, instruction->tmp_ptr, wanted_ptr_type_ref, "");
-        uint32_t alignment = get_abi_alignment(g, wanted_type);
-        gen_store_untyped(g, value, bitcasted_ptr, alignment, false);
-        return instruction->tmp_ptr;
+        zig_unreachable();
     }
 }
 
@@ -5520,7 +5515,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdLoadPtr:
-        case IrInstructionIdBitCast:
         case IrInstructionIdGlobalAsm:
         case IrInstructionIdHasDecl:
         case IrInstructionIdUndeclaredIdent:
@@ -6837,9 +6831,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdContainerInitList) {
-                IrInstructionContainerInitList *container_init_list_instruction = (IrInstructionContainerInitList *)instruction;
-                slot = &container_init_list_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
@@ -6861,9 +6852,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdLoadPtrGen) {
                 IrInstructionLoadPtrGen *load_ptr_inst = (IrInstructionLoadPtrGen *)instruction;
                 slot = &load_ptr_inst->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdBitCastGen) {
-                IrInstructionBitCastGen *bit_cast_inst = (IrInstructionBitCastGen *)instruction;
-                slot = &bit_cast_inst->tmp_ptr;
             } else if (instruction->id == IrInstructionIdVectorToArray) {
                 IrInstructionVectorToArray *vector_to_array_instruction = (IrInstructionVectorToArray *)instruction;
                 alignment_bytes = get_abi_alignment(g, vector_to_array_instruction->vector->value.type);

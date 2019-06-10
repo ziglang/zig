@@ -780,10 +780,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCastGen *) {
     return IrInstructionIdPtrCastGen;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
-    return IrInstructionIdBitCast;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCastGen *) {
     return IrInstructionIdBitCastGen;
 }
@@ -2425,20 +2421,6 @@ static IrInstruction *ir_build_load_ptr_gen(IrAnalyze *ira, IrInstruction *sourc
     instruction->ptr = ptr;
 
     ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_bit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *dest_type, IrInstruction *value)
-{
-    IrInstructionBitCast *instruction = ir_build_instruction<IrInstructionBitCast>(
-            irb, scope, source_node);
-    instruction->dest_type = dest_type;
-    instruction->value = value;
-
-    ir_ref_instruction(dest_type, irb->current_basic_block);
-    ir_ref_instruction(value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4836,18 +4818,23 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             }
         case BuiltinFnIdBitCast:
             {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
+                AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *dest_type = ir_gen_node(irb, dest_type_node, scope);
+                if (dest_type == irb->codegen->invalid_instruction)
+                    return dest_type;
+
+                ResultLocBitCast *result_loc_bit_cast = allocate<ResultLocBitCast>(1);
+                result_loc_bit_cast->base.id = ResultLocIdBitCast;
+                result_loc_bit_cast->base.source_instruction = dest_type;
+                result_loc_bit_cast->parent = result_loc;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                IrInstruction *arg1_value = ir_gen_node_extra(irb, arg1_node, scope, LValNone,
+                        &result_loc_bit_cast->base);
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *bit_cast = ir_build_bit_cast(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, bit_cast, lval, result_loc);
+                return ir_lval_wrap(irb, scope, arg1_value, lval, result_loc);
             }
         case BuiltinFnIdIntToPtr:
             {
@@ -14059,9 +14046,10 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     bool var_class_requires_const = false;
 
     IrInstruction *var_ptr = decl_var_instruction->ptr->child;
-    // if this assertion trips there may be a missing ir_expr_wrap in pass1 IR generation.
-    ir_assert(var_ptr != nullptr, &decl_var_instruction->base);
-    if (type_is_invalid(var_ptr->value.type)) {
+    // if this is null, a compiler error happened and did not initialize the variable.
+    // if there are no compile errors there may be a missing ir_expr_wrap in pass1 IR generation.
+    if (var_ptr == nullptr || type_is_invalid(var_ptr->value.type)) {
+        ir_assert(var_ptr != nullptr || ira->codegen->errors.length != 0, &decl_var_instruction->base);
         var->var_type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->invalid_instruction;
     }
@@ -14528,6 +14516,7 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, IrInstruction *suspe
             zig_unreachable();
         case ResultLocIdNone:
         case ResultLocIdVar:
+        case ResultLocIdBitCast:
             return nullptr;
         case ResultLocIdInstruction:
             return result_loc->source_instruction->child->value.type;
@@ -14537,6 +14526,28 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, IrInstruction *suspe
             return reinterpret_cast<ResultLocPeer*>(result_loc)->parent->resolved_type;
     }
     zig_unreachable();
+}
+
+static bool type_can_bit_cast(ZigType *t) {
+    switch (t->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdMetaType:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdPointer:
+            return false;
+        default:
+            // TODO list these types out explicitly, there are probably some other invalid ones here
+            return true;
+    }
 }
 
 // give nullptr for value to resolve it at runtime
@@ -14674,6 +14685,50 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
                 return parent_result_loc;
             }
             result_loc->resolved_loc = parent_result_loc;
+            return result_loc->resolved_loc;
+        }
+        case ResultLocIdBitCast: {
+            ResultLocBitCast *result_bit_cast = reinterpret_cast<ResultLocBitCast *>(result_loc);
+            ZigType *dest_type = ir_resolve_type(ira, result_bit_cast->base.source_instruction->child);
+            if (type_is_invalid(dest_type))
+                return ira->codegen->invalid_instruction;
+
+            if (get_codegen_ptr_type(dest_type) != nullptr) {
+                ir_add_error(ira, result_loc->source_instruction,
+                        buf_sprintf("unable to @bitCast to pointer type '%s'", buf_ptr(&dest_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
+            if (!type_can_bit_cast(dest_type)) {
+                ir_add_error(ira, result_loc->source_instruction,
+                        buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
+            if (get_codegen_ptr_type(value_type) != nullptr) {
+                ir_add_error(ira, suspend_source_instr,
+                    buf_sprintf("unable to @bitCast from pointer type '%s'", buf_ptr(&value_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
+            if (!type_can_bit_cast(value_type)) {
+                ir_add_error(ira, suspend_source_instr,
+                        buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&value_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
+
+            IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
+                    dest_type, nullptr);
+            if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
+                parent_result_loc->value.type->id == ZigTypeIdUnreachable)
+            {
+                return parent_result_loc;
+            }
+            ZigType *ptr_type = get_pointer_to_type(ira->codegen, value_type, false);
+            result_loc->written = true;
+            result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
+                    ptr_type, result_bit_cast->base.source_instruction, false);
             return result_loc->resolved_loc;
         }
     }
@@ -22755,28 +22810,6 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
     zig_unreachable();
 }
 
-static bool type_can_bit_cast(ZigType *t) {
-    switch (t->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdMetaType:
-        case ZigTypeIdOpaque:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdPointer:
-            return false;
-        default:
-            // TODO list these types out explicitly, there are probably some other invalid ones here
-            return true;
-    }
-}
-
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *dest_type)
 {
@@ -22829,48 +22862,8 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
     }
 
     IrInstruction *result = ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
-    if (handle_is_ptr(dest_type) && !handle_is_ptr(src_type)) {
-        ir_add_alloca(ira, result, dest_type);
-    }
+    assert(!(handle_is_ptr(dest_type) && !handle_is_ptr(src_type)));
     return result;
-}
-
-static IrInstruction *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBitCast *instruction) {
-    IrInstruction *dest_type_value = instruction->dest_type->child;
-    ZigType *dest_type = ir_resolve_type(ira, dest_type_value);
-    if (type_is_invalid(dest_type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *value = instruction->value->child;
-    ZigType *src_type = value->value.type;
-    if (type_is_invalid(src_type))
-        return ira->codegen->invalid_instruction;
-
-    if (get_codegen_ptr_type(src_type) != nullptr) {
-        ir_add_error(ira, value,
-            buf_sprintf("unable to @bitCast from pointer type '%s'", buf_ptr(&src_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (!type_can_bit_cast(src_type)) {
-        ir_add_error(ira, dest_type_value,
-                buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (get_codegen_ptr_type(dest_type) != nullptr) {
-        ir_add_error(ira, dest_type_value,
-                buf_sprintf("unable to @bitCast to pointer type '%s'", buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (!type_can_bit_cast(dest_type)) {
-        ir_add_error(ira, dest_type_value,
-                buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    return ir_analyze_bit_cast(ira, &instruction->base, value, dest_type);
 }
 
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
@@ -24089,8 +24082,6 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
         case IrInstructionIdPtrCastSrc:
             return ir_analyze_instruction_ptr_cast(ira, (IrInstructionPtrCastSrc *)instruction);
-        case IrInstructionIdBitCast:
-            return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdPtrToInt:
@@ -24386,7 +24377,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdPtrCastGen:
-        case IrInstructionIdBitCast:
         case IrInstructionIdBitCastGen:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
