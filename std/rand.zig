@@ -1011,7 +1011,7 @@ test "Sfc64 sequence" {
     // Unfortunately there does not seem to be an official test sequence.
     var r = Sfc64.init(0);
 
-    const seq = []const u64{
+    const seq = [_]u64{
         0x3acfa029e3cc6041,
         0xf5b6515bf2ee419c,
         0x1259635894a29b61,
