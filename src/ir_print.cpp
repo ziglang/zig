@@ -858,14 +858,26 @@ static void ir_print_memcpy(IrPrint *irp, IrInstructionMemcpy *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
+static void ir_print_slice_src(IrPrint *irp, IrInstructionSliceSrc *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->start);
     fprintf(irp->f, "..");
     if (instruction->end)
         ir_print_other_instruction(irp, instruction->end);
-    fprintf(irp->f, "]");
+    fprintf(irp->f, "]result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
+static void ir_print_slice_gen(IrPrint *irp, IrInstructionSliceGen *instruction) {
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, "[");
+    ir_print_other_instruction(irp, instruction->start);
+    fprintf(irp->f, "..");
+    if (instruction->end)
+        ir_print_other_instruction(irp, instruction->end);
+    fprintf(irp->f, "]result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_member_count(IrPrint *irp, IrInstructionMemberCount *instruction) {
@@ -1084,6 +1096,13 @@ static void ir_print_vector_to_array(IrPrint *irp, IrInstructionVectorToArray *i
     fprintf(irp->f, "VectorToArray(");
     ir_print_other_instruction(irp, instruction->vector);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_ptr_of_array_to_slice(IrPrint *irp, IrInstructionPtrOfArrayToSlice *instruction) {
+    fprintf(irp->f, "PtrOfArrayToSlice(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_assert_zero(IrPrint *irp, IrInstructionAssertZero *instruction) {
@@ -1758,8 +1777,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdMemcpy:
             ir_print_memcpy(irp, (IrInstructionMemcpy *)instruction);
             break;
-        case IrInstructionIdSlice:
-            ir_print_slice(irp, (IrInstructionSlice *)instruction);
+        case IrInstructionIdSliceSrc:
+            ir_print_slice_src(irp, (IrInstructionSliceSrc *)instruction);
+            break;
+        case IrInstructionIdSliceGen:
+            ir_print_slice_gen(irp, (IrInstructionSliceGen *)instruction);
             break;
         case IrInstructionIdMemberCount:
             ir_print_member_count(irp, (IrInstructionMemberCount *)instruction);
@@ -1991,6 +2013,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdVectorToArray:
             ir_print_vector_to_array(irp, (IrInstructionVectorToArray *)instruction);
+            break;
+        case IrInstructionIdPtrOfArrayToSlice:
+            ir_print_ptr_of_array_to_slice(irp, (IrInstructionPtrOfArrayToSlice *)instruction);
             break;
         case IrInstructionIdAssertZero:
             ir_print_assert_zero(irp, (IrInstructionAssertZero *)instruction);

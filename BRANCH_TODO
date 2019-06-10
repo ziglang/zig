@@ -20,6 +20,3 @@ inferred comptime
     // an instruction which just makes a pointer of it.
     return ir_build_ref(irb, scope, value->source_node, value, false, false);
 
-handle if with no else
-
-

@@ -2248,7 +2248,8 @@ enum IrInstructionId {
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
-    IrInstructionIdSlice,
+    IrInstructionIdSliceSrc,
+    IrInstructionIdSliceGen,
     IrInstructionIdMemberCount,
     IrInstructionIdMemberType,
     IrInstructionIdMemberName,
@@ -2334,6 +2335,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaSrc,
     IrInstructionIdAllocaGen,
     IrInstructionIdEndExpr,
+    IrInstructionIdPtrOfArrayToSlice,
 };
 
 struct IrInstruction {
@@ -2617,7 +2619,6 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
-    CastOpPtrOfArrayToSlice,
 };
 
 // TODO get rid of this instruction, replace with instructions for each op code
@@ -2989,14 +2990,24 @@ struct IrInstructionMemcpy {
     IrInstruction *count;
 };
 
-struct IrInstructionSlice {
+struct IrInstructionSliceSrc {
     IrInstruction base;
 
+    bool safety_check_on;
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionSliceGen {
+    IrInstruction base;
+
     bool safety_check_on;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *ptr;
+    IrInstruction *start;
+    IrInstruction *end;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionMemberCount {
@@ -3563,6 +3574,7 @@ struct IrInstructionImplicitCast {
 
     IrInstruction *dest_type;
     IrInstruction *target;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionResolveResult {
@@ -3570,6 +3582,13 @@ struct IrInstructionResolveResult {
 
     ResultLoc *result_loc;
     IrInstruction *ty;
+};
+
+struct IrInstructionPtrOfArrayToSlice {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 enum ResultLocId {
