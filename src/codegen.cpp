@@ -4977,20 +4977,19 @@ static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable
 
     assert(wanted_type->id == ZigTypeIdErrorUnion);
 
-    ZigType *payload_type = wanted_type->data.error_union.payload_type;
-    ZigType *err_set_type = wanted_type->data.error_union.err_set_type;
+    LLVMValueRef err_val = ir_llvm_value(g, instruction->operand);
 
-    LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
-
-    if (!type_has_bits(payload_type) || !type_has_bits(err_set_type))
+    if (!handle_is_ptr(wanted_type))
         return err_val;
 
-    assert(instruction->tmp_ptr);
+    LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
-    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
     gen_store_untyped(g, err_val, err_tag_ptr, 0, false);
 
-    return instruction->tmp_ptr;
+    // TODO store undef to the payload
+
+    return result_loc;
 }
 
 static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapPayload *instruction) {
@@ -6841,9 +6840,6 @@ static void do_code_gen(CodeGen *g) {
                 slot = &ref_instruction->tmp_ptr;
                 assert(instruction->value.type->id == ZigTypeIdPointer);
                 slot_type = instruction->value.type->data.pointer.child_type;
-            } else if (instruction->id == IrInstructionIdErrWrapCode) {
-                IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
-                slot = &err_wrap_code_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdCmpxchgGen) {
                 IrInstructionCmpxchgGen *cmpxchg_instruction = (IrInstructionCmpxchgGen *)instruction;
                 slot = &cmpxchg_instruction->tmp_ptr;

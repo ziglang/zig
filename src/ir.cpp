@@ -1788,11 +1788,17 @@ static IrInstruction *ir_build_err_wrap_payload(IrAnalyze *ira, IrInstruction *s
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_err_wrap_code(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionErrWrapCode *instruction = ir_build_instruction<IrInstructionErrWrapCode>(irb, scope, source_node);
-    instruction->value = value;
+static IrInstruction *ir_build_err_wrap_code(IrAnalyze *ira, IrInstruction *source_instruction,
+        ZigType *result_type, IrInstruction *operand, IrInstruction *result_loc)
+{
+    IrInstructionErrWrapCode *instruction = ir_build_instruction<IrInstructionErrWrapCode>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
+    instruction->operand = operand;
+    instruction->result_loc = result_loc;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -11172,7 +11178,9 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
     return result;
 }
 
-static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, ZigType *wanted_type) {
+static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
+        ZigType *wanted_type, ResultLoc *result_loc)
+{
     assert(wanted_type->id == ZigTypeIdErrorUnion);
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, wanted_type->data.error_union.err_set_type);
@@ -11196,10 +11204,20 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_err_wrap_code(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->value.type = wanted_type;
+    IrInstruction *result_loc_inst;
+    if (handle_is_ptr(wanted_type)) {
+        if (result_loc == nullptr) result_loc = no_result_loc();
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr);
+        if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+            return result_loc_inst;
+        }
+    } else {
+        result_loc_inst = nullptr;
+    }
+
+
+    IrInstruction *result = ir_build_err_wrap_code(ira, source_instr, wanted_type, value, result_loc_inst);
     result->value.data.rh_error_union = RuntimeHintErrorUnionError;
-    ir_add_alloca(ira, result, wanted_type);
     return result;
 }
 
@@ -12293,7 +12311,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (wanted_type->id == ZigTypeIdErrorUnion &&
         actual_type->id == ZigTypeIdErrorSet)
     {
-        return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type);
+        return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type, result_loc);
     }
 
     // cast from typed number to integer or float literal.
@@ -15615,12 +15633,16 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         FnTypeId *impl_fn_type_id = &impl_fn->type_entry->data.fn.fn_type_id;
-        IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-                impl_fn_type_id->return_type, nullptr);
-        if (result_loc != nullptr &&
-            (type_is_invalid(result_loc->value.type) || result_loc->value.type->id == ZigTypeIdUnreachable))
-        {
-            return result_loc;
+        IrInstruction *result_loc;
+        if (handle_is_ptr(impl_fn_type_id->return_type)) {
+            result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
+                    impl_fn_type_id->return_type, nullptr);
+            if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+                return result_loc;
+            }
+            call_instruction->result_loc->written = true;
+        } else {
+            result_loc = nullptr;
         }
 
         if (fn_type_can_fail(impl_fn_type_id)) {
@@ -15634,7 +15656,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             return ir_finish_anal(ira, result);
         }
 
-        call_instruction->result_loc->written = handle_is_ptr(impl_fn_type_id->return_type);
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
@@ -15733,15 +15754,18 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-            return_type, nullptr);
-    if (result_loc != nullptr &&
-        (type_is_invalid(result_loc->value.type) || result_loc->value.type->id == ZigTypeIdUnreachable))
-    {
-        return result_loc;
+    IrInstruction *result_loc;
+    if (handle_is_ptr(return_type)) {
+        result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
+                return_type, nullptr);
+        if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+            return result_loc;
+        }
+        call_instruction->result_loc->written = true;
+    } else {
+        result_loc = nullptr;
     }
 
-    call_instruction->result_loc->written = handle_is_ptr(return_type);
     IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, false, nullptr, casted_new_stack,
             result_loc, return_type);
@@ -24462,7 +24486,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdHandle:
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
-        case IrInstructionIdErrWrapCode:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
@@ -24529,6 +24552,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             }
         case IrInstructionIdErrWrapPayload:
             return reinterpret_cast<IrInstructionErrWrapPayload *>(instruction)->result_loc != nullptr;
+        case IrInstructionIdErrWrapCode:
+            return reinterpret_cast<IrInstructionErrWrapCode *>(instruction)->result_loc != nullptr;
     }
     zig_unreachable();
 }

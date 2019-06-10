@@ -3109,8 +3109,8 @@ struct IrInstructionErrWrapPayload {
 struct IrInstructionErrWrapCode {
     IrInstruction base;
 
-    IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionFnProto {

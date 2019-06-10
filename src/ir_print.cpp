@@ -979,8 +979,9 @@ static void ir_print_optional_wrap(IrPrint *irp, IrInstructionOptionalWrap *inst
 
 static void ir_print_err_wrap_code(IrPrint *irp, IrInstructionErrWrapCode *instruction) {
     fprintf(irp->f, "@errWrapCode(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_err_wrap_payload(IrPrint *irp, IrInstructionErrWrapPayload *instruction) {
