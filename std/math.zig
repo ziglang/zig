@@ -686,6 +686,11 @@ pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alig
     return @alignCast(alignment, ptr);
 }
 
+pub fn isPowerOfTwo(v: var) bool {
+    assert(v != 0);
+    return (v & (v - 1)) == 0;
+}
+
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     var x = value;
 

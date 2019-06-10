@@ -189,6 +189,10 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
     return syscall4(SYS_preadv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
 }
 
+pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
+    return syscall5(SYS_preadv2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
+}
+
 pub fn readv(fd: i32, iov: [*]const iovec, count: usize) usize {
     return syscall3(SYS_readv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count);
 }
@@ -199,6 +203,10 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
     return syscall4(SYS_pwritev, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+}
+
+pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
+    return syscall5(SYS_pwritev2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -885,6 +893,18 @@ pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_inf
     }
 
     return last_r;
+}
+
+pub fn io_uring_setup(entries: u32, p: *io_uring_params) usize {
+    return syscall2(SYS_io_uring_setup, entries, @ptrToInt(p));
+}
+
+pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, sig: ?*sigset_t) usize {
+    return syscall6(SYS_io_uring_enter, @bitCast(usize, isize(fd)), to_submit, min_complete, flags, @ptrToInt(sig), NSIG / 8);
+}
+
+pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32) usize {
+    return syscall4(SYS_io_uring_register, @bitCast(usize, isize(fd)), opcode, @ptrToInt(arg), nr_args);
 }
 
 test "" {
