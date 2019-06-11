@@ -3246,6 +3246,7 @@ static IrInstruction *ir_build_end_expr(IrBuilder *irb, Scope *scope, AstNode *s
         IrInstruction *value, ResultLoc *result_loc)
 {
     IrInstructionEndExpr *instruction = ir_build_instruction<IrInstructionEndExpr>(irb, scope, source_node);
+    instruction->base.is_gen = true;
     instruction->value = value;
     instruction->result_loc = result_loc;
 
@@ -5487,8 +5488,10 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
         // We needed a pointer to a value, but we got a value. So we create
         // an instruction which just makes a pointer of it.
         return ir_build_ref(irb, scope, value->source_node, value, false, false);
-    } else {
+    } else if (result_loc != nullptr) {
         return ir_expr_wrap(irb, scope, value, result_loc);
+    } else {
+        return value;
     }
 
 }
@@ -5625,6 +5628,10 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
 {
     assert(node->type == NodeTypeContainerInitExpr);
 
+    if (ir_should_inline(irb->exec, scope)) {
+        result_loc = nullptr;
+    }
+
     AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
     ContainerInitKind kind = container_init_expr->kind;
 
@@ -5648,12 +5655,15 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 return irb->codegen->invalid_instruction;
             }
 
-            src_assert(result_loc->scope_elide == nullptr, node);
-            result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
+            IrInstruction *container_ptr = nullptr;
+            if (result_loc != nullptr) {
+                src_assert(result_loc->scope_elide == nullptr, node);
+                result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
 
-            src_assert(result_loc != nullptr, node);
-            IrInstruction *container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
-                    node, result_loc, container_type);
+                src_assert(result_loc != nullptr, node);
+                container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
+                        node, result_loc, container_type);
+            }
 
             size_t field_count = container_init_expr->entries.length;
             IrInstructionContainerInitFieldsField *fields = allocate<IrInstructionContainerInitFieldsField>(field_count);
@@ -5664,16 +5674,21 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 Buf *name = entry_node->data.struct_val_field.name;
                 AstNode *expr_node = entry_node->data.struct_val_field.expr;
 
-                IrInstruction *field_ptr = ir_build_field_ptr(irb, &result_loc->scope_elide->base, expr_node,
-                        container_ptr, name, true);
-                ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
-                result_loc_inst->base.id = ResultLocIdInstruction;
-                result_loc_inst->base.source_instruction = field_ptr;
-                ir_ref_instruction(field_ptr, irb->current_basic_block);
-                ResultLoc *child_result_loc = &result_loc_inst->base;
+                Scope *val_scope = scope;
+                ResultLoc *child_result_loc = nullptr;
+                if (container_ptr != nullptr) {
+                    IrInstruction *field_ptr = ir_build_field_ptr(irb, &result_loc->scope_elide->base, expr_node,
+                            container_ptr, name, true);
+                    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+                    result_loc_inst->base.id = ResultLocIdInstruction;
+                    result_loc_inst->base.source_instruction = field_ptr;
+                    ir_ref_instruction(field_ptr, irb->current_basic_block);
+                    child_result_loc = &result_loc_inst->base;
+                    val_scope = &result_loc->scope_elide->base;
+                }
 
-                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, &result_loc->scope_elide->base,
-                        LValNone, child_result_loc);
+                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, val_scope, LValNone,
+                        child_result_loc);
                 if (expr_value == irb->codegen->invalid_instruction)
                     return expr_value;
 
@@ -5686,9 +5701,6 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             return ir_lval_wrap(irb, scope, init_fields, lval, result_loc);
         }
         case ContainerInitKindArray: {
-            src_assert(result_loc->scope_elide == nullptr, node);
-            result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
-
             size_t item_count = container_init_expr->entries.length;
 
             if (container_type == nullptr) {
@@ -5696,25 +5708,35 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type);
             }
 
-            src_assert(result_loc != nullptr, node);
-            IrInstruction *container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
-                    node, result_loc, container_type);
+            IrInstruction *container_ptr = nullptr;
+            if (result_loc != nullptr) {
+                src_assert(result_loc->scope_elide == nullptr, node);
+                result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
+
+                container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
+                        node, result_loc, container_type);
+            }
 
             IrInstruction **values = allocate<IrInstruction *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
 
-                IrInstruction *elem_index = ir_build_const_usize(irb, &result_loc->scope_elide->base, expr_node, i);
-                IrInstruction *elem_ptr = ir_build_elem_ptr(irb, &result_loc->scope_elide->base, expr_node,
-                        container_ptr, elem_index, false, PtrLenSingle);
-                ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
-                result_loc_inst->base.id = ResultLocIdInstruction;
-                result_loc_inst->base.source_instruction = elem_ptr;
-                ir_ref_instruction(elem_ptr, irb->current_basic_block);
-                ResultLoc *child_result_loc = &result_loc_inst->base;
+                ResultLoc *child_result_loc = nullptr;
+                Scope *val_scope = scope;
+                if (container_ptr != nullptr) {
+                    IrInstruction *elem_index = ir_build_const_usize(irb, &result_loc->scope_elide->base, expr_node, i);
+                    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, &result_loc->scope_elide->base, expr_node,
+                            container_ptr, elem_index, false, PtrLenSingle);
+                    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+                    result_loc_inst->base.id = ResultLocIdInstruction;
+                    result_loc_inst->base.source_instruction = elem_ptr;
+                    ir_ref_instruction(elem_ptr, irb->current_basic_block);
+                    child_result_loc = &result_loc_inst->base;
+                    val_scope = &result_loc->scope_elide->base;
+                }
 
-                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, &result_loc->scope_elide->base,
-                        LValNone, child_result_loc);
+                IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, val_scope, LValNone,
+                        child_result_loc);
                 if (expr_value == irb->codegen->invalid_instruction)
                     return expr_value;
 
