@@ -14946,6 +14946,8 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
         return ira->codegen->invalid_instruction;
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
             implicit_elem_type, nullptr);
+    if (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value.type))
+        return result_loc;
     ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
     ZigType *actual_elem_type = result_loc->value.type->data.pointer.child_type;
     if (actual_elem_type->id == ZigTypeIdOptional && implicit_elem_type->id != ZigTypeIdOptional) {
