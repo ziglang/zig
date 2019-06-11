@@ -8505,10 +8505,8 @@ static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *ba
     return add_source_file(g, package, resolved_path, import_code, SourceKindPkgMain);
 }
 
-static ZigPackage *create_bootstrap_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
-    ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig", "std.special");
-    package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
-    return package;
+static ZigPackage *create_bootstrap_pkg(CodeGen *g) {
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig", "std.special");
 }
 
 static ZigPackage *create_test_runner_pkg(CodeGen *g) {
@@ -8632,12 +8630,12 @@ static void gen_root_source(CodeGen *g) {
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
-        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
     }
     if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
             g->out_type == OutTypeLib && g->is_dynamic)
     {
-        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap_lib.zig");
     }
 
     if (!g->error_during_imports) {
@@ -8645,7 +8643,7 @@ static void gen_root_source(CodeGen *g) {
     }
     if (g->is_test_build) {
         create_test_compile_var_and_add_test_runner(g);
-        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->test_runner_package), "bootstrap.zig");
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
 
         if (!g->error_during_imports) {
             semantic_analyze(g);
@@ -9629,6 +9627,13 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
     if (g->std_package != nullptr) {
         assert(g->compile_var_package != nullptr);
         pkg->package_table.put(buf_create_from_str("std"), g->std_package);
+
+        if (g->is_test_build) {
+            pkg->package_table.put(buf_create_from_str("@root"), g->test_runner_package);
+        } else {
+            pkg->package_table.put(buf_create_from_str("@root"), g->root_package);
+        }
+
         pkg->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     }
     return pkg;
