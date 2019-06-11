@@ -3564,7 +3564,8 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
 static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnPtr *instruction)
 {
-    assert(g->cur_ret_ptr != nullptr || !type_has_bits(instruction->base.value.type));
+    src_assert(g->cur_ret_ptr != nullptr || !type_has_bits(instruction->base.value.type),
+            instruction->base.source_node);
     return g->cur_ret_ptr;
 }
 

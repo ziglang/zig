@@ -14866,7 +14866,11 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         }
         case ResultLocIdReturn: {
             bool is_comptime = value != nullptr && value->value.special != ConstValSpecialRuntime;
-            if (is_comptime) return nullptr;
+            if (is_comptime)
+                return nullptr;
+            if (!type_has_bits(ira->explicit_return_type) || !handle_is_ptr(ira->explicit_return_type))
+                return nullptr;
+
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
             result_loc->written = true;
             result_loc->resolved_loc = ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
