@@ -9373,6 +9373,8 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
         // TODO: I think we need a more sophisticated detection of
         // packages we have already seen
         if (entry->value != pkg) {
+            auto root = pkg->package_table.maybe_get(buf_create_from_str("@root"));
+            if (root != nullptr && entry->value == root->value) continue;
             cache_buf(ch, entry->key);
             add_cache_pkg(g, ch, entry->value);
         }
