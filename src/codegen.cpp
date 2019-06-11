@@ -4908,7 +4908,7 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrPayload *instruction)
 {
-    bool want_safety = ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on &&
+    bool want_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base) &&
         g->errors_by_index.length > 1;
     if (!want_safety && !type_has_bits(instruction->base.value.type))
         return nullptr;
@@ -4944,6 +4944,11 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     }
 
     if (type_has_bits(payload_type)) {
+        if (instruction->initializing) {
+            LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+            LLVMValueRef ok_err_val = LLVMConstNull(get_llvm_type(g, g->err_tag_type));
+            gen_store_untyped(g, ok_err_val, err_tag_ptr, 0, false);
+        }
         return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
     } else {
         return nullptr;

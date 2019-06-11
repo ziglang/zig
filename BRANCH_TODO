@@ -1,7 +1,6 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
-struct & array init when the result is casted to anyerror!T
 struct & array init when the result is casted to anyerror!?T
 
 uncomment all the behavior tests
