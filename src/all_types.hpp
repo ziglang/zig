@@ -2234,6 +2234,7 @@ enum IrInstructionId {
     IrInstructionIdCDefine,
     IrInstructionIdCUndef,
     IrInstructionIdRef,
+    IrInstructionIdRefGen,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
@@ -2812,9 +2813,15 @@ struct IrInstructionRef {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
+};
+
+struct IrInstructionRefGen {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionCompileErr {

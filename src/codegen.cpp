@@ -4212,17 +4212,17 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstru
     return phi;
 }
 
-static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstructionRef *instruction) {
+static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstructionRefGen *instruction) {
     if (!type_has_bits(instruction->base.value.type)) {
         return nullptr;
     }
-    LLVMValueRef value = ir_llvm_value(g, instruction->value);
-    if (handle_is_ptr(instruction->value->value.type)) {
+    LLVMValueRef value = ir_llvm_value(g, instruction->operand);
+    if (handle_is_ptr(instruction->operand->value.type)) {
         return value;
     } else {
-        assert(instruction->tmp_ptr);
-        gen_store_untyped(g, value, instruction->tmp_ptr, 0, false);
-        return instruction->tmp_ptr;
+        LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
+        gen_store_untyped(g, value, result_loc, 0, false);
+        return result_loc;
     }
 }
 
@@ -5530,6 +5530,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdResolveResult:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdSliceSrc:
+        case IrInstructionIdRef:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5584,8 +5585,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
         case IrInstructionIdPhi:
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
-        case IrInstructionIdRef:
-            return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
+        case IrInstructionIdRefGen:
+            return ir_render_ref(g, executable, (IrInstructionRefGen *)instruction);
         case IrInstructionIdErrName:
             return ir_render_err_name(g, executable, (IrInstructionErrName *)instruction);
         case IrInstructionIdCmpxchgGen:
@@ -6833,11 +6834,6 @@ static void do_code_gen(CodeGen *g) {
             if (instruction->id == IrInstructionIdCast) {
                 IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
                 slot = &cast_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdRef) {
-                IrInstructionRef *ref_instruction = (IrInstructionRef *)instruction;
-                slot = &ref_instruction->tmp_ptr;
-                assert(instruction->value.type->id == ZigTypeIdPointer);
-                slot_type = instruction->value.type->data.pointer.child_type;
             } else {
                 zig_unreachable();
             }

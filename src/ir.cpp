@@ -617,6 +617,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionRef *) {
     return IrInstructionIdRef;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionRefGen *) {
+    return IrInstructionIdRefGen;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
@@ -1961,6 +1965,21 @@ static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_ref_gen(IrAnalyze *ira, IrInstruction *source_instruction, ZigType *result_type,
+        IrInstruction *operand, IrInstruction *result_loc)
+{
+    IrInstructionRefGen *instruction = ir_build_instruction<IrInstructionRefGen>(&ira->new_irb,
+            source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
+    instruction->operand = operand;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(operand, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_compile_err(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *msg) {
     IrInstructionCompileErr *instruction = ir_build_instruction<IrInstructionCompileErr>(irb, scope, source_node);
     instruction->msg = msg;
@@ -2636,11 +2655,8 @@ static IrInstruction *ir_build_type_name(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_decl_ref(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        Tld *tld, LVal lval)
-{
-    IrInstructionDeclRef *instruction = ir_build_instruction<IrInstructionDeclRef>(
-            irb, scope, source_node);
+static IrInstruction *ir_build_decl_ref(IrBuilder *irb, Scope *scope, AstNode *source_node, Tld *tld, LVal lval) {
+    IrInstructionDeclRef *instruction = ir_build_instruction<IrInstructionDeclRef>(irb, scope, source_node);
     instruction->tld = tld;
     instruction->lval = lval;
 
@@ -11335,15 +11351,16 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
 
     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type,
             is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
-    IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instruction->scope,
-            source_instruction->source_node, value, is_const, is_volatile);
-    new_instruction->value.type = ptr_type;
-    new_instruction->value.data.rh_ptr = RuntimeHintPtrStack;
+
+    IrInstruction *result_loc;
     if (type_has_bits(ptr_type) && !handle_is_ptr(value->value.type)) {
-        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        fn_entry->alloca_list.append(new_instruction);
+        result_loc = ir_resolve_result(ira, source_instruction, no_result_loc(), value->value.type, nullptr);
+    } else {
+        result_loc = nullptr;
     }
+
+    IrInstruction *new_instruction = ir_build_ref_gen(ira, source_instruction, ptr_type, value, result_loc);
+    new_instruction->value.data.rh_ptr = RuntimeHintPtrStack;
     return new_instruction;
 }
 
@@ -24119,6 +24136,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdReturnPtr:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdSliceGen:
+        case IrInstructionIdRefGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -24653,6 +24671,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             return reinterpret_cast<IrInstructionErrWrapCode *>(instruction)->result_loc != nullptr;
         case IrInstructionIdLoadPtrGen:
             return reinterpret_cast<IrInstructionLoadPtrGen *>(instruction)->result_loc != nullptr;
+        case IrInstructionIdRefGen:
+            return reinterpret_cast<IrInstructionRefGen *>(instruction)->result_loc != nullptr;
     }
     zig_unreachable();
 }

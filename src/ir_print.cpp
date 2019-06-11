@@ -668,6 +668,13 @@ static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
+static void ir_print_ref_gen(IrPrint *irp, IrInstructionRefGen *instruction) {
+    fprintf(irp->f, "@ref(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
+}
+
 static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {
     fprintf(irp->f, "@compileError(");
     ir_print_other_instruction(irp, instruction->msg);
@@ -1710,6 +1717,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdRef:
             ir_print_ref(irp, (IrInstructionRef *)instruction);
+            break;
+        case IrInstructionIdRefGen:
+            ir_print_ref_gen(irp, (IrInstructionRefGen *)instruction);
             break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
