@@ -266,7 +266,7 @@ const Timestamp = struct {
       {#code_end#}
       <p>
       Doc comments are only allowed in certain places; eventually, it will
-      become a compile error have a doc comment in an unexpected place, such as
+      become a compile error to have a doc comment in an unexpected place, such as
       in the middle of an expression, or just before a non-doc comment.
       </p>
       {#header_close#}
