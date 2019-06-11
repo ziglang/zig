@@ -1,6 +1,9 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
+struct & array init when the result is casted to anyerror!T
+struct & array init when the result is casted to anyerror!?T
+
 uncomment all the behavior tests
 
 look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated

@@ -2770,8 +2770,9 @@ struct IrInstructionTestNonNull {
 struct IrInstructionOptionalUnwrapPtr {
     IrInstruction base;
 
-    IrInstruction *base_ptr;
     bool safety_check_on;
+    bool initializing;
+    IrInstruction *base_ptr;
 };
 
 struct IrInstructionCtz {

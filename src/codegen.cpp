@@ -838,9 +838,7 @@ static LLVMValueRef gen_store_untyped(CodeGen *g, LLVMValueRef value, LLVMValueR
 {
     LLVMValueRef instruction = LLVMBuildStore(g->builder, value, ptr);
     if (is_volatile) LLVMSetVolatile(instruction, true);
-    if (alignment == 0) {
-        LLVMSetAlignment(instruction, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(value)));
-    } else {
+    if (alignment != 0) {
         LLVMSetAlignment(instruction, alignment);
     }
     return instruction;
@@ -2384,16 +2382,19 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
+    if (return_instruction->value == nullptr) {
+        LLVMBuildRetVoid(g->builder);
+        return nullptr;
+    }
+
     ZigType *return_type = return_instruction->value->value.type;
 
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
         assert(g->cur_ret_ptr);
-        if (return_instruction->value->value.special != ConstValSpecialRuntime) {
-            // if it's comptime we have to do this but if it's runtime trust that
-            // result location mechanism took care of it.
-            LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
-            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
-        }
+        src_assert(return_instruction->value->value.special != ConstValSpecialRuntime,
+                return_instruction->base.source_node);
+        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
+        gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
         LLVMBuildRetVoid(g->builder);
     } else if (handle_is_ptr(return_type)) {
         LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
@@ -4068,9 +4069,9 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     ZigType *maybe_type = ptr_type->data.pointer.child_type;
     assert(maybe_type->id == ZigTypeIdOptional);
     ZigType *child_type = maybe_type->data.maybe.child_type;
-    LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->base_ptr);
-    if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
-        LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
+    LLVMValueRef base_ptr = ir_llvm_value(g, instruction->base_ptr);
+    if (instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMValueRef maybe_handle = get_handle_value(g, base_ptr, maybe_type, ptr_type);
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalFail");
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapOptionalOk");
@@ -4086,10 +4087,16 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     } else {
         bool is_scalar = !handle_is_ptr(maybe_type);
         if (is_scalar) {
-            return maybe_ptr;
+            return base_ptr;
         } else {
-            LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
-            return LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_child_index, "");
+            LLVMValueRef optional_struct_ref = get_handle_value(g, base_ptr, maybe_type, ptr_type);
+            if (instruction->initializing) {
+                LLVMValueRef non_null_bit_ptr = LLVMBuildStructGEP(g->builder, optional_struct_ref,
+                        maybe_null_index, "");
+                LLVMValueRef non_null_bit = LLVMConstInt(LLVMInt1Type(), 1, false);
+                gen_store_untyped(g, non_null_bit, non_null_bit_ptr, 0, false);
+            }
+            return LLVMBuildStructGEP(g->builder, optional_struct_ref, maybe_child_index, "");
         }
     }
 }

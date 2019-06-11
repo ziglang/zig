@@ -61,9 +61,10 @@ static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
 }
 
 static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
-    assert(return_instruction->value);
     fprintf(irp->f, "return ");
-    ir_print_other_instruction(irp, return_instruction->value);
+    if (return_instruction->value != nullptr) {
+        ir_print_other_instruction(irp, return_instruction->value);
+    }
 }
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
