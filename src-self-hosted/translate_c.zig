@@ -334,6 +334,7 @@ fn transStmt(
         .DeclRefExprClass => return transDeclRefExpr(rp, scope, @ptrCast(*const ZigClangDeclRefExpr, stmt), lrvalue),
         .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt), result_used),
         .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used),
+        .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
         else => {
             return revertAndWarn(
                 rp,
@@ -553,6 +554,24 @@ fn transIntegerLiteral(
         .node_scope = scope,
     };
     return maybeSuppressResult(rp, scope, result_used, res);
+}
+
+fn transReturnStmt(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangReturnStmt,
+) !TransResult {
+    const node = try transCreateNodeReturnExpr(rp.c);
+    if (ZigClangReturnStmt_getRetValue(expr)) |val_expr| {
+        const ret_node = node.cast(ast.Node.ControlFlowExpression).?;
+        ret_node.rhs = (try transExpr(rp, scope, val_expr, .used, .r_value)).node;
+    }
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    return TransResult{
+        .node = node,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
 }
 
 fn transCCast(
@@ -844,6 +863,18 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     node.* = ast.Node.IntegerLiteral{
         .base = ast.Node{ .id = .IntegerLiteral },
         .token = try appendToken(c, .IntegerLiteral, "3333333"), // TODO
+    };
+    return &node.base;
+}
+
+fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
+    const ltoken = try appendToken(c, .Keyword_return, "return");
+    const node = try c.a().create(ast.Node.ControlFlowExpression);
+    node.* = ast.Node.ControlFlowExpression{
+        .base = ast.Node{ .id = .ControlFlowExpression },
+        .ltoken = ltoken,
+        .kind = .Return,
+        .rhs = null,
     };
     return &node.base;
 }

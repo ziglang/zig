@@ -958,3 +958,5 @@ pub const ZigClangAPValue_ValueKind = extern enum {
 
 pub extern fn ZigClangIntegerLiteral_EvaluateAsInt(*const ZigClangIntegerLiteral, *ZigClangExprEvalResult, *const ZigClangASTContext) bool;
 pub extern fn ZigClangIntegerLiteral_getBeginLoc(*const ZigClangIntegerLiteral) ZigClangSourceLocation;
+
+pub extern fn ZigClangReturnStmt_getRetValue(*const ZigClangReturnStmt) ?*const ZigClangExpr;

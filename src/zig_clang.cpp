@@ -2017,3 +2017,8 @@ struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct Zi
     auto casted = reinterpret_cast<const clang::IntegerLiteral *>(self);
     return bitcast(casted->getBeginLoc());
 }
+
+const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *self) {
+    auto casted = reinterpret_cast<const clang::ReturnStmt *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getRetValue());
+}
