@@ -1046,6 +1046,13 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_bit_cast_src(IrPrint *irp, IrInstructionBitCastSrc *instruction) {
+    fprintf(irp->f, "@bitCast(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, &instruction->result_loc_bit_cast->base);
+}
+
 static void ir_print_bit_cast_gen(IrPrint *irp, IrInstructionBitCastGen *instruction) {
     fprintf(irp->f, "@bitCast(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1859,6 +1866,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPtrCastGen:
             ir_print_ptr_cast_gen(irp, (IrInstructionPtrCastGen *)instruction);
+            break;
+        case IrInstructionIdBitCastSrc:
+            ir_print_bit_cast_src(irp, (IrInstructionBitCastSrc *)instruction);
             break;
         case IrInstructionIdBitCastGen:
             ir_print_bit_cast_gen(irp, (IrInstructionBitCastGen *)instruction);

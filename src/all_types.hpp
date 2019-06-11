@@ -44,6 +44,7 @@ struct IrAnalyze;
 struct ResultLoc;
 struct ResultLocPeer;
 struct ResultLocPeerParent;
+struct ResultLocBitCast;
 
 enum X64CABIClass {
     X64CABIClass_Unknown,
@@ -2272,6 +2273,7 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdPtrCastSrc,
     IrInstructionIdPtrCastGen,
+    IrInstructionIdBitCastSrc,
     IrInstructionIdBitCastGen,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
@@ -3157,6 +3159,13 @@ struct IrInstructionPtrCastGen {
 
     IrInstruction *ptr;
     bool safety_check_on;
+};
+
+struct IrInstructionBitCastSrc {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    ResultLocBitCast *result_loc_bit_cast;
 };
 
 struct IrInstructionBitCastGen {

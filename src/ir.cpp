@@ -792,6 +792,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCastGen *) {
     return IrInstructionIdPtrCastGen;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCastSrc *) {
+    return IrInstructionIdBitCastSrc;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCastGen *) {
     return IrInstructionIdBitCastGen;
 }
@@ -2511,6 +2515,18 @@ static IrInstruction *ir_build_load_ptr_gen(IrAnalyze *ira, IrInstruction *sourc
 
     ir_ref_instruction(ptr, ira->new_irb.current_basic_block);
     if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bit_cast_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand, ResultLocBitCast *result_loc_bit_cast)
+{
+    IrInstructionBitCastSrc *instruction = ir_build_instruction<IrInstructionBitCastSrc>(irb, scope, source_node);
+    instruction->operand = operand;
+    instruction->result_loc_bit_cast = result_loc_bit_cast;
+
+    ir_ref_instruction(operand, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4941,7 +4957,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                return ir_lval_wrap(irb, scope, arg1_value, lval, result_loc);
+                IrInstruction *bitcast = ir_build_bit_cast_src(irb, scope, arg1_node, arg1_value, result_loc_bit_cast);
+                return ir_lval_wrap(irb, scope, bitcast, lval, result_loc);
             }
         case BuiltinFnIdIntToPtr:
             {
@@ -14910,9 +14927,15 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
                 return ira->codegen->invalid_instruction;
             }
 
+            IrInstruction *bitcasted_value;
+            if (value != nullptr) {
+                bitcasted_value = ir_analyze_bit_cast(ira, result_loc->source_instruction, value, dest_type);
+            } else {
+                bitcasted_value = nullptr;
+            }
 
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
-                    dest_type, nullptr);
+                    dest_type, bitcasted_value);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
                 parent_result_loc->value.type->id == ZigTypeIdUnreachable)
             {
@@ -24168,6 +24191,17 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInstructionBitCastSrc *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    if (type_is_invalid(operand->value.type) || instr_is_comptime(operand) ||
+        instruction->result_loc_bit_cast->parent->gen_instruction == nullptr)
+    {
+        return operand;
+    }
+
+    return instruction->result_loc_bit_cast->parent->gen_instruction;
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -24472,6 +24506,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return nullptr;
         case IrInstructionIdEndExpr:
             return ir_analyze_instruction_end_expr(ira, (IrInstructionEndExpr *)instruction);
+        case IrInstructionIdBitCastSrc:
+            return ir_analyze_instruction_bit_cast_src(ira, (IrInstructionBitCastSrc *)instruction);
     }
     zig_unreachable();
 }
@@ -24663,6 +24699,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdPtrCastGen:
+        case IrInstructionIdBitCastSrc:
         case IrInstructionIdBitCastGen:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
