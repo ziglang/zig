@@ -180,6 +180,8 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->root_package = new_package(".", "", "");
     }
 
+    g->root_package->package_table.put(buf_create_from_str("@root"), g->root_package);
+
     g->zig_std_special_dir = buf_alloc();
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
