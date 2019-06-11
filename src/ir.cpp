@@ -181,7 +181,6 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed);
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs);
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align);
-static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, ZigType *type_entry);
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
         ZigType *ptr_type);
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -10497,15 +10496,6 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
     }
 }
 
-static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, ZigType *type_entry) {
-    if (type_has_bits(type_entry) && handle_is_ptr(type_entry)) {
-        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        if (fn_entry != nullptr) {
-            fn_entry->alloca_list.append(instruction);
-        }
-    }
-}
-
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs) {
     ConstGlobalRefs *global_refs = dest->global_refs;
     assert(!same_global_refs || src->global_refs != nullptr);
@@ -10631,7 +10621,7 @@ static IrInstruction *ir_const(IrAnalyze *ira, IrInstruction *old_instruction, Z
 }
 
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
-        ZigType *wanted_type, CastOp cast_op, bool need_alloca)
+        ZigType *wanted_type, CastOp cast_op)
 {
     if (instr_is_comptime(value) || !type_has_bits(wanted_type)) {
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
@@ -10644,9 +10634,6 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
     } else {
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, cast_op);
         result->value.type = wanted_type;
-        if (need_alloca) {
-            ir_add_alloca(ira, result, wanted_type);
-        }
         return result;
     }
 }
@@ -12121,7 +12108,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (const_cast_result.id == ConstCastResultIdInvalid)
         return ira->codegen->invalid_instruction;
     if (const_cast_result.id == ConstCastResultIdOk) {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
+        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop);
     }
 
     // cast from T to ?T
@@ -20752,7 +20739,7 @@ static IrInstruction *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstru
             } else {
                 op = CastOpNumLitToConcrete;
             }
-            return ir_resolve_cast(ira, &instruction->base, target, dest_type, op, false);
+            return ir_resolve_cast(ira, &instruction->base, target, dest_type, op);
         } else {
             return ira->codegen->invalid_instruction;
         }
@@ -20975,7 +20962,7 @@ static IrInstruction *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInst
         return ira->codegen->invalid_instruction;
     }
 
-    return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpIntToFloat, false);
+    return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpIntToFloat);
 }
 
 static IrInstruction *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrInstructionFloatToInt *instruction) {
@@ -20997,7 +20984,7 @@ static IrInstruction *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrInst
         return ira->codegen->invalid_instruction;
     }
 
-    return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpFloatToInt, false);
+    return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpFloatToInt);
 }
 
 static IrInstruction *ir_analyze_instruction_err_to_int(IrAnalyze *ira, IrInstructionErrToInt *instruction) {
@@ -21049,7 +21036,7 @@ static IrInstruction *ir_analyze_instruction_bool_to_int(IrAnalyze *ira, IrInstr
     }
 
     ZigType *u1_type = get_int_type(ira->codegen, false, 1);
-    return ir_resolve_cast(ira, &instruction->base, target, u1_type, CastOpBoolToInt, false);
+    return ir_resolve_cast(ira, &instruction->base, target, u1_type, CastOpBoolToInt);
 }
 
 static IrInstruction *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstructionIntType *instruction) {

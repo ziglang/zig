@@ -6826,20 +6826,6 @@ static void do_code_gen(CodeGen *g) {
                     get_ptr_align(g, ptr_type));
         }
 
-        for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
-            IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
-            LLVMValueRef *slot;
-            ZigType *slot_type = instruction->value.type;
-            uint32_t alignment_bytes = 0;
-            if (instruction->id == IrInstructionIdCast) {
-                IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
-                slot = &cast_instruction->tmp_ptr;
-            } else {
-                zig_unreachable();
-            }
-            *slot = build_alloca(g, slot_type, "", alignment_bytes);
-        }
-
         ZigType *import = get_scope_import(&fn_table_entry->fndef_scope->base);
 
         unsigned gen_i_init = want_first_arg_sret(g, fn_type_id) ? 1 : 0;

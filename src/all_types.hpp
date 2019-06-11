@@ -1369,7 +1369,6 @@ struct ZigFn {
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<IrInstruction *> alloca_list;
     ZigList<IrInstructionAllocaGen *> alloca_gen_list;
     ZigList<ZigVar *> variable_list;
 
@@ -2635,7 +2634,6 @@ struct IrInstructionCast {
     IrInstruction *value;
     ZigType *dest_type;
     CastOp cast_op;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionResizeSlice {
