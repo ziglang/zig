@@ -3656,6 +3656,7 @@ struct ResultLocPeerParent {
     ResultLocPeer *peers;
     size_t peer_count;
     ZigType *resolved_type;
+    IrInstruction *is_comptime;
 };
 
 struct IrSuspendPosition {

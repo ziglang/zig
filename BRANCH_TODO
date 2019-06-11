@@ -4,6 +4,7 @@ Scratch pad for stuff to do before merging master
 restore test_runner.zig to master branch
  - also the default panic function and unexpected_error_tracing. see the commit
    that adds this text to BRANCH_TODO file.
+ - and std/specia/bootstrap.zig
 
 get an empty file compiling successfully (with no panic fn override)
 
