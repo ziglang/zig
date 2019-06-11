@@ -160,7 +160,7 @@ pub const Compilation = struct {
     /// it uses an optional pointer so that tombstone removals are possible
     fn_link_set: event.Locked(FnLinkSet),
 
-    pub const FnLinkSet = std.LinkedList(?*Value.Fn);
+    pub const FnLinkSet = std.TailQueue(?*Value.Fn);
 
     windows_subsystem_windows: bool,
     windows_subsystem_console: bool,

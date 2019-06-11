@@ -347,10 +347,10 @@ pub const ArenaAllocator = struct {
     pub allocator: Allocator,
 
     child_allocator: *Allocator,
-    buffer_list: std.LinkedList([]u8),
+    buffer_list: std.SinglyLinkedList([]u8),
     end_index: usize,
 
-    const BufNode = std.LinkedList([]u8).Node;
+    const BufNode = std.SinglyLinkedList([]u8).Node;
 
     pub fn init(child_allocator: *Allocator) ArenaAllocator {
         return ArenaAllocator{
@@ -359,7 +359,7 @@ pub const ArenaAllocator = struct {
                 .shrinkFn = shrink,
             },
             .child_allocator = child_allocator,
-            .buffer_list = std.LinkedList([]u8).init(),
+            .buffer_list = std.SinglyLinkedList([]u8).init(),
             .end_index = 0,
         };
     }
@@ -387,10 +387,9 @@ pub const ArenaAllocator = struct {
         const buf_node = &buf_node_slice[0];
         buf_node.* = BufNode{
             .data = buf,
-            .prev = null,
             .next = null,
         };
-        self.buffer_list.append(buf_node);
+        self.buffer_list.prepend(buf_node);
         self.end_index = 0;
         return buf_node;
     }
@@ -398,7 +397,7 @@ pub const ArenaAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
-        var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
+        var cur_node = if (self.buffer_list.first) |first_node| first_node else try self.createNode(0, n + alignment);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.end_index;

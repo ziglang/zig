@@ -78,8 +78,10 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
 
         TypeId.Array => |array| expectEqualSlices(array.child, &expected, &actual),
 
-        TypeId.Struct => {
-            @compileError("TODO implement testing.expectEqual for structs");
+        TypeId.Struct => |structType| {
+            inline for (structType.fields) |field| {
+                expectEqual(@field(expected, field.name), @field(actual, field.name));
+            }
         },
 
         TypeId.Union => |union_info| {

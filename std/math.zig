@@ -288,10 +288,8 @@ pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt).is_signed) {
-        if (shift_amt >= 0) {
-            return a << casted_shift_amt;
-        } else {
+    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
+        if (shift_amt < 0) {
             return a >> casted_shift_amt;
         }
     }
@@ -304,6 +302,10 @@ test "math.shl" {
     testing.expect(shl(u8, 0b11111111, usize(8)) == 0);
     testing.expect(shl(u8, 0b11111111, usize(9)) == 0);
     testing.expect(shl(u8, 0b11111111, isize(-2)) == 0b00111111);
+    testing.expect(shl(u8, 0b11111111, 3) == 0b11111000);
+    testing.expect(shl(u8, 0b11111111, 8) == 0);
+    testing.expect(shl(u8, 0b11111111, 9) == 0);
+    testing.expect(shl(u8, 0b11111111, -2) == 0b00111111);
 }
 
 /// Shifts right. Overflowed bits are truncated.
@@ -312,7 +314,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt).is_signed) {
+    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
             return a >> casted_shift_amt;
         } else {
@@ -328,6 +330,10 @@ test "math.shr" {
     testing.expect(shr(u8, 0b11111111, usize(8)) == 0);
     testing.expect(shr(u8, 0b11111111, usize(9)) == 0);
     testing.expect(shr(u8, 0b11111111, isize(-2)) == 0b11111100);
+    testing.expect(shr(u8, 0b11111111, 3) == 0b00011111);
+    testing.expect(shr(u8, 0b11111111, 8) == 0);
+    testing.expect(shr(u8, 0b11111111, 9) == 0);
+    testing.expect(shr(u8, 0b11111111, -2) == 0b11111100);
 }
 
 /// Rotates right. Only unsigned values can be rotated.
@@ -678,6 +684,11 @@ pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alig
         return error.UnalignedMemory;
     }
     return @alignCast(alignment, ptr);
+}
+
+pub fn isPowerOfTwo(v: var) bool {
+    assert(v != 0);
+    return (v & (v - 1)) == 0;
 }
 
 pub fn floorPowerOfTwo(comptime T: type, value: T) T {

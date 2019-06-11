@@ -186,7 +186,7 @@ pub const Value = struct {
         /// Path to the object file that contains this function
         containing_object: Buffer,
 
-        link_set_node: *std.LinkedList(?*Value.Fn).Node,
+        link_set_node: *std.TailQueue(?*Value.Fn).Node,
 
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name

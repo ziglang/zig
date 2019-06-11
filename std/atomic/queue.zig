@@ -14,7 +14,7 @@ pub fn Queue(comptime T: type) type {
         mutex: std.Mutex,
 
         pub const Self = @This();
-        pub const Node = std.LinkedList(T).Node;
+        pub const Node = std.TailQueue(T).Node;
 
         pub fn init() Self {
             return Self{

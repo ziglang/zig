@@ -231,6 +231,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "empty while loop body",
+        \\export fn a() void {
+        \\    while(true);
+        \\}
+    ,
+        "tmp.zig:2:16: error: expected loop body, found ';'",
+    );
+
+    cases.add(
+        "empty for loop body",
+        \\export fn a() void {
+        \\    for(undefined) |x|;
+        \\}
+    ,
+        "tmp.zig:2:23: error: expected loop body, found ';'",
+    );
+
+    cases.add(
+        "empty if body",
+        \\export fn a() void {
+        \\    if(true);
+        \\}
+    ,
+        "tmp.zig:2:13: error: expected if body, found ';'",
+    );
+
+    cases.add(
         "import outside package path",
         \\comptime{
         \\    _ = @import("../a.zig");
