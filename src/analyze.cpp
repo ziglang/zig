@@ -7293,3 +7293,31 @@ void src_assert(bool ok, AstNode *source_node) {
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
+
+bool scope_is_elided(Scope *scope) {
+    for (;;) {
+        switch (scope->id) {
+            case ScopeIdElide:
+                if (reinterpret_cast<ScopeElide *>(scope)->activated)
+                    return true;
+                // fallthrough
+            case ScopeIdBlock:
+            case ScopeIdDefer:
+            case ScopeIdDeferExpr:
+            case ScopeIdVarDecl:
+            case ScopeIdLoop:
+            case ScopeIdSuspend:
+            case ScopeIdCoroPrelude:
+            case ScopeIdRuntime:
+                scope = scope->parent;
+                continue;
+            case ScopeIdFnDef:
+            case ScopeIdCompTime:
+            case ScopeIdDecls:
+            case ScopeIdCImport:
+                return false;
+        }
+        zig_unreachable();
+    }
+}
+

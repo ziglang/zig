@@ -5709,34 +5709,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
     zig_unreachable();
 }
 
-static bool scope_is_elided(Scope *scope) {
-    for (;;) {
-        switch (scope->id) {
-            case ScopeIdDecls:
-            case ScopeIdCompTime:
-            case ScopeIdCImport:
-                zig_unreachable();
-            case ScopeIdElide:
-                if (reinterpret_cast<ScopeElide *>(scope)->activated)
-                    return true;
-                // fallthrough
-            case ScopeIdBlock:
-            case ScopeIdDefer:
-            case ScopeIdDeferExpr:
-            case ScopeIdVarDecl:
-            case ScopeIdLoop:
-            case ScopeIdSuspend:
-            case ScopeIdCoroPrelude:
-            case ScopeIdRuntime:
-                scope = scope->parent;
-                continue;
-            case ScopeIdFnDef:
-                return false;
-        }
-        zig_unreachable();
-    }
-}
-
 static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     assert(fn_entry);
 

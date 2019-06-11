@@ -1,7 +1,7 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
+uncomment all the behavior tests
+
 look at all the ir_gen_node ir_gen_node_extra calls and make sure result locations are properly propagated
             return ir_gen_comptime(irb, scope, node, lval);
-
-comptime expressions

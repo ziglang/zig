@@ -8503,6 +8503,8 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
     IrBasicBlock *bb = exec->basic_block_list.at(0);
     for (size_t i = 0; i < bb->instruction_list.length; i += 1) {
         IrInstruction *instruction = bb->instruction_list.at(i);
+        if (scope_is_elided(instruction->scope))
+            continue;
         if (instruction->id == IrInstructionIdReturn) {
             IrInstructionReturn *ret_inst = (IrInstructionReturn *)instruction;
             IrInstruction *value = ret_inst->value;
