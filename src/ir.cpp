@@ -5771,8 +5771,8 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
 
-    IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
-        ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime);
+    bool is_comptime_scalar = ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime;
+    IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, is_comptime_scalar);
     ZigVar *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
         is_const, is_const, is_shadowable, is_comptime);
     // we detect IrInstructionIdDeclVarSrc in gen_block to make sure the next node
@@ -5806,11 +5806,15 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     ResultLocVar *result_loc_var = create_var_result_loc(alloca, var);
     ResultLoc *init_result_loc = (type_instruction == nullptr) ? &result_loc_var->base : nullptr;
 
+    Scope *init_scope = is_comptime_scalar ?
+        create_comptime_scope(irb->codegen, variable_declaration->expr, scope) : scope;
+
     // Temporarily set the name of the IrExecutable to the VariableDeclaration
     // so that the struct or enum from the init expression inherits the name.
     Buf *old_exec_name = irb->exec->name;
     irb->exec->name = variable_declaration->symbol;
-    IrInstruction *init_value = ir_gen_node_extra(irb, variable_declaration->expr, scope, LValNone, init_result_loc);
+    IrInstruction *init_value = ir_gen_node_extra(irb, variable_declaration->expr, init_scope,
+            LValNone, init_result_loc);
     irb->exec->name = old_exec_name;
 
     if (init_value == irb->codegen->invalid_instruction)
@@ -8029,7 +8033,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeContainerInitExpr:
             return ir_gen_container_init_expr(irb, scope, node, lval, result_loc);
         case NodeTypeVariableDeclaration:
-            return ir_lval_wrap(irb, scope, ir_gen_var_decl(irb, scope, node), lval, result_loc);
+            return ir_gen_var_decl(irb, scope, node);
         case NodeTypeWhileExpr:
             return ir_gen_while_expr(irb, scope, node, lval, result_loc);
         case NodeTypeForExpr:
