@@ -6202,7 +6202,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *zero = ir_build_const_usize(irb, parent_scope, node, 0);
     build_decl_var_and_init(irb, parent_scope, index_var_source_node, index_var, zero, index_var_name, is_comptime);
-    parent_scope = index_var->parent_scope;
+    parent_scope = index_var->child_scope;
 
     IrInstruction *one = ir_build_const_usize(irb, parent_scope, node, 1);
     IrInstruction *index_ptr = ir_build_var_ptr(irb, parent_scope, node, index_var);
