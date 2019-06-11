@@ -1406,7 +1406,8 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
 }
 
 static IrInstruction *ir_build_phi(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        size_t incoming_count, IrBasicBlock **incoming_blocks, IrInstruction **incoming_values)
+        size_t incoming_count, IrBasicBlock **incoming_blocks, IrInstruction **incoming_values,
+        ResultLocPeerParent *peer_parent)
 {
     assert(incoming_count != 0);
     assert(incoming_count != SIZE_MAX);
@@ -1415,6 +1416,7 @@ static IrInstruction *ir_build_phi(IrBuilder *irb, Scope *scope, AstNode *source
     phi_instruction->incoming_count = incoming_count;
     phi_instruction->incoming_blocks = incoming_blocks;
     phi_instruction->incoming_values = incoming_values;
+    phi_instruction->peer_parent = peer_parent;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
         ir_ref_bb(incoming_blocks[i]);
@@ -3700,7 +3702,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
 
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, nullptr);
     } else {
         incoming_blocks.append(irb->current_basic_block);
         incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
@@ -3710,7 +3713,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, nullptr);
     } else {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         return ir_mark_gen(ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
@@ -3795,7 +3799,7 @@ static IrInstruction *ir_gen_bool_or(IrBuilder *irb, Scope *scope, AstNode *node
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 }
 
 static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -3837,7 +3841,7 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
-    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 }
 
 static ResultLocPeerParent *create_binary_result_peers(IrInstruction *cond_br_inst,
@@ -3911,7 +3915,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
     IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
@@ -5427,7 +5431,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -5468,9 +5472,10 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
         // We needed a pointer to a value, but we got a value. So we create
         // an instruction which just makes a pointer of it.
         return ir_build_ref(irb, scope, value->source_node, value, false, false);
+    } else {
+        return ir_expr_wrap(irb, scope, value, result_loc);
     }
 
-    return ir_expr_wrap(irb, scope, value, result_loc);
 }
 
 static PtrLen star_token_to_ptr_len(TokenId token_id) {
@@ -5931,7 +5936,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             incoming_values.append(void_else_result);
         }
 
-        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     } else if (var_symbol != nullptr) {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
@@ -6022,7 +6028,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             incoming_values.append(void_else_result);
         }
 
-        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     } else {
         ir_set_cursor_at_end_and_append_block(irb, cond_block);
@@ -6100,7 +6107,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
             incoming_values.append(void_else_result);
         }
 
-        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        IrInstruction *phi = ir_build_phi(irb, scope, node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, peer_parent);
         return ir_expr_wrap(irb, scope, phi, result_loc);
     }
 }
@@ -6230,7 +6238,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
         incoming_values.append(void_else_value);
     }
 
-    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length,
+            incoming_blocks.items, incoming_values.items, peer_parent);
     return ir_expr_wrap(irb, parent_scope, phi, result_loc);
 }
 
@@ -6595,7 +6604,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -6690,7 +6699,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
-    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_expr_wrap(irb, scope, phi, result_loc);
 }
 
@@ -6985,7 +6994,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     if (incoming_blocks.length == 0) {
         result_instruction = ir_build_const_void(irb, scope, node);
     } else {
-        result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+        result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, peer_parent);
     }
     return ir_expr_wrap(irb, scope, result_instruction, result_loc);
 }
@@ -7273,7 +7283,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
-    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
     return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
@@ -7958,7 +7968,8 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     incoming_values[0] = const_bool_true;
     incoming_blocks[1] = post_cancel_awaiter_block;
     incoming_values[1] = const_bool_false;
-    IrInstruction *destroy_ourselves = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+    IrInstruction *destroy_ourselves = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values,
+            nullptr);
     ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
     ir_mark_gen(ir_build_cond_br(irb, parent_scope, node, destroy_ourselves, irb->exec->coro_final_cleanup_block, irb->exec->coro_early_final, const_bool_false));
 
@@ -8080,7 +8091,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeContinue:
             return ir_lval_wrap(irb, scope, ir_gen_continue(irb, scope, node), lval, result_loc);
         case NodeTypeUnreachable:
-            return ir_lval_wrap(irb, scope, ir_build_unreachable(irb, scope, node), lval, result_loc);
+            return ir_build_unreachable(irb, scope, node);
         case NodeTypeDefer:
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval, result_loc);
         case NodeTypeSliceExpr:
@@ -8337,7 +8348,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         incoming_values[0] = const_bool_false;
         incoming_blocks[1] = irb->exec->coro_normal_final;
         incoming_values[1] = const_bool_true;
-        IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+        IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
 
         IrBasicBlock **merge_incoming_blocks = allocate<IrBasicBlock *>(2);
         IrInstruction **merge_incoming_values = allocate<IrInstruction *>(2);
@@ -8345,7 +8356,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         merge_incoming_values[0] = ir_build_const_undefined(irb, scope, node);
         merge_incoming_blocks[1] = irb->exec->coro_normal_final;
         merge_incoming_values[1] = await_handle_in_block;
-        IrInstruction *awaiter_handle = ir_build_phi(irb, scope, node, 2, merge_incoming_blocks, merge_incoming_values);
+        IrInstruction *awaiter_handle = ir_build_phi(irb, scope, node, 2, merge_incoming_blocks, merge_incoming_values, nullptr);
 
         Buf *shrink_field_name = buf_create_from_str(ASYNC_SHRINK_FIELD_NAME);
         IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
@@ -10737,16 +10748,27 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *cons
 static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction, IrBasicBlock *next_bb,
         IrSuspendPosition *suspend_pos)
 {
+    // reserve block position
+    if (!ira->new_irb.current_basic_block->already_appended) {
+        ira->new_irb.current_basic_block->already_appended = true;
+        ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
+    }
+
     suspend_pos->basic_block_index = ira->old_bb_index;
     suspend_pos->instruction_index = ira->instruction_index;
 
-    ira->old_bb_index = next_bb->index;
-    ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
-    assert(ira->old_irb.current_basic_block == next_bb);
-    ira->instruction_index = 0;
-    ira->const_predecessor_bb = nullptr;
-    next_bb->other = ir_get_new_bb_runtime(ira, next_bb, old_instruction);
-    ira->new_irb.current_basic_block = next_bb->other;
+    ira->old_irb.current_basic_block->suspended = true;
+
+    // null next_bb means that the caller plans to call ira_resume before returning
+    if (next_bb != nullptr) {
+        ira->old_bb_index = next_bb->index;
+        ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
+        assert(ira->old_irb.current_basic_block == next_bb);
+        ira->instruction_index = 0;
+        ira->const_predecessor_bb = nullptr;
+        next_bb->other = ir_get_new_bb_runtime(ira, next_bb, old_instruction);
+        ira->new_irb.current_basic_block = next_bb->other;
+    }
     return ira->codegen->unreach_instruction;
 }
 
@@ -10754,6 +10776,7 @@ static IrInstruction *ira_resume(IrAnalyze *ira) {
     IrSuspendPosition pos = ira->resume_stack.pop();
     ira->old_bb_index = pos.basic_block_index;
     ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
+    ira->old_irb.current_basic_block->suspended = false;
     ira->instruction_index = pos.instruction_index;
     ira->const_predecessor_bb = nullptr;
     ira->new_irb.current_basic_block = ira->old_irb.current_basic_block->other;
@@ -10762,7 +10785,10 @@ static IrInstruction *ira_resume(IrAnalyze *ira) {
 }
 
 static void ir_finish_bb(IrAnalyze *ira) {
-    ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
+    if (!ira->new_irb.current_basic_block->already_appended) {
+        ira->new_irb.current_basic_block->already_appended = true;
+        ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
+    }
     ira->instruction_index += 1;
     while (ira->instruction_index < ira->old_irb.current_basic_block->instruction_list.length) {
         IrInstruction *next_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
@@ -10780,11 +10806,18 @@ static void ir_finish_bb(IrAnalyze *ira) {
     for (;;) {
         while (ira->old_bb_index < ira->old_irb.exec->basic_block_list.length) {
             IrBasicBlock *old_bb = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
-            if (old_bb->other == nullptr) {
+            if (old_bb->other == nullptr && old_bb->suspend_instruction_ref == nullptr) {
                 ira->old_bb_index += 1;
                 continue;
             }
-            if (old_bb->other->instruction_list.length != 0 || ira->old_bb_index == my_old_bb_index) {
+            // If it's the block we just finished, or
+            // if it's already a finished block, or 
+            // if it's a suspended block,
+            // then skip it
+            if (ira->old_bb_index == my_old_bb_index ||
+                old_bb->suspended ||
+                (old_bb->other != nullptr && old_bb->other->instruction_list.length != 0))
+            {
                 ira->old_bb_index += 1;
                 continue;
             }
@@ -10796,12 +10829,19 @@ static void ir_finish_bb(IrAnalyze *ira) {
                 return;
             }
 
+            if (old_bb->other == nullptr) {
+                old_bb->other = ir_get_new_bb_runtime(ira, old_bb, old_bb->suspend_instruction_ref);
+            }
             ira->new_irb.current_basic_block = old_bb->other;
             ir_start_bb(ira, old_bb, nullptr);
             return;
         }
-        if (!need_repeat)
+        if (!need_repeat) {
+            if (ira->resume_stack.length != 0) {
+                ira_resume(ira);
+            }
             return;
+        }
         need_repeat = false;
         ira->old_bb_index = 0;
         continue;
@@ -14775,43 +14815,11 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
                 return nullptr;
 
             if (peer_parent->resolved_type == nullptr) {
-                IrInstruction *suspended_inst = ira_suspend(ira, suspend_source_instr,
-                        result_peer->next_bb, &result_peer->suspend_pos);
-                bool last_one = result_peer->seen_before ||
-                    result_peer == &peer_parent->peers[peer_parent->peer_count - 1];
-                result_peer->seen_before = true;
-                if (!last_one) {
-                    return suspended_inst;
+                ResultLocPeer *last_peer = &peer_parent->peers[peer_parent->peer_count - 1];
+                if (last_peer->next_bb->suspend_instruction_ref == nullptr) {
+                    last_peer->next_bb->suspend_instruction_ref = suspend_source_instr;
                 }
-                IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
-                for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
-                    ResultLocPeer *this_peer = &peer_parent->peers[i];
-                    ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
-
-                    IrInstruction *gen_instruction = this_peer->base.gen_instruction;
-                    if (gen_instruction == nullptr) {
-                        // unreachable instructions will cause implicit_elem_type to be null
-                        if (this_peer->base.implicit_elem_type == nullptr) {
-                            instructions[i] = ir_const_unreachable(ira, this_peer->base.source_instruction);
-                        } else {
-                            instructions[i] = ir_const(ira, this_peer->base.source_instruction,
-                                    this_peer->base.implicit_elem_type);
-                            instructions[i]->value.special = ConstValSpecialRuntime;
-                        }
-                    } else {
-                        instructions[i] = gen_instruction;
-                    }
-                    if (opposite_peer->base.implicit_elem_type != nullptr &&
-                        opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable)
-                    {
-                        ira->resume_stack.append(opposite_peer->suspend_pos);
-                    }
-                }
-                ZigType *expected_type = ir_result_loc_expected_type(ira, suspend_source_instr, peer_parent->parent);
-                peer_parent->resolved_type = ir_resolve_peer_types(ira,
-                        peer_parent->base.source_instruction->source_node, expected_type, instructions,
-                        peer_parent->peer_count);
-                return ira_resume(ira);
+                return ira_suspend(ira, suspend_source_instr, result_peer->next_bb, &result_peer->suspend_pos);
             }
 
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
@@ -16159,7 +16167,7 @@ static IrInstruction *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr 
     if (!ir_resolve_comptime(ira, br_instruction->is_comptime->child, &is_comptime))
         return ir_unreach_error(ira);
 
-    if (is_comptime || old_dest_block->ref_count == 1)
+    if (is_comptime || (old_dest_block->ref_count == 1 && old_dest_block->suspend_instruction_ref == nullptr))
         return ir_inline_bb(ira, &br_instruction->base, old_dest_block);
 
     IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, old_dest_block, &br_instruction->base);
@@ -16254,6 +16262,45 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         zig_unreachable();
     }
 
+    ResultLocPeerParent *peer_parent = phi_instruction->peer_parent;
+    if (peer_parent != nullptr && peer_parent->resolved_type == nullptr) {
+        // Suspend the phi first so that it gets resumed last
+        IrSuspendPosition suspend_pos;
+        ira_suspend(ira, &phi_instruction->base, nullptr, &suspend_pos);
+        ira->resume_stack.append(suspend_pos);
+
+        IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
+        for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
+            ResultLocPeer *this_peer = &peer_parent->peers[i];
+            ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
+
+            IrInstruction *gen_instruction = this_peer->base.gen_instruction;
+            if (gen_instruction == nullptr) {
+                // unreachable instructions will cause implicit_elem_type to be null
+                if (this_peer->base.implicit_elem_type == nullptr) {
+                    instructions[i] = ir_const_unreachable(ira, this_peer->base.source_instruction);
+                } else {
+                    instructions[i] = ir_const(ira, this_peer->base.source_instruction,
+                            this_peer->base.implicit_elem_type);
+                    instructions[i]->value.special = ConstValSpecialRuntime;
+                }
+            } else {
+                instructions[i] = gen_instruction;
+            }
+            if (opposite_peer->base.implicit_elem_type != nullptr &&
+                opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable)
+            {
+                ira->resume_stack.append(opposite_peer->suspend_pos);
+            }
+        }
+        ZigType *expected_type = ir_result_loc_expected_type(ira, &phi_instruction->base, peer_parent->parent);
+        peer_parent->resolved_type = ir_resolve_peer_types(ira,
+                peer_parent->base.source_instruction->source_node, expected_type, instructions,
+                peer_parent->peer_count);
+
+        return ira_resume(ira);
+    }
+
     ZigList<IrBasicBlock*> new_incoming_blocks = {0};
     ZigList<IrInstruction*> new_incoming_values = {0};
 
@@ -16342,7 +16389,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
     IrInstruction *result = ir_build_phi(&ira->new_irb,
         phi_instruction->base.scope, phi_instruction->base.source_node,
-        new_incoming_blocks.length, new_incoming_blocks.items, new_incoming_values.items);
+        new_incoming_blocks.length, new_incoming_blocks.items, new_incoming_values.items, nullptr);
     result->value.type = resolved_type;
 
     if (all_stack_ptrs) {
@@ -24019,7 +24066,7 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    bool want_resolve_result = instruction->result_loc->written;
+    bool want_resolve_result;
     if (instruction->result_loc->written) {
         if (instruction->result_loc->scope_elide != nullptr && instr_is_comptime(value)) {
             want_resolve_result = true;

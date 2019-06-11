@@ -43,6 +43,7 @@ struct TldExport;
 struct IrAnalyze;
 struct ResultLoc;
 struct ResultLocPeer;
+struct ResultLocPeerParent;
 
 enum X64CABIClass {
     X64CABIClass_Unknown,
@@ -2163,6 +2164,9 @@ struct IrBasicBlock {
     // if the branch is comptime. The instruction points to the reason
     // the basic block must be comptime.
     IrInstruction *must_be_comptime_source_instr;
+    IrInstruction *suspend_instruction_ref;
+    bool already_appended;
+    bool suspended;
 };
 
 // These instructions are in transition to having "pass 1" instructions
@@ -2434,6 +2438,7 @@ struct IrInstructionPhi {
     size_t incoming_count;
     IrBasicBlock **incoming_blocks;
     IrInstruction **incoming_values;
+    ResultLocPeerParent *peer_parent;
 };
 
 enum IrUnOp {
@@ -3646,7 +3651,6 @@ struct IrSuspendPosition {
 struct ResultLocPeer {
     ResultLoc base;
 
-    bool seen_before;
     ResultLocPeerParent *parent;
     IrBasicBlock *next_bb;
     IrSuspendPosition suspend_pos;
