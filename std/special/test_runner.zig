@@ -2,28 +2,34 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 const test_fn_list = builtin.test_functions;
-const warn = std.debug.warn;
 
-pub fn main() !void {
+pub fn main() void {
+    const stderr = io.getStdErr() catch std.process.abort();
+
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     for (test_fn_list) |test_fn, i| {
-        warn("{}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
+        stderr.write("test ") catch std.process.abort();
+        stderr.write(test_fn.name) catch std.process.abort();
 
         if (test_fn.func()) |_| {
             ok_count += 1;
-            warn("OK\n");
+            stderr.write("...OK\n") catch std.process.abort();
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
-                warn("SKIP\n");
+                stderr.write("...SKIP\n") catch std.process.abort();
             },
-            else => return err,
+            else => {
+                stderr.write("error: ") catch std.process.abort();
+                stderr.write(@errorName(err)) catch std.process.abort();
+                std.process.abort();
+            },
         }
     }
     if (ok_count == test_fn_list.len) {
-        warn("All tests passed.\n");
+        stderr.write("All tests passed.\n") catch std.process.abort();
     } else {
-        warn("{} passed; {} skipped.\n", ok_count, skip_count);
+        stderr.write("Some tests skipped.\n") catch std.process.abort();
     }
 }
