@@ -14899,7 +14899,10 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             bool is_comptime;
             if (!ir_resolve_comptime(ira, peer_parent->is_comptime->child, &is_comptime))
                 return ira->codegen->invalid_instruction;
-            if (is_comptime) return nullptr;
+            peer_parent->skipped = is_comptime;
+            if (peer_parent->skipped) {
+                return nullptr;
+            }
 
             if (peer_parent->resolved_type == nullptr) {
                 ResultLocPeer *last_peer = &peer_parent->peers[peer_parent->peer_count - 1];
@@ -14916,6 +14919,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             {
                 return parent_result_loc;
             }
+            result_loc->written = true;
             result_loc->resolved_loc = parent_result_loc;
             return result_loc->resolved_loc;
         }
@@ -16385,16 +16389,15 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     }
 
     ResultLocPeerParent *peer_parent = phi_instruction->peer_parent;
-    if (peer_parent != nullptr && peer_parent->resolved_type == nullptr) {
-        bool is_comptime;
-        if (!ir_resolve_comptime(ira, peer_parent->is_comptime->child, &is_comptime))
-            return ira->codegen->invalid_instruction;
-        if (is_comptime) goto skip_peer_stuff;
-
+    if (peer_parent != nullptr && peer_parent->resolved_type == nullptr && !peer_parent->skipped) {
         // Suspend the phi first so that it gets resumed last
-        IrSuspendPosition suspend_pos;
-        ira_suspend(ira, &phi_instruction->base, nullptr, &suspend_pos);
-        ira->resume_stack.append(suspend_pos);
+        ira->resume_stack.add_one();
+        for (size_t i = ira->resume_stack.length;;) {
+            if (i <= 1) break;
+            i -= 1;
+            ira->resume_stack.items[i] = ira->resume_stack.items[i-1];
+        }
+        ira_suspend(ira, &phi_instruction->base, nullptr, &ira->resume_stack.items[0]);
 
         IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
         for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
@@ -16427,7 +16430,6 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
         return ira_resume(ira);
     }
-skip_peer_stuff:
 
     ZigList<IrBasicBlock*> new_incoming_blocks = {0};
     ZigList<IrInstruction*> new_incoming_values = {0};
@@ -24598,6 +24600,9 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
+        if (ira->codegen->verbose_ir) {
+            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
+        }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);

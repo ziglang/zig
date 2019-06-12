@@ -3652,6 +3652,7 @@ struct ResultLocReturn {
 struct ResultLocPeerParent {
     ResultLoc base;
 
+    bool skipped;
     ResultLoc *parent;
     ResultLocPeer *peers;
     size_t peer_count;
