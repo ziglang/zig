@@ -14812,6 +14812,7 @@ static bool type_can_bit_cast(ZigType *t) {
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value)
 {
+    Error err;
     if (result_loc->resolved_loc != nullptr) {
         // allow to redo the result location if the value is known and comptime and the previous one isn't
         if (value == nullptr || !instr_is_comptime(value) || instr_is_comptime(result_loc->resolved_loc)) {
@@ -14962,7 +14963,18 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             {
                 return parent_result_loc;
             }
-            ZigType *ptr_type = get_pointer_to_type(ira->codegen, value_type, false);
+            ZigType *parent_ptr_type = parent_result_loc->value.type;
+            assert(parent_ptr_type->id == ZigTypeIdPointer);
+            if ((err = type_resolve(ira->codegen, parent_ptr_type->data.pointer.child_type,
+                            ResolveStatusAlignmentKnown)))
+            {
+                return ira->codegen->invalid_instruction;
+            }
+            uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
+            ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value_type,
+                    parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
+                    parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
+
             result_loc->written = true;
             result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
                     ptr_type, result_bit_cast->base.source_instruction, false);
