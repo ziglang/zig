@@ -4166,8 +4166,14 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     }
 
     Tld *tld = find_decl(irb->codegen, scope, variable_name);
-    if (tld)
-        return ir_build_decl_ref(irb, scope, node, tld, lval);
+    if (tld) {
+        IrInstruction *decl_ref = ir_build_decl_ref(irb, scope, node, tld, lval);
+        if (lval == LValPtr) {
+            return decl_ref;
+        } else {
+            return ir_expr_wrap(irb, scope, decl_ref, result_loc);
+        }
+    }
 
     if (get_container_scope(node->owner)->any_imports_failed) {
         // skip the error message since we had a failing import in this file
@@ -16503,7 +16509,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         IrInstruction *branch_instruction = predecessor->instruction_list.pop();
         ir_set_cursor_at_end(&ira->new_irb, predecessor);
         IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
-        if (casted_value == ira->codegen->invalid_instruction) {
+        if (type_is_invalid(casted_value->value.type)) {
             return ira->codegen->invalid_instruction;
         }
         new_incoming_values.items[i] = casted_value;

@@ -3247,8 +3247,8 @@ struct IrInstructionTypeName {
 struct IrInstructionDeclRef {
     IrInstruction base;
 
-    Tld *tld;
     LVal lval;
+    Tld *tld;
 };
 
 struct IrInstructionPanic {
