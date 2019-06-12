@@ -125,6 +125,7 @@ pub const Token = struct {
         SlashEqual,
         Comma,
         Ampersand,
+        AmpersandAmpersand,
         AmpersandEqual,
         QuestionMark,
         AngleBracketLeft,
@@ -484,6 +485,10 @@ pub const Tokenizer = struct {
                 },
 
                 State.Ampersand => switch (c) {
+                    '&' => {
+                        result.id = Token.Id.AmpersandAmpersand;
+                        break;
+                    },
                     '=' => {
                         result.id = Token.Id.AmpersandEqual;
                         self.index += 1;
