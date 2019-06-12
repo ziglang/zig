@@ -4951,6 +4951,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 ResultLocBitCast *result_loc_bit_cast = allocate<ResultLocBitCast>(1);
                 result_loc_bit_cast->base.id = ResultLocIdBitCast;
                 result_loc_bit_cast->base.source_instruction = dest_type;
+                ir_ref_instruction(dest_type, irb->current_basic_block);
                 result_loc_bit_cast->parent = result_loc;
 
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
@@ -24219,7 +24220,7 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
 
 static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInstructionBitCastSrc *instruction) {
     IrInstruction *operand = instruction->operand->child;
-    if (type_is_invalid(operand->value.type) || instr_is_comptime(operand) ||
+    if (type_is_invalid(operand->value.type) ||
         instruction->result_loc_bit_cast->parent->gen_instruction == nullptr)
     {
         return operand;
