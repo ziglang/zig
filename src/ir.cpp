@@ -24232,11 +24232,13 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
 
 static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInstructionBitCastSrc *instruction) {
     IrInstruction *operand = instruction->operand->child;
-    if (type_is_invalid(operand->value.type) ||
-        instruction->result_loc_bit_cast->parent->gen_instruction == nullptr)
-    {
+    if (type_is_invalid(operand->value.type))
         return operand;
-    }
+
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base,
+            &instruction->result_loc_bit_cast->base, operand->value.type, operand);
+    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
+        return result_loc;
 
     return instruction->result_loc_bit_cast->parent->gen_instruction;
 }
