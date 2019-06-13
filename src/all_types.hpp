@@ -2555,8 +2555,8 @@ struct IrInstructionElemPtr {
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
     PtrLen ptr_len;
-    bool safety_check_on;
     bool initializing;
+    bool safety_check_on;
 };
 
 struct IrInstructionVarPtr {

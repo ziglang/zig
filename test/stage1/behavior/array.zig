@@ -222,17 +222,17 @@ test "double nested array to const slice cast in array literal" {
     const S = struct {
         fn entry(two: i32) void {
             const cases = [_][]const []const i32{
-                &[_][]const i32{&[_]i32{1}},
-                &[_][]const i32{&[_]i32{ 2, 3 }},
-                &[_][]const i32{
-                    &[_]i32{4},
-                    &[_]i32{ 5, 6, 7 },
+                [_][]const i32{[_]i32{1}},
+                [_][]const i32{[_]i32{ 2, 3 }},
+                [_][]const i32{
+                    [_]i32{4},
+                    [_]i32{ 5, 6, 7 },
                 },
             };
             check(cases);
 
             const cases2 = [_][]const i32{
-                &[_]i32{1},
+                [_]i32{1},
                 &[_]i32{ two, 3 },
             };
             expect(cases2.len == 2);
@@ -243,11 +243,11 @@ test "double nested array to const slice cast in array literal" {
             expect(cases2[1][1] == 3);
 
             const cases3 = [_][]const []const i32{
-                &[_][]const i32{&[_]i32{1}},
+                [_][]const i32{[_]i32{1}},
                 &[_][]const i32{&[_]i32{ two, 3 }},
-                &[_][]const i32{
-                    &[_]i32{4},
-                    &[_]i32{ 5, 6, 7 },
+                [_][]const i32{
+                    [_]i32{4},
+                    [_]i32{ 5, 6, 7 },
                 },
             };
             check(cases3);

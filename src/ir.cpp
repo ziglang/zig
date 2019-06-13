@@ -16833,7 +16833,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
                         IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
                                 elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, false,
-                                elem_ptr_instruction->ptr_len, true);
+                                elem_ptr_instruction->ptr_len, false);
                         result->value.type = return_type;
                         return result;
                     }
@@ -16897,15 +16897,6 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     zig_unreachable();
                 }
             }
-        }
-
-        if (is_slice(array_type) && elem_ptr_instruction->initializing) {
-            // we need a pointer to an element inside a slice. but we're initializing an array.
-            // this means that the slice isn't actually pointing at anything.
-            ir_add_error(ira, &elem_ptr_instruction->base,
-                buf_sprintf("runtime-initialized array cannot be casted to slice type '%s'",
-                    buf_ptr(&array_type->name)));
-            return ira->codegen->invalid_instruction;
         }
     } else {
         // runtime known element index
@@ -19053,6 +19044,16 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         IrInstruction *result_loc = instruction->result_loc->child;
         if (type_is_invalid(result_loc->value.type))
             return result_loc;
+        ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
+        ZigType *result_elem_type = result_loc->value.type->data.pointer.child_type;
+        if (is_slice(result_elem_type)) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                buf_sprintf("runtime-initialized array cannot be casted to slice type '%s'",
+                    buf_ptr(&result_elem_type->name)));
+            add_error_note(ira->codegen, msg, first_non_const_instruction->source_node,
+                buf_sprintf("this value is not comptime-known"));
+            return ira->codegen->invalid_instruction;
+        }
         return ir_get_deref(ira, &instruction->base, result_loc, nullptr);
     } else if (container_type->id == ZigTypeIdVoid) {
         if (elem_count != 0) {
