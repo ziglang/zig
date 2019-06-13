@@ -404,7 +404,7 @@ test "basic hash map usage" {
     testing.expect((try map.put(3, 33)) == null);
     testing.expect((try map.put(4, 44)) == null);
 
-    map.putNoClobber(5, 55);
+    try map.putNoClobber(5, 55);
     testing.expect((try map.put(5, 66)).?.value == 55);
     testing.expect((try map.put(5, 55)).?.value == 66);
 
@@ -444,9 +444,9 @@ test "iterator hash map" {
     var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
     defer reset_map.deinit();
 
-    reset_map.putNoClobber(1, 11);
-    reset_map.putNoClobber(2, 22);
-    reset_map.putNoClobber(3, 33);
+    try reset_map.putNoClobber(1, 11);
+    try reset_map.putNoClobber(2, 22);
+    try reset_map.putNoClobber(3, 33);
 
     var keys = [_]i32{
         3,
