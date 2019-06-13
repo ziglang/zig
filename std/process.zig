@@ -388,7 +388,7 @@ pub fn args() ArgIterator {
 }
 
 /// Caller must call argsFree on result.
-pub fn argsAlloc(allocator: *mem.Allocator) ![]const []u8 {
+pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
     if (builtin.os == .wasi) {
         var count: usize = undefined;
         var buf_size: usize = undefined;
