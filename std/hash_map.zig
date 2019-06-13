@@ -204,6 +204,10 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return hm.internalGet(key);
         }
 
+        pub fn getValue(hm: *const Self, key: K) ?V {
+            return if (hm.get(key)) |kv| kv.value else null;
+        }
+
         pub fn contains(hm: *const Self, key: K) bool {
             return hm.get(key) != null;
         }
@@ -427,12 +431,14 @@ test "basic hash map usage" {
 
     testing.expect(map.contains(2));
     testing.expect(map.get(2).?.value == 22);
+    testing.expect(map.getValue(2).? == 22);
 
     const rmv1 = map.remove(2);
     testing.expect(rmv1.?.key == 2);
     testing.expect(rmv1.?.value == 22);
     testing.expect(map.remove(2) == null);
     testing.expect(map.get(2) == null);
+    testing.expect(map.getValue(2) == null);
 
     map.removeAssertDiscard(3);
 }
