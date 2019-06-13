@@ -2555,8 +2555,8 @@ struct IrInstructionElemPtr {
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
     PtrLen ptr_len;
-    bool is_const;
     bool safety_check_on;
+    bool initializing;
 };
 
 struct IrInstructionVarPtr {
@@ -2651,6 +2651,7 @@ struct IrInstructionContainerInitList {
     IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **items;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -2666,6 +2667,7 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionUnreachable {

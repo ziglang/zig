@@ -1298,14 +1298,16 @@ static IrInstruction *ir_build_return_ptr(IrAnalyze *ira, IrInstruction *source_
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *array_ptr,
-        IrInstruction *elem_index, bool safety_check_on, PtrLen ptr_len)
+static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *array_ptr, IrInstruction *elem_index, bool safety_check_on, PtrLen ptr_len,
+        bool initializing)
 {
     IrInstructionElemPtr *instruction = ir_build_instruction<IrInstructionElemPtr>(irb, scope, source_node);
     instruction->array_ptr = array_ptr;
     instruction->elem_index = elem_index;
     instruction->safety_check_on = safety_check_on;
     instruction->ptr_len = ptr_len;
+    instruction->initializing = initializing;
 
     ir_ref_instruction(array_ptr, irb->current_basic_block);
     ir_ref_instruction(elem_index, irb->current_basic_block);
@@ -1505,13 +1507,14 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t item_count, IrInstruction **items)
+        IrInstruction *container_type, size_t item_count, IrInstruction **items, ResultLoc *result_loc)
 {
     IrInstructionContainerInitList *container_init_list_instruction =
         ir_build_instruction<IrInstructionContainerInitList>(irb, scope, source_node);
     container_init_list_instruction->container_type = container_type;
     container_init_list_instruction->item_count = item_count;
     container_init_list_instruction->items = items;
+    container_init_list_instruction->result_loc = result_loc;
 
     ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < item_count; i += 1) {
@@ -1522,13 +1525,15 @@ static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope,
 }
 
 static IrInstruction *ir_build_container_init_fields(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t field_count, IrInstructionContainerInitFieldsField *fields)
+        IrInstruction *container_type, size_t field_count, IrInstructionContainerInitFieldsField *fields,
+        ResultLoc *result_loc)
 {
     IrInstructionContainerInitFields *container_init_fields_instruction =
         ir_build_instruction<IrInstructionContainerInitFields>(irb, scope, source_node);
     container_init_fields_instruction->container_type = container_type;
     container_init_fields_instruction->field_count = field_count;
     container_init_fields_instruction->fields = fields;
+    container_init_fields_instruction->result_loc = result_loc;
 
     ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < field_count; i += 1) {
@@ -4202,7 +4207,7 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, Scope *scope, AstNode 
         return subscript_instruction;
 
     IrInstruction *ptr_instruction = ir_build_elem_ptr(irb, scope, node, array_ref_instruction,
-            subscript_instruction, true, PtrLenSingle);
+            subscript_instruction, true, PtrLenSingle, false);
     if (lval == LValPtr)
         return ptr_instruction;
 
@@ -5734,7 +5739,8 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 fields[i].value = expr_value;
                 fields[i].source_node = entry_node;
             }
-            IrInstruction *init_fields = ir_build_container_init_fields(irb, scope, node, container_type, field_count, fields);
+            IrInstruction *init_fields = ir_build_container_init_fields(irb, scope, node, container_type,
+                    field_count, fields, result_loc);
 
             return ir_lval_wrap(irb, scope, init_fields, lval, result_loc);
         }
@@ -5764,7 +5770,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 if (container_ptr != nullptr) {
                     IrInstruction *elem_index = ir_build_const_usize(irb, &result_loc->scope_elide->base, expr_node, i);
                     IrInstruction *elem_ptr = ir_build_elem_ptr(irb, &result_loc->scope_elide->base, expr_node,
-                            container_ptr, elem_index, false, PtrLenSingle);
+                            container_ptr, elem_index, false, PtrLenSingle, true);
                     ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                     result_loc_inst->base.id = ResultLocIdInstruction;
                     result_loc_inst->base.source_instruction = elem_ptr;
@@ -5781,7 +5787,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 values[i] = expr_value;
             }
             IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type,
-                    item_count, values);
+                    item_count, values, result_loc);
             return ir_lval_wrap(irb, scope, init_list, lval, result_loc);
         }
     }
@@ -6264,7 +6270,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
             is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
-    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, parent_scope, node, array_val_ptr, index_val, false, PtrLenSingle);
+    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, parent_scope, node, array_val_ptr, index_val, false,
+            PtrLenSingle, false);
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
     ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
@@ -16825,8 +16832,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                 } else if (is_slice(array_type)) {
                     ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-                        IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope, elem_ptr_instruction->base.source_node,
-                                array_ptr, casted_elem_index, false, elem_ptr_instruction->ptr_len);
+                        IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
+                                elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, false,
+                                elem_ptr_instruction->ptr_len, true);
                         result->value.type = return_type;
                         return result;
                     }
@@ -16917,8 +16925,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         }
     }
 
-    IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope, elem_ptr_instruction->base.source_node,
-            array_ptr, casted_elem_index, safety_check_on, elem_ptr_instruction->ptr_len);
+    IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
+            elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, safety_check_on,
+            elem_ptr_instruction->ptr_len, elem_ptr_instruction->initializing);
     result->value.type = return_type;
     return result;
 }
@@ -18784,7 +18793,8 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
 }
 
 static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruction *instruction,
-    ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields)
+    ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
+    ResultLoc *result_loc_pass1)
 {
     Error err;
     if (container_type->id == ZigTypeIdUnion) {
@@ -18919,11 +18929,11 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
     }
 
-    // this instruction should not get to codegen
-    IrInstruction *result = ir_const(ira, instruction, container_type);
-    // this is how we signal to EndExpr the value is not comptime known
-    result->value.special = ConstValSpecialRuntime;
-    return result;
+    IrInstruction *result_loc = ir_resolve_result(ira, instruction, result_loc_pass1,
+            container_type, nullptr);
+    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))
+        return result_loc;
+    return ir_get_deref(ira, instruction, result_loc, nullptr);
 }
 
 static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
@@ -18942,8 +18952,8 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             buf_sprintf("expected array type or [_], found slice"));
         return ira->codegen->invalid_instruction;
     } else if (container_type->id == ZigTypeIdStruct && !is_slice(container_type) && elem_count == 0) {
-        return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
-                0, nullptr);
+        return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr,
+                instruction->result_loc);
     } else if (container_type->id == ZigTypeIdArray) {
         // array is same as slice init but we make a compile error if the length is wrong
         ZigType *child_type;
@@ -19029,11 +19039,11 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             return ira->codegen->invalid_instruction;
         }
 
-        // this instruction should not get to codegen
-        IrInstruction *new_instruction = ir_const(ira, &instruction->base, fixed_size_array_type);
-        // this is how we signal to EndExpr the value is not comptime known
-        new_instruction->value.special = ConstValSpecialRuntime;
-        return new_instruction;
+        IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+                fixed_size_array_type, nullptr);
+        if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))
+            return result_loc;
+        return ir_get_deref(ira, &instruction->base, result_loc, nullptr);
     } else if (container_type->id == ZigTypeIdVoid) {
         if (elem_count != 0) {
             ir_add_error_node(ira, instruction->base.source_node,
@@ -19058,7 +19068,7 @@ static IrInstruction *ir_analyze_instruction_container_init_fields(IrAnalyze *ir
         return ira->codegen->invalid_instruction;
 
     return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
-        instruction->field_count, instruction->fields);
+        instruction->field_count, instruction->fields, instruction->result_loc);
 }
 
 static IrInstruction *ir_analyze_instruction_compile_err(IrAnalyze *ira,
