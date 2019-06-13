@@ -185,6 +185,8 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
         ZigType *ptr_type);
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *dest_type);
+static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+        ResultLoc *result_loc, ZigType *value_type, IrInstruction *value);
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value);
 static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstruction *source_instr,
@@ -14812,10 +14814,8 @@ static bool type_can_bit_cast(ZigType *t) {
     }
 }
 
-// give nullptr for value to resolve it at runtime
-// returns a result location, or nullptr if the result location was already taken care of
 // when calling this function, at the callsite must check for result type noreturn and propagate it up
-static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value)
 {
     Error err;
@@ -14994,6 +14994,30 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     zig_unreachable();
 }
 
+static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+        ResultLoc *result_loc_pass1, ZigType *value_type, IrInstruction *value)
+{
+    IrInstruction *result_loc = ir_resolve_result_raw(ira, suspend_source_instr, result_loc_pass1, value_type,
+            value);
+    if (result_loc == nullptr || (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value.type)))
+        return result_loc;
+    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, suspend_source_instr);
+    ZigType *actual_elem_type = result_loc->value.type->data.pointer.child_type;
+    if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
+        return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
+    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
+        IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
+                result_loc, false, true);
+        ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
+        if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
+            return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
+        } else {
+            return unwrapped_err_ptr;
+        }
+    }
+    return result_loc;
+}
+
 static IrInstruction *ir_analyze_instruction_implicit_cast(IrAnalyze *ira, IrInstructionImplicitCast *instruction) {
     ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
     if (type_is_invalid(dest_type))
@@ -15010,25 +15034,7 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
     ZigType *implicit_elem_type = ir_resolve_type(ira, instruction->ty->child);
     if (type_is_invalid(implicit_elem_type))
         return ira->codegen->invalid_instruction;
-    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            implicit_elem_type, nullptr);
-    if (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value.type))
-        return result_loc;
-    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
-    ZigType *actual_elem_type = result_loc->value.type->data.pointer.child_type;
-    if (actual_elem_type->id == ZigTypeIdOptional && implicit_elem_type->id != ZigTypeIdOptional) {
-        return ir_analyze_unwrap_optional_payload(ira, &instruction->base, result_loc, false, true);
-    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && implicit_elem_type->id != ZigTypeIdErrorUnion) {
-        IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, &instruction->base,
-                result_loc, false, true);
-        ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
-        if (actual_payload_type->id == ZigTypeIdOptional && implicit_elem_type->id != ZigTypeIdOptional) {
-            return ir_analyze_unwrap_optional_payload(ira, &instruction->base, unwrapped_err_ptr, false, true);
-        } else {
-            return unwrapped_err_ptr;
-        }
-    }
-    return result_loc;
+    return ir_resolve_result(ira, &instruction->base, instruction->result_loc, implicit_elem_type, nullptr);
 }
 
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction, ZigFn *fn_entry,
@@ -24617,9 +24623,6 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
-        if (ira->codegen->verbose_ir) {
-            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
-        }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
