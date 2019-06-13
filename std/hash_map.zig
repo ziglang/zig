@@ -183,6 +183,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return putAssumeCapacity(self, key, value);
         }
 
+        /// Calls put() and asserts that no kv pair is clobbered.
+        pub fn putNoClobber(self: *Self, key: K, value: V) !void {
+            assert((try self.put(key, value)) == null);
+        }
+
         pub fn putAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             assert(self.count() < self.entries.len);
             self.incrementModificationCount();
@@ -203,6 +208,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return hm.get(key) != null;
         }
 
+        /// Returns any kv pair that was removed.
         pub fn remove(hm: *Self, key: K) ?KV {
             if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
@@ -236,6 +242,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return null;
         }
 
+        /// Calls remove(), asserts that a kv pair is removed, and discards it.
+        pub fn removeAssertDiscard(hm: *Self, key: K) void {
+            assert(hm.remove(key) != null);
+        }
+
         pub fn iterator(hm: *const Self) Iterator {
             return Iterator{
                 .hm = hm,
@@ -250,7 +261,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             try other.initCapacity(self.entries.len);
             var it = self.iterator();
             while (it.next()) |entry| {
-                assert((try other.put(entry.key, entry.value)) == null);
+                try other.putNoClobber(entry.key, entry.value);
             }
             return other;
         }
@@ -392,8 +403,8 @@ test "basic hash map usage" {
     testing.expect((try map.put(2, 22)) == null);
     testing.expect((try map.put(3, 33)) == null);
     testing.expect((try map.put(4, 44)) == null);
-    testing.expect((try map.put(5, 55)) == null);
 
+    map.putNoClobber(5, 55);
     testing.expect((try map.put(5, 66)).?.value == 55);
     testing.expect((try map.put(5, 55)).?.value == 66);
 
@@ -422,6 +433,8 @@ test "basic hash map usage" {
     testing.expect(rmv1.?.value == 22);
     testing.expect(map.remove(2) == null);
     testing.expect(map.get(2) == null);
+
+    map.removeAssertDiscard(3);
 }
 
 test "iterator hash map" {
@@ -431,9 +444,9 @@ test "iterator hash map" {
     var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
     defer reset_map.deinit();
 
-    testing.expect((try reset_map.put(1, 11)) == null);
-    testing.expect((try reset_map.put(2, 22)) == null);
-    testing.expect((try reset_map.put(3, 33)) == null);
+    reset_map.putNoClobber(1, 11);
+    reset_map.putNoClobber(2, 22);
+    reset_map.putNoClobber(3, 33);
 
     var keys = [_]i32{
         3,
