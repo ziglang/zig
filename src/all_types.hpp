@@ -2651,7 +2651,7 @@ struct IrInstructionContainerInitList {
     IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **items;
-    ResultLoc *result_loc;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -2667,7 +2667,7 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
-    ResultLoc *result_loc;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionUnreachable {

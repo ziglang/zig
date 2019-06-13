@@ -1507,7 +1507,7 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t item_count, IrInstruction **items, ResultLoc *result_loc)
+        IrInstruction *container_type, size_t item_count, IrInstruction **items, IrInstruction *result_loc)
 {
     IrInstructionContainerInitList *container_init_list_instruction =
         ir_build_instruction<IrInstructionContainerInitList>(irb, scope, source_node);
@@ -1520,13 +1520,14 @@ static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope,
     for (size_t i = 0; i < item_count; i += 1) {
         ir_ref_instruction(items[i], irb->current_basic_block);
     }
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &container_init_list_instruction->base;
 }
 
 static IrInstruction *ir_build_container_init_fields(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *container_type, size_t field_count, IrInstructionContainerInitFieldsField *fields,
-        ResultLoc *result_loc)
+        IrInstruction *result_loc)
 {
     IrInstructionContainerInitFields *container_init_fields_instruction =
         ir_build_instruction<IrInstructionContainerInitFields>(irb, scope, source_node);
@@ -1539,6 +1540,7 @@ static IrInstruction *ir_build_container_init_fields(IrBuilder *irb, Scope *scop
     for (size_t i = 0; i < field_count; i += 1) {
         ir_ref_instruction(fields[i].value, irb->current_basic_block);
     }
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
     return &container_init_fields_instruction->base;
 }
@@ -5667,13 +5669,9 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
 }
 
 static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
-        ResultLoc *result_loc)
+        ResultLoc *parent_result_loc)
 {
     assert(node->type == NodeTypeContainerInitExpr);
-
-    if (ir_should_inline(irb->exec, scope)) {
-        result_loc = nullptr;
-    }
 
     AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
     ContainerInitKind kind = container_init_expr->kind;
@@ -5699,13 +5697,13 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             }
 
             IrInstruction *container_ptr = nullptr;
-            if (result_loc != nullptr) {
-                src_assert(result_loc->scope_elide == nullptr, node);
-                result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
+            if (!ir_should_inline(irb->exec, scope)) {
+                src_assert(parent_result_loc->scope_elide == nullptr, node);
+                parent_result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
 
-                src_assert(result_loc != nullptr, node);
-                container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
-                        node, result_loc, container_type);
+                src_assert(parent_result_loc != nullptr, node);
+                container_ptr = ir_build_resolve_result(irb, &parent_result_loc->scope_elide->base,
+                        node, parent_result_loc, container_type);
             }
 
             size_t field_count = container_init_expr->entries.length;
@@ -5720,14 +5718,14 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 Scope *val_scope = scope;
                 ResultLoc *child_result_loc = nullptr;
                 if (container_ptr != nullptr) {
-                    IrInstruction *field_ptr = ir_build_field_ptr(irb, &result_loc->scope_elide->base, expr_node,
-                            container_ptr, name, true);
+                    IrInstruction *field_ptr = ir_build_field_ptr(irb, &parent_result_loc->scope_elide->base,
+                            expr_node, container_ptr, name, true);
                     ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                     result_loc_inst->base.id = ResultLocIdInstruction;
                     result_loc_inst->base.source_instruction = field_ptr;
                     ir_ref_instruction(field_ptr, irb->current_basic_block);
                     child_result_loc = &result_loc_inst->base;
-                    val_scope = &result_loc->scope_elide->base;
+                    val_scope = &parent_result_loc->scope_elide->base;
                 }
 
                 IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, val_scope, LValNone,
@@ -5740,9 +5738,9 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 fields[i].source_node = entry_node;
             }
             IrInstruction *init_fields = ir_build_container_init_fields(irb, scope, node, container_type,
-                    field_count, fields, result_loc);
+                    field_count, fields, container_ptr);
 
-            return ir_lval_wrap(irb, scope, init_fields, lval, result_loc);
+            return ir_lval_wrap(irb, scope, init_fields, lval, parent_result_loc);
         }
         case ContainerInitKindArray: {
             size_t item_count = container_init_expr->entries.length;
@@ -5753,12 +5751,12 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             }
 
             IrInstruction *container_ptr = nullptr;
-            if (result_loc != nullptr) {
-                src_assert(result_loc->scope_elide == nullptr, node);
-                result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
+            if (!ir_should_inline(irb->exec, scope)) {
+                src_assert(parent_result_loc->scope_elide == nullptr, node);
+                parent_result_loc->scope_elide = create_elide_scope(irb->codegen, node, scope);
 
-                container_ptr = ir_build_resolve_result(irb, &result_loc->scope_elide->base,
-                        node, result_loc, container_type);
+                container_ptr = ir_build_resolve_result(irb, &parent_result_loc->scope_elide->base,
+                        node, parent_result_loc, container_type);
             }
 
             IrInstruction **values = allocate<IrInstruction *>(item_count);
@@ -5768,15 +5766,16 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 ResultLoc *child_result_loc = nullptr;
                 Scope *val_scope = scope;
                 if (container_ptr != nullptr) {
-                    IrInstruction *elem_index = ir_build_const_usize(irb, &result_loc->scope_elide->base, expr_node, i);
-                    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, &result_loc->scope_elide->base, expr_node,
-                            container_ptr, elem_index, false, PtrLenSingle, true);
+                    IrInstruction *elem_index = ir_build_const_usize(irb, &parent_result_loc->scope_elide->base,
+                            expr_node, i);
+                    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, &parent_result_loc->scope_elide->base,
+                            expr_node, container_ptr, elem_index, false, PtrLenSingle, true);
                     ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                     result_loc_inst->base.id = ResultLocIdInstruction;
                     result_loc_inst->base.source_instruction = elem_ptr;
                     ir_ref_instruction(elem_ptr, irb->current_basic_block);
                     child_result_loc = &result_loc_inst->base;
-                    val_scope = &result_loc->scope_elide->base;
+                    val_scope = &parent_result_loc->scope_elide->base;
                 }
 
                 IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, val_scope, LValNone,
@@ -5787,8 +5786,8 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 values[i] = expr_value;
             }
             IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type,
-                    item_count, values, result_loc);
-            return ir_lval_wrap(irb, scope, init_list, lval, result_loc);
+                    item_count, values, container_ptr);
+            return ir_lval_wrap(irb, scope, init_list, lval, parent_result_loc);
         }
     }
     zig_unreachable();
@@ -16900,6 +16899,14 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             }
         }
 
+        if (is_slice(array_type) && elem_ptr_instruction->initializing) {
+            // we need a pointer to an element inside a slice. but we're initializing an array.
+            // this means that the slice isn't actually pointing at anything.
+            ir_add_error(ira, &elem_ptr_instruction->base,
+                buf_sprintf("runtime-initialized array cannot be casted to slice type '%s'",
+                    buf_ptr(&array_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
     } else {
         // runtime known element index
         switch (type_requires_comptime(ira->codegen, return_type)) {
@@ -18729,7 +18736,8 @@ static IrInstruction *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRe
 }
 
 static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrInstruction *instruction,
-    ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields)
+    ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
+    IrInstruction *old_result_loc)
 {
     Error err;
     assert(container_type->id == ZigTypeIdUnion);
@@ -18785,20 +18793,21 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
         return result;
     }
 
-    // this instruction should not get to codegen
-    IrInstruction *new_instruction = ir_const(ira, instruction, container_type);
-    // this is how we signal to EndExpr the value is not comptime known
-    new_instruction->value.special = ConstValSpecialRuntime;
-    return new_instruction;
+    ir_assert(old_result_loc != nullptr, instruction);
+    IrInstruction *result_loc = old_result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return result_loc;
+    return ir_get_deref(ira, instruction, result_loc, nullptr);
 }
 
 static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruction *instruction,
     ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
-    ResultLoc *result_loc_pass1)
+    IrInstruction *old_result_loc)
 {
     Error err;
     if (container_type->id == ZigTypeIdUnion) {
-        return ir_analyze_container_init_fields_union(ira, instruction, container_type, instr_field_count, fields);
+        return ir_analyze_container_init_fields_union(ira, instruction, container_type, instr_field_count,
+                fields, old_result_loc);
     }
     if (container_type->id != ZigTypeIdStruct || is_slice(container_type)) {
         ir_add_error(ira, instruction,
@@ -18929,9 +18938,10 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *result_loc = ir_resolve_result(ira, instruction, result_loc_pass1,
-            container_type, nullptr);
-    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))
+
+    ir_assert(old_result_loc != nullptr, instruction);
+    IrInstruction *result_loc = old_result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
         return result_loc;
     return ir_get_deref(ira, instruction, result_loc, nullptr);
 }
@@ -19039,9 +19049,9 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             return ira->codegen->invalid_instruction;
         }
 
-        IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-                fixed_size_array_type, nullptr);
-        if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))
+        ir_assert(instruction->result_loc != nullptr, &instruction->base);
+        IrInstruction *result_loc = instruction->result_loc->child;
+        if (type_is_invalid(result_loc->value.type))
             return result_loc;
         return ir_get_deref(ira, &instruction->base, result_loc, nullptr);
     } else if (container_type->id == ZigTypeIdVoid) {

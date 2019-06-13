@@ -10,3 +10,9 @@ get an empty file compiling successfully (with no panic fn override)
 
 uncomment all the behavior tests
 
+better behavior for implicit casts. for example these introduce an extra allocation/memcpy:
+    var x: [1]i32 = [_]i32{1};
+    var x = ([1]i32)([_]i32{1});
+whereas this one does not:
+    var x = [_]i32{1};
+but all 3 should be semantically identical
