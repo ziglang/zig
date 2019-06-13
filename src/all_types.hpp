@@ -3649,20 +3649,21 @@ struct ResultLocReturn {
     ResultLoc base;
 };
 
+struct IrSuspendPosition {
+    size_t basic_block_index;
+    size_t instruction_index;
+};
+
 struct ResultLocPeerParent {
     ResultLoc base;
 
     bool skipped;
+    bool done_resuming;
     ResultLoc *parent;
     ResultLocPeer *peers;
     size_t peer_count;
     ZigType *resolved_type;
     IrInstruction *is_comptime;
-};
-
-struct IrSuspendPosition {
-    size_t basic_block_index;
-    size_t instruction_index;
 };
 
 struct ResultLocPeer {

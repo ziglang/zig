@@ -16395,45 +16395,56 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     }
 
     ResultLocPeerParent *peer_parent = phi_instruction->peer_parent;
-    if (peer_parent != nullptr && peer_parent->resolved_type == nullptr && !peer_parent->skipped) {
-        // Suspend the phi first so that it gets resumed last
-        ira->resume_stack.add_one();
-        for (size_t i = ira->resume_stack.length;;) {
-            if (i <= 1) break;
-            i -= 1;
-            ira->resume_stack.items[i] = ira->resume_stack.items[i-1];
-        }
-        ira_suspend(ira, &phi_instruction->base, nullptr, &ira->resume_stack.items[0]);
+    if (peer_parent != nullptr && !peer_parent->skipped && !peer_parent->done_resuming) {
+        if (peer_parent->resolved_type == nullptr) {
+            IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
+            for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
+                ResultLocPeer *this_peer = &peer_parent->peers[i];
 
-        IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peer_count);
-        for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
-            ResultLocPeer *this_peer = &peer_parent->peers[i];
-            ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
-
-            IrInstruction *gen_instruction = this_peer->base.gen_instruction;
-            if (gen_instruction == nullptr) {
-                // unreachable instructions will cause implicit_elem_type to be null
-                if (this_peer->base.implicit_elem_type == nullptr) {
-                    instructions[i] = ir_const_unreachable(ira, this_peer->base.source_instruction);
+                IrInstruction *gen_instruction = this_peer->base.gen_instruction;
+                if (gen_instruction == nullptr) {
+                    // unreachable instructions will cause implicit_elem_type to be null
+                    if (this_peer->base.implicit_elem_type == nullptr) {
+                        instructions[i] = ir_const_unreachable(ira, this_peer->base.source_instruction);
+                    } else {
+                        instructions[i] = ir_const(ira, this_peer->base.source_instruction,
+                                this_peer->base.implicit_elem_type);
+                        instructions[i]->value.special = ConstValSpecialRuntime;
+                    }
                 } else {
-                    instructions[i] = ir_const(ira, this_peer->base.source_instruction,
-                            this_peer->base.implicit_elem_type);
-                    instructions[i]->value.special = ConstValSpecialRuntime;
+                    instructions[i] = gen_instruction;
                 }
-            } else {
-                instructions[i] = gen_instruction;
+
             }
+            ZigType *expected_type = ir_result_loc_expected_type(ira, &phi_instruction->base, peer_parent->parent);
+            peer_parent->resolved_type = ir_resolve_peer_types(ira,
+                    peer_parent->base.source_instruction->source_node, expected_type, instructions,
+                    peer_parent->peer_count);
+
+            // In case resolving the parent activates a suspend, do it now
+            IrInstruction *parent_result_loc = ir_resolve_result(ira, &phi_instruction->base, peer_parent->parent,
+                    peer_parent->resolved_type, nullptr);
+            if (parent_result_loc != nullptr &&
+                (type_is_invalid(parent_result_loc->value.type) || instr_is_unreachable(parent_result_loc)))
+            {
+                return parent_result_loc;
+            }
+        }
+
+        IrSuspendPosition suspend_pos;
+        ira_suspend(ira, &phi_instruction->base, nullptr, &suspend_pos);
+        ira->resume_stack.append(suspend_pos);
+
+        for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
+            ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
             if (opposite_peer->base.implicit_elem_type != nullptr &&
                 opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable)
             {
                 ira->resume_stack.append(opposite_peer->suspend_pos);
             }
         }
-        ZigType *expected_type = ir_result_loc_expected_type(ira, &phi_instruction->base, peer_parent->parent);
-        peer_parent->resolved_type = ir_resolve_peer_types(ira,
-                peer_parent->base.source_instruction->source_node, expected_type, instructions,
-                peer_parent->peer_count);
 
+        peer_parent->done_resuming = true;
         return ira_resume(ira);
     }
 
