@@ -4901,6 +4901,7 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
     if (!type_has_bits(payload_type)) {
         return err_union_ptr;
     } else {
+        // TODO assign undef to the payload
         LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
         return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
     }

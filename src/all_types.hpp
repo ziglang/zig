@@ -3099,6 +3099,7 @@ struct IrInstructionTestErr {
 struct IrInstructionUnwrapErrCode {
     IrInstruction base;
 
+    bool initializing;
     IrInstruction *err_union_ptr;
 };
 

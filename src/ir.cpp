@@ -193,6 +193,8 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
         IrInstruction *base_ptr, bool safety_check_on, bool initializing);
 static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *base_ptr, bool safety_check_on, bool initializing);
+static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *base_ptr, bool initializing);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -15016,13 +15018,17 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
         return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
     } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
-        IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
-                result_loc, false, true);
-        ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
-        if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
-            return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
+        if (value_type->id == ZigTypeIdErrorSet) {
+            return ir_analyze_unwrap_err_code(ira, suspend_source_instr, result_loc, true);
         } else {
-            return unwrapped_err_ptr;
+            IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
+                    result_loc, false, true);
+            ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
+            if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
+                return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
+            } else {
+                return unwrapped_err_ptr;
+            }
         }
     }
     return result_loc;
@@ -16437,6 +16443,9 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
                     peer_parent->base.source_instruction->source_node, expected_type, instructions,
                     peer_parent->peer_count);
 
+            // the logic below assumes there are no instructions in the new current basic block yet
+            ir_assert(ira->new_irb.current_basic_block->instruction_list.length == 0, &phi_instruction->base);
+
             // In case resolving the parent activates a suspend, do it now
             IrInstruction *parent_result_loc = ir_resolve_result(ira, &phi_instruction->base, peer_parent->parent,
                     peer_parent->resolved_type, nullptr);
@@ -16444,6 +16453,21 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
                 (type_is_invalid(parent_result_loc->value.type) || instr_is_unreachable(parent_result_loc)))
             {
                 return parent_result_loc;
+            }
+            // If the above code generated any instructions in the current basic block, we need
+            // to move them to the peer parent predecessor.
+            ZigList<IrInstruction *> instrs_to_move = {};
+            while (ira->new_irb.current_basic_block->instruction_list.length != 0) {
+                instrs_to_move.append(ira->new_irb.current_basic_block->instruction_list.pop());
+            }
+            if (instrs_to_move.length != 0) {
+                IrBasicBlock *predecessor = peer_parent->base.source_instruction->child->owner_bb;
+                IrInstruction *branch_instruction = predecessor->instruction_list.pop();
+                ir_assert(branch_instruction->value.type->id == ZigTypeIdUnreachable, &phi_instruction->base);
+                while (instrs_to_move.length != 0) {
+                    predecessor->instruction_list.append(instrs_to_move.pop());
+                }
+                predecessor->instruction_list.append(branch_instruction);
             }
         }
 
@@ -22213,10 +22237,9 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
     }
 }
 
-static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira, IrInstructionUnwrapErrCode *instruction) {
-    IrInstruction *base_ptr = instruction->err_union_ptr->child;
-    if (type_is_invalid(base_ptr->value.type))
-        return ira->codegen->invalid_instruction;
+static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *base_ptr, bool initializing)
+{
     ZigType *ptr_type = base_ptr->value.type;
 
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
@@ -22238,28 +22261,36 @@ static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira, IrI
         if (!ptr_val)
             return ira->codegen->invalid_instruction;
         if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
-            ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, instruction->base.source_node);
+            ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
                 assert(err != nullptr);
 
-                IrInstruction *err_set_val = ir_const(ira, &instruction->base,
-                                                 type_entry->data.error_union.err_set_type);
+                IrInstruction *err_set_val = ir_const(ira, source_instr, type_entry->data.error_union.err_set_type);
                 err_set_val->value.data.x_err_set = err;
                 err_set_val->value.parent.id = ConstParentIdErrUnionCode;
                 err_set_val->value.parent.data.p_err_union_code.err_union_val = err_union_val;
 
-                return ir_get_ref(ira, &instruction->base, err_set_val, is_ptr_const, false);
+                return ir_get_ref(ira, source_instr, err_set_val, is_ptr_const, false);
             }
         }
     }
 
     IrInstruction *result = ir_build_unwrap_err_code(&ira->new_irb,
-        instruction->base.scope, instruction->base.source_node, base_ptr);
+        source_instr->scope, source_instr->source_node, base_ptr);
     result->value.type = get_pointer_to_type(ira->codegen, type_entry->data.error_union.err_set_type, is_ptr_const);
     return result;
+}
+
+static IrInstruction *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
+        IrInstructionUnwrapErrCode *instruction)
+{
+    IrInstruction *base_ptr = instruction->err_union_ptr->child;
+    if (type_is_invalid(base_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+    return ir_analyze_unwrap_err_code(ira, &instruction->base, base_ptr, false);
 }
 
 static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruction *source_instr,
@@ -24783,7 +24814,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
         case IrInstructionIdHandle:
         case IrInstructionIdTestErr:
-        case IrInstructionIdUnwrapErrCode:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
@@ -24846,8 +24876,11 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             {
                 IrInstructionUnwrapErrPayload *unwrap_err_payload_instruction =
                     (IrInstructionUnwrapErrPayload *)instruction;
-                return unwrap_err_payload_instruction->safety_check_on;
+                return unwrap_err_payload_instruction->safety_check_on ||
+                    unwrap_err_payload_instruction->initializing;
             }
+        case IrInstructionIdUnwrapErrCode:
+            return reinterpret_cast<IrInstructionUnwrapErrCode *>(instruction)->initializing;
         case IrInstructionIdErrWrapPayload:
             return reinterpret_cast<IrInstructionErrWrapPayload *>(instruction)->result_loc != nullptr;
         case IrInstructionIdErrWrapCode:

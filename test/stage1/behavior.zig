@@ -21,7 +21,7 @@ comptime {
     _ = @import("behavior/bugs/1486.zig");
     _ = @import("behavior/bugs/1500.zig");
     _ = @import("behavior/bugs/1607.zig");
-    //_ = @import("behavior/bugs/1851.zig");
+    _ = @import("behavior/bugs/1851.zig");
     _ = @import("behavior/bugs/1914.zig");
     _ = @import("behavior/bugs/2006.zig");
     _ = @import("behavior/bugs/2114.zig");
@@ -41,16 +41,16 @@ comptime {
     _ = @import("behavior/byval_arg_var.zig");
     //_ = @import("behavior/cancel.zig");
     //_ = @import("behavior/cast.zig");
-    //_ = @import("behavior/const_slice_child.zig");
+    _ = @import("behavior/const_slice_child.zig");
     //_ = @import("behavior/coroutine_await_struct.zig");
     //_ = @import("behavior/coroutines.zig");
-    //_ = @import("behavior/defer.zig");
+    _ = @import("behavior/defer.zig");
     //_ = @import("behavior/enum.zig");
     //_ = @import("behavior/enum_with_members.zig");
     //_ = @import("behavior/error.zig");
     //_ = @import("behavior/eval.zig");
     _ = @import("behavior/field_parent_ptr.zig");
-    //_ = @import("behavior/fn.zig");
+    _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/for.zig");
     //_ = @import("behavior/generics.zig");
@@ -59,13 +59,13 @@ comptime {
     //_ = @import("behavior/import.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/inttoptr.zig");
-    //_ = @import("behavior/ir_block_deps.zig");
+    _ = @import("behavior/ir_block_deps.zig");
     //_ = @import("behavior/math.zig");
     //_ = @import("behavior/merge_error_sets.zig");
     //_ = @import("behavior/misc.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
-    //_ = @import("behavior/null.zig");
+    _ = @import("behavior/null.zig");
     //_ = @import("behavior/optional.zig");
     //_ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
@@ -93,7 +93,7 @@ comptime {
     //_ = @import("behavior/union.zig");
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
-    //_ = @import("behavior/void.zig");
+    _ = @import("behavior/void.zig");
     //_ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
 }
