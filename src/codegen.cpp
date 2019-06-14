@@ -7948,6 +7948,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
+    buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
 
     {
         TargetSubsystem detected_subsystem = detect_subsystem(g);
@@ -7988,6 +7989,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     // Only a few things affect builtin.zig
     cache_buf(&cache_hash, compiler_id);
     cache_int(&cache_hash, g->build_mode);
+    cache_bool(&cache_hash, g->strip_debug_symbols);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target->is_native);
