@@ -4646,16 +4646,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "setting a section on an extern variable",
-        \\extern var foo: i32 linksection(".text2");
-        \\export fn entry() i32 {
-        \\    return foo;
-        \\}
-    ,
-        "tmp.zig:1:33: error: cannot set section of external variable 'foo'",
-    );
-
-    cases.add(
         "setting a section on a local variable",
         \\export fn entry() i32 {
         \\    var foo: i32 linksection(".text2") = 1234;
@@ -4663,16 +4653,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
-    );
-
-    cases.add(
-        "setting a section on an extern fn",
-        \\extern fn foo() linksection(".text2") void;
-        \\export fn entry() void {
-        \\    foo();
-        \\}
-    ,
-        "tmp.zig:1:29: error: cannot set section of external function 'foo'",
     );
 
     cases.add(

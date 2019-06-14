@@ -13901,6 +13901,15 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 want_var_export = true;
             }
             break;
+        case ZigTypeIdArray:
+            if (!type_allowed_in_extern(ira->codegen, target->value.type->data.array.child_type)) {
+                ir_add_error(ira, target,
+                    buf_sprintf("array element type '%s' not extern-compatible",
+                        buf_ptr(&target->value.type->data.array.child_type->name)));
+            } else {
+                want_var_export = true;
+            }
+            break;
         case ZigTypeIdMetaType: {
             ZigType *type_value = target->value.data.x_type;
             switch (type_value->id) {
@@ -13968,7 +13977,6 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdInt:
         case ZigTypeIdFloat:
         case ZigTypeIdPointer:
-        case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
         case ZigTypeIdUndefined:

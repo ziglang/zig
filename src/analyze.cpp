@@ -2780,12 +2780,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
 
         if (fn_proto->section_expr != nullptr) {
-            if (fn_table_entry->body_node == nullptr) {
-                add_node_error(g, fn_proto->section_expr,
-                    buf_sprintf("cannot set section of external function '%s'", buf_ptr(&fn_table_entry->symbol_name)));
-            } else {
-                analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
-            }
+            analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
         }
 
         if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
@@ -3258,10 +3253,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     }
 
     if (var_decl->section_expr != nullptr) {
-        if (var_decl->is_extern) {
-            add_node_error(g, var_decl->section_expr,
-                buf_sprintf("cannot set section of external variable '%s'", buf_ptr(var_decl->symbol)));
-        } else if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
+        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
             tld_var->section_name = nullptr;
         }
     }
