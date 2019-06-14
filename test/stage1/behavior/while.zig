@@ -82,28 +82,28 @@ test "while with else" {
     expect(got_else == 1);
 }
 
-test "while with optional as condition" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-    }
-    expect(sum == 45);
-}
-
-test "while with optional as condition with else" {
-    numbers_left = 10;
-    var sum: i32 = 0;
-    var got_else: i32 = 0;
-    while (getNumberOrNull()) |value| {
-        sum += value;
-        expect(got_else == 0);
-    } else {
-        got_else += 1;
-    }
-    expect(sum == 45);
-    expect(got_else == 1);
-}
+//test "while with optional as condition" {
+//    numbers_left = 10;
+//    var sum: i32 = 0;
+//    while (getNumberOrNull()) |value| {
+//        sum += value;
+//    }
+//    expect(sum == 45);
+//}
+//
+//test "while with optional as condition with else" {
+//    numbers_left = 10;
+//    var sum: i32 = 0;
+//    var got_else: i32 = 0;
+//    while (getNumberOrNull()) |value| {
+//        sum += value;
+//        expect(got_else == 0);
+//    } else {
+//        got_else += 1;
+//    }
+//    expect(sum == 45);
+//    expect(got_else == 1);
+//}
 
 test "while with error union condition" {
     numbers_left = 10;

@@ -686,13 +686,13 @@ fn getNull() ?*i32 {
     return null;
 }
 
-test "thread local variable" {
-    const S = struct {
-        threadlocal var t: i32 = 1234;
-    };
-    S.t += 1;
-    expect(S.t == 1235);
-}
+//test "thread local variable" {
+//    const S = struct {
+//        threadlocal var t: i32 = 1234;
+//    };
+//    S.t += 1;
+//    expect(S.t == 1235);
+//}
 
 test "unicode escape in character literal" {
     var a: u24 = '\U01f4a9';

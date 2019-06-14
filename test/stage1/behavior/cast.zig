@@ -124,14 +124,14 @@ fn returnNullLitFromOptionalTypeErrorRef() anyerror!?*A {
     return null;
 }
 
-test "peer type resolution: ?T and T" {
-    expect(peerTypeTAndOptionalT(true, false).? == 0);
-    expect(peerTypeTAndOptionalT(false, false).? == 3);
-    comptime {
-        expect(peerTypeTAndOptionalT(true, false).? == 0);
-        expect(peerTypeTAndOptionalT(false, false).? == 3);
-    }
-}
+//test "peer type resolution: ?T and T" {
+//    expect(peerTypeTAndOptionalT(true, false).? == 0);
+//    expect(peerTypeTAndOptionalT(false, false).? == 3);
+//    comptime {
+//        expect(peerTypeTAndOptionalT(true, false).? == 0);
+//        expect(peerTypeTAndOptionalT(false, false).? == 3);
+//    }
+//}
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     if (c) {
         return if (b) null else usize(0);

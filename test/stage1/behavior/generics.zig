@@ -80,19 +80,19 @@ test "function with return type type" {
     expect(list2.prealloc_items.len == 8);
 }
 
-test "generic struct" {
-    var a1 = GenNode(i32){
-        .value = 13,
-        .next = null,
-    };
-    var b1 = GenNode(bool){
-        .value = true,
-        .next = null,
-    };
-    expect(a1.value == 13);
-    expect(a1.value == a1.getVal());
-    expect(b1.getVal());
-}
+//test "generic struct" {
+//    var a1 = GenNode(i32){
+//        .value = 13,
+//        .next = null,
+//    };
+//    var b1 = GenNode(bool){
+//        .value = true,
+//        .next = null,
+//    };
+//    expect(a1.value == 13);
+//    expect(a1.value == a1.getVal());
+//    expect(b1.getVal());
+//}
 fn GenNode(comptime T: type) type {
     return struct {
         value: T,
