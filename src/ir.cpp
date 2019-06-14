@@ -13791,20 +13791,6 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     return ir_build_var_decl_gen(ira, &decl_var_instruction->base, var, casted_init_value);
 }
 
-static VarLinkage global_linkage_to_var_linkage(GlobalLinkageId id) {
-    switch (id) {
-        case GlobalLinkageIdStrong:
-            return VarLinkageExportStrong;
-        case GlobalLinkageIdWeak:
-            return VarLinkageExportWeak;
-        case GlobalLinkageIdLinkOnce:
-            return VarLinkageExportLinkOnce;
-        case GlobalLinkageIdInternal:
-            return VarLinkageInternal;
-    }
-    zig_unreachable();
-}
-
 static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExport *instruction) {
     IrInstruction *name = instruction->name->child;
     Buf *symbol_name = ir_resolve_str(ira, name);
@@ -14002,7 +13988,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         if (load_ptr->ptr->id == IrInstructionIdVarPtr) {
             IrInstructionVarPtr *var_ptr = reinterpret_cast<IrInstructionVarPtr *>(load_ptr->ptr);
             ZigVar *var = var_ptr->var;
-            var->linkage = global_linkage_to_var_linkage(global_linkage_id);
+            add_var_export(ira->codegen, var, symbol_name, global_linkage_id);
         }
     }
 
@@ -14295,7 +14281,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     ConstExprValue *mem_slot = nullptr;
 
     bool comptime_var_mem = ir_get_var_is_comptime(var);
-    bool linkage_makes_it_runtime = var->linkage == VarLinkageExternal;
+    bool linkage_makes_it_runtime = var->decl_node->data.variable_declaration.is_extern;
     bool is_const = var->src_is_const;
     bool is_volatile = false;
 
