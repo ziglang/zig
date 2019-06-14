@@ -23254,9 +23254,7 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
         return result;
     }
 
-    IrInstruction *result = ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
-    ir_assert(!(handle_is_ptr(dest_type) && !handle_is_ptr(src_type)), source_instr);
-    return result;
+    return ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
 }
 
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
