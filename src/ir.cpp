@@ -5285,10 +5285,11 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg4_value == irb->codegen->invalid_instruction)
                     return arg4_value;
 
-                return ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
+                IrInstruction *inst = ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
                         arg4_value,
                         // these 2 values don't mean anything since we passed non-null values for other args
                         AtomicRmwOp_xchg, AtomicOrderMonotonic);
+                return ir_lval_wrap(irb, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdAtomicLoad:
             {
@@ -5307,9 +5308,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg2_value == irb->codegen->invalid_instruction)
                     return arg2_value;
 
-                return ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
+                IrInstruction *inst = ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
                         // this value does not mean anything since we passed non-null values for other arg
                         AtomicOrderMonotonic);
+                return ir_lval_wrap(irb, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdIntToEnum:
             {
@@ -23253,7 +23255,7 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
     }
 
     IrInstruction *result = ir_build_bit_cast_gen(ira, source_instr, value, dest_type);
-    assert(!(handle_is_ptr(dest_type) && !handle_is_ptr(src_type)));
+    ir_assert(!(handle_is_ptr(dest_type) && !handle_is_ptr(src_type)), source_instr);
     return result;
 }
 
