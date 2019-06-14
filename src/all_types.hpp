@@ -3662,6 +3662,7 @@ struct ResultLocPeerParent {
 
     bool skipped;
     bool done_resuming;
+    IrBasicBlock *end_bb;
     ResultLoc *parent;
     ResultLocPeer *peers;
     size_t peer_count;

@@ -31,7 +31,7 @@ comptime {
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
     _ = @import("behavior/bugs/655.zig");
-    //_ = @import("behavior/bugs/656.zig");
+    _ = @import("behavior/bugs/656.zig");
     _ = @import("behavior/bugs/679.zig");
     _ = @import("behavior/bugs/704.zig");
     _ = @import("behavior/bugs/718.zig");
@@ -71,7 +71,7 @@ comptime {
     _ = @import("behavior/popcount.zig");
     //_ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
-    //_ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
+    _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     //_ = @import("behavior/slice.zig");
@@ -81,7 +81,7 @@ comptime {
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     //_ = @import("behavior/switch.zig");
     //_ = @import("behavior/switch_prong_err_enum.zig");
-    //_ = @import("behavior/switch_prong_implicit_cast.zig");
+    _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/syntax.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
@@ -90,7 +90,7 @@ comptime {
     //_ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
-    //_ = @import("behavior/union.zig");
+    _ = @import("behavior/union.zig");
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");

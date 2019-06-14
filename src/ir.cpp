@@ -3901,6 +3901,7 @@ static ResultLocPeerParent *create_binary_result_peers(IrInstruction *cond_br_in
     ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
     peer_parent->base.id = ResultLocIdPeerParent;
     peer_parent->base.source_instruction = cond_br_inst;
+    peer_parent->end_bb = endif_block;
     peer_parent->is_comptime = is_comptime;
     peer_parent->parent = parent;
     peer_parent->peer_count = 2;
@@ -6894,6 +6895,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
     peer_parent->base.id = ResultLocIdPeerParent;
+    peer_parent->end_bb = end_block;
     peer_parent->is_comptime = is_comptime;
     peer_parent->parent = result_loc;
     peer_parent->peers = allocate<ResultLocPeer>(prong_count);
@@ -14923,9 +14925,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
 
             if (peer_parent->resolved_type == nullptr) {
-                ResultLocPeer *last_peer = &peer_parent->peers[peer_parent->peer_count - 1];
-                if (last_peer->next_bb->suspend_instruction_ref == nullptr) {
-                    last_peer->next_bb->suspend_instruction_ref = suspend_source_instr;
+                if (peer_parent->end_bb->suspend_instruction_ref == nullptr) {
+                    peer_parent->end_bb->suspend_instruction_ref = suspend_source_instr;
                 }
                 return ira_suspend(ira, suspend_source_instr, result_peer->next_bb, &result_peer->suspend_pos);
             }
