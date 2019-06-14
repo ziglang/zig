@@ -7,8 +7,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-    //const stderr = std.io.getStdErr() catch std.process.abort();
-    //stderr.write("panic: ") catch std.process.abort();
-    //stderr.write(msg) catch std.process.abort();
+    const stderr = std.io.getStdErr() catch std.process.abort();
+    stderr.write("panic: ") catch std.process.abort();
+    stderr.write(msg) catch std.process.abort();
     std.process.abort();
 }

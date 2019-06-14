@@ -14845,6 +14845,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
             // need to return a result location and don't have one. use a stack allocation
             IrInstructionAllocaGen *alloca_gen = ir_create_alloca_gen(ira, suspend_source_instr, 0, "");
+            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusZeroBitsKnown)))
+                return ira->codegen->invalid_instruction;
             alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
                     PtrLenSingle, 0, 0, 0, false);
             ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
