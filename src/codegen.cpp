@@ -203,6 +203,10 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     get_target_triple(&g->triple_str, g->zig_target);
     g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
 
+    if (!target_has_debug_info(g->zig_target)) {
+        g->strip_debug_symbols = true;
+    }
+
     return g;
 }
 
@@ -248,6 +252,9 @@ void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {
 
 void codegen_set_strip(CodeGen *g, bool strip) {
     g->strip_debug_symbols = strip;
+    if (!target_has_debug_info(g->zig_target)) {
+        g->strip_debug_symbols = true;
+    }
 }
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
@@ -7514,7 +7521,7 @@ static bool detect_single_threaded(CodeGen *g) {
 }
 
 static bool detect_err_ret_tracing(CodeGen *g) {
-    return !target_is_wasm(g->zig_target) &&
+    return !g->strip_debug_symbols &&
         g->build_mode != BuildModeFastRelease &&
         g->build_mode != BuildModeSmallRelease;
 }

@@ -1585,3 +1585,7 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
     out_target->vendor = ZigLLVM_UnknownVendor;
     out_target->is_native = false;
 }
+
+bool target_has_debug_info(const ZigTarget *target) {
+    return !target_is_wasm(target);
+}
