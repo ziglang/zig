@@ -647,3 +647,37 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
         builtin.TypeId.Vector => @compileError("TODO auto eql for vectors"),
     }
 }
+
+comptime {
+    std.debug.gdb_scripts.load_python_script("org.ziglang.std.hash_map",
+        \\import re
+        \\
+        \\def matcher(value):
+        \\  if value.type.tag == None or not re.match(r"std.hash_map.HashMap\(.*\)", value.type.tag): return None
+        \\
+        \\  class Printer(object):
+        \\    def __init__(self, value):
+        \\      self.value = value
+        \\    def children(self):
+        \\      count = 0
+        \\      size = self.value["size"]
+        \\      index = 0
+        \\      entries_len = self.value["entries"]["len"]
+        \\      while index < entries_len and count < size:
+        \\        entry = (self.value["entries"]["ptr"] + index).dereference()
+        \\        something_hello = entry["used"]
+        \\        if something_hello:
+        \\          kv = entry["kv"]
+        \\          yield ("k", kv.key)
+        \\          yield ("v", kv.value)
+        \\          count += 1
+        \\        index += 1
+        \\    def display_hint(self):
+        \\      return "map"
+        \\    def to_string(self):
+        \\      return "HashMap[" + str(self.value["size"]) + "/" + str(self.value["entries"]["len"]) + "]"
+        \\
+        \\  return Printer(value)
+        \\gdb.current_objfile().pretty_printers.append(matcher)
+    );
+}

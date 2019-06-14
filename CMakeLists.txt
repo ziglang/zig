@@ -489,6 +489,7 @@ set(ZIG_STD_FILES
     "cstr.zig"
     "debug.zig"
     "debug/failing_allocator.zig"
+    "debug/gdb_scripts.zig"
     "debug/leb128.zig"
     "dwarf.zig"
     "dynamic_library.zig"

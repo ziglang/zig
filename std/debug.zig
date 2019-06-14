@@ -21,6 +21,8 @@ const leb = @import("debug/leb128.zig");
 pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
 
+pub const gdb_scripts = @import("debug/gdb_scripts.zig");
+
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,

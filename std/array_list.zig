@@ -450,3 +450,30 @@ test "std.ArrayList: ArrayList(T) of struct T" {
     try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) });
     testing.expect(root.sub_items.items[0].integer == 42);
 }
+
+comptime {
+    std.debug.gdb_scripts.load_python_script("org.ziglang.std.array_list",
+        \\import re
+        \\
+        \\def matcher(value):
+        \\  if value.type.tag == None or not re.match(r"std.array_list.AlignedArrayList\(.*\)", value.type.tag): return None
+        \\
+        \\  class Printer(object):
+        \\    def __init__(self, value):
+        \\      self.value = value
+        \\    def children(self):
+        \\      length_value = self.value["len"]
+        \\      i = 0
+        \\      while i < length_value:
+        \\        item = (self.value["items"]["ptr"] + i).dereference()
+        \\        yield (str(i), item)
+        \\        i += 1
+        \\    def display_hint(self):
+        \\      return "array"
+        \\    def to_string(self):
+        \\      return "ArrayList[" + str(self.value["len"]) + "/" + str(self.value["items"]["len"]) + "]"
+        \\
+        \\  return Printer(value)
+        \\gdb.current_objfile().pretty_printers.append(matcher)
+    );
+}
