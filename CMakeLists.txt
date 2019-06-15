@@ -479,6 +479,7 @@ set(ZIG_STD_FILES
     "crypto.zig"
     "crypto/blake2.zig"
     "crypto/chacha20.zig"
+    "crypto/gimli.zig"
     "crypto/hmac.zig"
     "crypto/md5.zig"
     "crypto/poly1305.zig"
