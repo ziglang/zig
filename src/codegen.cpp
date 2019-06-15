@@ -1323,7 +1323,9 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     g->add_error_return_trace_addr_fn_val = fn_val;
     return fn_val;
@@ -1454,7 +1456,9 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMBuildBr(g->builder, loop_block);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     g->merge_err_ret_traces_fn_val = fn_val;
     return fn_val;
@@ -1510,7 +1514,9 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     g->return_err_fn = fn_val;
     return fn_val;
@@ -1638,7 +1644,9 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     gen_panic(g, msg_slice, err_ret_trace_arg);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     g->safety_crash_err_fn = fn_val;
     return fn_val;
@@ -4353,7 +4361,9 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     g->cur_fn = prev_cur_fn;
     g->cur_fn_val = prev_cur_fn_val;
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     enum_type->data.enumeration.name_function = fn_val;
     return fn_val;
@@ -4880,10 +4890,10 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
     return overflow_bit;
 }
 
-static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErr *instruction) {
-    ZigType *err_union_type = instruction->value->value.type;
+static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErrGen *instruction) {
+    ZigType *err_union_type = instruction->err_union->value.type;
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
-    LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->value);
+    LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->err_union);
 
     LLVMValueRef err_val;
     if (type_has_bits(payload_type)) {
@@ -5276,7 +5286,9 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     g->cur_fn = prev_cur_fn;
     g->cur_fn_val = prev_cur_fn_val;
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    if (!g->strip_debug_symbols) {
+        LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    }
 
     g->coro_alloc_helper_fn_val = fn_val;
     return fn_val;
@@ -5549,10 +5561,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAllocaGen:
         case IrInstructionIdImplicitCast:
         case IrInstructionIdResolveResult:
+        case IrInstructionIdResultPtr:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdSliceSrc:
         case IrInstructionIdRef:
         case IrInstructionIdBitCastSrc:
+        case IrInstructionIdTestErrSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5635,8 +5649,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_handle(g, executable, (IrInstructionHandle *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
-        case IrInstructionIdTestErr:
-            return ir_render_test_err(g, executable, (IrInstructionTestErr *)instruction);
+        case IrInstructionIdTestErrGen:
+            return ir_render_test_err(g, executable, (IrInstructionTestErrGen *)instruction);
         case IrInstructionIdUnwrapErrCode:
             return ir_render_unwrap_err_code(g, executable, (IrInstructionUnwrapErrCode *)instruction);
         case IrInstructionIdUnwrapErrPayload:

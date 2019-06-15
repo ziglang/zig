@@ -7,8 +7,23 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
-    const stderr = std.io.getStdErr() catch std.process.abort();
-    stderr.write("panic: ") catch std.process.abort();
-    stderr.write(msg) catch std.process.abort();
-    std.process.abort();
+    @setCold(true);
+    switch (builtin.os) {
+        .freestanding => {
+            while (true) {}
+        },
+        .wasi => {
+            std.debug.warn("{}", msg);
+            _ = std.os.wasi.proc_raise(std.os.wasi.SIGABRT);
+            unreachable;
+        },
+        .uefi => {
+            // TODO look into using the debug info and logging helpful messages
+            std.os.abort();
+        },
+        else => {
+            const first_trace_addr = @returnAddress();
+            std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", msg);
+        },
+    }
 }

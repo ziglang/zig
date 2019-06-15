@@ -756,8 +756,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionOverflowOp *) {
     return IrInstructionIdOverflowOp;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionTestErr *) {
-    return IrInstructionIdTestErr;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTestErrSrc *) {
+    return IrInstructionIdTestErrSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTestErrGen *) {
+    return IrInstructionIdTestErrGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapErrCode *) {
@@ -898,6 +902,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionImplicitCast *) 
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionResolveResult *) {
     return IrInstructionIdResolveResult;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionResultPtr *) {
+    return IrInstructionIdResultPtr;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrOfArrayToSlice *) {
@@ -2418,13 +2426,26 @@ static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_test_err(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *value)
+static IrInstruction *ir_build_test_err_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *base_ptr)
 {
-    IrInstructionTestErr *instruction = ir_build_instruction<IrInstructionTestErr>(irb, scope, source_node);
-    instruction->value = value;
+    IrInstructionTestErrSrc *instruction = ir_build_instruction<IrInstructionTestErrSrc>(irb, scope, source_node);
+    instruction->base_ptr = base_ptr;
 
-    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(base_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_test_err_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+    IrInstruction *err_union)
+{
+    IrInstructionTestErrGen *instruction = ir_build_instruction<IrInstructionTestErrGen>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = ira->codegen->builtin_types.entry_bool;
+    instruction->err_union = err_union;
+
+    ir_ref_instruction(err_union, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -2840,6 +2861,18 @@ static IrInstruction *ir_build_resolve_result(IrBuilder *irb, Scope *scope, AstN
     instruction->ty = ty;
 
     ir_ref_instruction(ty, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_result_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        ResultLoc *result_loc, IrInstruction *result)
+{
+    IrInstructionResultPtr *instruction = ir_build_instruction<IrInstructionResultPtr>(irb, scope, source_node);
+    instruction->result_loc = result_loc;
+    instruction->result = result;
+
+    ir_ref_instruction(result, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3531,7 +3564,9 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                         ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     }
 
-                    IrInstruction *is_err = ir_build_test_err(irb, scope, node, return_value);
+                    IrInstruction *ret_ptr = ir_build_result_ptr(irb, scope, node, &result_loc_ret->base,
+                            return_value);
+                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, ret_ptr);
 
                     bool should_inline = ir_should_inline(irb->exec, scope);
                     IrInstruction *is_comptime;
@@ -3577,8 +3612,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
                 if (err_union_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
-                IrInstruction *err_union_val = ir_build_load_ptr(irb, scope, node, err_union_ptr);
-                IrInstruction *is_err_val = ir_build_test_err(irb, scope, node, err_union_val);
+                IrInstruction *is_err_val = ir_build_test_err_src(irb, scope, node, err_union_ptr);
 
                 IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "ErrRetReturn");
                 IrBasicBlock *continue_block = ir_create_basic_block(irb, scope, "ErrRetContinue");
@@ -5940,8 +5974,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 LValPtr, nullptr);
         if (err_val_ptr == irb->codegen->invalid_instruction)
             return err_val_ptr;
-        IrInstruction *err_val = ir_build_load_ptr(irb, scope, node->data.while_expr.condition, err_val_ptr);
-        IrInstruction *is_err = ir_build_test_err(irb, scope, node->data.while_expr.condition, err_val);
+        IrInstruction *is_err = ir_build_test_err_src(irb, scope, node->data.while_expr.condition, err_val_ptr);
         IrBasicBlock *after_cond_block = irb->current_basic_block;
         IrInstruction *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, scope, node));
         IrInstruction *cond_br_inst;
@@ -6722,7 +6755,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         return err_val_ptr;
 
     IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
-    IrInstruction *is_err = ir_build_test_err(irb, scope, node, err_val);
+    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, err_val_ptr);
 
     IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "TryOk");
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "TryElse");
@@ -7330,8 +7363,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *err_union_val = ir_build_load_ptr(irb, parent_scope, node, err_union_ptr);
-    IrInstruction *is_err = ir_build_test_err(irb, parent_scope, node, err_union_val);
+    IrInstruction *is_err = ir_build_test_err_src(irb, parent_scope, node, err_union_ptr);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb->exec, parent_scope)) {
@@ -15010,7 +15042,9 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         return result_loc;
     ir_assert(result_loc->value.type->id == ZigTypeIdPointer, suspend_source_instr);
     ZigType *actual_elem_type = result_loc->value.type->data.pointer.child_type;
-    if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
+    if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
+            value_type->id != ZigTypeIdNull)
+    {
         return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
     } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
         if (value_type->id == ZigTypeIdErrorSet) {
@@ -22190,15 +22224,34 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstructionTestErr *instruction) {
-    IrInstruction *value = instruction->value->child;
-    if (type_is_invalid(value->value.type))
+static IrInstruction *ir_analyze_instruction_result_ptr(IrAnalyze *ira, IrInstructionResultPtr *instruction) {
+    IrInstruction *result = instruction->result->child;
+    if (type_is_invalid(result->value.type))
+        return result;
+
+    if (instruction->result_loc->written && instruction->result_loc->resolved_loc != nullptr &&
+            !instr_is_comptime(result))
+    {
+        IrInstruction *result_ptr = instruction->result_loc->resolved_loc;
+        // Convert the pointer to the result type. They should be the same, except this will resolve
+        // inferred error sets.
+        ZigType *new_ptr_type = get_pointer_to_type(ira->codegen, result->value.type, true);
+        return ir_analyze_ptr_cast(ira, &instruction->base, result_ptr, new_ptr_type, &instruction->base, false);
+    }
+    return ir_get_ref(ira, &instruction->base, result, true, false);
+}
+
+static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstructionTestErrSrc *instruction) {
+    IrInstruction *base_ptr = instruction->base_ptr->child;
+    if (type_is_invalid(base_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
+    IrInstruction *value = ir_get_deref(ira, &instruction->base, base_ptr, nullptr);
     ZigType *type_entry = value->value.type;
-    if (type_is_invalid(type_entry)) {
+    if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
-    } else if (type_entry->id == ZigTypeIdErrorUnion) {
+
+    if (type_entry->id == ZigTypeIdErrorUnion) {
         if (instr_is_comptime(value)) {
             ConstExprValue *err_union_val = ir_resolve_const(ira, value, UndefBad);
             if (!err_union_val)
@@ -22221,10 +22274,7 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
             return ir_const_bool(ira, &instruction->base, false);
         }
 
-        IrInstruction *result = ir_build_test_err(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, value);
-        result->value.type = ira->codegen->builtin_types.entry_bool;
-        return result;
+        return ir_build_test_err_gen(ira, &instruction->base, value);
     } else if (type_entry->id == ZigTypeIdErrorSet) {
         return ir_const_bool(ira, &instruction->base, true);
     } else {
@@ -24343,6 +24393,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdAllocaGen:
         case IrInstructionIdSliceGen:
         case IrInstructionIdRefGen:
+        case IrInstructionIdTestErrGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -24497,8 +24548,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
-        case IrInstructionIdTestErr:
-            return ir_analyze_instruction_test_err(ira, (IrInstructionTestErr *)instruction);
+        case IrInstructionIdTestErrSrc:
+            return ir_analyze_instruction_test_err(ira, (IrInstructionTestErrSrc *)instruction);
         case IrInstructionIdUnwrapErrCode:
             return ir_analyze_instruction_unwrap_err_code(ira, (IrInstructionUnwrapErrCode *)instruction);
         case IrInstructionIdUnwrapErrPayload:
@@ -24543,6 +24594,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_implicit_cast(ira, (IrInstructionImplicitCast *)instruction);
         case IrInstructionIdResolveResult:
             return ir_analyze_instruction_resolve_result(ira, (IrInstructionResolveResult *)instruction);
+        case IrInstructionIdResultPtr:
+            return ir_analyze_instruction_result_ptr(ira, (IrInstructionResultPtr *)instruction);
         case IrInstructionIdOpaqueType:
             return ir_analyze_instruction_opaque_type(ira, (IrInstructionOpaqueType *)instruction);
         case IrInstructionIdSetAlignStack:
@@ -24672,6 +24725,9 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
+        if (ira->codegen->verbose_ir) {
+            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
+        }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
@@ -24808,7 +24864,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
         case IrInstructionIdHandle:
-        case IrInstructionIdTestErr:
+        case IrInstructionIdTestErrSrc:
+        case IrInstructionIdTestErrGen:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdPtrCastSrc:
@@ -24860,6 +24917,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdHasDecl:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
+        case IrInstructionIdResultPtr:
             return false;
 
         case IrInstructionIdAsm:

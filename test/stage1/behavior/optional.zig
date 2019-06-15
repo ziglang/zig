@@ -76,6 +76,5 @@ test "unwrap function call with optional pointer return value" {
         }
     };
     S.entry();
-    // TODO https://github.com/ziglang/zig/issues/1901
-    //comptime S.entry();
+    comptime S.entry();
 }

@@ -2257,7 +2257,8 @@ enum IrInstructionId {
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
-    IrInstructionIdTestErr,
+    IrInstructionIdTestErrSrc,
+    IrInstructionIdTestErrGen,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
     IrInstructionIdErrWrapCode,
@@ -2292,6 +2293,7 @@ enum IrInstructionId {
     IrInstructionIdAlignCast,
     IrInstructionIdImplicitCast,
     IrInstructionIdResolveResult,
+    IrInstructionIdResultPtr,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
@@ -3082,10 +3084,16 @@ struct IrInstructionAlignOf {
 };
 
 // returns true if error, returns false if not error
-struct IrInstructionTestErr {
+struct IrInstructionTestErrSrc {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *base_ptr;
+};
+
+struct IrInstructionTestErrGen {
+    IrInstruction base;
+
+    IrInstruction *err_union;
 };
 
 // Takes an error union pointer, returns a pointer to the error code.
@@ -3596,11 +3604,21 @@ struct IrInstructionImplicitCast {
     ResultLoc *result_loc;
 };
 
+// This one is for writing through the result pointer.
 struct IrInstructionResolveResult {
     IrInstruction base;
 
     ResultLoc *result_loc;
     IrInstruction *ty;
+};
+
+// This one is when you want to read the value of the result.
+// You have to give the value in case it is comptime.
+struct IrInstructionResultPtr {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+    IrInstruction *result;
 };
 
 struct IrInstructionPtrOfArrayToSlice {

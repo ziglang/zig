@@ -2487,7 +2487,7 @@ pub fn toPosixPath(file_path: []const u8) ![PATH_MAX]u8 {
 /// if this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-pub const unexpected_error_tracing = false;
+pub const unexpected_error_tracing = builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.

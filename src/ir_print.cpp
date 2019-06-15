@@ -961,9 +961,15 @@ static void ir_print_overflow_op(IrPrint *irp, IrInstructionOverflowOp *instruct
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
+static void ir_print_test_err_src(IrPrint *irp, IrInstructionTestErrSrc *instruction) {
     fprintf(irp->f, "@testError(");
-    ir_print_other_instruction(irp, instruction->value);
+    ir_print_other_instruction(irp, instruction->base_ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_test_err_gen(IrPrint *irp, IrInstructionTestErrGen *instruction) {
+    fprintf(irp->f, "@testError(");
+    ir_print_other_instruction(irp, instruction->err_union);
     fprintf(irp->f, ")");
 }
 
@@ -976,10 +982,7 @@ static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *i
 static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayload *instruction) {
     fprintf(irp->f, "ErrorUnionFieldPayload(");
     ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-    if (!instruction->safety_check_on) {
-        fprintf(irp->f, " // no safety");
-    }
+    fprintf(irp->f, ")safety=%d,init=%d",instruction->safety_check_on, instruction->initializing);
 }
 
 static void ir_print_optional_wrap(IrPrint *irp, IrInstructionOptionalWrap *instruction) {
@@ -1298,6 +1301,14 @@ static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *inst
 static void ir_print_resolve_result(IrPrint *irp, IrInstructionResolveResult *instruction) {
     fprintf(irp->f, "ResolveResult(");
     ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_result_ptr(IrPrint *irp, IrInstructionResultPtr *instruction) {
+    fprintf(irp->f, "ResultPtr(");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->result);
     fprintf(irp->f, ")");
 }
 
@@ -1837,8 +1848,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
             break;
-        case IrInstructionIdTestErr:
-            ir_print_test_err(irp, (IrInstructionTestErr *)instruction);
+        case IrInstructionIdTestErrSrc:
+            ir_print_test_err_src(irp, (IrInstructionTestErrSrc *)instruction);
+            break;
+        case IrInstructionIdTestErrGen:
+            ir_print_test_err_gen(irp, (IrInstructionTestErrGen *)instruction);
             break;
         case IrInstructionIdUnwrapErrCode:
             ir_print_unwrap_err_code(irp, (IrInstructionUnwrapErrCode *)instruction);
@@ -1938,6 +1952,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResolveResult:
             ir_print_resolve_result(irp, (IrInstructionResolveResult *)instruction);
+            break;
+        case IrInstructionIdResultPtr:
+            ir_print_result_ptr(irp, (IrInstructionResultPtr *)instruction);
             break;
         case IrInstructionIdOpaqueType:
             ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);
