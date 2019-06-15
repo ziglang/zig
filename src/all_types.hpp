@@ -2293,6 +2293,7 @@ enum IrInstructionId {
     IrInstructionIdAlignCast,
     IrInstructionIdImplicitCast,
     IrInstructionIdResolveResult,
+    IrInstructionIdResetResult,
     IrInstructionIdResultPtr,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
@@ -3621,6 +3622,12 @@ struct IrInstructionResultPtr {
     IrInstruction *result;
 };
 
+struct IrInstructionResetResult {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+};
+
 struct IrInstructionPtrOfArrayToSlice {
     IrInstruction base;
 
@@ -3639,6 +3646,8 @@ enum ResultLocId {
     ResultLocIdBitCast,
 };
 
+// Additions to this struct may need to be handled in 
+// ir_reset_result
 struct ResultLoc {
     ResultLocId id;
     bool written;

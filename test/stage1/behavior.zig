@@ -37,7 +37,7 @@ comptime {
     _ = @import("behavior/bugs/718.zig");
     _ = @import("behavior/bugs/726.zig");
     _ = @import("behavior/bugs/828.zig");
-    //_ = @import("behavior/bugs/920.zig");
+    _ = @import("behavior/bugs/920.zig");
     _ = @import("behavior/byval_arg_var.zig");
     //_ = @import("behavior/cancel.zig");
     _ = @import("behavior/cast.zig");
@@ -76,7 +76,7 @@ comptime {
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slicetobytes.zig");
-    //_ = @import("behavior/struct.zig");
+    _ = @import("behavior/struct.zig"); // TODO
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
@@ -94,6 +94,6 @@ comptime {
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
-    _ = @import("behavior/while.zig"); // TODO
+    _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
 }

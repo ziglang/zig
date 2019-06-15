@@ -5561,6 +5561,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAllocaGen:
         case IrInstructionIdImplicitCast:
         case IrInstructionIdResolveResult:
+        case IrInstructionIdResetResult:
         case IrInstructionIdResultPtr:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdSliceSrc:

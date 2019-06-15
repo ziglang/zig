@@ -176,9 +176,9 @@ test "const slice" {
     }
 }
 
-//test "try to trick eval with runtime if" {
-//    expect(testTryToTrickEvalWithRuntimeIf(true) == 10);
-//}
+test "try to trick eval with runtime if" {
+    expect(testTryToTrickEvalWithRuntimeIf(true) == 10);
+}
 
 fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
     comptime var i: usize = 0;
@@ -189,6 +189,17 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
         return i;
     }
 }
+
+//test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
+//    var runtime = [1]i32{3};
+//    comptime var i: usize = 0;
+//    inline while (i < 2) : (i += 1) {
+//        const result = if (i == 0) [1]i32{2} else runtime;
+//    }
+//    comptime {
+//        expect(i == 2);
+//    }
+//}
 
 fn max(comptime T: type, a: T, b: T) T {
     if (T == bool) {
@@ -756,8 +767,7 @@ test "comptime bitwise operators" {
 test "*align(1) u16 is the same as *align(1:0:2) u16" {
     comptime {
         expect(*align(1:0:2) u16 == *align(1) u16);
-        // TODO add parsing support for this syntax
-        //expect(*align(:0:2) u16 == *u16);
+        expect(*align(:0:2) u16 == *u16);
     }
 }
 

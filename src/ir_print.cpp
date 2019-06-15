@@ -1304,6 +1304,12 @@ static void ir_print_resolve_result(IrPrint *irp, IrInstructionResolveResult *in
     fprintf(irp->f, ")");
 }
 
+static void ir_print_reset_result(IrPrint *irp, IrInstructionResetResult *instruction) {
+    fprintf(irp->f, "ResetResult(");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_ptr(IrPrint *irp, IrInstructionResultPtr *instruction) {
     fprintf(irp->f, "ResultPtr(");
     ir_print_result_loc(irp, instruction->result_loc);
@@ -1952,6 +1958,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdResolveResult:
             ir_print_resolve_result(irp, (IrInstructionResolveResult *)instruction);
+            break;
+        case IrInstructionIdResetResult:
+            ir_print_reset_result(irp, (IrInstructionResetResult *)instruction);
             break;
         case IrInstructionIdResultPtr:
             ir_print_result_ptr(irp, (IrInstructionResultPtr *)instruction);
