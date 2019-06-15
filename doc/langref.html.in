@@ -266,7 +266,7 @@ const Timestamp = struct {
       {#code_end#}
       <p>
       Doc comments are only allowed in certain places; eventually, it will
-      become a compile error have a doc comment in an unexpected place, such as
+      become a compile error to have a doc comment in an unexpected place, such as
       in the middle of an expression, or just before a non-doc comment.
       </p>
       {#header_close#}
@@ -6648,7 +6648,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) []const u8{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>

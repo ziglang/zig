@@ -1340,7 +1340,7 @@ enum FnInline {
     FnInlineNever,
 };
 
-struct FnExport {
+struct GlobalExport {
     Buf name;
     GlobalLinkageId linkage;
 };
@@ -1378,7 +1378,7 @@ struct ZigFn {
 
     AstNode *set_cold_node;
 
-    ZigList<FnExport> export_list;
+    ZigList<GlobalExport> export_list;
 
     LLVMValueRef valgrind_client_request_array;
 
@@ -1902,14 +1902,6 @@ struct CodeGen {
     size_t clang_argv_len;
 };
 
-enum VarLinkage {
-    VarLinkageInternal,
-    VarLinkageExportStrong,
-    VarLinkageExportWeak,
-    VarLinkageExportLinkOnce,
-    VarLinkageExternal,
-};
-
 struct ZigVar {
     Buf name;
     ConstExprValue *const_value;
@@ -1932,8 +1924,9 @@ struct ZigVar {
     // this pointer to the redefined variable.
     ZigVar *next_var;
 
+    ZigList<GlobalExport> export_list;
+
     uint32_t align_bytes;
-    VarLinkage linkage;
 
     bool shadowable;
     bool src_is_const;

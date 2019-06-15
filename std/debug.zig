@@ -85,8 +85,8 @@ fn wantTtyColor() bool {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
-    if (os.wasi.is_the_target) {
-        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+    if (builtin.strip_debug_info) {
+        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -151,8 +151,8 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
-    if (os.wasi.is_the_target) {
-        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+    if (builtin.strip_debug_info) {
+        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -223,6 +223,7 @@ pub fn writeStackTrace(
     debug_info: *DebugInfo,
     tty_color: bool,
 ) !void {
+    if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
 
@@ -783,6 +784,8 @@ pub const OpenSelfDebugInfoError = error{
 };
 
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
+    if (builtin.strip_debug_info)
+        return error.MissingDebugInfo;
     if (windows.is_the_target) {
         return openSelfDebugInfoWindows(allocator);
     }
