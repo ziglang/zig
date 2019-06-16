@@ -27,11 +27,13 @@ Buf *buf_sprintf(const char *format, ...)
 Buf *buf_vprintf(const char *format, va_list ap);
 
 static inline size_t buf_len(Buf *buf) {
+    assert(buf);
     assert(buf->list.length);
     return buf->list.length - 1;
 }
 
 static inline char *buf_ptr(Buf *buf) {
+    assert(buf);
     assert(buf->list.length);
     return buf->list.items;
 }
