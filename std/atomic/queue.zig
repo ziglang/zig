@@ -100,7 +100,7 @@ pub fn Queue(comptime T: type) type {
         pub fn isEmpty(self: *Self) bool {
             const held = self.mutex.acquire();
             defer held.release();
-            return self.head != null;
+            return self.head == null;
         }
 
         pub fn dump(self: *Self) void {
@@ -172,12 +172,14 @@ test "std.atomic.Queue" {
     };
 
     if (builtin.single_threaded) {
+        expect(context.queue.isEmpty());
         {
             var i: usize = 0;
             while (i < put_thread_count) : (i += 1) {
                 expect(startPuts(&context) == 0);
             }
         }
+        expect(!context.queue.isEmpty());
         context.puts_done = 1;
         {
             var i: usize = 0;
@@ -185,7 +187,10 @@ test "std.atomic.Queue" {
                 expect(startGets(&context) == 0);
             }
         }
+        expect(context.queue.isEmpty());
     } else {
+        expect(context.queue.isEmpty());
+
         var putters: [put_thread_count]*std.Thread = undefined;
         for (putters) |*t| {
             t.* = try std.Thread.spawn(&context, startPuts);
@@ -200,6 +205,8 @@ test "std.atomic.Queue" {
         _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
+
+        expect(context.queue.isEmpty());
     }
 
     if (context.put_sum != context.get_sum) {
@@ -250,6 +257,7 @@ fn startGets(ctx: *Context) u8 {
 
 test "std.atomic.Queue single-threaded" {
     var queue = Queue(i32).init();
+    expect(queue.isEmpty());
 
     var node_0 = Queue(i32).Node{
         .data = 0,
@@ -257,6 +265,7 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_0);
+    expect(!queue.isEmpty());
 
     var node_1 = Queue(i32).Node{
         .data = 1,
@@ -264,8 +273,10 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_1);
+    expect(!queue.isEmpty());
 
     expect(queue.get().?.data == 0);
+    expect(!queue.isEmpty());
 
     var node_2 = Queue(i32).Node{
         .data = 2,
@@ -273,6 +284,7 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_2);
+    expect(!queue.isEmpty());
 
     var node_3 = Queue(i32).Node{
         .data = 3,
@@ -280,10 +292,13 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_3);
+    expect(!queue.isEmpty());
 
     expect(queue.get().?.data == 1);
+    expect(!queue.isEmpty());
 
     expect(queue.get().?.data == 2);
+    expect(!queue.isEmpty());
 
     var node_4 = Queue(i32).Node{
         .data = 4,
@@ -291,13 +306,17 @@ test "std.atomic.Queue single-threaded" {
         .prev = undefined,
     };
     queue.put(&node_4);
+    expect(!queue.isEmpty());
 
     expect(queue.get().?.data == 3);
     node_3.next = null;
+    expect(!queue.isEmpty());
 
     expect(queue.get().?.data == 4);
+    expect(queue.isEmpty());
 
     expect(queue.get() == null);
+    expect(queue.isEmpty());
 }
 
 test "std.atomic.Queue dump" {
