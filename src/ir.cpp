@@ -18613,10 +18613,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         true, false, PtrLenUnknown,
                         0, 0, 0, false);
                     fn_decl_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
-                    if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0) {
+                    if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
                         fn_decl_fields[6].data.x_optional = create_const_vals(1);
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
-                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0,
+                                buf_len(fn_node->lib_name), true);
                     } else {
                         fn_decl_fields[6].data.x_optional = nullptr;
                     }
