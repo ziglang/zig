@@ -15482,6 +15482,13 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     return result;
 }
 
+static void mark_inferred_ptr_runtime(IrInstruction *ptr) {
+    ir_assert(ptr->value.type->id == ZigTypeIdPointer, ptr);
+    if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        ptr->value.special = ConstValSpecialRuntime;
+    }
+}
+
 static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction,
     ZigFn *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
@@ -15926,7 +15933,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
                 return result_loc;
             }
-            call_instruction->result_loc->written = true;
+            mark_inferred_ptr_runtime(result_loc);
         } else {
             result_loc = nullptr;
         }
@@ -16047,7 +16054,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
             return result_loc;
         }
-        call_instruction->result_loc->written = true;
+        mark_inferred_ptr_runtime(result_loc);
     } else {
         result_loc = nullptr;
     }
@@ -24820,9 +24827,6 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
-        if (ira->codegen->verbose_ir) {
-            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
-        }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
