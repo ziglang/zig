@@ -100,8 +100,8 @@ struct OsFileAttr {
 
 int os_init(void);
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
-Error os_exec_process(const char *exe, ZigList<const char *> &args,
+void os_spawn_process(ZigList<const char *> &args, Termination *term);
+Error os_exec_process(ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout);
 Error os_execv(const char *exe, const char **argv);
 
