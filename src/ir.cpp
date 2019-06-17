@@ -1555,7 +1555,7 @@ static IrInstruction *ir_build_container_init_fields(IrBuilder *irb, Scope *scop
 
     ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < field_count; i += 1) {
-        ir_ref_instruction(fields[i].value, irb->current_basic_block);
+        ir_ref_instruction(fields[i].result_loc, irb->current_basic_block);
     }
     if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
@@ -5783,7 +5783,6 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                     return expr_value;
 
                 fields[i].name = name;
-                fields[i].value = expr_value;
                 fields[i].source_node = entry_node;
                 fields[i].result_loc = field_ptr;
             }
@@ -17182,69 +17181,89 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 source_instr, container_ptr, container_type);
         }
-    } else if (bare_type->id == ZigTypeIdEnum) {
+    }
+
+    if (bare_type->id == ZigTypeIdEnum) {
         return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
             source_instr, container_ptr, container_type);
-    } else if (bare_type->id == ZigTypeIdUnion) {
+    }
+
+    if (bare_type->id == ZigTypeIdUnion) {
         bool is_const = container_ptr->value.type->data.pointer.is_const;
         bool is_volatile = container_ptr->value.type->data.pointer.is_volatile;
 
         TypeUnionField *field = find_union_type_field(bare_type, field_name);
-        if (field) {
-            if (instr_is_comptime(container_ptr)) {
-                ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
-                if (!ptr_val)
-                    return ira->codegen->invalid_instruction;
-
-                if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-                    ConstExprValue *union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
-                    if (union_val == nullptr)
-                        return ira->codegen->invalid_instruction;
-                    if (type_is_invalid(union_val->type))
-                        return ira->codegen->invalid_instruction;
-
-                    if (initializing) {
-                        bigint_init_bigint(&union_val->data.x_union.tag, &field->enum_field->value);
-                    } else {
-                        TypeUnionField *actual_field = find_union_field_by_tag(bare_type, &union_val->data.x_union.tag);
-                        if (actual_field == nullptr)
-                            zig_unreachable();
-
-                        if (field != actual_field) {
-                            ir_add_error_node(ira, source_instr->source_node,
-                                buf_sprintf("accessing union field '%s' while field '%s' is set", buf_ptr(field_name),
-                                    buf_ptr(actual_field->name)));
-                            return ira->codegen->invalid_instruction;
-                        }
-                    }
-
-                    ConstExprValue *payload_val = union_val->data.x_union.payload;
-
-                    ZigType *field_type = field->type_entry;
-                    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
-                            is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
-
-                    IrInstruction *result = ir_const(ira, source_instr, ptr_type);
-                    ConstExprValue *const_val = &result->value;
-                    const_val->data.x_ptr.special = ConstPtrSpecialRef;
-                    const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
-                    const_val->data.x_ptr.data.ref.pointee = payload_val;
-                    return result;
-                }
-            }
-
-            IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, container_ptr, field, initializing);
-            result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
-                    PtrLenSingle, 0, 0, 0, false);
-            return result;
-        } else {
+        if (field == nullptr) {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 source_instr, container_ptr, container_type);
         }
-    } else {
-        zig_unreachable();
+        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
+                is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
+        if (instr_is_comptime(container_ptr)) {
+            ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
+            if (!ptr_val)
+                return ira->codegen->invalid_instruction;
+
+            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+                ConstExprValue *union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
+                if (union_val == nullptr)
+                    return ira->codegen->invalid_instruction;
+                if (type_is_invalid(union_val->type))
+                    return ira->codegen->invalid_instruction;
+
+                if (initializing) {
+                    ConstExprValue *payload_val = create_const_vals(1);
+                    payload_val->special = ConstValSpecialUndef;
+                    payload_val->type = field->type_entry;
+                    ConstParent *parent = get_const_val_parent(ira->codegen, payload_val);
+                    if (parent != nullptr) {
+                        parent->id = ConstParentIdUnion;
+                        parent->data.p_union.union_val = union_val;
+                    }
+
+                    union_val->special = ConstValSpecialStatic;
+                    bigint_init_bigint(&union_val->data.x_union.tag, &field->enum_field->value);
+                    union_val->data.x_union.payload = payload_val;
+                } else {
+                    TypeUnionField *actual_field = find_union_field_by_tag(bare_type, &union_val->data.x_union.tag);
+                    if (actual_field == nullptr)
+                        zig_unreachable();
+
+                    if (field != actual_field) {
+                        ir_add_error_node(ira, source_instr->source_node,
+                            buf_sprintf("accessing union field '%s' while field '%s' is set", buf_ptr(field_name),
+                                buf_ptr(actual_field->name)));
+                        return ira->codegen->invalid_instruction;
+                    }
+                }
+
+                ConstExprValue *payload_val = union_val->data.x_union.payload;
+
+
+                IrInstruction *result;
+                if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                    result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope,
+                            source_instr->source_node, container_ptr, field, initializing);
+                    result->value.type = ptr_type;
+                    result->value.special = ConstValSpecialStatic;
+                } else {
+                    result = ir_const(ira, source_instr, ptr_type);
+                }
+                ConstExprValue *const_val = &result->value;
+                const_val->data.x_ptr.special = ConstPtrSpecialRef;
+                const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
+                const_val->data.x_ptr.data.ref.pointee = payload_val;
+                return result;
+            }
+        }
+
+        IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, container_ptr, field, initializing);
+        result->value.type = ptr_type;
+        return result;
     }
+
+    zig_unreachable();
 }
 
 static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name, AstNode *source_node) {
@@ -18891,12 +18910,12 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
     }
 
     IrInstructionContainerInitFieldsField *field = &fields[0];
-    IrInstruction *field_value = field->value->child;
-    if (type_is_invalid(field_value->value.type))
+    IrInstruction *field_result_loc = field->result_loc->child;
+    if (type_is_invalid(field_result_loc->value.type))
         return ira->codegen->invalid_instruction;
 
     TypeUnionField *type_field = find_union_type_field(container_type, field->name);
-    if (!type_field) {
+    if (type_field == nullptr) {
         ir_add_error_node(ira, field->source_node,
             buf_sprintf("no member named '%s' in union '%s'",
                 buf_ptr(field->name), buf_ptr(&container_type->name)));
@@ -18906,33 +18925,26 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
     if (type_is_invalid(type_field->type_entry))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *casted_field_value = ir_implicit_cast(ira, field_value, type_field->type_entry);
-    if (casted_field_value == ira->codegen->invalid_instruction)
-        return ira->codegen->invalid_instruction;
-
-    if ((err = type_resolve(ira->codegen, casted_field_value->value.type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->invalid_instruction;
+    if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        if (instr_is_comptime(field_result_loc) &&
+            field_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+        } else {
+            result_loc->value.special = ConstValSpecialRuntime;
+        }
+    }
 
     bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope)
         || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
-    if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime ||
-        !type_has_bits(casted_field_value->value.type))
-    {
-        ConstExprValue *field_val = ir_resolve_const(ira, casted_field_value, UndefOk);
-        if (!field_val)
-            return ira->codegen->invalid_instruction;
 
-        IrInstruction *result = ir_const(ira, instruction, container_type);
-        ConstExprValue *out_val = &result->value;
-        out_val->data.x_union.payload = field_val;
-        out_val->data.x_union.tag = type_field->enum_field->value;
-        out_val->parent.id = ConstParentIdUnion;
-        out_val->parent.data.p_union.union_val = out_val;
-
-        return result;
+    IrInstruction *result = ir_get_deref(ira, instruction, result_loc, nullptr);
+    if (is_comptime && !instr_is_comptime(result)) {
+        ir_add_error(ira, field->result_loc,
+            buf_sprintf("unable to evaluate constant expression"));
+        return ira->codegen->invalid_instruction;
     }
-
-    return ir_get_deref(ira, instruction, result_loc, nullptr);
+    return result;
 }
 
 static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruction *instruction,

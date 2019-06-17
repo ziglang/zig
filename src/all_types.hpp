@@ -2646,7 +2646,6 @@ struct IrInstructionContainerInitList {
 
 struct IrInstructionContainerInitFieldsField {
     Buf *name;
-    IrInstruction *value;
     AstNode *source_node;
     TypeStructField *type_struct_field;
     IrInstruction *result_loc;
