@@ -166,12 +166,6 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruct
     return &scope->base;
 }
 
-ScopeElide *create_elide_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeElide *scope = allocate<ScopeElide>(1);
-    init_scope(g, &scope->base, ScopeIdElide, node, parent);
-    return scope;
-}
-
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
     ScopeSuspend *scope = allocate<ScopeSuspend>(1);
@@ -4187,6 +4181,7 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
         case ConstPtrMutComptimeConst:
             hash_val += (uint32_t)4214318515;
             break;
+        case ConstPtrMutInfer:
         case ConstPtrMutComptimeVar:
             hash_val += (uint32_t)1103195694;
             break;
@@ -7286,31 +7281,3 @@ void src_assert(bool ok, AstNode *source_node) {
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
-
-bool scope_is_elided(Scope *scope) {
-    for (;;) {
-        switch (scope->id) {
-            case ScopeIdElide:
-                if (reinterpret_cast<ScopeElide *>(scope)->activated)
-                    return true;
-                // fallthrough
-            case ScopeIdBlock:
-            case ScopeIdDefer:
-            case ScopeIdDeferExpr:
-            case ScopeIdVarDecl:
-            case ScopeIdLoop:
-            case ScopeIdSuspend:
-            case ScopeIdCoroPrelude:
-            case ScopeIdRuntime:
-                scope = scope->parent;
-                continue;
-            case ScopeIdFnDef:
-            case ScopeIdCompTime:
-            case ScopeIdDecls:
-            case ScopeIdCImport:
-                return false;
-        }
-        zig_unreachable();
-    }
-}
-

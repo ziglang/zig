@@ -203,6 +203,9 @@ enum ConstPtrMut {
     // The pointer points to memory that is known only at runtime.
     // For example it may point to the initializer value of a variable.
     ConstPtrMutRuntimeVar,
+    // The pointer points to memory for which it must be inferred whether the
+    // value is comptime known or not.
+    ConstPtrMutInfer,
 };
 
 struct ConstPtrValue {
@@ -1957,7 +1960,6 @@ enum ScopeId {
     ScopeIdCompTime,
     ScopeIdCoroPrelude,
     ScopeIdRuntime,
-    ScopeIdElide,
 };
 
 struct Scope {
@@ -1969,14 +1971,6 @@ struct Scope {
 
     ZigLLVMDIScope *di_scope;
     ScopeId id;
-};
-
-// This scope, when activated, causes all the instructions in the scope to be omitted
-// from the generated code.
-struct ScopeElide {
-    Scope base;
-
-    bool activated;
 };
 
 // This scope comes from global declarations or from
@@ -2655,6 +2649,7 @@ struct IrInstructionContainerInitFieldsField {
     IrInstruction *value;
     AstNode *source_node;
     TypeStructField *type_struct_field;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitFields {
@@ -3655,7 +3650,6 @@ struct ResultLoc {
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc
     ZigType *implicit_elem_type;
-    ScopeElide *scope_elide;
 };
 
 struct ResultLocNone {

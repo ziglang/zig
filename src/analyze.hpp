@@ -121,7 +121,6 @@ ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
-ScopeElide *create_elide_scope(CodeGen *g, AstNode *node, Scope *parent);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
@@ -254,6 +253,5 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
 ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
-bool scope_is_elided(Scope *scope);
 
 #endif

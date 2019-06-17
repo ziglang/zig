@@ -722,7 +722,6 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdCompTime:
         case ScopeIdCoroPrelude:
         case ScopeIdRuntime:
-        case ScopeIdElide:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -5761,12 +5760,10 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
                 continue;
 
-            if (!scope_is_elided(instruction->scope)) {
-                if (!g->strip_debug_symbols) {
-                    set_debug_location(g, instruction);
-                }
-                instruction->llvm_value = ir_render_instruction(g, executable, instruction);
+            if (!g->strip_debug_symbols) {
+                set_debug_location(g, instruction);
             }
+            instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
         current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
     }
