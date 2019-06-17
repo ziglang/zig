@@ -1524,18 +1524,19 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t item_count, IrInstruction **items, IrInstruction *result_loc)
+        IrInstruction *container_type, size_t item_count, IrInstruction **elem_result_loc_list,
+        IrInstruction *result_loc)
 {
     IrInstructionContainerInitList *container_init_list_instruction =
         ir_build_instruction<IrInstructionContainerInitList>(irb, scope, source_node);
     container_init_list_instruction->container_type = container_type;
     container_init_list_instruction->item_count = item_count;
-    container_init_list_instruction->items = items;
+    container_init_list_instruction->elem_result_loc_list = elem_result_loc_list;
     container_init_list_instruction->result_loc = result_loc;
 
     ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < item_count; i += 1) {
-        ir_ref_instruction(items[i], irb->current_basic_block);
+        ir_ref_instruction(elem_result_loc_list[i], irb->current_basic_block);
     }
     if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
 
@@ -5802,7 +5803,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
             IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, node, parent_result_loc,
                     container_type);
 
-            IrInstruction **values = allocate<IrInstruction *>(item_count);
+            IrInstruction **result_locs = allocate<IrInstruction *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
 
@@ -5813,16 +5814,17 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = elem_ptr;
                 ir_ref_instruction(elem_ptr, irb->current_basic_block);
+                ir_build_reset_result(irb, scope, expr_node, &result_loc_inst->base);
 
                 IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, scope, LValNone,
                         &result_loc_inst->base);
                 if (expr_value == irb->codegen->invalid_instruction)
                     return expr_value;
 
-                values[i] = expr_value;
+                result_locs[i] = elem_ptr;
             }
             IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type,
-                    item_count, values, container_ptr);
+                    item_count, result_locs, container_ptr);
             return ir_lval_wrap(irb, scope, init_list, lval, parent_result_loc);
         }
     }
@@ -16891,6 +16893,22 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             if (array_ptr_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
+            if (array_ptr_val->special == ConstValSpecialUndef && array_type->id == ZigTypeIdArray &&
+                elem_ptr_instruction->initializing)
+            {
+                array_ptr_val->data.x_array.special = ConstArraySpecialNone;
+                array_ptr_val->data.x_array.data.s_none.elements = create_const_vals(array_type->data.array.len);
+                array_ptr_val->special = ConstValSpecialStatic;
+                for (size_t i = 0; i < array_type->data.array.len; i += 1) {
+                    ConstExprValue *elem_val = &array_ptr_val->data.x_array.data.s_none.elements[i];
+                    elem_val->special = ConstValSpecialUndef;
+                    elem_val->type = array_type->data.array.child_type;
+                    elem_val->parent.id = ConstParentIdArray;
+                    elem_val->parent.data.p_array.array_val = array_ptr_val;
+                    elem_val->parent.data.p_array.elem_index = i;
+                }
+            }
+
             if (array_ptr_val->special != ConstValSpecialRuntime &&
                 (array_type->id != ZigTypeIdPointer ||
                     array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
@@ -17011,7 +17029,16 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     }
                     return result;
                 } else if (array_type->id == ZigTypeIdArray) {
-                    IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
+                    IrInstruction *result;
+                    if (orig_array_ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                        result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
+                                elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index,
+                                false, elem_ptr_instruction->ptr_len, elem_ptr_instruction->initializing);
+                        result->value.type = return_type;
+                        result->value.special = ConstValSpecialStatic;
+                    } else {
+                        result = ir_const(ira, &elem_ptr_instruction->base, return_type);
+                    }
                     ConstExprValue *out_val = &result->value;
                     out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                     out_val->data.x_ptr.mut = orig_array_ptr_val->data.x_ptr.mut;
@@ -19099,8 +19126,6 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         IrInstructionContainerInitList *instruction)
 {
-    Error err;
-
     ZigType *container_type = ir_resolve_type(ira, instruction->container_type->child);
     if (type_is_invalid(container_type))
         return ira->codegen->invalid_instruction;
@@ -19111,125 +19136,122 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         ir_add_error(ira, &instruction->base,
             buf_sprintf("expected array type or [_], found slice"));
         return ira->codegen->invalid_instruction;
-    } else if (container_type->id == ZigTypeIdStruct && !is_slice(container_type) && elem_count == 0) {
-        ir_assert(instruction->result_loc != nullptr, &instruction->base);
-        IrInstruction *result_loc = instruction->result_loc->child;
-        if (type_is_invalid(result_loc->value.type))
-            return result_loc;
-        return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
-    } else if (container_type->id == ZigTypeIdArray) {
-        // array is same as slice init but we make a compile error if the length is wrong
-        ZigType *child_type;
-        if (container_type->id == ZigTypeIdArray) {
-            child_type = container_type->data.array.child_type;
-            if (container_type->data.array.len != elem_count) {
-                ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+    }
 
-                ir_add_error(ira, &instruction->base,
-                    buf_sprintf("expected %s literal, found %s literal",
-                        buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
-                return ira->codegen->invalid_instruction;
-            }
-        } else {
-            ZigType *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
-            assert(pointer_type->id == ZigTypeIdPointer);
-            child_type = pointer_type->data.pointer.child_type;
-        }
-
-        if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown))) {
-            return ira->codegen->invalid_instruction;
-        }
-
-        ZigType *fixed_size_array_type = get_array_type(ira->codegen, child_type, elem_count);
-
-        ConstExprValue const_val = {};
-        const_val.special = ConstValSpecialStatic;
-        const_val.type = fixed_size_array_type;
-        // const_val.global_refs = allocate<ConstGlobalRefs>(1);
-        const_val.data.x_array.data.s_none.elements = create_const_vals(elem_count);
-
-        bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
-
-        IrInstruction **new_items = allocate<IrInstruction *>(elem_count);
-
-        IrInstruction *first_non_const_instruction = nullptr;
-
-        for (size_t i = 0; i < elem_count; i += 1) {
-            IrInstruction *arg_value = instruction->items[i]->child;
-            if (type_is_invalid(arg_value->value.type))
-                return ira->codegen->invalid_instruction;
-
-            IrInstruction *casted_arg = ir_implicit_cast(ira, arg_value, child_type);
-            if (casted_arg == ira->codegen->invalid_instruction)
-                return ira->codegen->invalid_instruction;
-
-            new_items[i] = casted_arg;
-
-            if (const_val.special == ConstValSpecialStatic) {
-                if (is_comptime || casted_arg->value.special != ConstValSpecialRuntime) {
-                    ConstExprValue *elem_val = ir_resolve_const(ira, casted_arg, UndefBad);
-                    if (!elem_val)
-                        return ira->codegen->invalid_instruction;
-
-                    copy_const_val(&const_val.data.x_array.data.s_none.elements[i], elem_val, true);
-                } else {
-                    first_non_const_instruction = casted_arg;
-                    const_val.special = ConstValSpecialRuntime;
-                }
-            }
-        }
-
-        if (const_val.special == ConstValSpecialStatic) {
-            IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-            ConstExprValue *out_val = &result->value;
-            copy_const_val(out_val, &const_val, false);
-            result->value.type = fixed_size_array_type;
-            for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *elem_val = &out_val->data.x_array.data.s_none.elements[i];
-                ConstParent *parent = get_const_val_parent(ira->codegen, elem_val);
-                if (parent != nullptr) {
-                    parent->id = ConstParentIdArray;
-                    parent->data.p_array.array_val = out_val;
-                    parent->data.p_array.elem_index = i;
-                }
-            }
-            return result;
-        }
-
-        if (is_comptime) {
-            ir_add_error_node(ira, first_non_const_instruction->source_node,
-                buf_sprintf("unable to evaluate constant expression"));
-            return ira->codegen->invalid_instruction;
-        }
-
-        ir_assert(instruction->result_loc != nullptr, &instruction->base);
-        IrInstruction *result_loc = instruction->result_loc->child;
-        if (type_is_invalid(result_loc->value.type))
-            return result_loc;
-        ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
-        ZigType *result_elem_type = result_loc->value.type->data.pointer.child_type;
-        if (is_slice(result_elem_type)) {
-            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-                buf_sprintf("runtime-initialized array cannot be casted to slice type '%s'",
-                    buf_ptr(&result_elem_type->name)));
-            add_error_note(ira->codegen, msg, first_non_const_instruction->source_node,
-                buf_sprintf("this value is not comptime-known"));
-            return ira->codegen->invalid_instruction;
-        }
-        return ir_get_deref(ira, &instruction->base, result_loc, nullptr);
-    } else if (container_type->id == ZigTypeIdVoid) {
+    if (container_type->id == ZigTypeIdVoid) {
         if (elem_count != 0) {
             ir_add_error_node(ira, instruction->base.source_node,
                 buf_sprintf("void expression expects no arguments"));
             return ira->codegen->invalid_instruction;
         }
         return ir_const_void(ira, &instruction->base);
-    } else {
+    }
+
+    if (container_type->id == ZigTypeIdStruct && elem_count == 0) {
+        ir_assert(instruction->result_loc != nullptr, &instruction->base);
+        IrInstruction *result_loc = instruction->result_loc->child;
+        if (type_is_invalid(result_loc->value.type))
+            return result_loc;
+        return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
+    }
+
+    if (container_type->id != ZigTypeIdArray) {
         ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    ir_assert(instruction->result_loc != nullptr, &instruction->base);
+    IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return result_loc;
+    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
+
+    ZigType *child_type = container_type->data.array.child_type;
+    if (container_type->data.array.len != elem_count) {
+        ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("expected %s literal, found %s literal",
+                buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    bool is_comptime;
+    switch (type_requires_comptime(ira->codegen, container_type)) {
+        case ReqCompTimeInvalid:
+            return ira->codegen->invalid_instruction;
+        case ReqCompTimeNo:
+            is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
+            break;
+        case ReqCompTimeYes:
+            is_comptime = true;
+            break;
+    }
+
+    IrInstruction *first_non_const_instruction = nullptr;
+
+    // The Result Location Mechanism has already emitted runtime instructions to
+    // initialize runtime elements and has omitted instructions for the comptime
+    // elements. However it is only now that we find out whether the array initialization
+    // can be a comptime value. So we must clean up the situation. If it turns out
+    // array initialization can be a comptime value, overwrite ConstPtrMutInfer with
+    // ConstPtrMutComptimeConst. Otherwise, emit instructions to runtime-initialize the
+    // elements that have comptime-known values.
+    ZigList<IrInstruction *> const_ptrs = {};
+
+    for (size_t i = 0; i < elem_count; i += 1) {
+        IrInstruction *elem_result_loc = instruction->elem_result_loc_list[i]->child;
+        if (type_is_invalid(elem_result_loc->value.type))
+            return ira->codegen->invalid_instruction;
+
+        assert(elem_result_loc->value.type->id == ZigTypeIdPointer);
+
+        if (instr_is_comptime(elem_result_loc) &&
+            elem_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            const_ptrs.append(elem_result_loc);
+        } else {
+            first_non_const_instruction = elem_result_loc;
+        }
+    }
+
+    if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        if (const_ptrs.length == elem_count) {
+            result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+        } else {
+            result_loc->value.special = ConstValSpecialRuntime;
+            for (size_t i = 0; i < const_ptrs.length; i += 1) {
+                IrInstruction *elem_result_loc = const_ptrs.at(i);
+                assert(elem_result_loc->value.special == ConstValSpecialStatic);
+                IrInstruction *deref = ir_get_deref(ira, elem_result_loc, elem_result_loc, nullptr);
+                elem_result_loc->value.special = ConstValSpecialRuntime;
+                ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref);
+            }
+        }
+    }
+
+    IrInstruction *result = ir_get_deref(ira, &instruction->base, result_loc, nullptr);
+    if (instr_is_comptime(result))
+        return result;
+
+    if (is_comptime) {
+        ir_add_error_node(ira, first_non_const_instruction->source_node,
+            buf_sprintf("unable to evaluate constant expression"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *result_elem_type = result_loc->value.type->data.pointer.child_type;
+    if (is_slice(result_elem_type)) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+            buf_sprintf("runtime-initialized array cannot be casted to slice type '%s'",
+                buf_ptr(&result_elem_type->name)));
+        add_error_note(ira->codegen, msg, first_non_const_instruction->source_node,
+            buf_sprintf("this value is not comptime-known"));
+        return ira->codegen->invalid_instruction;
+    }
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_container_init_fields(IrAnalyze *ira,

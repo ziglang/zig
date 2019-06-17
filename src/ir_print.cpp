@@ -348,10 +348,10 @@ static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerIni
         fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->item_count);
     } else {
         for (size_t i = 0; i < instruction->item_count; i += 1) {
-            IrInstruction *item = instruction->items[i];
+            IrInstruction *result_loc = instruction->elem_result_loc_list[i];
             if (i != 0)
                 fprintf(irp->f, ", ");
-            ir_print_other_instruction(irp, item);
+            ir_print_other_instruction(irp, result_loc);
         }
     }
     fprintf(irp->f, "}");

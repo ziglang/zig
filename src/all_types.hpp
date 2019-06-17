@@ -2640,7 +2640,7 @@ struct IrInstructionContainerInitList {
     IrInstruction *container_type;
     IrInstruction *elem_type;
     size_t item_count;
-    IrInstruction **items;
+    IrInstruction **elem_result_loc_list;
     IrInstruction *result_loc;
 };
 
