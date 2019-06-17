@@ -996,6 +996,43 @@ test "mem.join" {
     testing.expect(eql(u8, try join(a, ",", [_][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
 }
 
+/// Copies each T from slices into a new slice that exactly holds all the elements.
+pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T) ![]T {
+    if (slices.len == 0) return (([*]T)(undefined))[0..0];
+
+    const total_len = blk: {
+        var sum: usize = 0;
+        for (slices) |slice| {
+            sum += slice.len;
+        }
+        break :blk sum;
+    };
+
+    const buf = try allocator.alloc(T, total_len);
+    errdefer allocator.free(buf);
+
+    var buf_index: usize = 0;
+    for (slices) |slice| {
+        copy(T, buf[buf_index..], slice);
+        buf_index += slice.len;
+    }
+
+    // No need for shrink since buf is exactly the correct size.
+    return buf;
+}
+
+test "concat" {
+    var buf: [1024]u8 = undefined;
+    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    testing.expect(eql(u8, try concat(a, u8, [_][]const u8{ "abc", "def", "ghi" }), "abcdefghi"));
+    testing.expect(eql(u32, try concat(a, u32, [_][]const u32{
+        [_]u32{ 0, 1 },
+        [_]u32{ 2, 3, 4 },
+        [_]u32{},
+        [_]u32{5},
+    }), [_]u32{ 0, 1, 2, 3, 4, 5 }));
+}
+
 test "testStringEquality" {
     testing.expect(eql(u8, "abcd", "abcd"));
     testing.expect(!eql(u8, "abcdef", "abZdef"));
