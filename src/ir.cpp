@@ -22469,17 +22469,7 @@ static IrInstruction *ir_analyze_instruction_result_ptr(IrAnalyze *ira, IrInstru
     if (instruction->result_loc->written && instruction->result_loc->resolved_loc != nullptr &&
             !instr_is_comptime(result))
     {
-        IrInstruction *result_ptr = instruction->result_loc->resolved_loc;
-        if (result->value.type->id == ZigTypeIdErrorUnion &&
-                result_ptr->value.type->data.pointer.child_type->id == ZigTypeIdErrorUnion)
-        {
-            // Convert the pointer to the result type. They should be the same, except this will resolve
-            // inferred error sets.
-            ZigType *new_ptr_type = get_pointer_to_type(ira->codegen, result->value.type, true);
-            return ir_analyze_ptr_cast(ira, &instruction->base, result_ptr, new_ptr_type, &instruction->base, false);
-        } else {
-            return result_ptr;
-        }
+        return instruction->result_loc->resolved_loc;
     }
     return ir_get_ref(ira, &instruction->base, result, true, false);
 }
@@ -22504,17 +22494,6 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
                 ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
                 return ir_const_bool(ira, &instruction->base, (err != nullptr));
             }
-        }
-
-        ZigType *err_set_type = type_entry->data.error_union.err_set_type;
-        if (!resolve_inferred_error_set(ira->codegen, err_set_type, instruction->base.source_node)) {
-            return ira->codegen->invalid_instruction;
-        }
-        if (!type_is_global_error_set(err_set_type) &&
-            err_set_type->data.error_set.err_count == 0)
-        {
-            assert(err_set_type->data.error_set.infer_fn == nullptr);
-            return ir_const_bool(ira, &instruction->base, false);
         }
 
         return ir_build_test_err_gen(ira, &instruction->base, value);
