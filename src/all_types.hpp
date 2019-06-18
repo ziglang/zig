@@ -2544,8 +2544,8 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    IrInstruction *init_array_type;
     PtrLen ptr_len;
-    bool initializing;
     bool safety_check_on;
 };
 
