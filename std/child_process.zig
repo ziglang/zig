@@ -543,25 +543,32 @@ pub const ChildProcess = struct {
 
             const PATH = try process.getEnvVarOwned(self.allocator, "PATH");
             defer self.allocator.free(PATH);
+            const PATHEXT = try process.getEnvVarOwned(self.allocator, "PATHEXT");
+            defer self.allocator.free(PATHEXT);
 
             var it = mem.tokenize(PATH, ";");
-            while (it.next()) |search_path| {
-                const joined_path = try fs.path.join(self.allocator, [_][]const u8{ search_path, app_name });
-                defer self.allocator.free(joined_path);
+            retry: while (it.next()) |search_path| {
+                var ext_it = mem.tokenize(PATHEXT, ";");
+                while (ext_it.next()) |app_ext| {
+                    const app_basename = try mem.concat(self.allocator, u8, [_][]const u8{app_name[0..app_name.len - 1], app_ext});
+                    defer self.allocator.free(app_basename);
 
-                const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
-                defer self.allocator.free(joined_path_w);
+                    const joined_path = try fs.path.join(self.allocator, [_][]const u8{ search_path, app_basename });
+                    defer self.allocator.free(joined_path);
 
-                if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
-                    break;
-                } else |err| if (err == error.FileNotFound) {
-                    continue;
-                } else {
-                    return err;
+                    const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
+                    defer self.allocator.free(joined_path_w);
+
+                    if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
+                        break :retry;
+                    } else |err| switch (err) {
+                        error.FileNotFound => { continue; },
+                        error.AccessDenied => { continue; },
+                        else => { return err; },
+                    }
                 }
             } else {
-                // Every other error would have been returned earlier.
-                return error.FileNotFound;
+                return no_path_err; // return the original error
             }
         };
 
