@@ -1,22 +1,22 @@
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
-test "enum type" {
-    const foo1 = Foo{ .One = 13 };
-    const foo2 = Foo{
-        .Two = Point{
-            .x = 1234,
-            .y = 5678,
-        },
-    };
-    const bar = Bar.B;
-
-    expect(bar == Bar.B);
-    expect(@memberCount(Foo) == 3);
-    expect(@memberCount(Bar) == 4);
-    expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
-    expect(@sizeOf(Bar) == 1);
-}
+//test "enum type" {
+//    const foo1 = Foo{ .One = 13 };
+//    const foo2 = Foo{
+//        .Two = Point{
+//            .x = 1234,
+//            .y = 5678,
+//        },
+//    };
+//    const bar = Bar.B;
+//
+//    expect(bar == Bar.B);
+//    expect(@memberCount(Foo) == 3);
+//    expect(@memberCount(Bar) == 4);
+//    expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
+//    expect(@sizeOf(Bar) == 1);
+//}
 
 test "enum as return value" {
     switch (returnAnInt(13)) {

@@ -14999,7 +14999,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return parent_result_loc;
             }
             // because is_comptime is false, we mark this a runtime pointer
-            parent_result_loc->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
+            parent_result_loc->value.special = ConstValSpecialRuntime;
             result_loc->written = true;
             result_loc->resolved_loc = parent_result_loc;
             return result_loc->resolved_loc;
