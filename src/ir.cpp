@@ -15157,9 +15157,14 @@ static void ir_reset_result(ResultLoc *result_loc) {
             }
             break;
         }
+        case ResultLocIdVar: {
+            IrInstructionAllocaSrc *alloca_src =
+                reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
+            alloca_src->base.child = nullptr;
+            break;
+        }
         case ResultLocIdPeer:
         case ResultLocIdNone:
-        case ResultLocIdVar:
         case ResultLocIdReturn:
         case ResultLocIdInstruction:
         case ResultLocIdBitCast:

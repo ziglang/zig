@@ -190,16 +190,16 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
     }
 }
 
-//test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
-//    var runtime = [1]i32{3};
-//    comptime var i: usize = 0;
-//    inline while (i < 2) : (i += 1) {
-//        const result = if (i == 0) [1]i32{2} else runtime;
-//    }
-//    comptime {
-//        expect(i == 2);
-//    }
-//}
+test "inlined loop has array literal with elided runtime scope on first iteration but not second iteration" {
+    var runtime = [1]i32{3};
+    comptime var i: usize = 0;
+    inline while (i < 2) : (i += 1) {
+        const result = if (i == 0) [1]i32{2} else runtime;
+    }
+    comptime {
+        expect(i == 2);
+    }
+}
 
 fn max(comptime T: type, a: T, b: T) T {
     if (T == bool) {
@@ -668,9 +668,9 @@ fn loopNTimes(comptime n: usize) void {
     inline while (i < n) : (i += 1) {}
 }
 
-//test "variable inside inline loop that has different types on different iterations" {
-//    testVarInsideInlineLoop(true, u32(42));
-//}
+test "variable inside inline loop that has different types on different iterations" {
+    testVarInsideInlineLoop(true, u32(42));
+}
 
 fn testVarInsideInlineLoop(args: ...) void {
     comptime var i = 0;
@@ -681,14 +681,14 @@ fn testVarInsideInlineLoop(args: ...) void {
     }
 }
 
-//test "inline for with same type but different values" {
-//    var res: usize = 0;
-//    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
-//        var a: T = undefined;
-//        res += a.len;
-//    }
-//    expect(res == 5);
-//}
+test "inline for with same type but different values" {
+    var res: usize = 0;
+    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+        var a: T = undefined;
+        res += a.len;
+    }
+    expect(res == 5);
+}
 
 test "refer to the type of a generic function" {
     const Func = fn (type) void;
