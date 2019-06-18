@@ -4927,7 +4927,7 @@ test "peer type resolution: *const T and ?*T" {
           <li>The {#link|Integers#} {#syntax#}u0{#endsyntax#} and {#syntax#}i0{#endsyntax#}.</li>
           <li>{#link|Arrays#} and {#link|Vectors#} with len 0, or with an element type that is a zero bit type.</li>
           <li>An {#link|enum#} with only 1 tag.</li>
-          <li>An {#link|struct#} with all fields being zero bit types.</li>
+          <li>A {#link|struct#} with all fields being zero bit types.</li>
           <li>A {#link|union#} with only 1 field which is a zero bit type.</li>
           <li>{#link|Pointers to Zero Bit Types#} are themselves zero bit types.</li>
       </ul>
