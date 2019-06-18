@@ -16794,7 +16794,9 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
             {
-                if ((err = type_resolve(ira->codegen, child_type, ResolveStatusAlignmentKnown)))
+                ResolveStatus needed_status = (align_bytes == 0) ?
+                    ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
+                if ((err = type_resolve(ira->codegen, child_type, needed_status)))
                     return ira->codegen->invalid_instruction;
                 ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
                         is_const, is_volatile, PtrLenUnknown, align_bytes, 0, 0, is_allow_zero);
