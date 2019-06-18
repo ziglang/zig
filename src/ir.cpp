@@ -14874,6 +14874,16 @@ static bool type_can_bit_cast(ZigType *t) {
     }
 }
 
+static void set_up_result_loc_for_inferred_comptime(IrInstruction *ptr) {
+    ConstExprValue *undef_child = create_const_vals(1);
+    undef_child->type = ptr->value.type->data.pointer.child_type;
+    undef_child->special = ConstValSpecialUndef;
+    ptr->value.special = ConstValSpecialStatic;
+    ptr->value.data.x_ptr.mut = ConstPtrMutInfer;
+    ptr->value.data.x_ptr.special = ConstPtrSpecialRef;
+    ptr->value.data.x_ptr.data.ref.pointee = undef_child;
+}
+
 // when calling this function, at the callsite must check for result type noreturn and propagate it up
 static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value)
@@ -14901,6 +14911,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return ira->codegen->invalid_instruction;
             alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
                     PtrLenSingle, 0, 0, 0, false);
+            set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
             ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
             if (fn_entry != nullptr) {
                 fn_entry->alloca_gen_list.append(alloca_gen);
@@ -14958,6 +14969,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
             result_loc->written = true;
             result_loc->resolved_loc = ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
+            set_up_result_loc_for_inferred_comptime(result_loc->resolved_loc);
             return result_loc->resolved_loc;
         }
         case ResultLocIdPeer: {
@@ -15132,7 +15144,6 @@ static void ir_reset_result(ResultLoc *result_loc) {
     result_loc->resolved_loc = nullptr;
     result_loc->gen_instruction = nullptr;
     result_loc->implicit_elem_type = nullptr;
-    // TODO handle result_loc->scope_elide = 
     switch (result_loc->id) {
         case ResultLocIdInvalid:
             zig_unreachable();
@@ -18289,27 +18300,77 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, child_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0, false);
 
+    bool same_comptime_repr = types_have_same_zig_comptime_repr(type_entry, child_type);
+
     if (instr_is_comptime(base_ptr)) {
-        ConstExprValue *val = ir_resolve_const(ira, base_ptr, UndefBad);
-        if (!val)
+        ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
+        if (!ptr_val)
             return ira->codegen->invalid_instruction;
-        if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
-            ConstExprValue *maybe_val = const_ptr_pointee(ira, ira->codegen, val, source_instr->source_node);
-            if (maybe_val == nullptr)
+        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+            ConstExprValue *optional_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
+            if (optional_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
-            if (optional_value_is_null(maybe_val)) {
+            if (initializing && optional_val->special == ConstValSpecialUndef) {
+                switch (type_has_one_possible_value(ira->codegen, child_type)) {
+                    case OnePossibleValueInvalid:
+                        return ira->codegen->invalid_instruction;
+                    case OnePossibleValueNo:
+                        if (!same_comptime_repr) {
+                            ConstExprValue *payload_val = create_const_vals(1);
+                            payload_val->type = child_type;
+                            payload_val->special = ConstValSpecialUndef;
+                            payload_val->parent.id = ConstParentIdOptionalPayload;
+                            payload_val->parent.data.p_optional_payload.optional_val = optional_val;
+
+                            optional_val->data.x_optional = payload_val;
+                            optional_val->special = ConstValSpecialStatic;
+                        }
+                        break;
+                    case OnePossibleValueYes: {
+                        ConstExprValue *pointee = create_const_vals(1);
+                        pointee->special = ConstValSpecialStatic;
+                        pointee->type = child_type;
+                        pointee->parent.id = ConstParentIdOptionalPayload;
+                        pointee->parent.data.p_optional_payload.optional_val = optional_val;
+
+                        optional_val->special = ConstValSpecialStatic;
+                        optional_val->data.x_optional = pointee;
+                        break;
+                    }
+                }
+            } else if (optional_value_is_null(optional_val)) {
                 ir_add_error(ira, source_instr, buf_sprintf("unable to unwrap null"));
                 return ira->codegen->invalid_instruction;
             }
-            IrInstruction *result = ir_const(ira, source_instr, result_type);
-            ConstExprValue *out_val = &result->value;
-            out_val->data.x_ptr.special = ConstPtrSpecialRef;
-            out_val->data.x_ptr.mut = val->data.x_ptr.mut;
-            if (types_have_same_zig_comptime_repr(type_entry, child_type)) {
-                out_val->data.x_ptr.data.ref.pointee = maybe_val;
+
+            IrInstruction *result;
+            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                result = ir_build_optional_unwrap_ptr(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, base_ptr, false, initializing);
+                result->value.type = result_type;
+                result->value.special = ConstValSpecialStatic;
             } else {
-                out_val->data.x_ptr.data.ref.pointee = maybe_val->data.x_optional;
+                result = ir_const(ira, source_instr, result_type);
+            }
+            ConstExprValue *result_val = &result->value;
+            result_val->data.x_ptr.special = ConstPtrSpecialRef;
+            result_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
+            switch (type_has_one_possible_value(ira->codegen, child_type)) {
+                case OnePossibleValueInvalid:
+                    return ira->codegen->invalid_instruction;
+                case OnePossibleValueNo:
+                    if (same_comptime_repr) {
+                        result_val->data.x_ptr.data.ref.pointee = optional_val;
+                    } else {
+                        assert(optional_val->data.x_optional != nullptr);
+                        result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
+                    }
+                    break;
+                case OnePossibleValueYes:
+                    assert(optional_val->data.x_optional != nullptr);
+                    result_val->data.x_ptr.data.ref.pointee = optional_val->data.x_optional;
+                    break;
             }
             return result;
         }
@@ -22409,10 +22470,16 @@ static IrInstruction *ir_analyze_instruction_result_ptr(IrAnalyze *ira, IrInstru
             !instr_is_comptime(result))
     {
         IrInstruction *result_ptr = instruction->result_loc->resolved_loc;
-        // Convert the pointer to the result type. They should be the same, except this will resolve
-        // inferred error sets.
-        ZigType *new_ptr_type = get_pointer_to_type(ira->codegen, result->value.type, true);
-        return ir_analyze_ptr_cast(ira, &instruction->base, result_ptr, new_ptr_type, &instruction->base, false);
+        if (result->value.type->id == ZigTypeIdErrorUnion &&
+                result_ptr->value.type->data.pointer.child_type->id == ZigTypeIdErrorUnion)
+        {
+            // Convert the pointer to the result type. They should be the same, except this will resolve
+            // inferred error sets.
+            ZigType *new_ptr_type = get_pointer_to_type(ira->codegen, result->value.type, true);
+            return ir_analyze_ptr_cast(ira, &instruction->base, result_ptr, new_ptr_type, &instruction->base, false);
+        } else {
+            return result_ptr;
+        }
     }
     return ir_get_ref(ira, &instruction->base, result, true, false);
 }
@@ -22465,7 +22532,6 @@ static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *
 
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
     assert(ptr_type->id == ZigTypeIdPointer);
-    bool is_ptr_const = ptr_type->data.pointer.is_const;
 
     ZigType *type_entry = ptr_type->data.pointer.child_type;
     if (type_is_invalid(type_entry))
@@ -22477,31 +22543,63 @@ static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *
         return ira->codegen->invalid_instruction;
     }
 
+    ZigType *err_set_type = type_entry->data.error_union.err_set_type;
+    ZigType *result_type = get_pointer_to_type_extra(ira->codegen, err_set_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle,
+            ptr_type->data.pointer.explicit_alignment, 0, 0, false);
+
     if (instr_is_comptime(base_ptr)) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!ptr_val)
             return ira->codegen->invalid_instruction;
-        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+            ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
+        {
             ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
-            if (err_union_val->special != ConstValSpecialRuntime) {
-                ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
-                assert(err != nullptr);
 
-                IrInstruction *err_set_val = ir_const(ira, source_instr, type_entry->data.error_union.err_set_type);
-                err_set_val->value.data.x_err_set = err;
-                err_set_val->value.parent.id = ConstParentIdErrUnionCode;
-                err_set_val->value.parent.data.p_err_union_code.err_union_val = err_union_val;
+            if (initializing && err_union_val->special == ConstValSpecialUndef) {
+                ConstExprValue *vals = create_const_vals(2);
+                ConstExprValue *err_set_val = &vals[0];
+                ConstExprValue *payload_val = &vals[1];
 
-                return ir_get_ref(ira, source_instr, err_set_val, is_ptr_const, false);
+                err_set_val->special = ConstValSpecialUndef;
+                err_set_val->type = err_set_type;
+                err_set_val->parent.id = ConstParentIdErrUnionCode;
+                err_set_val->parent.data.p_err_union_code.err_union_val = err_union_val;
+
+                payload_val->special = ConstValSpecialUndef;
+                payload_val->type = type_entry->data.error_union.payload_type;
+                payload_val->parent.id = ConstParentIdErrUnionPayload;
+                payload_val->parent.data.p_err_union_payload.err_union_val = err_union_val;
+
+                err_union_val->special = ConstValSpecialStatic;
+                err_union_val->data.x_err_union.error_set = err_set_val;
+                err_union_val->data.x_err_union.payload = payload_val;
             }
+            ir_assert(err_union_val->special != ConstValSpecialRuntime, source_instr);
+
+            IrInstruction *result;
+            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                result = ir_build_unwrap_err_code(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, base_ptr);
+                result->value.type = result_type;
+                result->value.special = ConstValSpecialStatic;
+            } else {
+                result = ir_const(ira, source_instr, result_type);
+            }
+            ConstExprValue *const_val = &result->value;
+            const_val->data.x_ptr.special = ConstPtrSpecialBaseErrorUnionCode;
+            const_val->data.x_ptr.data.base_err_union_code.err_union_val = err_union_val;
+            const_val->data.x_ptr.mut = ptr_val->data.x_ptr.mut;
+            return result;
         }
     }
 
     IrInstruction *result = ir_build_unwrap_err_code(&ira->new_irb,
         source_instr->scope, source_instr->source_node, base_ptr);
-    result->value.type = get_pointer_to_type(ira->codegen, type_entry->data.error_union.err_set_type, is_ptr_const);
+    result->value.type = result_type;
     return result;
 }
 
@@ -22547,6 +22645,23 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
             ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
+            if (err_union_val->special == ConstValSpecialUndef && initializing) {
+                ConstExprValue *vals = create_const_vals(2);
+                ConstExprValue *err_set_val = &vals[0];
+                ConstExprValue *payload_val = &vals[1];
+
+                err_set_val->special = ConstValSpecialStatic;
+                err_set_val->type = type_entry->data.error_union.err_set_type;
+                err_set_val->data.x_err_set = nullptr;
+
+                payload_val->special = ConstValSpecialUndef;
+                payload_val->type = payload_type;
+
+                err_union_val->special = ConstValSpecialStatic;
+                err_union_val->data.x_err_union.error_set = err_set_val;
+                err_union_val->data.x_err_union.payload = payload_val;
+            }
+
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
                 if (err != nullptr) {
@@ -22555,9 +22670,18 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
                     return ira->codegen->invalid_instruction;
                 }
 
-                IrInstruction *result = ir_const(ira, source_instr, result_type);
+                IrInstruction *result;
+                if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+                    result = ir_build_unwrap_err_payload(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, base_ptr, safety_check_on, initializing);
+                    result->value.type = result_type;
+                    result->value.special = ConstValSpecialStatic;
+                } else {
+                    result = ir_const(ira, source_instr, result_type);
+                }
                 result->value.data.x_ptr.special = ConstPtrSpecialRef;
                 result->value.data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
+                result->value.data.x_ptr.mut = ptr_val->data.x_ptr.mut;
                 return result;
             }
         }
@@ -23162,6 +23286,8 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdPromise:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
             zig_unreachable();
         case ZigTypeIdVoid:
             return;
@@ -23265,10 +23391,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             }
         case ZigTypeIdOptional:
             zig_panic("TODO buf_write_value_bytes maybe type");
-        case ZigTypeIdErrorUnion:
-            zig_panic("TODO buf_write_value_bytes error union");
-        case ZigTypeIdErrorSet:
-            zig_panic("TODO buf_write_value_bytes pure error type");
         case ZigTypeIdFn:
             zig_panic("TODO buf_write_value_bytes fn type");
         case ZigTypeIdUnion:
@@ -24502,24 +24624,24 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    bool want_resolve_result = !instruction->result_loc->written;
-    if (want_resolve_result) {
-        IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-                value->value.type, value, false);
-        if (result_loc != nullptr) {
-            if (type_is_invalid(result_loc->value.type))
-                return ira->codegen->invalid_instruction;
-            if (result_loc->value.type->id == ZigTypeIdUnreachable)
-                return result_loc;
+    bool was_written = instruction->result_loc->written;
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+            value->value.type, value, false);
+    if (result_loc != nullptr) {
+        if (type_is_invalid(result_loc->value.type))
+            return ira->codegen->invalid_instruction;
+        if (result_loc->value.type->id == ZigTypeIdUnreachable)
+            return result_loc;
 
-            instruction->result_loc->written = true;
+        if (!was_written) {
             ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
-            if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
-                if (instr_is_comptime(value)) {
-                    result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
-                } else {
-                    result_loc->value.special = ConstValSpecialRuntime;
-                }
+        }
+
+        if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+            if (instr_is_comptime(value)) {
+                result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+            } else {
+                result_loc->value.special = ConstValSpecialRuntime;
             }
         }
     }
