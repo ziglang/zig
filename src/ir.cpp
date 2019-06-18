@@ -15119,8 +15119,11 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
             old_result_loc = reinterpret_cast<ResultLocPeer *>(instruction->result_loc)->parent->parent;
             continue;
         }
-        ir_assert(false, &instruction->base); // TODO
-        zig_unreachable();
+        IrInstruction *result = ir_const(ira, &instruction->base, implicit_elem_type);
+        result->value.special = ConstValSpecialUndef;
+        IrInstruction *ptr = ir_get_ref(ira, &instruction->base, result, false, false);
+        ptr->value.data.x_ptr.mut = ConstPtrMutComptimeVar;
+        return ptr;
     }
 }
 
@@ -19210,6 +19213,15 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             buf_sprintf("expected %s literal, found %s literal",
                 buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
         return ira->codegen->invalid_instruction;
+    }
+
+    switch (type_has_one_possible_value(ira->codegen, container_type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            return ir_const(ira, &instruction->base, container_type);
+        case OnePossibleValueNo:
+            break;
     }
 
     bool is_comptime;
