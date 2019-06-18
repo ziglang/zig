@@ -554,10 +554,10 @@ pub const ChildProcess = struct {
 
                 if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
                     break;
-                } else |err| if (err == error.FileNotFound) {
-                    continue;
-                } else {
-                    return err;
+                } else |err| switch (err) {
+                    error.FileNotFound => { continue; },
+                    error.AccessDenied => { continue; },
+                    else => { return err; },
                 }
             } else {
                 // Every other error would have been returned earlier.
