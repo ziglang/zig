@@ -23195,14 +23195,19 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
             }
         }
 
-        IrInstruction *result = ir_const(ira, source_instr, dest_type);
+        IrInstruction *result;
+        if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
+            result = ir_build_ptr_cast_gen(ira, source_instr, dest_type, ptr, safety_check_on);
+        } else {
+            result = ir_const(ira, source_instr, dest_type);
+        }
         copy_const_val(&result->value, val, true);
         result->value.type = dest_type;
 
         // Keep the bigger alignment, it can only help-
         // unless the target is zero bits.
         if (src_align_bytes > dest_align_bytes && type_has_bits(dest_type)) {
-            result =  ir_align_cast(ira, result, src_align_bytes, false);
+            result = ir_align_cast(ira, result, src_align_bytes, false);
         }
 
         return result;
