@@ -54,3 +54,14 @@ test "comptime slices are disambiguated" {
     expect(sliceSum([_]u8{ 1, 2 }) == 3);
     expect(sliceSum([_]u8{ 3, 4 }) == 7);
 }
+
+test "slice type with custom alignment" {
+    const LazilyResolvedType = struct {
+        anything: i32,
+    };
+    var slice: []align(32) LazilyResolvedType = undefined;
+    var array: [10]LazilyResolvedType align(32) = undefined;
+    slice = &array;
+    slice[1].anything = 42;
+    expect(array[1].anything == 42);
+}
