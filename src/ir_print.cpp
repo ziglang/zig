@@ -1439,6 +1439,22 @@ static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_mul_add(IrPrint *irp, IrInstructionMulAdd *instruction) {
+    fprintf(irp->f, "@mulAdd(");
+    if (instruction->type_value != nullptr) {
+        ir_print_other_instruction(irp, instruction->type_value);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op1);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op2);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->op3);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_var_instruction) {
     ZigVar *var = decl_var_instruction->var;
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
@@ -1904,6 +1920,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSqrt:
             ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
+            break;
+        case IrInstructionIdMulAdd:
+            ir_print_mul_add(irp, (IrInstructionMulAdd *)instruction);
             break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);

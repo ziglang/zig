@@ -807,31 +807,51 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, ZigType *operand_type, AddSu
 }
 
 static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn_id) {
-    assert(type_entry->id == ZigTypeIdFloat);
+    assert(type_entry->id == ZigTypeIdFloat ||
+           type_entry->id == ZigTypeIdVector);
+
+    bool is_vector = (type_entry->id == ZigTypeIdVector);
+    ZigType *float_type = is_vector ? type_entry->data.vector.elem_type : type_entry;
 
     ZigLLVMFnKey key = {};
     key.id = fn_id;
-    key.data.floating.bit_count = (uint32_t)type_entry->data.floating.bit_count;
+    key.data.floating.bit_count = (uint32_t)float_type->data.floating.bit_count;
+    key.data.floating.vector_len = is_vector ? (uint32_t)type_entry->data.vector.len : 0;
 
     auto existing_entry = g->llvm_fn_table.maybe_get(key);
     if (existing_entry)
         return existing_entry->value;
 
     const char *name;
+    uint32_t num_args;
     if (fn_id == ZigLLVMFnIdFloor) {
         name = "floor";
+        num_args = 1;
     } else if (fn_id == ZigLLVMFnIdCeil) {
         name = "ceil";
+        num_args = 1;
     } else if (fn_id == ZigLLVMFnIdSqrt) {
         name = "sqrt";
+        num_args = 1;
+    } else if (fn_id == ZigLLVMFnIdFMA) {
+        name = "fma";
+        num_args = 3;
     } else {
         zig_unreachable();
     }
 
     char fn_name[64];
-    sprintf(fn_name, "llvm.%s.f%" ZIG_PRI_usize "", name, type_entry->data.floating.bit_count);
+    if (is_vector)
+        sprintf(fn_name, "llvm.%s.v%" PRIu32 "f%" PRIu32, name, key.data.floating.vector_len, key.data.floating.bit_count);
+    else
+        sprintf(fn_name, "llvm.%s.f%" PRIu32, name, key.data.floating.bit_count);
     LLVMTypeRef float_type_ref = get_llvm_type(g, type_entry);
-    LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, &float_type_ref, 1, false);
+    LLVMTypeRef return_elem_types[3] = {
+        float_type_ref,
+        float_type_ref,
+        float_type_ref,
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(float_type_ref, return_elem_types, num_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 
@@ -5437,6 +5457,21 @@ static LLVMValueRef ir_render_sqrt(CodeGen *g, IrExecutable *executable, IrInstr
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
+static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrInstructionMulAdd *instruction) {
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
+    LLVMValueRef op3 = ir_llvm_value(g, instruction->op3);
+    assert(instruction->base.value.type->id == ZigTypeIdFloat ||
+           instruction->base.value.type->id == ZigTypeIdVector);
+    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value.type, ZigLLVMFnIdFMA);
+    LLVMValueRef args[3] = {
+        op1,
+        op2,
+        op3,
+    };
+    return LLVMBuildCall(g->builder, fn_val, args, 3, "");
+}
+
 static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
     ZigType *int_type = instruction->base.value.type;
@@ -5781,6 +5816,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_render_sqrt(g, executable, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdMulAdd:
+            return ir_render_mul_add(g, executable, (IrInstructionMulAdd *)instruction);
         case IrInstructionIdArrayToVector:
             return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
         case IrInstructionIdVectorToArray:
@@ -7398,6 +7435,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
     create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 2);
+    create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdNoInlineCall, "noInlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);

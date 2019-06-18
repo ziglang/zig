@@ -747,6 +747,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestErr *) {
     return IrInstructionIdTestErr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMulAdd *) {
+  return IrInstructionIdMulAdd;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapErrCode *) {
     return IrInstructionIdUnwrapErrCode;
 }
@@ -2304,6 +2308,22 @@ static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode
     ir_ref_instruction(op1, irb->current_basic_block);
     ir_ref_instruction(op2, irb->current_basic_block);
     ir_ref_instruction(result_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_mul_add(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value, IrInstruction *op1, IrInstruction *op2, IrInstruction *op3) {
+    IrInstructionMulAdd *instruction = ir_build_instruction<IrInstructionMulAdd>(irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->op1 = op1;
+    instruction->op2 = op2;
+    instruction->op3 = op3;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(op1, irb->current_basic_block);
+    ir_ref_instruction(op2, irb->current_basic_block);
+    ir_ref_instruction(op3, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4028,6 +4048,33 @@ static IrInstruction *ir_gen_overflow_op(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_overflow_op(irb, scope, node, op, type_value, op1, op2, result_ptr, nullptr);
 }
 
+static IrInstruction *ir_gen_mul_add(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *type_node = node->data.fn_call_expr.params.at(0);
+    AstNode *op1_node = node->data.fn_call_expr.params.at(1);
+    AstNode *op2_node = node->data.fn_call_expr.params.at(2);
+    AstNode *op3_node = node->data.fn_call_expr.params.at(3);
+
+    IrInstruction *type_value = ir_gen_node(irb, type_node, scope);
+    if (type_value == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *op1 = ir_gen_node(irb, op1_node, scope);
+    if (op1 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *op2 = ir_gen_node(irb, op2_node, scope);
+    if (op2 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *op3 = ir_gen_node(irb, op3_node, scope);
+    if (op3 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_mul_add(irb, scope, node, type_value, op1, op2, op3);
+}
+
 static IrInstruction *ir_gen_this(IrBuilder *irb, Scope *orig_scope, AstNode *node) {
     for (Scope *it_scope = orig_scope; it_scope != nullptr; it_scope = it_scope->parent) {
         if (it_scope->id == ScopeIdDecls) {
@@ -4687,6 +4734,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpMul), lval);
         case BuiltinFnIdShlWithOverflow:
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpShl), lval);
+        case BuiltinFnIdMulAdd:
+            return ir_lval_wrap(irb, scope, ir_gen_mul_add(irb, scope, node), lval);
         case BuiltinFnIdTypeName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -21185,6 +21234,125 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     return result;
 }
 
+static void ir_eval_mul_add(IrAnalyze *ira, IrInstructionMulAdd *source_instr, ZigType *float_type,
+    ConstExprValue *op1, ConstExprValue *op2, ConstExprValue *op3, ConstExprValue *out_val) {
+    if (float_type->id == ZigTypeIdComptimeFloat) {
+        f128M_mulAdd(&out_val->data.x_bigfloat.value, &op1->data.x_bigfloat.value, &op2->data.x_bigfloat.value,
+            &op3->data.x_bigfloat.value);
+    } else if (float_type->id == ZigTypeIdFloat) {
+        switch (float_type->data.floating.bit_count) {
+            case 16:
+                out_val->data.x_f16 = f16_mulAdd(op1->data.x_f16, op2->data.x_f16, op3->data.x_f16);
+                break;
+            case 32:
+                out_val->data.x_f32 = fmaf(op1->data.x_f32, op2->data.x_f32, op3->data.x_f32);
+                break;
+            case 64:
+                out_val->data.x_f64 = fma(op1->data.x_f64, op2->data.x_f64, op3->data.x_f64);
+                break;
+            case 128:
+                f128M_mulAdd(&op1->data.x_f128, &op2->data.x_f128, &op3->data.x_f128, &out_val->data.x_f128);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static IrInstruction *ir_analyze_instruction_mul_add(IrAnalyze *ira, IrInstructionMulAdd *instruction) {
+    IrInstruction *type_value = instruction->type_value->child;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->invalid_instruction;
+    
+    ZigType *expr_type = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(expr_type))
+        return ira->codegen->invalid_instruction;
+    
+    // Only allow float types, and vectors of floats.
+    ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
+    if (float_type->id != ZigTypeIdFloat) {
+        ir_add_error(ira, type_value,
+            buf_sprintf("expected float or vector of float type, found '%s'", buf_ptr(&float_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *op1 = instruction->op1->child;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, expr_type);
+    if (type_is_invalid(casted_op1->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *op2 = instruction->op2->child;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, expr_type);
+    if (type_is_invalid(casted_op2->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *op3 = instruction->op3->child;
+    if (type_is_invalid(op3->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_op3 = ir_implicit_cast(ira, op3, expr_type);
+    if (type_is_invalid(casted_op3->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (instr_is_comptime(casted_op1) &&
+        instr_is_comptime(casted_op2) &&
+        instr_is_comptime(casted_op3)) {
+        ConstExprValue *op1_const = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (!op1_const)
+            return ira->codegen->invalid_instruction;
+        ConstExprValue *op2_const = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (!op2_const)
+            return ira->codegen->invalid_instruction;
+        ConstExprValue *op3_const = ir_resolve_const(ira, casted_op3, UndefBad);
+        if (!op3_const)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_const(ira, &instruction->base, expr_type);
+        ConstExprValue *out_val = &result->value;
+
+        if (expr_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, op1_const);
+            expand_undef_array(ira->codegen, op2_const);
+            expand_undef_array(ira->codegen, op3_const);
+            out_val->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, out_val);
+            size_t len = expr_type->data.vector.len;
+            for (size_t i = 0; i < len; i += 1) {
+                ConstExprValue *float_operand_op1 = &op1_const->data.x_array.data.s_none.elements[i];
+                ConstExprValue *float_operand_op2 = &op2_const->data.x_array.data.s_none.elements[i];
+                ConstExprValue *float_operand_op3 = &op3_const->data.x_array.data.s_none.elements[i];
+                ConstExprValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
+                assert(float_operand_op1->type == float_type);
+                assert(float_operand_op2->type == float_type);
+                assert(float_operand_op3->type == float_type);
+                assert(float_out_val->type == float_type);
+                ir_eval_mul_add(ira, instruction, float_type,
+                        op1_const, op2_const, op3_const, float_out_val);
+                float_out_val->type = float_type;
+            }
+            out_val->type = expr_type;
+            out_val->special = ConstValSpecialStatic;
+        } else {
+            ir_eval_mul_add(ira, instruction, float_type, op1_const, op2_const, op3_const, out_val);
+        }
+        return result;
+    }
+
+    IrInstruction *result = ir_build_mul_add(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node,
+            type_value, casted_op1, casted_op2, casted_op3);
+    result->value.type = expr_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstructionTestErr *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -23596,6 +23764,8 @@ static IrInstruction *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructio
             return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdSqrt:
             return ir_analyze_instruction_sqrt(ira, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdMulAdd:
+            return ir_analyze_instruction_mul_add(ira, (IrInstructionMulAdd *)instruction);
         case IrInstructionIdIntToErr:
             return ir_analyze_instruction_int_to_err(ira, (IrInstructionIntToErr *)instruction);
         case IrInstructionIdErrToInt:
@@ -23835,6 +24005,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroPromise:
         case IrInstructionIdPromiseResultType:
         case IrInstructionIdSqrt:
+        case IrInstructionIdMulAdd:
         case IrInstructionIdAtomicLoad:
         case IrInstructionIdIntCast:
         case IrInstructionIdFloatCast:

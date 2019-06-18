@@ -6260,6 +6260,13 @@ comptime {
       </p>
 
       {#header_close#}
+      {#header_open|@mulAdd#}
+      <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
+      <p>
+      Fused multiply add (for floats), similar to {#syntax#}(a * b) + c{#endsyntax#}, except
+      only rounds once, and is thus more accurate.
+      </p>
+      {#header_close#}
 
       {#header_open|@byteSwap#}
       <pre>{#syntax#}@byteSwap(comptime T: type, integer: T) T{#endsyntax#}</pre>

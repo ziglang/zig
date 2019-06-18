@@ -1406,6 +1406,7 @@ enum BuiltinFnId {
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
     BuiltinFnIdShlWithOverflow,
+    BuiltinFnIdMulAdd,
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
@@ -1554,6 +1555,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdClz,
     ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
+    ZigLLVMFnIdFMA,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
     ZigLLVMFnIdSqrt,
@@ -1584,6 +1586,7 @@ struct ZigLLVMFnKey {
         } pop_count;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } floating;
         struct {
             AddSubMul add_sub_mul;
@@ -2235,6 +2238,7 @@ enum IrInstructionId {
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
+    IrInstructionIdMulAdd,
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
@@ -3036,6 +3040,15 @@ struct IrInstructionOverflowOp {
     IrInstruction *result_ptr;
 
     ZigType *result_ptr_type;
+};
+
+struct IrInstructionMulAdd {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *op1;
+    IrInstruction *op2;
+    IrInstruction *op3;
 };
 
 struct IrInstructionAlignOf {
