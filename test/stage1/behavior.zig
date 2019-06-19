@@ -45,7 +45,7 @@ comptime {
     //_ = @import("behavior/coroutine_await_struct.zig");
     //_ = @import("behavior/coroutines.zig");
     _ = @import("behavior/defer.zig");
-    _ = @import("behavior/enum.zig"); // TODO
+    _ = @import("behavior/enum.zig");
     _ = @import("behavior/enum_with_members.zig");
     _ = @import("behavior/error.zig"); // TODO
     _ = @import("behavior/eval.zig");

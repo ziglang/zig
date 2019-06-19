@@ -3853,6 +3853,9 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionUnionFieldPtr *instruction)
 {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return nullptr;
+
     ZigType *union_ptr_type = instruction->union_ptr->value.type;
     assert(union_ptr_type->id == ZigTypeIdPointer);
     ZigType *union_type = union_ptr_type->data.pointer.child_type;
@@ -4077,6 +4080,9 @@ static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *executable,
         IrInstructionOptionalUnwrapPtr *instruction)
 {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return nullptr;
+
     ZigType *ptr_type = instruction->base_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *maybe_type = ptr_type->data.pointer.child_type;
@@ -5750,7 +5756,6 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     assert(executable->basic_block_list.length > 0);
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
-        //assert(current_block->ref_count > 0);
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
