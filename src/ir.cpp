@@ -1826,7 +1826,7 @@ static IrInstruction *ir_build_optional_wrap(IrAnalyze *ira, IrInstruction *sour
     instruction->result_loc = result_loc;
 
     ir_ref_instruction(operand, ira->new_irb.current_basic_block);
-    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -11277,10 +11277,15 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
         return &const_instruction->base;
     }
 
-    if (result_loc == nullptr) result_loc = no_result_loc();
-    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true);
-    if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
-        return result_loc_inst;
+    if (result_loc == nullptr && handle_is_ptr(wanted_type)) {
+        result_loc = no_result_loc();
+    }
+    IrInstruction *result_loc_inst = nullptr;
+    if (result_loc != nullptr) {
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true);
+        if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
+            return result_loc_inst;
+        }
     }
     IrInstruction *result = ir_build_optional_wrap(ira, source_instr, wanted_type, value, result_loc_inst);
     result->value.data.rh_maybe = RuntimeHintOptionalNonNull;

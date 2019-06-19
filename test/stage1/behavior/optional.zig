@@ -2,11 +2,11 @@ const expect = @import("std").testing.expect;
 
 pub const EmptyStruct = struct {};
 
-//test "optional pointer to size zero struct" {
-//    var e = EmptyStruct{};
-//    var o: ?*EmptyStruct = &e;
-//    expect(o != null);
-//}
+test "optional pointer to size zero struct" {
+    var e = EmptyStruct{};
+    var o: ?*EmptyStruct = &e;
+    expect(o != null);
+}
 
 test "equality compare nullable pointers" {
     testNullPtrsEql();

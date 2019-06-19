@@ -4983,7 +4983,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     }
 }
 
-static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, IrInstructionOptionalWrap *instruction) {
+static LLVMValueRef ir_render_optional_wrap(CodeGen *g, IrExecutable *executable, IrInstructionOptionalWrap *instruction) {
     ZigType *wanted_type = instruction->base.value.type;
 
     assert(wanted_type->id == ZigTypeIdOptional);
@@ -4991,11 +4991,20 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     ZigType *child_type = wanted_type->data.maybe.child_type;
 
     if (!type_has_bits(child_type)) {
-        return LLVMConstInt(LLVMInt1Type(), 1, false);
+        LLVMValueRef result = LLVMConstAllOnes(LLVMInt1Type());
+        if (instruction->result_loc != nullptr) {
+            LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
+            gen_store_untyped(g, result, result_loc, 0, false);
+        }
+        return result;
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->operand);
     if (!handle_is_ptr(wanted_type)) {
+        if (instruction->result_loc != nullptr) {
+            LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
+            gen_store_untyped(g, payload_val, result_loc, 0, false);
+        }
         return payload_val;
     }
 
@@ -5666,7 +5675,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdUnwrapErrPayload:
             return ir_render_unwrap_err_payload(g, executable, (IrInstructionUnwrapErrPayload *)instruction);
         case IrInstructionIdOptionalWrap:
-            return ir_render_maybe_wrap(g, executable, (IrInstructionOptionalWrap *)instruction);
+            return ir_render_optional_wrap(g, executable, (IrInstructionOptionalWrap *)instruction);
         case IrInstructionIdErrWrapCode:
             return ir_render_err_wrap_code(g, executable, (IrInstructionErrWrapCode *)instruction);
         case IrInstructionIdErrWrapPayload:

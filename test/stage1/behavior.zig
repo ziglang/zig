@@ -66,10 +66,10 @@ comptime {
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");
-    _ = @import("behavior/optional.zig"); // TODO
+    _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
-    _ = @import("behavior/ptrcast.zig"); // TODO
+    _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
