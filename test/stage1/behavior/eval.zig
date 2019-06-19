@@ -583,14 +583,14 @@ pub const Info = struct {
 
 pub const diamond_info = Info{ .version = 0 };
 
-//test "comptime modification of const struct field" {
-//    comptime {
-//        var res = diamond_info;
-//        res.version = 1;
-//        expect(diamond_info.version == 0);
-//        expect(res.version == 1);
-//    }
-//}
+test "comptime modification of const struct field" {
+    comptime {
+        var res = diamond_info;
+        res.version = 1;
+        expect(diamond_info.version == 0);
+        expect(res.version == 1);
+    }
+}
 
 test "pointer to type" {
     comptime {

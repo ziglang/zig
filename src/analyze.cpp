@@ -4711,7 +4711,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     auto entry = g->string_literals_table.maybe_get(str);
     if (entry != nullptr) {
-        *const_val = *entry->value;
+        memcpy(const_val, entry->value, sizeof(ConstExprValue));
         return;
     }
 

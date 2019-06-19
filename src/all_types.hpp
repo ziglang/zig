@@ -334,6 +334,9 @@ struct ConstExprValue {
         RuntimeHintPtr rh_ptr;
         RuntimeHintSlice rh_slice;
     } data;
+
+    ConstExprValue(const ConstExprValue &other) = delete; // plz zero initialize with {}
+    ConstExprValue& operator= (const ConstExprValue &other) = delete; // use copy_const_val
 };
 
 enum ReturnKnowledge {

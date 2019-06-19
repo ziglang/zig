@@ -6676,7 +6676,7 @@ static void do_code_gen(CodeGen *g) {
                 zig_panic("TODO debug info for var with ptr casted value");
             }
             ZigType *var_type = g->builtin_types.entry_f128;
-            ConstExprValue coerced_value;
+            ConstExprValue coerced_value = {};
             coerced_value.special = ConstValSpecialStatic;
             coerced_value.type = var_type;
             coerced_value.data.x_f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);

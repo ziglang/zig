@@ -10624,13 +10624,16 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
 static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_global_refs) {
     ConstGlobalRefs *global_refs = dest->global_refs;
-    assert(!same_global_refs || src->global_refs != nullptr);
-    *dest = *src;
+    memcpy(dest, src, sizeof(ConstExprValue));
     if (!same_global_refs) {
         dest->global_refs = global_refs;
+        if (src->special == ConstValSpecialUndef)
+            return;
         if (dest->type->id == ZigTypeIdStruct) {
-            dest->data.x_struct.fields = allocate_nonzero<ConstExprValue>(dest->type->data.structure.src_field_count);
-            memcpy(dest->data.x_struct.fields, src->data.x_struct.fields, sizeof(ConstExprValue) * dest->type->data.structure.src_field_count);
+            dest->data.x_struct.fields = create_const_vals(dest->type->data.structure.src_field_count);
+            for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
+                copy_const_val(&dest->data.x_struct.fields[i], &src->data.x_struct.fields[i], false);
+            }
         }
     }
 }
@@ -13579,7 +13582,7 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, IrInstruction *source_in
                 }
             } else {
                 float_div_trunc(out_val, op1_val, op2_val);
-                ConstExprValue remainder;
+                ConstExprValue remainder = {};
                 float_rem(&remainder, op1_val, op2_val);
                 if (float_cmp_zero(&remainder) != CmpEQ) {
                     return ir_add_error(ira, source_instr, buf_sprintf("exact division had a remainder"));
@@ -13954,8 +13957,8 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
                         // have a remainder function ambiguity problem
                         ok = true;
                     } else {
-                        ConstExprValue rem_result;
-                        ConstExprValue mod_result;
+                        ConstExprValue rem_result = {};
+                        ConstExprValue mod_result = {};
                         float_rem(&rem_result, op1_val, op2_val);
                         float_mod(&mod_result, op1_val, op2_val);
                         ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
@@ -14178,10 +14181,12 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
 
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
-        out_array_val->data.x_array.data.s_none.elements[next_index] = op1_array_val->data.x_array.data.s_none.elements[i];
+        copy_const_val(&out_array_val->data.x_array.data.s_none.elements[next_index],
+                &op1_array_val->data.x_array.data.s_none.elements[i], true);
     }
     for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
-        out_array_val->data.x_array.data.s_none.elements[next_index] = op2_array_val->data.x_array.data.s_none.elements[i];
+        copy_const_val(&out_array_val->data.x_array.data.s_none.elements[next_index],
+                &op2_array_val->data.x_array.data.s_none.elements[i], true);
     }
     if (next_index < new_len) {
         ConstExprValue *null_byte = &out_array_val->data.x_array.data.s_none.elements[next_index];
@@ -14242,7 +14247,8 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
     uint64_t i = 0;
     for (uint64_t x = 0; x < mult_amt; x += 1) {
         for (uint64_t y = 0; y < old_array_len; y += 1) {
-            out_val->data.x_array.data.s_none.elements[i] = array_val->data.x_array.data.s_none.elements[y];
+            copy_const_val(&out_val->data.x_array.data.s_none.elements[i],
+                &array_val->data.x_array.data.s_none.elements[y], true);
             i += 1;
         }
     }
@@ -14382,7 +14388,12 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     if (instr_is_comptime(var_ptr) && var_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
         init_val = const_ptr_pointee(ira, ira->codegen, &var_ptr->value, decl_var_instruction->base.source_node);
         if (is_comptime_var) {
-            var->const_value = init_val;
+            if (var->gen_is_const) {
+                var->const_value = init_val;
+            } else {
+                var->const_value = create_const_vals(1);
+                copy_const_val(var->const_value, init_val, false);
+            }
         }
     }
 
@@ -15291,7 +15302,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         arg_val = create_const_runtime(casted_arg->value.type);
     }
     if (arg_part_of_generic_id) {
-        generic_id->params[generic_id->param_count] = *arg_val;
+        copy_const_val(&generic_id->params[generic_id->param_count], arg_val, true);
         generic_id->param_count += 1;
     }
 
@@ -15476,7 +15487,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                     // * "string literal used as comptime slice is memoized"
                     // * "comptime modification of const struct field" - except modified to avoid
                     //   ConstPtrMutComptimeVar, thus defeating the logic below.
-                    bool same_global_refs = ptr->value.data.x_ptr.mut != ConstPtrMutComptimeVar;
+                    bool same_global_refs = ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst;
                     copy_const_val(dest_val, &value->value, same_global_refs);
                     if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
                         ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
@@ -15877,7 +15888,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec, nullptr);
             IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                     impl_fn->child_scope, fn_proto_node->data.fn_proto.align_expr);
-            const_instruction->base.value = *align_result;
+            copy_const_val(&const_instruction->base.value, align_result, true);
 
             uint32_t align_bytes = 0;
             ir_resolve_align(ira, &const_instruction->base, &align_bytes);
@@ -21667,7 +21678,7 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
 
         ConstExprValue *byte_val = &casted_byte->value;
         for (size_t i = start; i < end; i += 1) {
-            dest_elements[i] = *byte_val;
+            copy_const_val(&dest_elements[i], byte_val, true);
         }
 
         return ir_const_void(ira, &instruction->base);
@@ -21835,7 +21846,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
         // TODO check for noalias violations - this should be generalized to work for any function
 
         for (size_t i = 0; i < count; i += 1) {
-            dest_elements[dest_start + i] = src_elements[src_start + i];
+            copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i], true);
         }
 
         return ir_const_void(ira, &instruction->base);
