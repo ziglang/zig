@@ -249,48 +249,48 @@ fn intLiteral(str: []const u8) !?i64 {
     return error.T;
 }
 
-//test "nested error union function call in optional unwrap" {
-//    const S = struct {
-//        const Foo = struct {
-//            a: i32,
-//        };
-//
-//        fn errorable() !i32 {
-//            var x: Foo = (try getFoo()) orelse return error.Other;
-//            return x.a;
-//        }
-//
-//        fn errorable2() !i32 {
-//            var x: Foo = (try getFoo2()) orelse return error.Other;
-//            return x.a;
-//        }
-//
-//        fn errorable3() !i32 {
-//            var x: Foo = (try getFoo3()) orelse return error.Other;
-//            return x.a;
-//        }
-//
-//        fn getFoo() anyerror!?Foo {
-//            return Foo{ .a = 1234 };
-//        }
-//
-//        fn getFoo2() anyerror!?Foo {
-//            return error.Failure;
-//        }
-//
-//        fn getFoo3() anyerror!?Foo {
-//            return null;
-//        }
-//    };
-//    expect((try S.errorable()) == 1234);
-//    expectError(error.Failure, S.errorable2());
-//    expectError(error.Other, S.errorable3());
-//    comptime {
-//        expect((try S.errorable()) == 1234);
-//        expectError(error.Failure, S.errorable2());
-//        expectError(error.Other, S.errorable3());
-//    }
-//}
+test "nested error union function call in optional unwrap" {
+    const S = struct {
+        const Foo = struct {
+            a: i32,
+        };
+
+        fn errorable() !i32 {
+            var x: Foo = (try getFoo()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn errorable2() !i32 {
+            var x: Foo = (try getFoo2()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn errorable3() !i32 {
+            var x: Foo = (try getFoo3()) orelse return error.Other;
+            return x.a;
+        }
+
+        fn getFoo() anyerror!?Foo {
+            return Foo{ .a = 1234 };
+        }
+
+        fn getFoo2() anyerror!?Foo {
+            return error.Failure;
+        }
+
+        fn getFoo3() anyerror!?Foo {
+            return null;
+        }
+    };
+    expect((try S.errorable()) == 1234);
+    expectError(error.Failure, S.errorable2());
+    expectError(error.Other, S.errorable3());
+    comptime {
+        expect((try S.errorable()) == 1234);
+        expectError(error.Failure, S.errorable2());
+        expectError(error.Other, S.errorable3());
+    }
+}
 
 test "widen cast integer payload of error union function call" {
     const S = struct {

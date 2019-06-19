@@ -3657,10 +3657,17 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
                     IrInstruction *err_val_ptr = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
                     IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
+
+                    ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
+                    result_loc_ret->base.id = ResultLocIdReturn;
+                    ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
+                    ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
+
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
                     }
-                    ir_gen_async_return(irb, scope, node, err_val, false);
+                    IrInstruction *ret_inst = ir_gen_async_return(irb, scope, node, err_val, false);
+                    result_loc_ret->base.source_instruction = ret_inst;
                 }
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
