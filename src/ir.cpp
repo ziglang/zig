@@ -8647,7 +8647,7 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
                 return &codegen->invalid_instruction->value;
             }
             return &value->value;
-        } else if (ir_has_side_effects(instruction)) {
+        } else if (ir_has_side_effects(instruction) && !instr_is_comptime(instruction)) {
             exec_add_error_node(codegen, exec, instruction->source_node,
                     buf_sprintf("unable to evaluate constant expression"));
             return &codegen->invalid_instruction->value;

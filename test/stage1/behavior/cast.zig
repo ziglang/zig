@@ -165,10 +165,10 @@ fn castToOptionalSlice() ?[]const u8 {
     return "hi";
 }
 
-//test "implicitly cast from [0]T to anyerror![]T" {
-//    testCastZeroArrayToErrSliceMut();
-//    comptime testCastZeroArrayToErrSliceMut();
-//}
+test "implicitly cast from [0]T to anyerror![]T" {
+    testCastZeroArrayToErrSliceMut();
+    comptime testCastZeroArrayToErrSliceMut();
+}
 
 fn testCastZeroArrayToErrSliceMut() void {
     expect((gimmeErrOrSlice() catch unreachable).len == 0);
@@ -178,20 +178,20 @@ fn gimmeErrOrSlice() anyerror![]u8 {
     return [_]u8{};
 }
 
-//test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
-//    {
-//        var data = "hi";
-//        const slice = data[0..];
-//        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-//        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
-//    }
-//    comptime {
-//        var data = "hi";
-//        const slice = data[0..];
-//        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-//        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
-//    }
-//}
+test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
+    {
+        var data = "hi";
+        const slice = data[0..];
+        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+    comptime {
+        var data = "hi";
+        const slice = data[0..];
+        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+}
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
         return [_]u8{};
