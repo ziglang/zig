@@ -130,10 +130,10 @@ fn testExplicitErrorSetCast(set1: Set1) void {
     expect(y == error.A);
 }
 
-//test "comptime test error for empty error set" {
-//    testComptimeTestErrorEmptySet(1234);
-//    comptime testComptimeTestErrorEmptySet(1234);
-//}
+test "comptime test error for empty error set" {
+    testComptimeTestErrorEmptySet(1234);
+    comptime testComptimeTestErrorEmptySet(1234);
+}
 
 const EmptyErrorSet = error{};
 
@@ -204,10 +204,10 @@ fn foo2(f: fn () anyerror!void) void {
 
 fn bar2() (error{}!void) {}
 
-//test "error: Zero sized error set returned with value payload crash" {
-//    _ = foo3(0) catch {};
-//    _ = comptime foo3(0) catch {};
-//}
+test "error: Zero sized error set returned with value payload crash" {
+    _ = foo3(0) catch {};
+    _ = comptime foo3(0) catch {};
+}
 
 const Error = error{};
 fn foo3(b: usize) Error!usize {

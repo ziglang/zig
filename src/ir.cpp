@@ -2446,10 +2446,11 @@ static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *s
 }
 
 static IrInstruction *ir_build_test_err_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *base_ptr)
+    IrInstruction *base_ptr, bool resolve_err_set)
 {
     IrInstructionTestErrSrc *instruction = ir_build_instruction<IrInstructionTestErrSrc>(irb, scope, source_node);
     instruction->base_ptr = base_ptr;
+    instruction->resolve_err_set = resolve_err_set;
 
     ir_ref_instruction(base_ptr, irb->current_basic_block);
 
@@ -3593,7 +3594,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
 
                     IrInstruction *ret_ptr = ir_build_result_ptr(irb, scope, node, &result_loc_ret->base,
                             return_value);
-                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, ret_ptr);
+                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, ret_ptr, false);
 
                     bool should_inline = ir_should_inline(irb->exec, scope);
                     IrInstruction *is_comptime;
@@ -3639,7 +3640,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
                 if (err_union_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
-                IrInstruction *is_err_val = ir_build_test_err_src(irb, scope, node, err_union_ptr);
+                IrInstruction *is_err_val = ir_build_test_err_src(irb, scope, node, err_union_ptr, true);
 
                 IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "ErrRetReturn");
                 IrBasicBlock *continue_block = ir_create_basic_block(irb, scope, "ErrRetContinue");
@@ -5987,7 +5988,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 LValPtr, nullptr);
         if (err_val_ptr == irb->codegen->invalid_instruction)
             return err_val_ptr;
-        IrInstruction *is_err = ir_build_test_err_src(irb, scope, node->data.while_expr.condition, err_val_ptr);
+        IrInstruction *is_err = ir_build_test_err_src(irb, scope, node->data.while_expr.condition, err_val_ptr, true);
         IrBasicBlock *after_cond_block = irb->current_basic_block;
         IrInstruction *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, scope, node));
         IrInstruction *cond_br_inst;
@@ -6771,7 +6772,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         return err_val_ptr;
 
     IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
-    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, err_val_ptr);
+    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, err_val_ptr, true);
 
     IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "TryOk");
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "TryElse");
@@ -7381,7 +7382,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *is_err = ir_build_test_err_src(irb, parent_scope, node, err_union_ptr);
+    IrInstruction *is_err = ir_build_test_err_src(irb, parent_scope, node, err_union_ptr, true);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb->exec, parent_scope)) {
@@ -22509,6 +22510,19 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.error_set->data.x_err_set;
                 return ir_const_bool(ira, &instruction->base, (err != nullptr));
+            }
+        }
+
+        if (instruction->resolve_err_set) {
+            ZigType *err_set_type = type_entry->data.error_union.err_set_type;
+            if (!resolve_inferred_error_set(ira->codegen, err_set_type, instruction->base.source_node)) {
+                return ira->codegen->invalid_instruction;
+            }
+            if (!type_is_global_error_set(err_set_type) &&
+                err_set_type->data.error_set.err_count == 0)
+            {
+                assert(err_set_type->data.error_set.infer_fn == nullptr);
+                return ir_const_bool(ira, &instruction->base, false);
             }
         }
 

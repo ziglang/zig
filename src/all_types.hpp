@@ -3085,6 +3085,7 @@ struct IrInstructionAlignOf {
 struct IrInstructionTestErrSrc {
     IrInstruction base;
 
+    bool resolve_err_set;
     IrInstruction *base_ptr;
 };
 

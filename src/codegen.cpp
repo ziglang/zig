@@ -4913,6 +4913,9 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
 static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrCode *instruction)
 {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return nullptr;
+
     ZigType *ptr_type = instruction->err_union_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *err_union_type = ptr_type->data.pointer.child_type;
@@ -4930,6 +4933,9 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrPayload *instruction)
 {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return nullptr;
+
     bool want_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base) &&
         g->errors_by_index.length > 1;
     if (!want_safety && !type_has_bits(instruction->base.value.type))
