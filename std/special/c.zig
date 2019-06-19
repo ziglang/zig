@@ -266,7 +266,12 @@ export fn floor(x: f64) f64 {
 export fn ceil(x: f64) f64 {
     return math.ceil(x);
 }
-
+export fn fma(a: f64, b: f64, c: f64) f64 {
+    return math.fma(f64, a, b, c);
+}
+export fn fmaf(a: f32, b: f32, c: f32) f32 {
+    return math.fma(f32, a, b, c);
+}
 fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
