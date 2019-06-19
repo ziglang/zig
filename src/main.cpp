@@ -467,6 +467,7 @@ int main(int argc, char **argv) {
         init_all_targets();
 
         ZigList<const char *> args = {0};
+        args.append(NULL); // placeholder
         args.append(zig_exe_path);
         args.append(NULL); // placeholder
         args.append(NULL); // placeholder
@@ -525,8 +526,8 @@ int main(int argc, char **argv) {
         g->enable_time_report = timing_info;
         codegen_set_out_name(g, buf_create_from_str("build"));
 
-        args.items[1] = buf_ptr(&build_file_dirname);
-        args.items[2] = buf_ptr(&full_cache_dir);
+        args.items[2] = buf_ptr(&build_file_dirname);
+        args.items[3] = buf_ptr(&full_cache_dir);
 
         bool build_file_exists;
         if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
@@ -580,12 +581,14 @@ int main(int argc, char **argv) {
         codegen_build_and_link(g);
 
         Termination term;
-        os_spawn_process(buf_ptr(&g->output_file_path), args, &term);
+        args.items[0] = buf_ptr(&g->output_file_path);
+        os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nBuild failed. The following command failed:\n");
-            fprintf(stderr, "%s", buf_ptr(&g->output_file_path));
+            const char *prefix = "";
             for (size_t i = 0; i < args.length; i += 1) {
-                fprintf(stderr, " %s", args.at(i));
+                fprintf(stderr, "%s%s", prefix, args.at(i));
+                prefix = " ";
             }
             fprintf(stderr, "\n");
         }
@@ -1161,7 +1164,7 @@ int main(int argc, char **argv) {
 
                     args.pop();
                     Termination term;
-                    os_spawn_process(exec_path, args, &term);
+                    os_spawn_process(args, &term);
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
@@ -1213,17 +1216,10 @@ int main(int argc, char **argv) {
                 }
 
                 Termination term;
-                if (test_exec_args.length > 0) {
-                    ZigList<const char *> rest_args = {0};
-                    for (size_t i = 1; i < test_exec_args.length; i += 1) {
-                        rest_args.append(test_exec_args.at(i));
-                    }
-                    os_spawn_process(test_exec_args.items[0], rest_args, &term);
-                } else {
-                    ZigList<const char *> no_args = {0};
-                    os_spawn_process(buf_ptr(test_exe_path), no_args, &term);
+                if (test_exec_args.length == 0) {
+                    test_exec_args.append(buf_ptr(test_exe_path));
                 }
-
+                os_spawn_process(test_exec_args, &term);
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));

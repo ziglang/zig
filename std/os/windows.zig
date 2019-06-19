@@ -632,6 +632,7 @@ pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) G
 
 pub const CreateProcessError = error{
     FileNotFound,
+    AccessDenied,
     InvalidName,
     Unexpected,
 };
@@ -663,6 +664,7 @@ pub fn CreateProcessW(
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
             ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            ERROR.ACCESS_DENIED => return error.AccessDenied,
             ERROR.INVALID_PARAMETER => unreachable,
             ERROR.INVALID_NAME => return error.InvalidName,
             else => |err| return unexpectedError(err),

@@ -18046,7 +18046,9 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdPromise:
         case ZigTypeIdVector:
             {
-                if ((err = type_resolve(ira->codegen, child_type, ResolveStatusZeroBitsKnown)))
+                ResolveStatus needed_status = (align_bytes == 0) ?
+                    ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
+                if ((err = type_resolve(ira->codegen, child_type, needed_status)))
                     return ira->codegen->invalid_instruction;
                 ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
                         is_const, is_volatile, PtrLenUnknown, align_bytes, 0, 0, is_allow_zero);
@@ -19901,10 +19903,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         true, false, PtrLenUnknown,
                         0, 0, 0, false);
                     fn_decl_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
-                    if (fn_node->is_extern && buf_len(fn_node->lib_name) > 0) {
+                    if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
                         fn_decl_fields[6].data.x_optional = create_const_vals(1);
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
-                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0, buf_len(fn_node->lib_name), true);
+                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0,
+                                buf_len(fn_node->lib_name), true);
                     } else {
                         fn_decl_fields[6].data.x_optional = nullptr;
                     }

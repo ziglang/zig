@@ -1721,10 +1721,11 @@ void codegen_link(CodeGen *g) {
     if (g->system_linker_hack && g->zig_target->os == OsMacOSX) {
         Termination term;
         ZigList<const char *> args = {};
+        args.append("ld");
         for (size_t i = 1; i < lj.args.length; i += 1) {
             args.append(lj.args.at(i));
         }
-        os_spawn_process("ld", args, &term);
+        os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             exit(1);
         }

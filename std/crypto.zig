@@ -13,6 +13,8 @@ pub const Sha3_256 = sha3.Sha3_256;
 pub const Sha3_384 = sha3.Sha3_384;
 pub const Sha3_512 = sha3.Sha3_512;
 
+pub const gimli = @import("crypto/gimli.zig");
+
 const blake2 = @import("crypto/blake2.zig");
 pub const Blake2s224 = blake2.Blake2s224;
 pub const Blake2s256 = blake2.Blake2s256;
@@ -38,6 +40,7 @@ pub const randomBytes = std.os.getrandom;
 test "crypto" {
     _ = @import("crypto/blake2.zig");
     _ = @import("crypto/chacha20.zig");
+    _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");
     _ = @import("crypto/md5.zig");
     _ = @import("crypto/poly1305.zig");

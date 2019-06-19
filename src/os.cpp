@@ -105,16 +105,15 @@ static void populate_termination(Termination *term, int status) {
     }
 }
 
-static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, Termination *term) {
-    const char **argv = allocate<const char *>(args.length + 2);
-    argv[0] = exe;
-    argv[args.length + 1] = nullptr;
+static void os_spawn_process_posix(ZigList<const char *> &args, Termination *term) {
+    const char **argv = allocate<const char *>(args.length + 1);
     for (size_t i = 0; i < args.length; i += 1) {
-        argv[i + 1] = args.at(i);
+        argv[i] = args.at(i);
     }
+    argv[args.length] = nullptr;
 
     pid_t pid;
-    int rc = posix_spawnp(&pid, exe, nullptr, nullptr, const_cast<char *const*>(argv), environ);
+    int rc = posix_spawnp(&pid, args.at(0), nullptr, nullptr, const_cast<char *const*>(argv), environ);
     if (rc != 0) {
         zig_panic("posix_spawn failed: %s", strerror(rc));
     }
@@ -126,16 +125,14 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static void os_windows_create_command_line(Buf *command_line, const char *exe, ZigList<const char *> &args) {
+
+static void os_windows_create_command_line(Buf *command_line, ZigList<const char *> &args) {
     buf_resize(command_line, 0);
-
-    buf_append_char(command_line, '\"');
-    buf_append_str(command_line, exe);
-    buf_append_char(command_line, '\"');
-
+    char *prefix = "\"";
     for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
-        buf_append_str(command_line, " \"");
         const char *arg = args.at(arg_i);
+        buf_append_str(command_line, prefix);
+        prefix = " \"";
         size_t arg_len = strlen(arg);
         for (size_t c_i = 0; c_i < arg_len; c_i += 1) {
             if (arg[c_i] == '\"') {
@@ -147,14 +144,15 @@ static void os_windows_create_command_line(Buf *command_line, const char *exe, Z
     }
 }
 
-static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, Termination *term) {
+static void os_spawn_process_windows(ZigList<const char *> &args, Termination *term) {
     Buf command_line = BUF_INIT;
-    os_windows_create_command_line(&command_line, exe, args);
+    os_windows_create_command_line(&command_line, args);
 
     PROCESS_INFORMATION piProcInfo = {0};
     STARTUPINFO siStartInfo = {0};
     siStartInfo.cb = sizeof(STARTUPINFO);
 
+    const char *exe = args.at(0);
     BOOL success = CreateProcessA(exe, buf_ptr(&command_line), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
             &siStartInfo, &piProcInfo);
 
@@ -173,11 +171,11 @@ static void os_spawn_process_windows(const char *exe, ZigList<const char *> &arg
 }
 #endif
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term) {
+void os_spawn_process(ZigList<const char *> &args, Termination *term) {
 #if defined(ZIG_OS_WINDOWS)
-    os_spawn_process_windows(exe, args, term);
+    os_spawn_process_windows(args, term);
 #elif defined(ZIG_OS_POSIX)
-    os_spawn_process_posix(exe, args, term);
+    os_spawn_process_posix(args, term);
 #else
 #error "missing os_spawn_process implementation"
 #endif
@@ -785,7 +783,7 @@ Error os_file_exists(Buf *full_path, bool *result) {
 }
 
 #if defined(ZIG_OS_POSIX)
-static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
+static Error os_exec_process_posix(ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     int stdin_pipe[2];
@@ -817,13 +815,12 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         if (dup2(stderr_pipe[1], STDERR_FILENO) == -1)
             zig_panic("dup2 failed");
 
-        const char **argv = allocate<const char *>(args.length + 2);
-        argv[0] = exe;
-        argv[args.length + 1] = nullptr;
+        const char **argv = allocate<const char *>(args.length + 1);
+        argv[args.length] = nullptr;
         for (size_t i = 0; i < args.length; i += 1) {
-            argv[i + 1] = args.at(i);
+            argv[i] = args.at(i);
         }
-        execvp(exe, const_cast<char * const *>(argv));
+        execvp(argv[0], const_cast<char * const *>(argv));
         Error report_err = ErrorUnexpected;
         if (errno == ENOENT) {
             report_err = ErrorFileNotFound;
@@ -874,11 +871,11 @@ static Error os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 //    LocalFree(messageBuffer);
 //}
 
-static Error os_exec_process_windows(const char *exe, ZigList<const char *> &args,
+static Error os_exec_process_windows(ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     Buf command_line = BUF_INIT;
-    os_windows_create_command_line(&command_line, exe, args);
+    os_windows_create_command_line(&command_line, args);
 
     HANDLE g_hChildStd_IN_Rd = NULL;
     HANDLE g_hChildStd_IN_Wr = NULL;
@@ -925,6 +922,7 @@ static Error os_exec_process_windows(const char *exe, ZigList<const char *> &arg
     siStartInfo.hStdInput = g_hChildStd_IN_Rd;
     siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
+    const char *exe = args.at(0);
     BOOL success = CreateProcess(exe, buf_ptr(&command_line), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
             &siStartInfo, &piProcInfo);
 
@@ -1005,13 +1003,13 @@ Error os_execv(const char *exe, const char **argv) {
 #endif
 }
 
-Error os_exec_process(const char *exe, ZigList<const char *> &args,
+Error os_exec_process(ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
 #if defined(ZIG_OS_WINDOWS)
-    return os_exec_process_windows(exe, args, term, out_stderr, out_stdout);
+    return os_exec_process_windows(args, term, out_stderr, out_stdout);
 #elif defined(ZIG_OS_POSIX)
-    return os_exec_process_posix(exe, args, term, out_stderr, out_stdout);
+    return os_exec_process_posix(args, term, out_stderr, out_stdout);
 #else
 #error "missing os_exec_process implementation"
 #endif
