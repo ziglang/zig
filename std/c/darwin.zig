@@ -37,7 +37,7 @@ const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 pub extern "c" var _mh_execute_header: mach_hdr = undefined;
 comptime {
     if (std.os.darwin.is_the_target) {
-        @export("__mh_execute_header", _mh_execute_header, .Weak);
+        @export("_mh_execute_header", _mh_execute_header, .Weak);
     }
 }
 
