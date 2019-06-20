@@ -15252,8 +15252,14 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     ZigType *promise_type = get_promise_type(ira->codegen, return_type);
     ZigType *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
+    IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, no_result_loc(),
+            async_return_type, nullptr, true, true);
+    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+        return result_loc;
+    }
+
     return ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
-            casted_args, FnInlineAuto, true, async_allocator_inst, nullptr, nullptr,
+            casted_args, FnInlineAuto, true, async_allocator_inst, nullptr, result_loc,
             async_return_type);
 }
 

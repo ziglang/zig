@@ -3755,7 +3755,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
-    LLVMValueRef result_loc = first_arg_ret ? ir_llvm_value(g, instruction->result_loc) : nullptr;
+    LLVMValueRef result_loc = (first_arg_ret || instruction->is_async) ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     if (first_arg_ret) {
         gen_param_values.append(result_loc);
     }
