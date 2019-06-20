@@ -2157,6 +2157,7 @@ struct IrBasicBlock {
     IrInstruction *suspend_instruction_ref;
     bool already_appended;
     bool suspended;
+    bool in_resume_stack;
 };
 
 // These instructions are in transition to having "pass 1" instructions

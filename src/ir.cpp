@@ -6958,6 +6958,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     peer_parent->peers = allocate<ResultLocPeer>(prong_count);
     peer_parent->peer_count = 0;
 
+    ir_build_reset_result(irb, scope, node, &peer_parent->base);
+
     // First do the else and the ranges
     Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
@@ -7116,8 +7118,6 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
             check_ranges.items, check_ranges.length, else_prong != nullptr);
-
-    ir_build_reset_result(irb, scope, node, &peer_parent->base);
 
     IrInstruction *br_instruction;
     if (cases.length == 0) {
@@ -10880,6 +10880,7 @@ static IrBasicBlock *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlock *old_bb,
 }
 
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
+    assert(!old_bb->suspended);
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
@@ -10889,20 +10890,14 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *cons
 static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction, IrBasicBlock *next_bb,
         IrSuspendPosition *suspend_pos)
 {
-    // reserve block position
-    if (!ira->new_irb.current_basic_block->already_appended) {
-        ira->new_irb.current_basic_block->already_appended = true;
-        ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
+    if (ira->codegen->verbose_ir) {
+        fprintf(stderr, "suspend %s_%zu %s_%zu #%zu (%zu,%zu)\n", ira->old_irb.current_basic_block->name_hint,
+                ira->old_irb.current_basic_block->debug_id,
+                ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->name_hint,
+                ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->debug_id,
+                ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index)->debug_id,
+                ira->old_bb_index, ira->instruction_index);
     }
-
-    //if (ira->codegen->verbose_ir) {
-    //    fprintf(stderr, "suspend %s_%zu %s_%zu #%zu (%zu,%zu)\n", ira->old_irb.current_basic_block->name_hint,
-    //            ira->old_irb.current_basic_block->debug_id,
-    //            ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->name_hint,
-    //            ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->debug_id,
-    //            ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index)->debug_id,
-    //            ira->old_bb_index, ira->instruction_index);
-    //}
     suspend_pos->basic_block_index = ira->old_bb_index;
     suspend_pos->instruction_index = ira->instruction_index;
 
@@ -10923,19 +10918,21 @@ static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction
 
 static IrInstruction *ira_resume(IrAnalyze *ira) {
     IrSuspendPosition pos = ira->resume_stack.pop();
-    //if (ira->codegen->verbose_ir) {
-    //    fprintf(stderr, "resume (%zu,%zu) ", pos.basic_block_index, pos.instruction_index);
-    //}
+    if (ira->codegen->verbose_ir) {
+        fprintf(stderr, "resume (%zu,%zu) ", pos.basic_block_index, pos.instruction_index);
+    }
     ira->old_bb_index = pos.basic_block_index;
     ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
+    assert(ira->old_irb.current_basic_block->in_resume_stack);
+    ira->old_irb.current_basic_block->in_resume_stack = false;
     ira->old_irb.current_basic_block->suspended = false;
     ira->instruction_index = pos.instruction_index;
     assert(pos.instruction_index < ira->old_irb.current_basic_block->instruction_list.length);
-    //if (ira->codegen->verbose_ir) {
-    //    fprintf(stderr, "%s_%zu #%zu\n", ira->old_irb.current_basic_block->name_hint,
-    //            ira->old_irb.current_basic_block->debug_id,
-    //            ira->old_irb.current_basic_block->instruction_list.at(pos.instruction_index)->debug_id);
-    //}
+    if (ira->codegen->verbose_ir) {
+        fprintf(stderr, "%s_%zu #%zu\n", ira->old_irb.current_basic_block->name_hint,
+                ira->old_irb.current_basic_block->debug_id,
+                ira->old_irb.current_basic_block->instruction_list.at(pos.instruction_index)->debug_id);
+    }
     ira->const_predecessor_bb = nullptr;
     ira->new_irb.current_basic_block = ira->old_irb.current_basic_block->other;
     assert(ira->new_irb.current_basic_block != nullptr);
@@ -10945,6 +10942,10 @@ static IrInstruction *ira_resume(IrAnalyze *ira) {
 static void ir_finish_bb(IrAnalyze *ira) {
     if (!ira->new_irb.current_basic_block->already_appended) {
         ira->new_irb.current_basic_block->already_appended = true;
+        if (ira->codegen->verbose_ir) {
+            fprintf(stderr, "append new bb %s_%zu\n", ira->new_irb.current_basic_block->name_hint,
+                    ira->new_irb.current_basic_block->debug_id);
+        }
         ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
     }
     ira->instruction_index += 1;
@@ -10957,7 +10958,6 @@ static void ir_finish_bb(IrAnalyze *ira) {
         ira->instruction_index += 1;
     }
 
-    size_t my_old_bb_index = ira->old_bb_index;
     ira->old_bb_index += 1;
 
     bool need_repeat = true;
@@ -10968,17 +10968,17 @@ static void ir_finish_bb(IrAnalyze *ira) {
                 ira->old_bb_index += 1;
                 continue;
             }
-            // If it's the block we just finished, or
-            // if it's already a finished block, or 
+            // if it's already started, or 
             // if it's a suspended block,
             // then skip it
-            if (ira->old_bb_index == my_old_bb_index ||
-                old_bb->suspended ||
-                (old_bb->other != nullptr && old_bb->other->instruction_list.length != 0))
+            if (old_bb->suspended ||
+                (old_bb->other != nullptr && old_bb->other->instruction_list.length != 0) ||
+                (old_bb->other != nullptr && old_bb->other->already_appended))
             {
                 ira->old_bb_index += 1;
                 continue;
             }
+
             // if there is a resume_stack, pop one from there rather than moving on.
             // the last item of the resume stack will be a basic block that will
             // move on to the next one below
@@ -15520,7 +15520,9 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                     //   ConstPtrMutComptimeVar, thus defeating the logic below.
                     bool same_global_refs = ptr->value.data.x_ptr.mut != ConstPtrMutComptimeVar;
                     copy_const_val(dest_val, &value->value, same_global_refs);
-                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
+                    if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar &&
+                        !ira->new_irb.current_basic_block->must_be_comptime_source_instr)
+                    {
                         ira->new_irb.current_basic_block->must_be_comptime_source_instr = source_instr;
                     }
                     return ir_const_void(ira, source_instr);
@@ -16484,6 +16486,19 @@ static IrInstruction *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstruction
     zig_unreachable();
 }
 
+static void ir_push_resume(IrAnalyze *ira, IrSuspendPosition pos) {
+    IrBasicBlock *old_bb = ira->old_irb.exec->basic_block_list.at(pos.basic_block_index);
+    if (old_bb->in_resume_stack) return;
+    ira->resume_stack.append(pos);
+    old_bb->in_resume_stack = true;
+}
+
+static void ir_push_resume_block(IrAnalyze *ira, IrBasicBlock *old_bb) {
+    if (ira->resume_stack.length != 0) {
+        ir_push_resume(ira, {old_bb->index, 0});
+    }
+}
+
 static IrInstruction *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr *br_instruction) {
     IrBasicBlock *old_dest_block = br_instruction->dest_block;
 
@@ -16497,6 +16512,8 @@ static IrInstruction *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr 
     IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, old_dest_block, &br_instruction->base);
     if (new_bb == nullptr)
         return ir_unreach_error(ira);
+
+    ir_push_resume_block(ira, old_dest_block);
 
     IrInstruction *result = ir_build_br(&ira->new_irb,
             br_instruction->base.scope, br_instruction->base.source_node, new_bb, nullptr);
@@ -16526,12 +16543,14 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
         IrBasicBlock *old_dest_block = cond_is_true ?
             cond_br_instruction->then_block : cond_br_instruction->else_block;
 
-        if (is_comptime || old_dest_block->ref_count == 1)
+        if (is_comptime || (old_dest_block->ref_count == 1 && old_dest_block->suspend_instruction_ref == nullptr))
             return ir_inline_bb(ira, &cond_br_instruction->base, old_dest_block);
 
         IrBasicBlock *new_dest_block = ir_get_new_bb_runtime(ira, old_dest_block, &cond_br_instruction->base);
         if (new_dest_block == nullptr)
             return ir_unreach_error(ira);
+
+        ir_push_resume_block(ira, old_dest_block);
 
         IrInstruction *result = ir_build_br(&ira->new_irb,
             cond_br_instruction->base.scope, cond_br_instruction->base.source_node, new_dest_block, nullptr);
@@ -16547,6 +16566,9 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
     IrBasicBlock *new_else_block = ir_get_new_bb_runtime(ira, cond_br_instruction->else_block, &cond_br_instruction->base);
     if (new_else_block == nullptr)
         return ir_unreach_error(ira);
+
+    ir_push_resume_block(ira, cond_br_instruction->else_block);
+    ir_push_resume_block(ira, cond_br_instruction->then_block);
 
     IrInstruction *result = ir_build_cond_br(&ira->new_irb,
             cond_br_instruction->base.scope, cond_br_instruction->base.source_node,
@@ -16643,14 +16665,14 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
         IrSuspendPosition suspend_pos;
         ira_suspend(ira, &phi_instruction->base, nullptr, &suspend_pos);
-        ira->resume_stack.append(suspend_pos);
+        ir_push_resume(ira, suspend_pos);
 
         for (size_t i = 0; i < peer_parent->peer_count; i += 1) {
             ResultLocPeer *opposite_peer = &peer_parent->peers[peer_parent->peer_count - i - 1];
             if (opposite_peer->base.implicit_elem_type != nullptr &&
                 opposite_peer->base.implicit_elem_type->id != ZigTypeIdUnreachable)
             {
-                ira->resume_stack.append(opposite_peer->suspend_pos);
+                ir_push_resume(ira, opposite_peer->suspend_pos);
             }
         }
 
@@ -25017,9 +25039,9 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
-        //if (ira->codegen->verbose_ir) {
-        //    fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
-        //}
+        if (ira->codegen->verbose_ir) {
+            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
+        }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
