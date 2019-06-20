@@ -62,7 +62,7 @@ comptime {
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/merge_error_sets.zig");
-    _ = @import("behavior/misc.zig"); // TODO
+    _ = @import("behavior/misc.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");

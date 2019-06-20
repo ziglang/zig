@@ -10883,6 +10883,7 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *cons
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
+    ira->old_bb_index = old_bb->index;
 }
 
 static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction, IrBasicBlock *next_bb,
@@ -10894,6 +10895,14 @@ static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction
         ira->new_irb.exec->basic_block_list.append(ira->new_irb.current_basic_block);
     }
 
+    //if (ira->codegen->verbose_ir) {
+    //    fprintf(stderr, "suspend %s_%zu %s_%zu #%zu (%zu,%zu)\n", ira->old_irb.current_basic_block->name_hint,
+    //            ira->old_irb.current_basic_block->debug_id,
+    //            ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->name_hint,
+    //            ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->debug_id,
+    //            ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index)->debug_id,
+    //            ira->old_bb_index, ira->instruction_index);
+    //}
     suspend_pos->basic_block_index = ira->old_bb_index;
     suspend_pos->instruction_index = ira->instruction_index;
 
@@ -10914,10 +10923,19 @@ static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction
 
 static IrInstruction *ira_resume(IrAnalyze *ira) {
     IrSuspendPosition pos = ira->resume_stack.pop();
+    //if (ira->codegen->verbose_ir) {
+    //    fprintf(stderr, "resume (%zu,%zu) ", pos.basic_block_index, pos.instruction_index);
+    //}
     ira->old_bb_index = pos.basic_block_index;
     ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(ira->old_bb_index);
     ira->old_irb.current_basic_block->suspended = false;
     ira->instruction_index = pos.instruction_index;
+    assert(pos.instruction_index < ira->old_irb.current_basic_block->instruction_list.length);
+    //if (ira->codegen->verbose_ir) {
+    //    fprintf(stderr, "%s_%zu #%zu\n", ira->old_irb.current_basic_block->name_hint,
+    //            ira->old_irb.current_basic_block->debug_id,
+    //            ira->old_irb.current_basic_block->instruction_list.at(pos.instruction_index)->debug_id);
+    //}
     ira->const_predecessor_bb = nullptr;
     ira->new_irb.current_basic_block = ira->old_irb.current_basic_block->other;
     assert(ira->new_irb.current_basic_block != nullptr);
@@ -24999,6 +25017,9 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             continue;
         }
 
+        //if (ira->codegen->verbose_ir) {
+        //    fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
+        //}
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
