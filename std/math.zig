@@ -482,7 +482,16 @@ fn testAbsInt() void {
     testing.expect((absInt(i32(10)) catch unreachable) == 10);
 }
 
-pub const absFloat = @import("fabs.zig").fabs;
+pub const absFloat = fabs;
+
+test "math.absFloat" {
+    testAbsFloat();
+    comptime testAbsFloat();
+}
+fn testAbsFloat() void {
+    testing.expect(absFloat(f32(-10.05)) == 10.05);
+    testing.expect(absFloat(f32(10.05)) == 10.05);
+}
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
