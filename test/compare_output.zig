@@ -122,7 +122,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub fn main() void {
         \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
+        \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
         \\}
     , "Hello, world!\n0012 012 a\n");
 
