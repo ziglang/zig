@@ -16004,7 +16004,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         IrInstruction *result_loc;
         if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-                    impl_fn_type_id->return_type, nullptr, true, false);
+                    impl_fn_type_id->return_type, nullptr, true, true);
             if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
                 return result_loc;
             }
@@ -16124,7 +16124,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     IrInstruction *result_loc;
     if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-                return_type, nullptr, true, false);
+                return_type, nullptr, true, true);
         if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
             return result_loc;
         }

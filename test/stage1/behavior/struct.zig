@@ -529,26 +529,26 @@ test "access to global struct fields" {
     expect(g_foo.bar.value == 42);
 }
 
-//test "packed struct with fp fields" {
-//    const S = packed struct {
-//        data: [3]f32,
-//
-//        pub fn frob(self: *@This()) void {
-//            self.data[0] += self.data[1] + self.data[2];
-//            self.data[1] += self.data[0] + self.data[2];
-//            self.data[2] += self.data[0] + self.data[1];
-//        }
-//    };
-//
-//    var s: S = undefined;
-//    s.data[0] = 1.0;
-//    s.data[1] = 2.0;
-//    s.data[2] = 3.0;
-//    s.frob();
-//    expectEqual(f32(6.0), s.data[0]);
-//    expectEqual(f32(11.0), s.data[1]);
-//    expectEqual(f32(20.0), s.data[2]);
-//}
+test "packed struct with fp fields" {
+    const S = packed struct {
+        data: [3]f32,
+
+        pub fn frob(self: *@This()) void {
+            self.data[0] += self.data[1] + self.data[2];
+            self.data[1] += self.data[0] + self.data[2];
+            self.data[2] += self.data[0] + self.data[1];
+        }
+    };
+
+    var s: S = undefined;
+    s.data[0] = 1.0;
+    s.data[1] = 2.0;
+    s.data[2] = 3.0;
+    s.frob();
+    expectEqual(f32(6.0), s.data[0]);
+    expectEqual(f32(11.0), s.data[1]);
+    expectEqual(f32(20.0), s.data[2]);
+}
 
 test "use within struct scope" {
     const S = struct {
