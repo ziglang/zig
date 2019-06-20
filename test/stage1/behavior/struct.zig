@@ -522,12 +522,12 @@ const S0 = struct {
     }
 };
 
-//var g_foo: S0 = S0.init();
-//
-//test "access to global struct fields" {
-//    g_foo.bar.value = 42;
-//    expect(g_foo.bar.value == 42);
-//}
+var g_foo: S0 = S0.init();
+
+test "access to global struct fields" {
+    g_foo.bar.value = 42;
+    expect(g_foo.bar.value == 42);
+}
 
 //test "packed struct with fp fields" {
 //    const S = packed struct {

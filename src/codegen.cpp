@@ -3832,6 +3832,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionStructFieldPtr *instruction)
 {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return nullptr;
+
     LLVMValueRef struct_ptr = ir_llvm_value(g, instruction->struct_ptr);
     // not necessarily a pointer. could be ZigTypeIdStruct
     ZigType *struct_ptr_type = instruction->struct_ptr->value.type;
