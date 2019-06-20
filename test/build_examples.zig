@@ -7,6 +7,8 @@ pub fn addCases(cases: *tests.BuildExamplesContext) void {
     cases.addC("example/hello_world/hello_libc.zig");
     cases.add("example/cat/main.zig");
     cases.add("example/guess_number/main.zig");
+    cases.add("test/standalone/main_return_error/error_u8.zig");
+    cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig");
     cases.addBuildFile("example/shared_library/build.zig");
     cases.addBuildFile("example/mix_o_files/build.zig");
