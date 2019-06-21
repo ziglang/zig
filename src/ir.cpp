@@ -15200,6 +15200,9 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
                 return unwrapped_err_ptr;
             }
         }
+    } else if (is_slice(actual_elem_type) && value_type->id == ZigTypeIdArray) {
+        // need to allow EndExpr to do the implicit cast from array to slice
+        result_loc_pass1->written = false;
     }
     return result_loc;
 }

@@ -698,3 +698,11 @@ test "unicode escape in character literal" {
     var a: u24 = '\U01f4a9';
     expect(a == 128169);
 }
+
+test "result location zero sized array inside struct field implicit cast to slice" {
+    const E = struct {
+        entries: []u32,
+    };
+    var foo = E{ .entries = [_]u32{} };
+    expect(foo.entries.len == 0);
+}
