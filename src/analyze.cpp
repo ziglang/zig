@@ -5772,8 +5772,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
         case ZigLLVMFnIdFloor:
         case ZigLLVMFnIdCeil:
         case ZigLLVMFnIdSqrt:
-        case ZigLLVMFnIdFMA:
             return a.data.floating.bit_count == b.data.floating.bit_count;
+        case ZigLLVMFnIdFMA:
+            return a.data.floating.bit_count == b.data.floating.bit_count &&
+                   a.data.floating.vector_len == b.data.floating.vector_len;
         case ZigLLVMFnIdOverflowArithmetic:
             return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
