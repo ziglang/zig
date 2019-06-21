@@ -5736,9 +5736,10 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
         case ZigLLVMFnIdPopCount:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)101195049;
-        case ZigLLVMFnIdFloor:
-        case ZigLLVMFnIdCeil:
-        case ZigLLVMFnIdSqrt:
+        case ZigLLVMFnIdFloatOp:
+            return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
+                   (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025) +
+                   (uint32_t)(x.data.floating.op) * (uint32_t)43789879;
         case ZigLLVMFnIdFMA:
             return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
                    (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025);
@@ -5769,10 +5770,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.bswap.bit_count == b.data.bswap.bit_count;
         case ZigLLVMFnIdBitReverse:
             return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
-        case ZigLLVMFnIdFloor:
-        case ZigLLVMFnIdCeil:
-        case ZigLLVMFnIdSqrt:
-            return a.data.floating.bit_count == b.data.floating.bit_count;
+        case ZigLLVMFnIdFloatOp:
+            return a.data.floating.bit_count == b.data.floating.bit_count &&
+                   a.data.floating.vector_len == b.data.floating.vector_len &&
+                   a.data.floating.op == b.data.floating.op;
         case ZigLLVMFnIdFMA:
             return a.data.floating.bit_count == b.data.floating.bit_count &&
                    a.data.floating.vector_len == b.data.floating.vector_len;

@@ -1427,15 +1427,16 @@ static void ir_print_mark_err_ret_trace_ptr(IrPrint *irp, IrInstructionMarkErrRe
     fprintf(irp->f, ")");
 }
 
-static void ir_print_sqrt(IrPrint *irp, IrInstructionSqrt *instruction) {
-    fprintf(irp->f, "@sqrt(");
+static void ir_print_float_op(IrPrint *irp, IrInstructionFloatOp *instruction) {
+
+    fprintf(irp->f, "@%s(", float_op_to_name(instruction->op, false));
     if (instruction->type != nullptr) {
         ir_print_other_instruction(irp, instruction->type);
     } else {
         fprintf(irp->f, "null");
     }
     fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->op);
+    ir_print_other_instruction(irp, instruction->op1);
     fprintf(irp->f, ")");
 }
 
@@ -1918,8 +1919,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdMarkErrRetTracePtr:
             ir_print_mark_err_ret_trace_ptr(irp, (IrInstructionMarkErrRetTracePtr *)instruction);
             break;
-        case IrInstructionIdSqrt:
-            ir_print_sqrt(irp, (IrInstructionSqrt *)instruction);
+        case IrInstructionIdFloatOp:
+            ir_print_float_op(irp, (IrInstructionFloatOp *)instruction);
             break;
         case IrInstructionIdMulAdd:
             ir_print_mul_add(irp, (IrInstructionMulAdd *)instruction);
