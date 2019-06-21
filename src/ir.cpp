@@ -15207,6 +15207,9 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                     parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
                     parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
 
+            if (value->value.special == ConstValSpecialRuntime) {
+                parent_result_loc->value.special = ConstValSpecialRuntime;
+            }
             result_loc->written = true;
             result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
                     ptr_type, result_bit_cast->base.source_instruction, false);
