@@ -57,7 +57,11 @@ static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction)
 }
 
 static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
-    fprintf(irp->f, "$%s_%" ZIG_PRI_usize "", bb->name_hint, bb->debug_id);
+    if (bb == nullptr) {
+        fprintf(irp->f, "(null block)");
+    } else {
+        fprintf(irp->f, "$%s_%" ZIG_PRI_usize "", bb->name_hint, bb->debug_id);
+    }
 }
 
 static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {

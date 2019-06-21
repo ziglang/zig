@@ -1,12 +1,7 @@
 Scratch pad for stuff to do before merging master
 =================================================
 
-uncomment all the behavior tests
-diff master branch to make sure
-
-restore bootstrap.zig to master
-
-get an empty file compiling successfully (with no panic fn override)
+labeled break from a block
 
 better behavior for implicit casts. for example these introduce an extra allocation/memcpy:
     var x: [1]i32 = [_]i32{1};

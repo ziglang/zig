@@ -2065,7 +2065,7 @@ struct ScopeLoop {
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
-    ResultLoc *result_loc;
+    ResultLocPeerParent *peer_parent;
 };
 
 // This scope blocks certain things from working such as comptime continue
@@ -3682,8 +3682,7 @@ struct ResultLocPeerParent {
     bool done_resuming;
     IrBasicBlock *end_bb;
     ResultLoc *parent;
-    ResultLocPeer *peers;
-    size_t peer_count;
+    ZigList<ResultLocPeer *> peers;
     ZigType *resolved_type;
     IrInstruction *is_comptime;
 };
