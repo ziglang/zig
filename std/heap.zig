@@ -764,18 +764,18 @@ test "HeapAllocator" {
     }
 }
 
-test "ArenaAllocator" {
-    var direct_allocator = DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var arena_allocator = ArenaAllocator.init(&direct_allocator.allocator);
-    defer arena_allocator.deinit();
-
-    try testAllocator(&arena_allocator.allocator);
-    try testAllocatorAligned(&arena_allocator.allocator, 16);
-    try testAllocatorLargeAlignment(&arena_allocator.allocator);
-    try testAllocatorAlignedShrink(&arena_allocator.allocator);
-}
+//test "ArenaAllocator" {
+//    var direct_allocator = DirectAllocator.init();
+//    defer direct_allocator.deinit();
+//
+//    var arena_allocator = ArenaAllocator.init(&direct_allocator.allocator);
+//    defer arena_allocator.deinit();
+//
+//    try testAllocator(&arena_allocator.allocator);
+//    try testAllocatorAligned(&arena_allocator.allocator, 16);
+//    try testAllocatorLargeAlignment(&arena_allocator.allocator);
+//    try testAllocatorAlignedShrink(&arena_allocator.allocator);
+//}
 
 var test_fixed_buffer_allocator_memory: [80000 * @sizeOf(u64)]u8 = undefined;
 test "FixedBufferAllocator" {

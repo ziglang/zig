@@ -7115,8 +7115,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
             assert(ok_bit);
             assert(last_item_node);
-            ir_mark_gen(ir_build_cond_br(irb, scope, last_item_node, ok_bit, range_block_yes,
-                        range_block_no, is_comptime));
+            IrInstruction *br_inst = ir_mark_gen(ir_build_cond_br(irb, scope, last_item_node, ok_bit,
+                        range_block_yes, range_block_no, is_comptime));
+            if (peer_parent->base.source_instruction == nullptr) {
+                peer_parent->base.source_instruction = br_inst;
+            }
 
             if (peer_parent->peers.length > 0) {
                 peer_parent->peers.last()->next_bb = range_block_yes;
@@ -7198,10 +7201,12 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         }
         br_instruction = &switch_br->base;
     }
-    for (size_t i = 0; i < peer_parent->peers.length; i += 1) {
-        peer_parent->peers.at(i)->base.source_instruction = br_instruction;
+    if (peer_parent->base.source_instruction == nullptr) {
+        peer_parent->base.source_instruction = br_instruction;
     }
-    peer_parent->base.source_instruction = br_instruction;
+    for (size_t i = 0; i < peer_parent->peers.length; i += 1) {
+        peer_parent->peers.at(i)->base.source_instruction = peer_parent->base.source_instruction;
+    }
 
     if (!else_prong) {
         if (peer_parent->peers.length != 0) {
