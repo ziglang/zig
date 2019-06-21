@@ -357,3 +357,21 @@ test "nested catch" {
     S.entry();
     comptime S.entry();
 }
+
+test "implicit cast to optional to error union to return result loc" {
+    const S = struct {
+        fn entry() void {
+            if (func(undefined)) |opt| {
+                expect(opt != null);
+            } else |_| @panic("expected non error");
+        }
+        fn func(f: *Foo) anyerror!?*Foo {
+            return f;
+        }
+        const Foo = struct {
+            field: i32,
+        };
+    };
+    S.entry();
+    //comptime S.entry(); TODO
+}

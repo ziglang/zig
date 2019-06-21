@@ -15092,7 +15092,9 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             ZigType *ptr_return_type = get_pointer_to_type(ira->codegen, ira->explicit_return_type, false);
             result_loc->written = true;
             result_loc->resolved_loc = ir_build_return_ptr(ira, result_loc->source_instruction, ptr_return_type);
-            set_up_result_loc_for_inferred_comptime(result_loc->resolved_loc);
+            if (ir_should_inline(ira->old_irb.exec, result_loc->source_instruction->scope)) {
+                set_up_result_loc_for_inferred_comptime(result_loc->resolved_loc);
+            }
             return result_loc->resolved_loc;
         }
         case ResultLocIdPeer: {
@@ -15207,9 +15209,6 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                     parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
                     parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
 
-            if (value->value.special == ConstValSpecialRuntime) {
-                parent_result_loc->value.special = ConstValSpecialRuntime;
-            }
             result_loc->written = true;
             result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
                     ptr_type, result_bit_cast->base.source_instruction, false);
@@ -15388,7 +15387,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
         casted_arg = arg;
     }
 
-    ConstExprValue *arg_val = ir_resolve_const(ira, casted_arg, UndefBad);
+    ConstExprValue *arg_val = ir_resolve_const(ira, casted_arg, UndefOk);
     if (!arg_val)
         return false;
 

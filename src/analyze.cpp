@@ -4512,6 +4512,8 @@ bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
             if (type_is_invalid(var_scope->var->var_type))
                 return false;
+            if (var_scope->var->const_value->special == ConstValSpecialUndef)
+                return false;
             if (can_mutate_comptime_var_state(var_scope->var->const_value))
                 return false;
         } else if (scope->id == ScopeIdFnDef) {
