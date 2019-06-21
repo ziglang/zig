@@ -335,3 +335,25 @@ test "debug info for optional error set" {
     const SomeError = error{Hello};
     var a_local_variable: ?SomeError = null;
 }
+
+test "nested catch" {
+    const S = struct {
+        fn entry() void {
+            expectError(error.Bad, func());
+        }
+        fn fail() anyerror!Foo {
+            return error.Wrong;
+        }
+        fn func() anyerror!Foo {
+            const x = fail() catch
+                fail() catch
+                return error.Bad;
+            unreachable;
+        }
+        const Foo = struct {
+            field: i32,
+        };
+    };
+    S.entry();
+    comptime S.entry();
+}

@@ -4065,7 +4065,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
             result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, null_block);
-    IrInstruction *null_result = ir_gen_node_extra(irb, op2_node, parent_scope, lval,
+    IrInstruction *null_result = ir_gen_node_extra(irb, op2_node, parent_scope, LValNone,
             &peer_parent->peers.at(0)->base);
     if (null_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
@@ -7496,7 +7496,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     } else {
         err_scope = parent_scope;
     }
-    IrInstruction *err_result = ir_gen_node_extra(irb, op2_node, err_scope, lval, &peer_parent->peers.at(0)->base);
+    IrInstruction *err_result = ir_gen_node_extra(irb, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
     IrBasicBlock *after_err_block = irb->current_basic_block;
