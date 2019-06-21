@@ -113,6 +113,7 @@ pub const Tree = struct {
 
 pub const Error = union(enum) {
     InvalidToken: InvalidToken,
+    InvalidAmpersandAmpersand: InvalidAmpersandAmpersand,
     ExpectedContainerMembers: ExpectedContainerMembers,
     ExpectedStringLiteral: ExpectedStringLiteral,
     ExpectedIntegerLiteral: ExpectedIntegerLiteral,
@@ -161,6 +162,7 @@ pub const Error = union(enum) {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
+            @TagType(Error).InvalidAmpersandAmpersand => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedContainerMembers => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedStringLiteral => |*x| return x.render(tokens, stream),
             @TagType(Error).ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
@@ -211,6 +213,7 @@ pub const Error = union(enum) {
         switch (self.*) {
             // TODO https://github.com/ziglang/zig/issues/683
             @TagType(Error).InvalidToken => |x| return x.token,
+            @TagType(Error).InvalidAmpersandAmpersand => |x| return x.token,
             @TagType(Error).ExpectedContainerMembers => |x| return x.token,
             @TagType(Error).ExpectedStringLiteral => |x| return x.token,
             @TagType(Error).ExpectedIntegerLiteral => |x| return x.token,
@@ -291,6 +294,7 @@ pub const Error = union(enum) {
     pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found {}");
     pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found {}");
 
+    pub const InvalidAmpersandAmpersand = SimpleError("Invalid token '&&', 'and' performs boolean AND");
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Pub must be followed by fn decl, var decl, or container member");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");

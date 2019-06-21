@@ -774,7 +774,7 @@ fn parseBoolAndExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         arena,
         it,
         tree,
-        SimpleBinOpParseFn(.Keyword_and, Node.InfixOp.Op.BoolAnd),
+        parseAmpersandAmpersandOp,
         parseCompareExpr,
         .Infinitely,
     );
@@ -2688,6 +2688,18 @@ fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) No
 }
 
 // Helper parsers not included in the grammar
+
+fn parseAmpersandAmpersandOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    const op_parse_and = SimpleBinOpParseFn(.Keyword_and, Node.InfixOp.Op.BoolAnd);
+    const op_token = eatToken(it, .AmpersandAmpersand);
+    if (op_token != null) {
+        try tree.errors.push(AstError{
+            .InvalidAmpersandAmpersand = AstError.InvalidAmpersandAmpersand{ .token = it.index },
+        });
+        return error.ParseError;
+    }
+    return op_parse_and(arena, it, tree);
+}
 
 fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Builtin) orelse return null;
