@@ -324,11 +324,11 @@ pub const Error = union(enum) {
                     return stream.print("`&&` is invalid. Note that `and` is boolean AND.");
                 },
                 .Invalid => {
-                    return stream.print("expected {}, found invalid bytes", @tagName(self.expected_id));
+                    return stream.print("expected {}, found invalid bytes", self.expected_id.symbol());
                 },
                 else => {
-                    const token_name = @tagName(found_token.id);
-                    return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+                    const token_name = found_token.id.symbol();
+                    return stream.print("expected {}, found {}", self.expected_id.symbol(), token_name);
                 },
             }
         }
@@ -339,8 +339,8 @@ pub const Error = union(enum) {
         end_id: Token.Id,
 
         pub fn render(self: *const ExpectedCommaOrEnd, tokens: *Tree.TokenList, stream: var) !void {
-            const token_name = @tagName(tokens.at(self.token).id);
-            return stream.print("expected ',' or {}, found {}", @tagName(self.end_id), token_name);
+            const actual_token = tokens.at(self.token);
+            return stream.print("expected ',' or {}, found {}", self.end_id.symbol(), actual_token.id.symbol());
         }
     };
 
@@ -351,8 +351,8 @@ pub const Error = union(enum) {
             token: TokenIndex,
 
             pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
-                const token_name = @tagName(tokens.at(self.token).id);
-                return stream.print(msg, token_name);
+                const actual_token = tokens.at(self.token);
+                return stream.print(msg, actual_token.id.symbol());
             }
         };
     }
