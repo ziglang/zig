@@ -578,3 +578,24 @@ test "default struct initialization fields" {
     };
     expectEqual(1239, x.a + x.b);
 }
+
+test "extern fn returns struct by value" {
+    const S = struct {
+        fn entry() void {
+            var x = makeBar(10);
+            expectEqual(i32(10), x.handle);
+        }
+
+        const ExternBar = extern struct {
+            handle: i32,
+        };
+
+        extern fn makeBar(t: i32) ExternBar {
+            return ExternBar{
+                .handle = t,
+            };
+        }
+    };
+    S.entry();
+    comptime S.entry();
+}

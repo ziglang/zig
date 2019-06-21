@@ -2394,24 +2394,31 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
-    if (return_instruction->value == nullptr) {
-        LLVMBuildRetVoid(g->builder);
-        return nullptr;
-    }
-
-    ZigType *return_type = return_instruction->value->value.type;
-
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
+        if (return_instruction->value == nullptr) {
+            LLVMBuildRetVoid(g->builder);
+            return nullptr;
+        }
         assert(g->cur_ret_ptr);
         src_assert(return_instruction->value->value.special != ConstValSpecialRuntime,
                 return_instruction->base.source_node);
         LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
+        ZigType *return_type = return_instruction->value->value.type;
         gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
         LLVMBuildRetVoid(g->builder);
-    } else if (handle_is_ptr(return_type)) {
-        LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
-        LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
-        LLVMBuildRet(g->builder, by_val_value);
+    } else if (g->cur_fn->type_entry->data.fn.fn_type_id.cc != CallingConventionAsync &&
+            handle_is_ptr(g->cur_fn->type_entry->data.fn.fn_type_id.return_type))
+    {
+        if (return_instruction->value == nullptr) {
+            LLVMValueRef by_val_value = gen_load_untyped(g, g->cur_ret_ptr, 0, false, "");
+            LLVMBuildRet(g->builder, by_val_value);
+        } else {
+            LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
+            LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
+            LLVMBuildRet(g->builder, by_val_value);
+        }
+    } else if (return_instruction->value == nullptr) {
+        LLVMBuildRetVoid(g->builder);
     } else {
         LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
         LLVMBuildRet(g->builder, value);
@@ -3755,7 +3762,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
-    LLVMValueRef result_loc = (first_arg_ret || instruction->is_async) ? ir_llvm_value(g, instruction->result_loc) : nullptr;
+    LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     if (first_arg_ret) {
         gen_param_values.append(result_loc);
     }
@@ -6804,19 +6811,23 @@ static void do_code_gen(CodeGen *g) {
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         CallingConvention cc = fn_type_id->cc;
         bool is_c_abi = cc == CallingConventionC;
+        bool want_sret = want_first_arg_sret(g, fn_type_id);
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
         g->cur_fn_val = fn;
-        ZigType *return_type = fn_type_id->return_type;
-        if (handle_is_ptr(return_type)) {
-            g->cur_ret_ptr = LLVMGetParam(fn, 0);
-        } else {
-            g->cur_ret_ptr = nullptr;
-        }
 
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
+
+        if (want_sret) {
+            g->cur_ret_ptr = LLVMGetParam(fn, 0);
+        } else if (handle_is_ptr(fn_type_id->return_type)) {
+            g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
+            // TODO add debug info variable for this
+        } else {
+            g->cur_ret_ptr = nullptr;
+        }
 
         uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
         bool have_err_ret_trace_arg = err_ret_trace_arg_index != UINT32_MAX;
@@ -6863,8 +6874,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         ZigType *import = get_scope_import(&fn_table_entry->fndef_scope->base);
-
-        unsigned gen_i_init = want_first_arg_sret(g, fn_type_id) ? 1 : 0;
+        unsigned gen_i_init = want_sret ? 1 : 0;
 
         // create debug variable declarations for variables and allocate all local variables
         FnWalk fn_walk_var = {};
