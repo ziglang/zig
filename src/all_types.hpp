@@ -1996,6 +1996,11 @@ struct ScopeDecls {
     bool any_imports_failed;
 };
 
+enum LVal {
+    LValNone,
+    LValPtr,
+};
+
 // This scope comes from a block expression in user code.
 // NodeTypeBlock
 struct ScopeBlock {
@@ -2004,12 +2009,14 @@ struct ScopeBlock {
     Buf *name;
     IrBasicBlock *end_block;
     IrInstruction *is_comptime;
+    ResultLocPeerParent *peer_parent;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
 
     AstNode *safety_set_node;
     AstNode *fast_math_set_node;
 
+    LVal lval;
     bool safety_off;
     bool fast_math_on;
 };
@@ -2045,11 +2052,6 @@ struct ScopeCImport {
     Scope base;
 
     Buf buf;
-};
-
-enum LVal {
-    LValNone,
-    LValPtr,
 };
 
 // This scope is created for a loop such as for or while in order to

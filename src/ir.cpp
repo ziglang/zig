@@ -3759,7 +3759,17 @@ static ZigVar *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *n
     return var;
 }
 
-static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {
+static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
+    ResultLocPeer *result = allocate<ResultLocPeer>(1);
+    result->base.id = ResultLocIdPeer;
+    result->base.source_instruction = peer_parent->base.source_instruction;
+    result->parent = peer_parent;
+    return result;
+}
+
+static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(block_node->type == NodeTypeBlock);
 
     ZigList<IrInstruction *> incoming_values = {0};
@@ -3777,15 +3787,24 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
     if (block_node->data.block.statements.length == 0) {
         // {}
-        return ir_build_const_void(irb, child_scope, block_node);
+        return ir_lval_wrap(irb, parent_scope, ir_build_const_void(irb, child_scope, block_node), lval, result_loc);
     }
 
     if (block_node->data.block.name != nullptr) {
+        scope_block->lval = lval;
         scope_block->incoming_blocks = &incoming_blocks;
         scope_block->incoming_values = &incoming_values;
         scope_block->end_block = ir_create_basic_block(irb, parent_scope, "BlockEnd");
         scope_block->is_comptime = ir_build_const_bool(irb, parent_scope, block_node,
                 ir_should_inline(irb->exec, parent_scope));
+
+        scope_block->peer_parent = allocate<ResultLocPeerParent>(1);
+        scope_block->peer_parent->base.id = ResultLocIdPeerParent;
+        scope_block->peer_parent->base.source_instruction = scope_block->is_comptime;
+        scope_block->peer_parent->end_bb = scope_block->end_block;
+        scope_block->peer_parent->is_comptime = scope_block->is_comptime;
+        scope_block->peer_parent->parent = result_loc;
+        ir_build_reset_result(irb, parent_scope, block_node, &scope_block->peer_parent->base);
     }
 
     bool is_continuation_unreachable = false;
@@ -3821,23 +3840,41 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             return noreturn_return_value;
         }
 
+        if (scope_block->peer_parent != nullptr && scope_block->peer_parent->peers.length != 0) {
+            scope_block->peer_parent->peers.last()->next_bb = scope_block->end_block;
+        }
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, nullptr);
+        IrInstruction *phi = ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
+        return ir_expr_wrap(irb, parent_scope, phi, result_loc);
     } else {
         incoming_blocks.append(irb->current_basic_block);
-        incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
+        IrInstruction *else_expr_result = ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node));
+
+        if (scope_block->peer_parent != nullptr) {
+            ResultLocPeer *peer_result = create_peer_result(scope_block->peer_parent);
+            scope_block->peer_parent->peers.append(peer_result);
+            ir_build_end_expr(irb, parent_scope, block_node, else_expr_result, &peer_result->base);
+
+            if (scope_block->peer_parent->peers.length != 0) {
+                scope_block->peer_parent->peers.last()->next_bb = scope_block->end_block;
+            }
+        }
+
+        incoming_values.append(else_expr_result);
     }
 
     if (block_node->data.block.name != nullptr) {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
-        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
-                incoming_blocks.items, incoming_values.items, nullptr);
+        IrInstruction *phi = ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
+                incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
+        return ir_expr_wrap(irb, parent_scope, phi, result_loc);
     } else {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
-        return ir_mark_gen(ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
+        IrInstruction *void_inst = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+        return ir_lval_wrap(irb, parent_scope, void_inst, lval, result_loc);
     }
 }
 
@@ -3962,14 +3999,6 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     incoming_blocks[1] = post_val2_block;
 
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values, nullptr);
-}
-
-static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
-    ResultLocPeer *result = allocate<ResultLocPeer>(1);
-    result->base.id = ResultLocIdPeer;
-    result->base.source_instruction = peer_parent->base.source_instruction;
-    result->parent = peer_parent;
-    return result;
 }
 
 static ResultLocPeerParent *ir_build_result_peers(IrBuilder *irb, IrInstruction *cond_br_inst,
@@ -7216,7 +7245,11 @@ static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scop
 
     IrInstruction *result_value;
     if (node->data.break_expr.expr) {
-        result_value = ir_gen_node(irb, node->data.break_expr.expr, break_scope);
+        ResultLocPeer *peer_result = create_peer_result(block_scope->peer_parent);
+        block_scope->peer_parent->peers.append(peer_result);
+
+        result_value = ir_gen_node_extra(irb, node->data.break_expr.expr, break_scope, block_scope->lval,
+                &peer_result->base);
         if (result_value == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
     } else {
@@ -8193,7 +8226,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeTestDecl:
             zig_unreachable();
         case NodeTypeBlock:
-            return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node), lval, result_loc);
+            return ir_gen_block(irb, scope, node, lval, result_loc);
         case NodeTypeGroupedExpr:
             return ir_gen_node_raw(irb, node->data.grouped_expr, scope, lval, result_loc);
         case NodeTypeBinOpExpr:
@@ -15066,6 +15099,21 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             ResultLocPeer *result_peer = reinterpret_cast<ResultLocPeer *>(result_loc);
             ResultLocPeerParent *peer_parent = result_peer->parent;
 
+            if (peer_parent->peers.length == 1) {
+                IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
+                        value_type, value, false, non_null_comptime);
+                result_peer->suspend_pos.basic_block_index = SIZE_MAX;
+                result_peer->suspend_pos.instruction_index = SIZE_MAX;
+                if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
+                    parent_result_loc->value.type->id == ZigTypeIdUnreachable)
+                {
+                    return parent_result_loc;
+                }
+                result_loc->written = true;
+                result_loc->resolved_loc = parent_result_loc;
+                return result_loc->resolved_loc;
+            }
+
             bool is_comptime;
             if (!ir_resolve_comptime(ira, peer_parent->is_comptime->child, &is_comptime))
                 return ira->codegen->invalid_instruction;
@@ -16670,7 +16718,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
     ResultLocPeerParent *peer_parent = phi_instruction->peer_parent;
     if (peer_parent != nullptr && !peer_parent->skipped && !peer_parent->done_resuming &&
-        peer_parent->peers.length != 0)
+        peer_parent->peers.length >= 2)
     {
         if (peer_parent->resolved_type == nullptr) {
             IrInstruction **instructions = allocate<IrInstruction *>(peer_parent->peers.length);
