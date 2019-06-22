@@ -2283,13 +2283,11 @@ var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
-var debug_info_direct_allocator: std.heap.DirectAllocator = undefined;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
-    debug_info_direct_allocator = std.heap.DirectAllocator.init();
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(&debug_info_direct_allocator.allocator);
+    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;
 }

@@ -397,10 +397,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 }
 
 test "basic hash map usage" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
@@ -444,10 +441,7 @@ test "basic hash map usage" {
 }
 
 test "iterator hash map" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var reset_map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer reset_map.deinit();
 
     try reset_map.putNoClobber(1, 11);
@@ -491,10 +485,7 @@ test "iterator hash map" {
 }
 
 test "ensure capacity" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer map.deinit();
 
     try map.ensureCapacity(20);

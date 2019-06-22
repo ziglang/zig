@@ -866,10 +866,7 @@ test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
 
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-
-    const allocator = &da.allocator;
+    const allocator = std.heap.direct_allocator;
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);
@@ -882,10 +879,7 @@ test "std.event.Loop - call" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
 
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-
-    const allocator = &da.allocator;
+    const allocator = std.heap.direct_allocator;
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);

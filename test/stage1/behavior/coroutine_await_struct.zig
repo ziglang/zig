@@ -10,11 +10,8 @@ var await_a_promise: promise = undefined;
 var await_final_result = Foo{ .x = 0 };
 
 test "coroutine await struct" {
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-
     await_seq('a');
-    const p = async<&da.allocator> await_amain() catch unreachable;
+    const p = async<std.heap.direct_allocator> await_amain() catch unreachable;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
