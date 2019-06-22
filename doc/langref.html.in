@@ -3787,7 +3787,7 @@ test "fn reflection" {
       However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to its superset:
+      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to a superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
