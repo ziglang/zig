@@ -91,7 +91,7 @@ test "std" {
     _ = @import("heap.zig");
     _ = @import("io.zig");
     _ = @import("json.zig");
-    //_ = @import("lazy_init.zig");
+    _ = @import("lazy_init.zig");
     _ = @import("macho.zig");
     _ = @import("math.zig");
     _ = @import("mem.zig");

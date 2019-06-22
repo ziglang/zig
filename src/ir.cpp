@@ -15092,6 +15092,9 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 if (is_comptime)
                     return nullptr;
             }
+            if ((err = type_resolve(ira->codegen, ira->explicit_return_type, ResolveStatusZeroBitsKnown))) {
+                return ira->codegen->invalid_instruction;
+            }
             if (!type_has_bits(ira->explicit_return_type) || !handle_is_ptr(ira->explicit_return_type))
                 return nullptr;
 
