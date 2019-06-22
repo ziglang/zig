@@ -334,9 +334,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "std.SegmentedList" {
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-    var a = &da.allocator;
+    var a = std.heap.direct_allocator;
 
     try testSegmentedList(0, a);
     try testSegmentedList(1, a);

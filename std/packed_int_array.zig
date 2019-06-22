@@ -603,8 +603,7 @@ test "PackedInt(Array/Slice)Endian" {
 }
 
 //@NOTE: Need to manually update this list as more posix os's get
-// added to DirectAllocator. Windows can be added too when DirectAllocator
-// switches to VirtualAlloc.
+// added to DirectAllocator.
 
 //These tests prove we aren't accidentally accessing memory past
 // the end of the array/slice by placing it at the end of a page
@@ -613,7 +612,7 @@ test "PackedInt(Array/Slice)Endian" {
 // don't account for the bounds.
 test "PackedIntArray at end of available memory" {
     switch (builtin.os) {
-        .linux, .macosx, .ios, .freebsd, .netbsd => {},
+        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
     const PackedArray = PackedIntArray(u3, 8);
@@ -623,8 +622,7 @@ test "PackedIntArray at end of available memory" {
         p: PackedArray,
     };
 
-    var da = std.heap.DirectAllocator.init();
-    const allocator = &da.allocator;
+    const allocator = std.heap.direct_allocator;
 
     var pad = try allocator.create(Padded);
     defer allocator.destroy(pad);
@@ -633,13 +631,12 @@ test "PackedIntArray at end of available memory" {
 
 test "PackedIntSlice at end of available memory" {
     switch (builtin.os) {
-        .linux, .macosx, .ios, .freebsd, .netbsd => {},
+        .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
         else => return,
     }
     const PackedSlice = PackedIntSlice(u11);
 
-    var da = std.heap.DirectAllocator.init();
-    const allocator = &da.allocator;
+    const allocator = std.heap.direct_allocator;
 
     var page = try allocator.alloc(u8, std.mem.page_size);
     defer allocator.free(page);

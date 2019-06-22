@@ -707,8 +707,7 @@ const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTa
 const PathTable = std.AutoHashMap([]const u8, *TargetToHash);
 
 pub fn main() !void {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     const allocator = &arena.allocator;
     const args = try std.os.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
