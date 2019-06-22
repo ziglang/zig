@@ -2540,6 +2540,7 @@ struct IrInstructionStructFieldPtr {
 struct IrInstructionUnionFieldPtr {
     IrInstruction base;
 
+    bool safety_check_on;
     bool initializing;
     IrInstruction *union_ptr;
     TypeUnionField *field;

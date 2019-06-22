@@ -1384,10 +1384,11 @@ static IrInstruction *ir_build_struct_field_ptr(IrBuilder *irb, Scope *scope, As
 }
 
 static IrInstruction *ir_build_union_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *union_ptr, TypeUnionField *field, bool initializing)
+    IrInstruction *union_ptr, TypeUnionField *field, bool safety_check_on, bool initializing)
 {
     IrInstructionUnionFieldPtr *instruction = ir_build_instruction<IrInstructionUnionFieldPtr>(irb, scope, source_node);
     instruction->initializing = initializing;
+    instruction->safety_check_on = safety_check_on;
     instruction->union_ptr = union_ptr;
     instruction->field = field;
 
@@ -17514,7 +17515,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 IrInstruction *result;
                 if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                     result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope,
-                            source_instr->source_node, container_ptr, field, initializing);
+                            source_instr->source_node, container_ptr, field, true, initializing);
                     result->value.type = ptr_type;
                     result->value.special = ConstValSpecialStatic;
                 } else {
@@ -17529,7 +17530,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
         }
 
         IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope,
-                source_instr->source_node, container_ptr, field, initializing);
+                source_instr->source_node, container_ptr, field, true, initializing);
         result->value.type = ptr_type;
         return result;
     }
@@ -19005,7 +19006,7 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
         }
 
         IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, target_value_ptr, field, false);
+            instruction->base.scope, instruction->base.source_node, target_value_ptr, field, false, false);
         result->value.type = get_pointer_to_type(ira->codegen, field->type_entry,
                 target_value_ptr->value.type->data.pointer.is_const);
         return result;

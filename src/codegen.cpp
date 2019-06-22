@@ -3890,7 +3890,7 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
                 &field->enum_field->value);
         gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
-    } else if (ir_want_runtime_safety(g, &instruction->base)) {
+    } else if (instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
 
