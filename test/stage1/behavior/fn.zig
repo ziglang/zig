@@ -205,3 +205,26 @@ test "extern struct with stdcallcc fn pointer" {
     s.ptr = S.foo;
     expect(s.ptr() == 1234);
 }
+
+test "implicit cast fn call result to optional in field result" {
+    const S = struct {
+        fn entry() void {
+            var x = Foo{
+                .field = optionalPtr(),
+            };
+            expect(x.field.?.* == 999);
+        }
+
+        const glob: i32 = 999;
+
+        fn optionalPtr() *const i32 {
+            return &glob;
+        }
+
+        const Foo = struct {
+            field: ?*const i32,
+        };
+    };
+    S.entry();
+    comptime S.entry();
+}
