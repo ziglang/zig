@@ -88,7 +88,7 @@ test "std" {
     _ = @import("fmt.zig");
     _ = @import("fs.zig");
     _ = @import("hash.zig");
-    _ = @import("heap.zig"); // TODO commented test
+    _ = @import("heap.zig");
     _ = @import("io.zig");
     //_ = @import("json.zig");
     //_ = @import("lazy_init.zig");
