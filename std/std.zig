@@ -90,7 +90,7 @@ test "std" {
     _ = @import("hash.zig");
     _ = @import("heap.zig");
     _ = @import("io.zig");
-    //_ = @import("json.zig");
+    _ = @import("json.zig");
     //_ = @import("lazy_init.zig");
     _ = @import("macho.zig");
     _ = @import("math.zig");
