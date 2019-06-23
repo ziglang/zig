@@ -261,7 +261,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         .storage_class = storage_class,
         .scope = &scope,
         .is_export = switch (storage_class) {
-            .None => has_body,
+            .None => has_body and c.mode != .import,
             .Extern, .Static => false,
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern"),
             .Auto => unreachable, // Not legal on functions
@@ -1148,6 +1148,7 @@ fn finishTransFnProto(
     is_pub: bool,
 ) !*ast.Node.FnProto {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
+    const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else true;
 
     // TODO check for always_inline attribute
     // TODO check for align attribute
@@ -1157,7 +1158,7 @@ fn finishTransFnProto(
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const extern_export_inline_tok = if (is_export)
         try appendToken(rp.c, .Keyword_export, "export")
-    else if (cc == .C)
+    else if (cc == .C and is_extern)
         try appendToken(rp.c, .Keyword_extern, "extern")
     else
         null;

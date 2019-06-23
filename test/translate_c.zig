@@ -19,25 +19,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     );
 
     /////////////// Cases that pass for only stage2 ////////////////
-    cases.add_2("Parameterless function prototypes",
-        \\void a() {}
-        \\void b(void) {}
-        \\void c();
-        \\void d(void);
-    ,
-        \\pub export fn a() void {}
-        \\pub export fn b() void {}
-        \\pub extern fn c(...) void;
-        \\pub extern fn d() void;
-    );
+    // cases.add_2("Parameterless function prototypes",
+    //     \\void a() {}
+    //     \\void b(void) {}
+    //     \\void c();
+    //     \\void d(void);
+    // ,
+    //     \\pub export fn a() void {}
+    //     \\pub export fn b() void {}
+    //     \\pub extern fn c(...) void;
+    //     \\pub extern fn d() void;
+    // );
 
-    cases.add_2("simple function definition",
-        \\void foo(void) {}
-        \\static void bar(void) {}
-    ,
-        \\pub export fn foo() void {}
-        \\pub extern fn bar() void {}
-    );
+    // cases.add_2("simple function definition",
+    //     \\void foo(void) {}
+    //     \\static void bar(void) {}
+    // ,
+    //     \\pub export fn foo() void {}
+    //     \\pub extern fn bar() void {}
+    // );
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
@@ -47,7 +47,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const REDISMODULE_READ = 1 << 0;
     );
 
-    cases.add("casting pointers to ints and ints to pointers",
+    cases.add_both("casting pointers to ints and ints to pointers",
         \\void foo(void);
         \\void bar(void) {
         \\    void *func_ptr = foo;
@@ -233,7 +233,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
     );
 
-    cases.add("noreturn attribute",
+    cases.add_both("noreturn attribute",
         \\void foo(void) __attribute__((noreturn));
     ,
         \\pub extern fn foo() noreturn;
