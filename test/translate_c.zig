@@ -57,7 +57,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub fn bar() void {
         \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn() void = @intToPtr(?extern fn() void, c_ulong(@ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, c_ulong(@ptrToInt(func_ptr)));
         \\}
     );
 
@@ -357,7 +357,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn([*c]struct_Foo) void,
+        \\    derp: ?extern fn ([*c]struct_Foo) void,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -440,13 +440,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern char (*fn_ptr2)(int, float);
         \\#define bar fn_ptr2
     ,
-        \\pub extern var fn_ptr: ?extern fn() void;
+        \\pub extern var fn_ptr: ?extern fn () void;
     ,
         \\pub inline fn foo() void {
         \\    return fn_ptr.?();
         \\}
     ,
-        \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
+        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
         \\    return fn_ptr2.?(arg0, arg1);
@@ -462,7 +462,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("__cdecl doesn't mess up function pointers",
         \\void foo(void (__cdecl *fn_ptr)(void));
     ,
-        \\pub extern fn foo(fn_ptr: ?extern fn() void) void;
+        \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
     );
 
     cases.add("comment after integer literal",
@@ -1209,8 +1209,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 0;
         \\}
         \\pub export fn bar() void {
-        \\    var f: ?extern fn() void = foo;
-        \\    var b: ?extern fn() c_int = baz;
+        \\    var f: ?extern fn () void = foo;
+        \\    var b: ?extern fn () c_int = baz;
         \\    f.?();
         \\    f.?();
         \\    foo();
@@ -1345,9 +1345,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const GLbitfield = c_uint;
     ,
-        \\pub const PFNGLCLEARPROC = ?extern fn(GLbitfield) void;
+        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
     ,
-        \\pub const OpenGLProc = ?extern fn() void;
+        \\pub const OpenGLProc = ?extern fn () void;
     ,
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
