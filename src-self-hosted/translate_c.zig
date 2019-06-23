@@ -328,6 +328,7 @@ fn transStmt(
 ) !TransResult {
     const sc = ZigClangStmt_getStmtClass(stmt);
     switch (sc) {
+        .BinaryOperatorClass => return transBinaryOperator(rp, scope, @ptrCast(*const ZigClangBinaryOperator, stmt), result_used),
         .CompoundStmtClass => return transCompoundStmt(rp, scope, @ptrCast(*const ZigClangCompoundStmt, stmt)),
         .CStyleCastExprClass => return transCStyleCastExprClass(rp, scope, @ptrCast(*const ZigClangCStyleCastExpr, stmt), result_used, lrvalue),
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
@@ -344,6 +345,66 @@ fn transStmt(
                 @tagName(sc),
             );
         },
+    }
+}
+
+fn transBinaryOperator(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangBinaryOperator,
+    result_used: ResultUsed,
+) TransError!TransResult {
+    const op = ZigClangBinaryOperator_getOpcode(stmt);
+    switch (op) {
+        .PtrMemD, .PtrMemI, .Cmp => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangBinaryOperator_getBeginLoc(stmt),
+            "TODO: handle more C binary operators: {}",
+            op,
+        ),
+        .Assign => return TransResult{
+            .node = &(try transCreateNodeAssign(rp, scope, result_used, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt))).base,
+            .child_scope = scope,
+            .node_scope = scope,
+        },
+        .Mul,
+        .Div,
+        .Rem,
+        .Sub,
+        .Add,
+        .Shl,
+        .Shr,
+        .LT,
+        .GT,
+        .LE,
+        .GE,
+        .EQ,
+        .NE,
+        .And,
+        .Xor,
+        .Or,
+        .LAnd,
+        .LOr,
+        .Comma,
+        => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangBinaryOperator_getBeginLoc(stmt),
+            "TODO: handle more C binary operators: {}",
+            op,
+        ),
+        .MulAssign,
+        .DivAssign,
+        .RemAssign,
+        .AddAssign,
+        .SubAssign,
+        .ShlAssign,
+        .ShrAssign,
+        .AndAssign,
+        .XorAssign,
+        .OrAssign,
+        => unreachable,
     }
 }
 
@@ -794,6 +855,43 @@ fn cIsUnsignedInteger(qt: ZigClangQualType) bool {
         => true,
         else => false,
     };
+}
+
+fn transCreateNodeAssign(
+    rp: RestorePoint,
+    scope: *Scope,
+    result_used: ResultUsed,
+    lhs: *const ZigClangExpr,
+    rhs: *const ZigClangExpr,
+) !*ast.Node.InfixOp {
+    // common case
+    // c:   lhs = rhs
+    // zig: lhs = rhs
+    if (result_used == .unused) {
+        const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
+        const eq_token = try appendToken(rp.c, .Equal, "=");
+        const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        _ = try appendToken(rp.c, .Semicolon, ";");
+
+        const node = try rp.c.a().create(ast.Node.InfixOp);
+        node.* = ast.Node.InfixOp{
+            .base = ast.Node{ .id = .InfixOp },
+            .op_token = eq_token,
+            .lhs = lhs_node.node,
+            .op = .Assign,
+            .rhs = rhs_node.node,
+        };
+        return node;
+    }
+
+    // worst case
+    // c:   lhs = rhs
+    // zig: (x: {
+    // zig:     const _tmp = rhs;
+    // zig:     lhs = _tmp;
+    // zig:     break :x _tmp
+    // zig: })
+    return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangExpr_getBeginLoc(lhs), "TODO: worst case assign op expr");
 }
 
 fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.BuiltinCall {

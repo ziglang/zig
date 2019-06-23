@@ -960,3 +960,8 @@ pub extern fn ZigClangIntegerLiteral_EvaluateAsInt(*const ZigClangIntegerLiteral
 pub extern fn ZigClangIntegerLiteral_getBeginLoc(*const ZigClangIntegerLiteral) ZigClangSourceLocation;
 
 pub extern fn ZigClangReturnStmt_getRetValue(*const ZigClangReturnStmt) ?*const ZigClangExpr;
+
+pub extern fn ZigClangBinaryOperator_getOpcode(*const ZigClangBinaryOperator) ZigClangBO;
+pub extern fn ZigClangBinaryOperator_getBeginLoc(*const ZigClangBinaryOperator) ZigClangSourceLocation;
+pub extern fn ZigClangBinaryOperator_getLHS(*const ZigClangBinaryOperator) *const ZigClangExpr;
+pub extern fn ZigClangBinaryOperator_getRHS(*const ZigClangBinaryOperator) *const ZigClangExpr;

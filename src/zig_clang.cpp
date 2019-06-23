@@ -2022,3 +2022,23 @@ const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangR
     auto casted = reinterpret_cast<const clang::ReturnStmt *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getRetValue());
 }
+
+enum ZigClangBO ZigClangBinaryOperator_getOpcode(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return (ZigClangBO)casted->getOpcode();
+}
+
+struct ZigClangSourceLocation ZigClangBinaryOperator_getBeginLoc(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+const struct ZigClangExpr *ZigClangBinaryOperator_getLHS(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getLHS());
+}
+
+const struct ZigClangExpr *ZigClangBinaryOperator_getRHS(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getRHS());
+}
