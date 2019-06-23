@@ -1310,10 +1310,7 @@ const test_tmp_dir = "std_event_fs_test";
 // TODO this test is disabled until the coroutine rewrite is finished.
 //test "write a file, watch it, write it again" {
 //    return error.SkipZigTest;
-//    var da = std.heap.DirectAllocator.init();
-//    defer da.deinit();
-//
-//    const allocator = &da.allocator;
+//    const allocator = std.heap.direct_allocator;
 //
 //    // TODO move this into event loop too
 //    try os.makePath(allocator, test_tmp_dir);

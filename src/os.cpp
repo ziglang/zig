@@ -128,7 +128,7 @@ static void os_spawn_process_posix(ZigList<const char *> &args, Termination *ter
 
 static void os_windows_create_command_line(Buf *command_line, ZigList<const char *> &args) {
     buf_resize(command_line, 0);
-    char *prefix = "\"";
+    const char *prefix = "\"";
     for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
         const char *arg = args.at(arg_i);
         buf_append_str(command_line, prefix);

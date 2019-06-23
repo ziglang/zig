@@ -31,22 +31,14 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const DirectAllocator = struct {
-    allocator: Allocator,
+pub const direct_allocator = &direct_allocator_state;
+var direct_allocator_state = Allocator{
+    .reallocFn = DirectAllocator.realloc,
+    .shrinkFn = DirectAllocator.shrink,
+};
 
-    pub fn init() DirectAllocator {
-        return DirectAllocator{
-            .allocator = Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
-        };
-    }
-
-    pub fn deinit(self: *DirectAllocator) void {}
-
+const DirectAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
         if (n == 0)
             return (([*]u8)(undefined))[0..0];
 
@@ -730,10 +722,7 @@ test "c_allocator" {
 }
 
 test "DirectAllocator" {
-    var direct_allocator = DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    const allocator = &direct_allocator.allocator;
+    const allocator = direct_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
@@ -765,10 +754,7 @@ test "HeapAllocator" {
 }
 
 test "ArenaAllocator" {
-    var direct_allocator = DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var arena_allocator = ArenaAllocator.init(&direct_allocator.allocator);
+    var arena_allocator = ArenaAllocator.init(direct_allocator);
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);

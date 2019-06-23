@@ -215,10 +215,7 @@ test "std.event.RwLock" {
     // https://github.com/ziglang/zig/issues/2377
     if (true) return error.SkipZigTest;
 
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-
-    const allocator = &da.allocator;
+    const allocator = std.heap.direct_allocator;
 
     var loop: Loop = undefined;
     try loop.initMultiThreaded(allocator);

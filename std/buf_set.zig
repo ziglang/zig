@@ -65,10 +65,7 @@ pub const BufSet = struct {
 };
 
 test "BufSet" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var bufset = BufSet.init(&direct_allocator.allocator);
+    var bufset = BufSet.init(std.heap.direct_allocator);
     defer bufset.deinit();
 
     try bufset.put("x");

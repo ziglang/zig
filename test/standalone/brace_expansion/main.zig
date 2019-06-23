@@ -182,10 +182,7 @@ pub fn main() !void {
     var stdin_file = try io.getStdIn();
     var stdout_file = try io.getStdOut();
 
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     defer arena.deinit();
 
     global_allocator = &arena.allocator;
