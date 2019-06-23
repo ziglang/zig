@@ -811,23 +811,21 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {} ({})", case.name, @tagName(mode)) catch unreachable;
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {}", case.name) catch unreachable;
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
+        }
 
-            const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, mode);
-            self.step.dependOn(&compile_and_cmp_errors.step);
+        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug);
+        self.step.dependOn(&compile_and_cmp_errors.step);
 
-            for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = fs.path.join(
-                    b.allocator,
-                    [_][]const u8{ b.cache_root, src_file.filename },
-                ) catch unreachable;
-                const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                compile_and_cmp_errors.step.dependOn(&write_src.step);
-            }
+        for (case.sources.toSliceConst()) |src_file| {
+            const expanded_src_path = fs.path.join(
+                b.allocator,
+                [_][]const u8{ b.cache_root, src_file.filename },
+            ) catch unreachable;
+            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
+            compile_and_cmp_errors.step.dependOn(&write_src.step);
         }
     }
 };
