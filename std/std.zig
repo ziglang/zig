@@ -109,7 +109,7 @@ test "std" {
     _ = @import("time.zig");
     _ = @import("unicode.zig");
     _ = @import("valgrind.zig");
-    //_ = @import("zig.zig");
+    _ = @import("zig.zig");
 
     _ = @import("debug/leb128.zig");
 }
