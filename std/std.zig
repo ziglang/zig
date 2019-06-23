@@ -84,7 +84,7 @@ test "std" {
     _ = @import("dwarf.zig");
     _ = @import("dynamic_library.zig");
     _ = @import("elf.zig");
-    //_ = @import("event.zig");
+    _ = @import("event.zig");
     _ = @import("fmt.zig");
     _ = @import("fs.zig");
     _ = @import("hash.zig");

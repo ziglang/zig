@@ -15289,6 +15289,21 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
     if (result_loc != nullptr)
         return result_loc;
 
+    ZigFn *fn = exec_fn_entry(ira->new_irb.exec);
+    if (fn != nullptr && fn->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync &&
+            instruction->result_loc->id == ResultLocIdReturn)
+    {
+        result_loc = ir_resolve_result(ira, &instruction->base, no_result_loc(),
+                implicit_elem_type, nullptr, false, true);
+        if (result_loc != nullptr &&
+                (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
+        {
+            return result_loc;
+        }
+        result_loc->value.special = ConstValSpecialRuntime;
+        return result_loc;
+    }
+
     IrInstruction *result = ir_const(ira, &instruction->base, implicit_elem_type);
     result->value.special = ConstValSpecialUndef;
     IrInstruction *ptr = ir_get_ref(ira, &instruction->base, result, false, false);
@@ -16128,7 +16143,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                     impl_fn_type_id->return_type, nullptr, true, true);
-            if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+            if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) ||
+                        instr_is_unreachable(result_loc)))
+            {
                 return result_loc;
             }
         } else {
@@ -16248,7 +16265,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                 return_type, nullptr, true, true);
-        if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+        if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
             return result_loc;
         }
     } else {
