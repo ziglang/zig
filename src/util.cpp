@@ -13,7 +13,6 @@
 #include "userland.h"
 
 void zig_panic(const char *format, ...) {
-    abort();
     va_list ap;
     va_start(ap, format);
     vfprintf(stderr, format, ap);
