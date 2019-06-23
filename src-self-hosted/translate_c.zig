@@ -420,7 +420,9 @@ fn transCompoundStmtInline(
     while (it != end_it) : (it += 1) {
         const result = try transStmt(rp, parent_scope, it.*, .unused, .r_value);
         scope = result.child_scope;
-        try block_node.statements.push(result.node);
+        std.debug.warn("id: {}\n", result.node.id);
+        if (result.node != &block_node.base)
+            try block_node.statements.push(result.node);
     }
     return TransResult{
         .node = &block_node.base,
@@ -493,7 +495,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
 
                 const var_scope = try c.a().create(Scope.Var);
                 var_scope.* = Scope.Var{
-                    .base = Scope{ .id = .Var, .parent = parent_scope },
+                    .base = Scope{ .id = .Var, .parent = scope },
                     .c_name = c_name,
                     .zig_name = c_name, // TODO: getWantedName
                 };
@@ -527,11 +529,11 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     .eq_token = eq_token,
                     .mut_token = mut_token,
                     .comptime_token = null,
-                    .extern_export_token = null, // TODO ?TokenIndex,
-                    .lib_name = null, // TODO ?*Node,
+                    .extern_export_token = null,
+                    .lib_name = null,
                     .type_node = type_node,
                     .align_node = null, // TODO ?*Node,
-                    .section_node = null, // TODO ?*Node,
+                    .section_node = null,
                     .init_node = init_node,
                     .semicolon_token = semicolon_token,
                 };
