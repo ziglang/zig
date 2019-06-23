@@ -357,7 +357,7 @@ fn transCompoundStmtInline(
     const end_it = ZigClangCompoundStmt_body_end(stmt);
     var scope = parent_scope;
     while (it != end_it) : (it += 1) {
-        const result = try transStmt(rp, scope, it.*, .unused, .r_value);
+        const result = try transStmt(rp, parent_scope, it.*, .unused, .r_value);
         scope = result.child_scope;
         try block_node.statements.push(result.node);
     }
@@ -438,11 +438,22 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                 };
                 scope = &var_scope.base;
 
+                const colon_token = try appendToken(c, .Colon, ":");
+                const loc = ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt));
+                const type_node = try transQualType(rp, qual_type, loc);
+
                 const eq_token = try appendToken(c, .Equal, "=");
                 const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
                     (try transExpr(rp, scope, expr, .used, .r_value)).node
-                else
-                    null;
+                else blk: {
+                    const undefined_token = try appendToken(c, .Keyword_undefined, "undefined");
+                    const undefined_node = try rp.c.a().create(ast.Node.UndefinedLiteral);
+                    undefined_node.* = ast.Node.UndefinedLiteral{
+                        .base = ast.Node{ .id = .UndefinedLiteral },
+                        .token = undefined_token,
+                    };
+                    break :blk &undefined_node.base;
+                };
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
 
                 const node = try c.a().create(ast.Node.VarDecl);
@@ -457,7 +468,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     .comptime_token = null,
                     .extern_export_token = null, // TODO ?TokenIndex,
                     .lib_name = null, // TODO ?*Node,
-                    .type_node = null, // TODO ?*Node,
+                    .type_node = type_node,
                     .align_node = null, // TODO ?*Node,
                     .section_node = null, // TODO ?*Node,
                     .init_node = init_node,
