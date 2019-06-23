@@ -116,7 +116,7 @@ pub const X25519 = struct {
     }
 
     pub fn createPublicKey(public_key: []u8, private_key: []const u8) bool {
-        var base_point = []u8{9} ++ []u8{0} ** 31;
+        var base_point = [_]u8{9} ++ [_]u8{0} ** 31;
         return create(public_key, private_key, base_point);
     }
 };

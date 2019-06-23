@@ -11,7 +11,7 @@ fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, compt
         shards: [1 << ShardKey.bit_count]?*Node,
 
         pub fn create() Self {
-            return Self{ .shards = []?*Node{null} ** (1 << ShardKey.bit_count) };
+            return Self{ .shards = [_]?*Node{null} ** (1 << ShardKey.bit_count) };
         }
 
         fn getShardKey(key: Key) ShardKey {

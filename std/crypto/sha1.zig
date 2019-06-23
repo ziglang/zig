@@ -119,7 +119,7 @@ pub const Sha1 = struct {
 
         var s: [16]u32 = undefined;
 
-        var v: [5]u32 = []u32{
+        var v: [5]u32 = [_]u32{
             d.s[0],
             d.s[1],
             d.s[2],
@@ -127,7 +127,7 @@ pub const Sha1 = struct {
             d.s[4],
         };
 
-        const round0a = comptime []RoundParam{
+        const round0a = comptime [_]RoundParam{
             Rp(0, 1, 2, 3, 4, 0),
             Rp(4, 0, 1, 2, 3, 1),
             Rp(3, 4, 0, 1, 2, 2),
@@ -152,7 +152,7 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round0b = comptime []RoundParam{
+        const round0b = comptime [_]RoundParam{
             Rp(4, 0, 1, 2, 3, 16),
             Rp(3, 4, 0, 1, 2, 17),
             Rp(2, 3, 4, 0, 1, 18),
@@ -166,7 +166,7 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round1 = comptime []RoundParam{
+        const round1 = comptime [_]RoundParam{
             Rp(0, 1, 2, 3, 4, 20),
             Rp(4, 0, 1, 2, 3, 21),
             Rp(3, 4, 0, 1, 2, 22),
@@ -196,7 +196,7 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round2 = comptime []RoundParam{
+        const round2 = comptime [_]RoundParam{
             Rp(0, 1, 2, 3, 4, 40),
             Rp(4, 0, 1, 2, 3, 41),
             Rp(3, 4, 0, 1, 2, 42),
@@ -226,7 +226,7 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], u32(30));
         }
 
-        const round3 = comptime []RoundParam{
+        const round3 = comptime [_]RoundParam{
             Rp(0, 1, 2, 3, 4, 60),
             Rp(4, 0, 1, 2, 3, 61),
             Rp(3, 4, 0, 1, 2, 62),
@@ -293,7 +293,7 @@ test "sha1 streaming" {
 }
 
 test "sha1 aligned final" {
-    var block = []u8{0} ** Sha1.block_length;
+    var block = [_]u8{0} ** Sha1.block_length;
     var out: [Sha1.digest_length]u8 = undefined;
 
     var h = Sha1.init();

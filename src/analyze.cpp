@@ -2712,6 +2712,13 @@ ZigType *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
+void add_var_export(CodeGen *g, ZigVar *var, Buf *symbol_name, GlobalLinkageId linkage) {
+    GlobalExport *global_export = var->export_list.add_one();
+    memset(global_export, 0, sizeof(GlobalExport));
+    buf_init_from_buf(&global_export->name, symbol_name);
+    global_export->linkage = linkage;
+}
+
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
     if (ccc) {
         if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
@@ -2731,8 +2738,8 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
         }
     }
 
-    FnExport *fn_export = fn_table_entry->export_list.add_one();
-    memset(fn_export, 0, sizeof(FnExport));
+    GlobalExport *fn_export = fn_table_entry->export_list.add_one();
+    memset(fn_export, 0, sizeof(GlobalExport));
     buf_init_from_buf(&fn_export->name, symbol_name);
     fn_export->linkage = linkage;
 }
@@ -2780,12 +2787,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
 
         if (fn_proto->section_expr != nullptr) {
-            if (fn_table_entry->body_node == nullptr) {
-                add_node_error(g, fn_proto->section_expr,
-                    buf_sprintf("cannot set section of external function '%s'", buf_ptr(&fn_table_entry->symbol_name)));
-            } else {
-                analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
-            }
+            analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
         }
 
         if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
@@ -3024,6 +3026,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeContainerInitExpr:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeInferredArrayType:
         case NodeTypeErrorType:
         case NodeTypeIfErrorExpr:
         case NodeTypeIfOptional:
@@ -3193,15 +3196,6 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     assert(!is_export || !is_extern);
 
-    VarLinkage linkage;
-    if (is_export) {
-        linkage = VarLinkageExportStrong;
-    } else if (is_extern) {
-        linkage = VarLinkageExternal;
-    } else {
-        linkage = VarLinkageInternal;
-    }
-
     ConstExprValue *init_value = nullptr;
 
     // TODO more validation for types that can't be used for export/extern variables
@@ -3216,7 +3210,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         if (implicit_type->id == ZigTypeIdUnreachable) {
             add_node_error(g, source_node, buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
-        } else if ((!is_const || linkage == VarLinkageExternal) &&
+        } else if ((!is_const || is_extern) &&
                 (implicit_type->id == ZigTypeIdComptimeFloat ||
                 implicit_type->id == ZigTypeIdComptimeInt ||
                 implicit_type->id == ZigTypeIdEnumLiteral))
@@ -3231,7 +3225,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             implicit_type = g->builtin_types.entry_invalid;
         }
         assert(implicit_type->id == ZigTypeIdInvalid || init_value->special != ConstValSpecialRuntime);
-    } else if (linkage != VarLinkageExternal) {
+    } else if (!is_extern) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
     }
@@ -3243,7 +3237,6 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
             is_const, init_val, &tld_var->base, type);
-    tld_var->var->linkage = linkage;
     tld_var->var->is_thread_local = is_thread_local;
 
     if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
@@ -3257,16 +3250,17 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     }
 
     if (var_decl->section_expr != nullptr) {
-        if (var_decl->is_extern) {
-            add_node_error(g, var_decl->section_expr,
-                buf_sprintf("cannot set section of external variable '%s'", buf_ptr(var_decl->symbol)));
-        } else if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
+        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
             tld_var->section_name = nullptr;
         }
     }
 
     if (is_thread_local && is_const) {
         add_node_error(g, source_node, buf_sprintf("threadlocal variable cannot be constant"));
+    }
+
+    if (is_export) {
+        add_var_export(g, tld_var->var, &tld_var->var->name, GlobalLinkageIdStrong);
     }
 
     g->global_vars.append(tld_var);

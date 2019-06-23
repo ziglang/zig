@@ -74,7 +74,7 @@ pub fn main() !void {
         process.exit(1);
     }
 
-    const commands = []Command{
+    const commands = [_]Command{
         Command{
             .name = "build-exe",
             .exec = cmdBuildExe,
@@ -190,14 +190,14 @@ const usage_build_generic =
     \\
 ;
 
-const args_build_generic = []Flag{
+const args_build_generic = [_]Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", []const []const u8{
+    Flag.Option("--color", [_][]const u8{
         "auto",
         "off",
         "on",
     }),
-    Flag.Option("--mode", []const []const u8{
+    Flag.Option("--mode", [_][]const u8{
         "debug",
         "release-fast",
         "release-safe",
@@ -205,7 +205,7 @@ const args_build_generic = []Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", []const []const u8{
+    Flag.Option("--emit", [_][]const u8{
         "asm",
         "bin",
         "llvm-ir",
@@ -525,10 +525,10 @@ pub const usage_fmt =
     \\
 ;
 
-pub const args_fmt_spec = []Flag{
+pub const args_fmt_spec = [_]Flag{
     Flag.Bool("--help"),
     Flag.Bool("--check"),
-    Flag.Option("--color", []const []const u8{
+    Flag.Option("--color", [_][]const u8{
         "auto",
         "off",
         "on",
@@ -756,7 +756,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             var group = event.Group(FmtError!void).init(fmt.loop);
             while (try dir.next()) |entry| {
                 if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.loop.allocator, [][]const u8{ file_path, entry.name });
+                    const full_path = try fs.path.join(fmt.loop.allocator, [_][]const u8{ file_path, entry.name });
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
@@ -855,7 +855,7 @@ fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print("{}\n", std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING));
 }
 
-const args_test_spec = []Flag{Flag.Bool("--help")};
+const args_test_spec = [_]Flag{Flag.Bool("--help")};
 
 fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
@@ -897,7 +897,7 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(1);
     }
 
-    const sub_commands = []Command{Command{
+    const sub_commands = [_]Command{Command{
         .name = "build-info",
         .exec = cmdInternalBuildInfo,
     }};

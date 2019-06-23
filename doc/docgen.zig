@@ -16,10 +16,7 @@ const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;
@@ -717,7 +714,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-const builtin_types = [][]const u8{
+const builtin_types = [_][]const u8{
     "f16",         "f32",      "f64",    "f128",     "c_longdouble", "c_short",
     "c_ushort",    "c_int",    "c_uint", "c_long",   "c_ulong",      "c_longlong",
     "c_ulonglong", "c_char",   "c_void", "void",     "bool",         "isize",
@@ -1016,7 +1013,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
-                    [][]const u8{ tmp_dir_name, name_plus_ext },
+                    [_][]const u8{ tmp_dir_name, name_plus_ext },
                 );
                 try io.writeFile(tmp_source_file_name, trimmed_raw_source);
 
@@ -1025,11 +1022,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
                         const tmp_bin_file_name = try fs.path.join(
                             allocator,
-                            [][]const u8{ tmp_dir_name, name_plus_bin_ext },
+                            [_][]const u8{ tmp_dir_name, name_plus_bin_ext },
                         );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
-                        try build_args.appendSlice([][]const u8{
+                        try build_args.appendSlice([_][]const u8{
                             zig_exe,
                             "build-exe",
                             tmp_source_file_name,
@@ -1060,7 +1057,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
                             const full_path_object = try fs.path.join(
                                 allocator,
-                                [][]const u8{ tmp_dir_name, name_with_ext },
+                                [_][]const u8{ tmp_dir_name, name_with_ext },
                             );
                             try build_args.append("--object");
                             try build_args.append(full_path_object);
@@ -1072,7 +1069,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print(" --library c");
                         }
                         if (code.target_str) |triple| {
-                            try build_args.appendSlice([][]const u8{ "-target", triple });
+                            try build_args.appendSlice([_][]const u8{ "-target", triple });
                             if (!code.is_inline) {
                                 try out.print(" -target {}", triple);
                             }
@@ -1123,7 +1120,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
 
-                        const run_args = [][]const u8{tmp_bin_file_name};
+                        const run_args = [_][]const u8{tmp_bin_file_name};
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
                             const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
@@ -1157,7 +1154,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8{
+                        try test_args.appendSlice([_][]const u8{
                             zig_exe,
                             "test",
                             tmp_source_file_name,
@@ -1181,7 +1178,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
                         if (code.target_str) |triple| {
-                            try test_args.appendSlice([][]const u8{ "-target", triple });
+                            try test_args.appendSlice([_][]const u8{ "-target", triple });
                             try out.print(" -target {}", triple);
                         }
                         const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
@@ -1193,7 +1190,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8{
+                        try test_args.appendSlice([_][]const u8{
                             zig_exe,
                             "test",
                             "--color",
@@ -1252,7 +1249,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8{
+                        try test_args.appendSlice([_][]const u8{
                             zig_exe,
                             "test",
                             tmp_source_file_name,
@@ -1314,7 +1311,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
                         const tmp_obj_file_name = try fs.path.join(
                             allocator,
-                            [][]const u8{ tmp_dir_name, name_plus_obj_ext },
+                            [_][]const u8{ tmp_dir_name, name_plus_obj_ext },
                         );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
@@ -1322,10 +1319,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
                         const output_h_file_name = try fs.path.join(
                             allocator,
-                            [][]const u8{ tmp_dir_name, name_plus_h_ext },
+                            [_][]const u8{ tmp_dir_name, name_plus_h_ext },
                         );
 
-                        try build_args.appendSlice([][]const u8{
+                        try build_args.appendSlice([_][]const u8{
                             zig_exe,
                             "build-obj",
                             tmp_source_file_name,
@@ -1364,7 +1361,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         }
 
                         if (code.target_str) |triple| {
-                            try build_args.appendSlice([][]const u8{ "-target", triple });
+                            try build_args.appendSlice([_][]const u8{ "-target", triple });
                             try out.print(" -target {}", triple);
                         }
 
@@ -1411,7 +1408,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
-                        try test_args.appendSlice([][]const u8{
+                        try test_args.appendSlice([_][]const u8{
                             zig_exe,
                             "build-lib",
                             tmp_source_file_name,
@@ -1435,7 +1432,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             },
                         }
                         if (code.target_str) |triple| {
-                            try test_args.appendSlice([][]const u8{ "-target", triple });
+                            try test_args.appendSlice([_][]const u8{ "-target", triple });
                             try out.print(" -target {}", triple);
                         }
                         const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
@@ -1476,7 +1473,7 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
 }
 
 fn getBuiltinCode(allocator: *mem.Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, env_map, []const []const u8{
+    const result = try exec(allocator, env_map, [_][]const u8{
         zig_exe,
         "builtin",
     });

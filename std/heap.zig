@@ -31,22 +31,14 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const DirectAllocator = struct {
-    allocator: Allocator,
+pub const direct_allocator = &direct_allocator_state;
+var direct_allocator_state = Allocator{
+    .reallocFn = DirectAllocator.realloc,
+    .shrinkFn = DirectAllocator.shrink,
+};
 
-    pub fn init() DirectAllocator {
-        return DirectAllocator{
-            .allocator = Allocator{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
-        };
-    }
-
-    pub fn deinit(self: *DirectAllocator) void {}
-
+const DirectAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        const self = @fieldParentPtr(DirectAllocator, "allocator", allocator);
         if (n == 0)
             return (([*]u8)(undefined))[0..0];
 
@@ -347,10 +339,10 @@ pub const ArenaAllocator = struct {
     pub allocator: Allocator,
 
     child_allocator: *Allocator,
-    buffer_list: std.LinkedList([]u8),
+    buffer_list: std.SinglyLinkedList([]u8),
     end_index: usize,
 
-    const BufNode = std.LinkedList([]u8).Node;
+    const BufNode = std.SinglyLinkedList([]u8).Node;
 
     pub fn init(child_allocator: *Allocator) ArenaAllocator {
         return ArenaAllocator{
@@ -359,7 +351,7 @@ pub const ArenaAllocator = struct {
                 .shrinkFn = shrink,
             },
             .child_allocator = child_allocator,
-            .buffer_list = std.LinkedList([]u8).init(),
+            .buffer_list = std.SinglyLinkedList([]u8).init(),
             .end_index = 0,
         };
     }
@@ -387,10 +379,9 @@ pub const ArenaAllocator = struct {
         const buf_node = &buf_node_slice[0];
         buf_node.* = BufNode{
             .data = buf,
-            .prev = null,
             .next = null,
         };
-        self.buffer_list.append(buf_node);
+        self.buffer_list.prepend(buf_node);
         self.end_index = 0;
         return buf_node;
     }
@@ -398,7 +389,7 @@ pub const ArenaAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
-        var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
+        var cur_node = if (self.buffer_list.first) |first_node| first_node else try self.createNode(0, n + alignment);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.end_index;
@@ -731,10 +722,7 @@ test "c_allocator" {
 }
 
 test "DirectAllocator" {
-    var direct_allocator = DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    const allocator = &direct_allocator.allocator;
+    const allocator = direct_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
@@ -766,10 +754,7 @@ test "HeapAllocator" {
 }
 
 test "ArenaAllocator" {
-    var direct_allocator = DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var arena_allocator = ArenaAllocator.init(&direct_allocator.allocator);
+    var arena_allocator = ArenaAllocator.init(direct_allocator);
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);

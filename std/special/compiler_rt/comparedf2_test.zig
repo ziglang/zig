@@ -45,7 +45,7 @@ fn test__cmpdf2(vector: TestVector) bool {
     return true;
 }
 
-const arguments = []f64{
+const arguments = [_]f64{
     std.math.nan(f64),
     -std.math.inf(f64),
     -0x1.fffffffffffffp1023,

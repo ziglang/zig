@@ -2,7 +2,7 @@ pub const HP = struct {
     val: f64,
     off: f64,
 };
-pub const lookup_table = []HP{
+pub const lookup_table = [_]HP{
     HP{ .val = 1.000000e+308, .off = -1.097906362944045488e+291 },
     HP{ .val = 1.000000e+307, .off = 1.396894023974354241e+290 },
     HP{ .val = 1.000000e+306, .off = -1.721606459673645508e+289 },

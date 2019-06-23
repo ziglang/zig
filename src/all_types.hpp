@@ -460,6 +460,7 @@ enum NodeType {
     NodeTypeContainerInitExpr,
     NodeTypeStructValueField,
     NodeTypeArrayType,
+    NodeTypeInferredArrayType,
     NodeTypeErrorType,
     NodeTypeIfErrorExpr,
     NodeTypeIfOptional,
@@ -683,6 +684,10 @@ struct AstNodePointerType {
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
+};
+
+struct AstNodeInferredArrayType {
+    AstNode *child_type;
 };
 
 struct AstNodeArrayType {
@@ -989,6 +994,7 @@ struct AstNode {
         AstNodeContinueExpr continue_expr;
         AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
+        AstNodeInferredArrayType inferred_array_type;
         AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeCancelExpr cancel_expr;
@@ -1328,7 +1334,7 @@ enum FnInline {
     FnInlineNever,
 };
 
-struct FnExport {
+struct GlobalExport {
     Buf name;
     GlobalLinkageId linkage;
 };
@@ -1366,7 +1372,7 @@ struct ZigFn {
 
     AstNode *set_cold_node;
 
-    ZigList<FnExport> export_list;
+    ZigList<GlobalExport> export_list;
 
     LLVMValueRef valgrind_client_request_array;
 
@@ -1890,14 +1896,6 @@ struct CodeGen {
     size_t clang_argv_len;
 };
 
-enum VarLinkage {
-    VarLinkageInternal,
-    VarLinkageExportStrong,
-    VarLinkageExportWeak,
-    VarLinkageExportLinkOnce,
-    VarLinkageExternal,
-};
-
 struct ZigVar {
     Buf name;
     ConstExprValue *const_value;
@@ -1920,8 +1918,9 @@ struct ZigVar {
     // this pointer to the redefined variable.
     ZigVar *next_var;
 
+    ZigList<GlobalExport> export_list;
+
     uint32_t align_bytes;
-    VarLinkage linkage;
 
     bool shadowable;
     bool src_is_const;
@@ -2590,6 +2589,7 @@ struct IrInstructionContainerInitList {
     IrInstruction base;
 
     IrInstruction *container_type;
+    IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **items;
     LLVMValueRef tmp_ptr;

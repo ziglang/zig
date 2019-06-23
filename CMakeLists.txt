@@ -6,7 +6,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE STRING
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE STRING
       "Directory to install zig to" FORCE)
 endif()
 
@@ -479,6 +479,7 @@ set(ZIG_STD_FILES
     "crypto.zig"
     "crypto/blake2.zig"
     "crypto/chacha20.zig"
+    "crypto/gimli.zig"
     "crypto/hmac.zig"
     "crypto/md5.zig"
     "crypto/poly1305.zig"
@@ -6594,7 +6595,7 @@ set(ZIG_LIBCXX_FILES
 
 if(MSVC)
     set(MSVC_DIA_SDK_DIR "$ENV{VSINSTALLDIR}DIA SDK")
-    if (IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
+    if(IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
         set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
         string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
     endif()
@@ -6633,20 +6634,18 @@ set(EXE_CFLAGS "-std=c++11")
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     if(MSVC)
         set(EXE_CFLAGS "${EXE_CFLAGS} /w")
-    elseif(MINGW)
-        set(EXE_CFLAGS "${EXE_CFLAGS} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
     else()
         set(EXE_CFLAGS "${EXE_CFLAGS} -Werror -Wall")
     endif()
 endif()
 
 if(MSVC)
-  set(EXE_CFLAGS "${EXE_CFLAGS}")
+    set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
-  set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
-  if(MINGW)
-      set(EXE_CFLAGS "${EXE_CFLAGS} -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
-  endif()
+    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+    if(MINGW)
+        set(EXE_CFLAGS "${EXE_CFLAGS} -Wno-format")
+    endif()
 endif()
 
 set(OPTIMIZED_C_FLAGS "-std=c99 -O3")

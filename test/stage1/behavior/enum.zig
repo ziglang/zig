@@ -930,7 +930,7 @@ test "enum literal in array literal" {
         two,
     };
 
-    const array = []Items{
+    const array = [_]Items{
         .one,
         .two,
     };

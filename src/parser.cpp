@@ -288,6 +288,9 @@ static AstNode *ast_parse_prefix_op_expr(
             case NodeTypeArrayType:
                 right = &prefix->data.array_type.child_type;
                 break;
+            case NodeTypeInferredArrayType:
+                right = &prefix->data.inferred_array_type.child_type;
+                break;
             case NodeTypePointerType: {
                 // We might get two pointers from *_ptr_type_start
                 AstNode *child = prefix->data.pointer_type.op_expr;
@@ -887,6 +890,11 @@ static AstNode *ast_parse_if_statement(ParseContext *pc) {
         body = ast_parse_assign_expr(pc);
     }
 
+    if (body == nullptr) {
+        Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected if body, found '%s'", token_name(tok->id));
+    }
+
     Token *err_payload = nullptr;
     AstNode *else_body = nullptr;
     if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
@@ -991,6 +999,11 @@ static AstNode *ast_parse_for_statement(ParseContext *pc) {
         body = ast_parse_assign_expr(pc);
     }
 
+    if (body == nullptr) {
+        Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
+    }
+
     AstNode *else_body = nullptr;
     if (eat_token_if(pc, TokenIdKeywordElse) != nullptr) {
         else_body = ast_expect(pc, ast_parse_statement);
@@ -1018,6 +1031,11 @@ static AstNode *ast_parse_while_statement(ParseContext *pc) {
     if (body == nullptr) {
         requires_semi = true;
         body = ast_parse_assign_expr(pc);
+    }
+
+    if (body == nullptr) {
+        Token *tok = eat_token(pc);
+        ast_error(pc, tok, "expected loop body, found '%s'", token_name(tok->id));
     }
 
     Token *err_payload = nullptr;
@@ -1852,11 +1870,15 @@ static AstNode *ast_parse_asm_output(ParseContext *pc) {
 
 // AsmOutputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN (MINUSRARROW TypeExpr / IDENTIFIER) RPAREN
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
-    if (eat_token_if(pc, TokenIdLBracket) == nullptr)
-        return nullptr;
-
-    Token *sym_name = expect_token(pc, TokenIdSymbol);
-    expect_token(pc, TokenIdRBracket);
+    Token *sym_name = eat_token_if(pc, TokenIdBracketUnderscoreBracket);
+    if (sym_name == nullptr) {
+        if (eat_token_if(pc, TokenIdLBracket) == nullptr) {
+            return nullptr;
+        } else {
+            sym_name = expect_token(pc, TokenIdSymbol);
+            expect_token(pc, TokenIdRBracket);
+        }
+    }
 
     Token *str = expect_token(pc, TokenIdStringLiteral);
     expect_token(pc, TokenIdLParen);
@@ -1871,7 +1893,7 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
     expect_token(pc, TokenIdRParen);
 
     AsmOutput *res = allocate<AsmOutput>(1);
-    res->asm_symbolic_name = token_buf(sym_name);
+    res->asm_symbolic_name = (sym_name->id == TokenIdBracketUnderscoreBracket) ? buf_create_from_str("_") : token_buf(sym_name);
     res->constraint = token_buf(str);
     res->variable_name = token_buf(var_name);
     res->return_type = return_type;
@@ -1894,18 +1916,23 @@ static AstNode *ast_parse_asm_input(ParseContext *pc) {
 
 // AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
 static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
-    if (eat_token_if(pc, TokenIdLBracket) == nullptr)
-        return nullptr;
+    Token *sym_name = eat_token_if(pc, TokenIdBracketUnderscoreBracket);
+    if (sym_name == nullptr) {
+        if (eat_token_if(pc, TokenIdLBracket) == nullptr) {
+            return nullptr;
+        } else {
+            sym_name = expect_token(pc, TokenIdSymbol);
+            expect_token(pc, TokenIdRBracket);
+        }
+    }
 
-    Token *sym_name = expect_token(pc, TokenIdSymbol);
-    expect_token(pc, TokenIdRBracket);
     Token *constraint = expect_token(pc, TokenIdStringLiteral);
     expect_token(pc, TokenIdLParen);
     AstNode *expr = ast_expect(pc, ast_parse_expr);
     expect_token(pc, TokenIdRParen);
 
     AsmInput *res = allocate<AsmInput>(1);
-    res->asm_symbolic_name = token_buf(sym_name);
+    res->asm_symbolic_name = (sym_name->id == TokenIdBracketUnderscoreBracket) ? buf_create_from_str("_") : token_buf(sym_name);
     res->constraint = token_buf(constraint);
     res->expr = expr;
     return res;
@@ -2597,6 +2624,12 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
         return ptr;
     }
 
+    Token *arr_init = eat_token_if(pc, TokenIdBracketUnderscoreBracket);
+    if (arr_init != nullptr) {
+        return ast_create_node(pc, NodeTypeInferredArrayType, arr_init);
+    }
+
+
     return nullptr;
 }
 
@@ -3002,6 +3035,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.array_type.size, visit, context);
             visit_field(&node->data.array_type.child_type, visit, context);
             visit_field(&node->data.array_type.align_expr, visit, context);
+            break;
+        case NodeTypeInferredArrayType:
+            visit_field(&node->data.array_type.child_type, visit, context);
             break;
         case NodeTypePromiseType:
             visit_field(&node->data.promise_type.payload_type, visit, context);

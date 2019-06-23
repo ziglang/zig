@@ -73,7 +73,7 @@ const Point = struct {
     x: i32,
     y: i32,
 };
-const static_point_list = []Point{
+const static_point_list = [_]Point{
     makePoint(1, 2),
     makePoint(3, 4),
 };
@@ -94,7 +94,7 @@ pub const Vec3 = struct {
 };
 pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
     return Vec3{
-        .data = []f32{
+        .data = [_]f32{
             x,
             y,
             z,
@@ -118,7 +118,7 @@ const Vertex = struct {
     g: f32,
     b: f32,
 };
-const vertices = []Vertex{
+const vertices = [_]Vertex{
     Vertex{
         .x = -0.6,
         .y = -0.4,
@@ -159,7 +159,7 @@ test "statically initalized array literal" {
     const y: [4]u8 = st_init_arr_lit_x;
     expect(y[3] == 4);
 }
-const st_init_arr_lit_x = []u8{
+const st_init_arr_lit_x = [_]u8{
     1,
     2,
     3,
@@ -221,7 +221,7 @@ const CmdFn = struct {
     func: fn (i32) i32,
 };
 
-const cmd_fns = []CmdFn{
+const cmd_fns = [_]CmdFn{
     CmdFn{
         .name = "one",
         .func = one,
@@ -595,7 +595,7 @@ test "pointer to type" {
 
 test "slice of type" {
     comptime {
-        var types_array = []type{ i32, f64, type };
+        var types_array = [_]type{ i32, f64, type };
         for (types_array) |T, i| {
             switch (i) {
                 0 => expect(T == i32),
@@ -672,7 +672,7 @@ fn testVarInsideInlineLoop(args: ...) void {
 
 test "inline for with same type but different values" {
     var res: usize = 0;
-    inline for ([]type{ [2]u8, [1]u8, [2]u8 }) |T| {
+    inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
         var a: T = undefined;
         res += a.len;
     }
@@ -710,7 +710,7 @@ test "@bytesToslice on a packed struct" {
 }
 
 test "comptime pointer cast array and then slice" {
-    const array = []u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
 
     const ptrA: [*]const u8 = @ptrCast([*]const u8, &array);
     const sliceA: []const u8 = ptrA[0..2];
@@ -763,16 +763,16 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
 
 test "array concatenation forces comptime" {
     var a = oneItem(3) ++ oneItem(4);
-    expect(std.mem.eql(i32, a, []i32{ 3, 4 }));
+    expect(std.mem.eql(i32, a, [_]i32{ 3, 4 }));
 }
 
 test "array multiplication forces comptime" {
     var a = oneItem(3) ** scalar(2);
-    expect(std.mem.eql(i32, a, []i32{ 3, 3 }));
+    expect(std.mem.eql(i32, a, [_]i32{ 3, 3 }));
 }
 
 fn oneItem(x: i32) [1]i32 {
-    return []i32{x};
+    return [_]i32{x};
 }
 
 fn scalar(x: u32) u32 {

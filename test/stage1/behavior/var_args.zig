@@ -58,7 +58,7 @@ fn extraFn(extra: u32, args: ...) usize {
     return args.len;
 }
 
-const foos = []fn (...) bool{
+const foos = [_]fn (...) bool{
     foo1,
     foo2,
 };

@@ -80,9 +80,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         const prealloc_exp = blk: {
             // we don't use the prealloc_exp constant when prealloc_item_count is 0.
             assert(prealloc_item_count != 0);
+            assert(std.math.isPowerOfTwo(prealloc_item_count));
 
             const value = std.math.log2_int(usize, prealloc_item_count);
-            assert((1 << value) == prealloc_item_count); // prealloc_item_count must be a power of 2
             break :blk @typeOf(1)(value);
         };
         const ShelfIndex = std.math.Log2Int(usize);
@@ -108,7 +108,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
-                .dynamic_segments = [][*]T{},
+                .dynamic_segments = [_][*]T{},
             };
         }
 
@@ -187,7 +187,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = [][*]T{};
+                self.dynamic_segments = [_][*]T{};
                 return;
             }
 
@@ -334,9 +334,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "std.SegmentedList" {
-    var da = std.heap.DirectAllocator.init();
-    defer da.deinit();
-    var a = &da.allocator;
+    var a = std.heap.direct_allocator;
 
     try testSegmentedList(0, a);
     try testSegmentedList(1, a);
@@ -382,7 +380,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     testing.expect(list.pop().? == 100);
     testing.expect(list.len == 99);
 
-    try list.pushMany([]i32{
+    try list.pushMany([_]i32{
         1,
         2,
         3,
@@ -393,7 +391,7 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     testing.expect(list.pop().? == 1);
     testing.expect(list.len == 99);
 
-    try list.pushMany([]const i32{});
+    try list.pushMany([_]i32{});
     testing.expect(list.len == 99);
 
     var i: i32 = 99;

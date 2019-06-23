@@ -837,12 +837,11 @@ test "error prereq - continuation expecting end-of-line" {
 
 // - tokenize input, emit textual representation, and compare to expect
 fn depTokenizer(input: []const u8, expect: []const u8) !void {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    var arena_allocator = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     const arena = &arena_allocator.allocator;
     defer arena_allocator.deinit();
 
-    var it = Tokenizer.init(&direct_allocator.allocator, input);
+    var it = Tokenizer.init(arena, input);
     var buffer = try std.Buffer.initSize(arena, 0);
     var i: usize = 0;
     while (true) {
@@ -900,7 +899,7 @@ fn printLabel(out: var, label: []const u8, bytes: []const u8) !void {
     var i: usize = text.len;
     const end = 79;
     while (i < 79) : (i += 1) {
-        try out.write([]const u8{label[0]});
+        try out.write([_]u8{label[0]});
     }
     try out.write("\n");
 }
@@ -993,7 +992,7 @@ fn printHexValue(out: var, value: u64, width: u8) !void {
 
 fn printCharValues(out: var, bytes: []const u8) !void {
     for (bytes) |b| {
-        try out.write([]const u8{printable_char_tab[b]});
+        try out.write([_]u8{printable_char_tab[b]});
     }
 }
 
@@ -1002,7 +1001,7 @@ fn printUnderstandableChar(out: var, char: u8) !void {
         std.fmt.format(out.context, anyerror, out.output, "\\x{X2}", char) catch {};
     } else {
         try out.write("'");
-        try out.write([]const u8{printable_char_tab[char]});
+        try out.write([_]u8{printable_char_tab[char]});
         try out.write("'");
     }
 }

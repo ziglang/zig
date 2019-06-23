@@ -85,8 +85,8 @@ fn wantTtyColor() bool {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
-    if (os.wasi.is_the_target) {
-        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+    if (builtin.strip_debug_info) {
+        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -151,8 +151,8 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
-    if (os.wasi.is_the_target) {
-        stderr.print("Unable to dump stack trace: unimplemented on WASI\n") catch return;
+    if (builtin.strip_debug_info) {
+        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
@@ -223,6 +223,7 @@ pub fn writeStackTrace(
     debug_info: *DebugInfo,
     tty_color: bool,
 ) !void {
+    if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = std.math.min(stack_trace.index, stack_trace.instruction_addresses.len);
 
@@ -783,6 +784,8 @@ pub const OpenSelfDebugInfoError = error{
 };
 
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
+    if (builtin.strip_debug_info)
+        return error.MissingDebugInfo;
     if (windows.is_the_target) {
         return openSelfDebugInfoWindows(allocator);
     }
@@ -820,7 +823,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
 
-    const path = try fs.path.resolve(allocator, [][]const u8{raw_path});
+    const path = try fs.path.resolve(allocator, [_][]const u8{raw_path});
 
     try di.pdb.openFile(di.coff, path);
 
@@ -1418,7 +1421,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else
                 self.include_dirs[file_entry.dir_index];
-            const file_name = try fs.path.join(self.file_entries.allocator, [][]const u8{ dir_name, file_entry.file_name });
+            const file_name = try fs.path.join(self.file_entries.allocator, [_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
@@ -2224,8 +2227,9 @@ fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
 
 fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
     // TODO https://github.com/ziglang/zig/issues/863
-    const result = mem.readIntSlice(T, ptr.*[0..@sizeOf(T)], endian);
-    ptr.* += @sizeOf(T);
+    const size = (T.bit_count + 7) / 8;
+    const result = mem.readIntSlice(T, ptr.*[0..size], endian);
+    ptr.* += size;
     return result;
 }
 
@@ -2279,13 +2283,11 @@ var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
-var debug_info_direct_allocator: std.heap.DirectAllocator = undefined;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
-    debug_info_direct_allocator = std.heap.DirectAllocator.init();
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(&debug_info_direct_allocator.allocator);
+    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;
 }

@@ -46,7 +46,7 @@ test "std.meta.trait.multiTrait" {
         }
     };
 
-    const isVector = multiTrait(TraitList{
+    const isVector = multiTrait([_]TraitFn{
         hasFn("add"),
         hasField("x"),
         hasField("y"),
@@ -235,7 +235,7 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 }
 
 test "std.meta.trait.isSingleItemPtr" {
-    const array = []u8{0} ** 10;
+    const array = [_]u8{0} ** 10;
     testing.expect(isSingleItemPtr(@typeOf(&array[0])));
     testing.expect(!isSingleItemPtr(@typeOf(array)));
     testing.expect(!isSingleItemPtr(@typeOf(array[0..1])));
@@ -251,7 +251,7 @@ pub fn isManyItemPtr(comptime T: type) bool {
 }
 
 test "std.meta.trait.isManyItemPtr" {
-    const array = []u8{0} ** 10;
+    const array = [_]u8{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
     testing.expect(isManyItemPtr(@typeOf(mip)));
     testing.expect(!isManyItemPtr(@typeOf(array)));
@@ -268,7 +268,7 @@ pub fn isSlice(comptime T: type) bool {
 }
 
 test "std.meta.trait.isSlice" {
-    const array = []u8{0} ** 10;
+    const array = [_]u8{0} ** 10;
     testing.expect(isSlice(@typeOf(array[0..])));
     testing.expect(!isSlice(@typeOf(array)));
     testing.expect(!isSlice(@typeOf(&array[0])));
@@ -288,7 +288,7 @@ pub fn isIndexable(comptime T: type) bool {
 }
 
 test "std.meta.trait.isIndexable" {
-    const array = []u8{0} ** 10;
+    const array = [_]u8{0} ** 10;
     const slice = array[0..];
 
     testing.expect(isIndexable(@typeOf(array)));

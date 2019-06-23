@@ -209,7 +209,7 @@ pub fn makeDirW(dir_path: [*]const u16) !void {
 /// have been modified regardless.
 /// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, [][]const u8{full_path});
+    const resolved_path = try path.resolve(allocator, [_][]const u8{full_path});
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
@@ -447,13 +447,13 @@ pub const Dir = struct {
                     .seek = 0,
                     .index = 0,
                     .end_index = 0,
-                    .buf = []u8{},
+                    .buf = [_]u8{},
                 },
                 .linux => Handle{
                     .fd = try os.open(dir_path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, 0),
                     .index = 0,
                     .end_index = 0,
-                    .buf = []u8{},
+                    .buf = [_]u8{},
                 },
                 else => @compileError("unimplemented"),
             },
@@ -550,7 +550,7 @@ pub const Dir = struct {
                     return null;
             }
             const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
-            if (mem.eql(u16, name_utf16le, []u16{'.'}) or mem.eql(u16, name_utf16le, []u16{ '.', '.' }))
+            if (mem.eql(u16, name_utf16le, [_]u16{'.'}) or mem.eql(u16, name_utf16le, [_]u16{ '.', '.' }))
                 continue;
             // Trust that Windows gives us valid UTF-16LE
             const name_utf8_len = std.unicode.utf16leToUtf8(self.handle.name_data[0..], name_utf16le) catch unreachable;

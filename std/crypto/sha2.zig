@@ -189,7 +189,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], u32(7)) ^ math.rotr(u32, s[i - 15], u32(18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], u32(17)) ^ math.rotr(u32, s[i - 2], u32(19)) ^ (s[i - 2] >> 10));
             }
 
-            var v: [8]u32 = []u32{
+            var v: [8]u32 = [_]u32{
                 d.s[0],
                 d.s[1],
                 d.s[2],
@@ -200,7 +200,7 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 d.s[7],
             };
 
-            const round0 = comptime []RoundParam256{
+            const round0 = comptime [_]RoundParam256{
                 Rp256(0, 1, 2, 3, 4, 5, 6, 7, 0, 0x428A2F98),
                 Rp256(7, 0, 1, 2, 3, 4, 5, 6, 1, 0x71374491),
                 Rp256(6, 7, 0, 1, 2, 3, 4, 5, 2, 0xB5C0FBCF),
@@ -339,7 +339,7 @@ test "sha256 streaming" {
 }
 
 test "sha256 aligned final" {
-    var block = []u8{0} ** Sha256.block_length;
+    var block = [_]u8{0} ** Sha256.block_length;
     var out: [Sha256.digest_length]u8 = undefined;
 
     var h = Sha256.init();
@@ -535,7 +535,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u64, s[i - 15], u64(1)) ^ math.rotr(u64, s[i - 15], u64(8)) ^ (s[i - 15] >> 7)) +% (math.rotr(u64, s[i - 2], u64(19)) ^ math.rotr(u64, s[i - 2], u64(61)) ^ (s[i - 2] >> 6));
             }
 
-            var v: [8]u64 = []u64{
+            var v: [8]u64 = [_]u64{
                 d.s[0],
                 d.s[1],
                 d.s[2],
@@ -546,7 +546,7 @@ fn Sha2_64(comptime params: Sha2Params64) type {
                 d.s[7],
             };
 
-            const round0 = comptime []RoundParam512{
+            const round0 = comptime [_]RoundParam512{
                 Rp512(0, 1, 2, 3, 4, 5, 6, 7, 0, 0x428A2F98D728AE22),
                 Rp512(7, 0, 1, 2, 3, 4, 5, 6, 1, 0x7137449123EF65CD),
                 Rp512(6, 7, 0, 1, 2, 3, 4, 5, 2, 0xB5C0FBCFEC4D3B2F),
@@ -717,7 +717,7 @@ test "sha512 streaming" {
 }
 
 test "sha512 aligned final" {
-    var block = []u8{0} ** Sha512.block_length;
+    var block = [_]u8{0} ** Sha512.block_length;
     var out: [Sha512.digest_length]u8 = undefined;
 
     var h = Sha512.init();

@@ -153,6 +153,7 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? CC_EXE : cc_exe;
     ZigList<const char *> args = {};
+    args.append(cc_exe);
     args.append("-E");
     args.append("-Wp,-v");
     args.append("-xc");
@@ -166,7 +167,7 @@ static Error zig_libc_find_native_include_dir_posix(ZigLibCInstallation *self, b
     Buf *out_stderr = buf_alloc();
     Buf *out_stdout = buf_alloc();
     Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+    if ((err = os_exec_process(args, &term, out_stderr, out_stdout))) {
         if (verbose) {
             fprintf(stderr, "unable to determine libc include path: executing '%s': %s\n", cc_exe, err_str(err));
         }
@@ -277,12 +278,13 @@ Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirnam
     const char *cc_exe = getenv("CC");
     cc_exe = (cc_exe == nullptr) ? CC_EXE : cc_exe;
     ZigList<const char *> args = {};
+    args.append(cc_exe);
     args.append(buf_ptr(buf_sprintf("-print-file-name=%s", o_file)));
     Termination term;
     Buf *out_stderr = buf_alloc();
     Buf *out_stdout = buf_alloc();
     Error err;
-    if ((err = os_exec_process(cc_exe, args, &term, out_stderr, out_stdout))) {
+    if ((err = os_exec_process(args, &term, out_stderr, out_stdout))) {
         if (err == ErrorFileNotFound)
             return ErrorNoCCompilerInstalled;
         if (verbose) {

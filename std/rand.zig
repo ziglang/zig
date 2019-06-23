@@ -18,6 +18,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 const math = std.math;
 const ziggurat = @import("rand/ziggurat.zig");
@@ -501,7 +502,7 @@ const SplitMix64 = struct {
 test "splitmix64 sequence" {
     var r = SplitMix64.init(0xaeecf86f7878dd75);
 
-    const seq = []const u64{
+    const seq = [_]u64{
         0x5dbd39db0178eb44,
         0xa9900fb66b397da3,
         0x5c1a28b1aeebcf5c,
@@ -594,7 +595,7 @@ test "pcg sequence" {
     const s1: u64 = 0x84e9c579ef59bbf7;
     r.seedTwo(s0, s1);
 
-    const seq = []const u32{
+    const seq = [_]u32{
         2881561918,
         3063928540,
         1199791034,
@@ -643,7 +644,7 @@ pub const Xoroshiro128 = struct {
         var s0: u64 = 0;
         var s1: u64 = 0;
 
-        const table = []const u64{
+        const table = [_]u64{
             0xbeac0467eba5facb,
             0xd86b048b86aa9922,
         };
@@ -703,7 +704,7 @@ test "xoroshiro sequence" {
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;
 
-    const seq1 = []const u64{
+    const seq1 = [_]u64{
         0xb0ba0da5bb600397,
         0x18a08afde614dccc,
         0xa2635b956a31b929,
@@ -718,7 +719,7 @@ test "xoroshiro sequence" {
 
     r.jump();
 
-    const seq2 = []const u64{
+    const seq2 = [_]u64{
         0x95344a13556d3e22,
         0xb4fb32dafa4d00df,
         0xb2011d9ccdcfe2dd,
@@ -821,7 +822,7 @@ pub const Isaac64 = struct {
         self.m[0] = init_s;
 
         // prescrambled golden ratio constants
-        var a = []const u64{
+        var a = [_]u64{
             0x647c4677a2884b7c,
             0xb9f8b322c73ac862,
             0x8c0ea5053d4712a0,
@@ -911,7 +912,7 @@ test "isaac64 sequence" {
     var r = Isaac64.init(0);
 
     // from reference implementation
-    const seq = []const u64{
+    const seq = [_]u64{
         0xf67dfba498e4937c,
         0x84a5066a9204f380,
         0xfee34bd5f5514dbb,
@@ -935,6 +936,105 @@ test "isaac64 sequence" {
     }
 }
 
+/// Sfc64 pseudo-random number generator from Practically Random.
+/// Fastest engine of pracrand and smallest footprint.
+/// See http://pracrand.sourceforge.net/
+pub const Sfc64 = struct {
+    random: Random,
+
+    a: u64 = undefined,
+    b: u64 = undefined,
+    c: u64 = undefined,
+    counter: u64 = undefined,
+
+    const Rotation = 24;
+    const RightShift = 11;
+    const LeftShift = 3;
+
+    pub fn init(init_s: u64) Sfc64 {
+        var x = Sfc64{
+            .random = Random{ .fillFn = fill },
+        };
+
+        x.seed(init_s);
+        return x;
+    }
+
+    fn next(self: *Sfc64) u64 {
+        const tmp = self.a +% self.b +% self.counter;
+        self.counter += 1;
+        self.a = self.b ^ (self.b >> RightShift);
+        self.b = self.c +% (self.c << LeftShift);
+        self.c = math.rotl(u64, self.c, Rotation) +% tmp;
+        return tmp;
+    }
+
+    fn seed(self: *Sfc64, init_s: u64) void {
+        self.a = init_s;
+        self.b = init_s;
+        self.c = init_s;
+        self.counter = 1;
+        var i: u32 = 0;
+        while (i < 12) : (i += 1) {
+            _ = self.next();
+        }
+    }
+
+    fn fill(r: *Random, buf: []u8) void {
+        const self = @fieldParentPtr(Sfc64, "random", r);
+
+        var i: usize = 0;
+        const aligned_len = buf.len - (buf.len & 7);
+
+        // Complete 8 byte segments.
+        while (i < aligned_len) : (i += 8) {
+            var n = self.next();
+            comptime var j: usize = 0;
+            inline while (j < 8) : (j += 1) {
+                buf[i + j] = @truncate(u8, n);
+                n >>= 8;
+            }
+        }
+
+        // Remaining. (cuts the stream)
+        if (i != buf.len) {
+            var n = self.next();
+            while (i < buf.len) : (i += 1) {
+                buf[i] = @truncate(u8, n);
+                n >>= 8;
+            }
+        }
+    }
+};
+
+test "Sfc64 sequence" {
+    // Unfortunately there does not seem to be an official test sequence.
+    var r = Sfc64.init(0);
+
+    const seq = [_]u64{
+        0x3acfa029e3cc6041,
+        0xf5b6515bf2ee419c,
+        0x1259635894a29b61,
+        0xb6ae75395f8ebd6,
+        0x225622285ce302e2,
+        0x520d28611395cb21,
+        0xdb909c818901599d,
+        0x8ffd195365216f57,
+        0xe8c4ad5e258ac04a,
+        0x8f8ef2c89fdb63ca,
+        0xf9865b01d98d8e2f,
+        0x46555871a65d08ba,
+        0x66868677c6298fcd,
+        0x2ce15a7e6329f57d,
+        0xb2f1833ca91ca79,
+        0x4b0890ac9bf453ca,
+    };
+
+    for (seq) |s| {
+        expectEqual(s, r.next());
+    }
+}
+
 // Actual Random helper function tests, pcg engine is assumed correct.
 test "Random float" {
     var prng = DefaultPrng.init(0);
@@ -954,8 +1054,8 @@ test "Random float" {
 test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
-    var seq = []const u8{ 0, 1, 2, 3, 4 };
-    var seen = []bool{false} ** 5;
+    var seq = [_]u8{ 0, 1, 2, 3, 4 };
+    var seen = [_]bool{false} ** 5;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -991,7 +1091,7 @@ fn testRange(r: *Random, start: i8, end: i8) void {
 }
 fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
     const count = @intCast(usize, i32(end) - i32(start));
-    var values_buffer = []bool{false} ** 0x100;
+    var values_buffer = [_]bool{false} ** 0x100;
     const values = values_buffer[0..count];
     var i: usize = 0;
     while (i < count) {

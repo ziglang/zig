@@ -102,7 +102,7 @@ pub const Rational = struct {
         if (point) |i| {
             try self.p.setString(10, str[0..i]);
 
-            const base = Int.initFixed(([]Limb{10})[0..]);
+            const base = Int.initFixed(([_]Limb{10})[0..]);
 
             var j: usize = start;
             while (j < str.len - i - 1) : (j += 1) {
@@ -452,7 +452,7 @@ pub const Rational = struct {
         try gcd(&a, r.p, r.q);
         r.p.setSign(sign);
 
-        const one = Int.initFixed(([]Limb{1})[0..]);
+        const one = Int.initFixed(([_]Limb{1})[0..]);
         if (a.cmp(one) != 0) {
             var unused = try Int.init(r.p.allocator.?);
             defer unused.deinit();

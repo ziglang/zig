@@ -94,14 +94,14 @@ test "adler32 sanity" {
 }
 
 test "adler32 long" {
-    const long1 = []u8{1} ** 1024;
+    const long1 = [_]u8{1} ** 1024;
     testing.expect(Adler32.hash(long1[0..]) == 0x06780401);
 
-    const long2 = []u8{1} ** 1025;
+    const long2 = [_]u8{1} ** 1025;
     testing.expect(Adler32.hash(long2[0..]) == 0x0a7a0402);
 }
 
 test "adler32 very long" {
-    const long = []u8{1} ** 5553;
+    const long = [_]u8{1} ** 5553;
     testing.expect(Adler32.hash(long[0..]) == 0x707f15b2);
 }

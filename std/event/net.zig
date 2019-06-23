@@ -19,7 +19,7 @@ pub const Server = struct {
     waiting_for_emfile_node: PromiseNode,
     listen_resume_node: event.Loop.ResumeNode,
 
-    const PromiseNode = std.LinkedList(promise).Node;
+    const PromiseNode = std.TailQueue(promise).Node;
 
     pub fn init(loop: *Loop) Server {
         // TODO can't initialize handler coroutine here because we need well defined copy elision

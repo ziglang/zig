@@ -4,7 +4,7 @@ pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
 
     const foo = b.addStaticLibrary("foo", null);
-    foo.addCSourceFile("foo.c", [][]const u8{});
+    foo.addCSourceFile("foo.c", [_][]const u8{});
     foo.setBuildMode(mode);
     foo.addIncludeDir(".");
 

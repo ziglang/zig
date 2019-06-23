@@ -376,7 +376,7 @@ test "C string concatenation" {
 
 test "cast slice to u8 slice" {
     expect(@sizeOf(i32) == 4);
-    var big_thing_array = []i32{ 1, 2, 3, 4 };
+    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
     const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = @sliceToBytes(big_thing_slice);
     expect(bytes.len == 4 * 4);
@@ -412,9 +412,9 @@ test "non const ptr to aliased type" {
 }
 
 test "array 2D const double ptr" {
-    const rect_2d_vertexes = [][1]f32{
-        []f32{1.0},
-        []f32{2.0},
+    const rect_2d_vertexes = [_][1]f32{
+        [_]f32{1.0},
+        [_]f32{2.0},
     };
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
@@ -513,7 +513,7 @@ test "global variable initialized to global variable array element" {
 const GDTEntry = struct {
     field: i32,
 };
-var gdt = []GDTEntry{
+var gdt = [_]GDTEntry{
     GDTEntry{ .field = 1 },
     GDTEntry{ .field = 2 },
 };
@@ -607,11 +607,11 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion, c: Pack
 
 test "slicing zero length array" {
     const s1 = ""[0..];
-    const s2 = ([]u32{})[0..];
+    const s2 = ([_]u32{})[0..];
     expect(s1.len == 0);
     expect(s2.len == 0);
     expect(mem.eql(u8, s1, ""));
-    expect(mem.eql(u32, s2, []u32{}));
+    expect(mem.eql(u32, s2, [_]u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
@@ -650,7 +650,7 @@ test "volatile load and store" {
 test "slice string literal has type []const u8" {
     comptime {
         expect(@typeOf("aoeu"[0..]) == []const u8);
-        const array = []i32{ 1, 2, 3, 4 };
+        const array = [_]i32{ 1, 2, 3, 4 };
         expect(@typeOf(array[0..]) == []const i32);
     }
 }

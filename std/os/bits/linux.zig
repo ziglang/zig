@@ -119,6 +119,23 @@ pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
 pub const O_RDWR = 0o2;
 
+pub const kernel_rwf = u32;
+
+/// high priority request, poll if possible
+pub const RWF_HIPRI = kernel_rwf(0x00000001);
+
+/// per-IO O_DSYNC
+pub const RWF_DSYNC = kernel_rwf(0x00000002);
+
+/// per-IO O_SYNC
+pub const RWF_SYNC = kernel_rwf(0x00000004);
+
+/// per-IO, return -EAGAIN if operation would block
+pub const RWF_NOWAIT = kernel_rwf(0x00000008);
+
+/// per-IO O_APPEND
+pub const RWF_APPEND = kernel_rwf(0x00000010);
+
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
@@ -691,8 +708,8 @@ pub const winsize = extern struct {
 
 pub const NSIG = 65;
 pub const sigset_t = [128 / @sizeOf(usize)]usize;
-pub const all_mask = []u32{ 0xffffffff, 0xffffffff };
-pub const app_mask = []u32{ 0xfffffffc, 0x7fffffff };
+pub const all_mask = [_]u32{ 0xffffffff, 0xffffffff };
+pub const app_mask = [_]u32{ 0xfffffffc, 0x7fffffff };
 
 pub const k_sigaction = extern struct {
     handler: extern fn (i32) void,
@@ -711,7 +728,7 @@ pub const Sigaction = struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
-pub const empty_sigset = []usize{0} ** sigset_t.len;
+pub const empty_sigset = [_]usize{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
@@ -950,3 +967,129 @@ pub const stack_t = extern struct {
     ss_flags: i32,
     ss_size: isize,
 };
+
+pub const io_uring_params = extern struct {
+    sq_entries: u32,
+    cq_entries: u32,
+    flags: u32,
+    sq_thread_cpu: u32,
+    sq_thread_idle: u32,
+    resv: [5]u32,
+    sq_off: io_sqring_offsets,
+    cq_off: io_cqring_offsets,
+};
+
+// io_uring_params.flags
+
+/// io_context is polled
+pub const IORING_SETUP_IOPOLL = (1 << 0);
+
+/// SQ poll thread
+pub const IORING_SETUP_SQPOLL = (1 << 1);
+
+/// sq_thread_cpu is valid
+pub const IORING_SETUP_SQ_AFF = (1 << 2);
+
+pub const io_sqring_offsets = extern struct {
+    /// offset of ring head
+    head: u32,
+
+    /// offset of ring tail
+    tail: u32,
+
+    /// ring mask value
+    ring_mask: u32,
+
+    /// entries in ring
+    ring_entries: u32,
+
+    /// ring flags
+    flags: u32,
+
+    /// number of sqes not submitted
+    dropped: u32,
+
+    /// sqe index array
+    array: u32,
+
+    resv1: u32,
+    resv2: u64,
+};
+
+// io_sqring_offsets.flags
+
+/// needs io_uring_enter wakeup
+pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
+
+pub const io_cqring_offsets = extern struct {
+    head: u32,
+    tail: u32,
+    ring_mask: u32,
+    ring_entries: u32,
+    overflow: u32,
+    cqes: u32,
+    resv: [2]u64,
+};
+
+pub const io_uring_sqe = extern struct {
+    opcode: u8,
+    flags: u8,
+    ioprio: u16,
+    fd: i32,
+    off: u64,
+    addr: u64,
+    len: u32,
+    pub const union1 = extern union {
+        rw_flags: kernel_rwf,
+        fsync_flags: u32,
+        poll_event: u16,
+    };
+    union1: union1,
+    user_data: u64,
+    pub const union2 = extern union {
+        buf_index: u16,
+        __pad2: [3]u64,
+    };
+    union2: union2,
+};
+
+// io_uring_sqe.flags
+
+/// use fixed fileset
+pub const IOSQE_FIXED_FILE = (1 << 0);
+
+pub const IORING_OP_NOP = 0;
+pub const IORING_OP_READV = 1;
+pub const IORING_OP_WRITEV = 2;
+pub const IORING_OP_FSYNC = 3;
+pub const IORING_OP_READ_FIXED = 4;
+pub const IORING_OP_WRITE_FIXED = 5;
+pub const IORING_OP_POLL_ADD = 6;
+pub const IORING_OP_POLL_REMOVE = 7;
+
+// io_uring_sqe.fsync_flags
+pub const IORING_FSYNC_DATASYNC = (1 << 0);
+
+// IO completion data structure (Completion Queue Entry)
+pub const io_uring_cqe = extern struct {
+    /// io_uring_sqe.data submission passed back
+    user_data: u64,
+
+    /// result code for this event
+    res: i32,
+    flags: u32,
+};
+
+pub const IORING_OFF_SQ_RING = 0;
+pub const IORING_OFF_CQ_RING = 0x8000000;
+pub const IORING_OFF_SQES = 0x10000000;
+
+// io_uring_enter flags
+pub const IORING_ENTER_GETEVENTS = (1 << 0);
+pub const IORING_ENTER_SQ_WAKEUP = (1 << 1);
+
+// io_uring_register opcodes and arguments
+pub const IORING_REGISTER_BUFFERS = 0;
+pub const IORING_UNREGISTER_BUFFERS = 1;
+pub const IORING_REGISTER_FILES = 2;
+pub const IORING_UNREGISTER_FILES = 3;

@@ -4,7 +4,7 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
 

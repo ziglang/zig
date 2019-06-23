@@ -120,8 +120,8 @@ fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
 }
 
 test "generic fn with implicit cast" {
-    expect(getFirstByte(u8, []u8{13}) == 13);
-    expect(getFirstByte(u16, []u16{
+    expect(getFirstByte(u8, [_]u8{13}) == 13);
+    expect(getFirstByte(u16, [_]u16{
         0,
         13,
     }) == 0);
@@ -133,7 +133,7 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
     return getByte(@ptrCast(*const u8, &mem[0]));
 }
 
-const foos = []fn (var) bool{
+const foos = [_]fn (var) bool{
     foo1,
     foo2,
 };

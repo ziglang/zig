@@ -203,6 +203,10 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     get_target_triple(&g->triple_str, g->zig_target);
     g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
 
+    if (!target_has_debug_info(g->zig_target)) {
+        g->strip_debug_symbols = true;
+    }
+
     return g;
 }
 
@@ -248,6 +252,9 @@ void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {
 
 void codegen_set_strip(CodeGen *g, bool strip) {
     g->strip_debug_symbols = strip;
+    if (!target_has_debug_info(g->zig_target)) {
+        g->strip_debug_symbols = true;
+    }
 }
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
@@ -475,7 +482,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
         symbol_name = get_mangled_name(g, unmangled_name, false);
         linkage = GlobalLinkageIdInternal;
     } else {
-        FnExport *fn_export = &fn_table_entry->export_list.items[0];
+        GlobalExport *fn_export = &fn_table_entry->export_list.items[0];
         symbol_name = &fn_export->name;
         linkage = fn_export->linkage;
     }
@@ -529,7 +536,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         for (size_t i = 1; i < fn_table_entry->export_list.length; i += 1) {
-            FnExport *fn_export = &fn_table_entry->export_list.items[i];
+            GlobalExport *fn_export = &fn_table_entry->export_list.items[i];
             LLVMAddAlias(g->module, LLVMTypeOf(fn_table_entry->llvm_value),
                     fn_table_entry->llvm_value, buf_ptr(&fn_export->name));
         }
@@ -6691,25 +6698,12 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
-    if (var->is_thread_local && (!g->is_single_threaded || var->linkage != VarLinkageInternal)) {
+    bool is_extern = var->decl_node->data.variable_declaration.is_extern;
+    bool is_export = var->decl_node->data.variable_declaration.is_export;
+    bool is_internal_linkage = !is_extern && !is_export;
+    if (var->is_thread_local && (!g->is_single_threaded || !is_internal_linkage)) {
         LLVMSetThreadLocalMode(global_value, LLVMGeneralDynamicTLSModel);
     }
-}
-
-static LLVMLinkage var_linkage_to_llvm(VarLinkage var_linkage) {
-    switch (var_linkage) {
-        case VarLinkageInternal:
-            return LLVMInternalLinkage;
-        case VarLinkageExportStrong:
-            return LLVMExternalLinkage;
-        case VarLinkageExportWeak:
-            return LLVMWeakODRLinkage;
-        case VarLinkageExportLinkOnce:
-            return LLVMLinkOnceODRLinkage;
-        case VarLinkageExternal:
-            return LLVMExternalLinkage;
-    }
-    zig_unreachable();
 }
 
 static void do_code_gen(CodeGen *g) {
@@ -6761,31 +6755,48 @@ static void do_code_gen(CodeGen *g) {
 
         assert(var->decl_node);
 
+        GlobalLinkageId linkage;
+        Buf *unmangled_name = &var->name;
+        Buf *symbol_name;
+        if (var->export_list.length == 0) {
+            if (var->decl_node->data.variable_declaration.is_extern) {
+                symbol_name = unmangled_name;
+                linkage = GlobalLinkageIdStrong;
+            } else {
+                symbol_name = get_mangled_name(g, unmangled_name, false);
+                linkage = GlobalLinkageIdInternal;
+            }
+        } else {
+            GlobalExport *global_export = &var->export_list.items[0];
+            symbol_name = &global_export->name;
+            linkage = global_export->linkage;
+        }
+
         LLVMValueRef global_value;
-        if (var->linkage == VarLinkageExternal) {
-            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(&var->name));
+        bool externally_initialized = var->decl_node->data.variable_declaration.expr == nullptr;
+        if (externally_initialized) {
+            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(symbol_name));
             if (existing_llvm_var) {
                 global_value = LLVMConstBitCast(existing_llvm_var,
                         LLVMPointerType(get_llvm_type(g, var->var_type), 0));
             } else {
-                global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), buf_ptr(&var->name));
+                global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), buf_ptr(symbol_name));
                 // TODO debug info for the extern variable
 
-                LLVMSetLinkage(global_value, var_linkage_to_llvm(var->linkage));
+                LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
                 maybe_import_dll(g, global_value, GlobalLinkageIdStrong);
                 LLVMSetAlignment(global_value, var->align_bytes);
                 LLVMSetGlobalConstant(global_value, var->gen_is_const);
                 set_global_tls(g, var, global_value);
             }
         } else {
-            bool exported = (var->linkage != VarLinkageInternal);
-            const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));
-            render_const_val(g, var->const_value, mangled_name);
-            render_const_val_global(g, var->const_value, mangled_name);
+            bool exported = (linkage != GlobalLinkageIdInternal);
+            render_const_val(g, var->const_value, buf_ptr(symbol_name));
+            render_const_val_global(g, var->const_value, buf_ptr(symbol_name));
             global_value = var->const_value->global_refs->llvm_global;
 
             if (exported) {
-                LLVMSetLinkage(global_value, var_linkage_to_llvm(var->linkage));
+                LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
                 maybe_export_dll(g, global_value, GlobalLinkageIdStrong);
             }
             if (tld_var->section_name) {
@@ -6805,6 +6816,11 @@ static void do_code_gen(CodeGen *g) {
         }
 
         var->value_ref = global_value;
+
+        for (size_t export_i = 1; export_i < var->export_list.length; export_i += 1) {
+            GlobalExport *global_export = &var->export_list.items[export_i];
+            LLVMAddAlias(g->module, LLVMTypeOf(var->value_ref), var->value_ref, buf_ptr(&global_export->name));
+        }
     }
 
     // Generate function definitions.
@@ -7505,7 +7521,7 @@ static bool detect_single_threaded(CodeGen *g) {
 }
 
 static bool detect_err_ret_tracing(CodeGen *g) {
-    return !target_is_wasm(g->zig_target) &&
+    return !g->strip_debug_symbols &&
         g->build_mode != BuildModeFastRelease &&
         g->build_mode != BuildModeSmallRelease;
 }
@@ -7939,6 +7955,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
+    buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
 
     {
         TargetSubsystem detected_subsystem = detect_subsystem(g);
@@ -7979,6 +7996,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     // Only a few things affect builtin.zig
     cache_buf(&cache_hash, compiler_id);
     cache_int(&cache_hash, g->build_mode);
+    cache_bool(&cache_hash, g->strip_debug_symbols);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target->is_native);
@@ -8783,6 +8801,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
 
         Termination term;
         ZigList<const char *> args = {};
+        args.append(buf_ptr(self_exe_path));
         args.append("cc");
 
         Buf *out_dep_path = buf_sprintf("%s.d", buf_ptr(out_obj_path));
@@ -8801,7 +8820,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         if (g->verbose_cc) {
             print_zig_cc_cmd("zig", &args);
         }
-        os_spawn_process(buf_ptr(self_exe_path), args, &term);
+        os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nThe following command failed:\n");
             print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
@@ -9168,7 +9187,7 @@ static void gen_h_file(CodeGen *g) {
         if (fn_table_entry->export_list.length == 0) {
             symbol_name = &fn_table_entry->symbol_name;
         } else {
-            FnExport *fn_export = &fn_table_entry->export_list.items[0];
+            GlobalExport *fn_export = &fn_table_entry->export_list.items[0];
             symbol_name = &fn_export->name;
         }
 

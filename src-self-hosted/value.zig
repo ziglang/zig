@@ -186,7 +186,7 @@ pub const Value = struct {
         /// Path to the object file that contains this function
         containing_object: Buffer,
 
-        link_set_node: *std.LinkedList(?*Value.Fn).Node,
+        link_set_node: *std.TailQueue(?*Value.Fn).Node,
 
         /// Creates a Fn value with 1 ref
         /// Takes ownership of symbol_name
@@ -391,7 +391,7 @@ pub const Value = struct {
                     const array_llvm_value = (try base_array.val.getLlvmConst(ofile)).?;
                     const ptr_bit_count = ofile.comp.target_ptr_bits;
                     const usize_llvm_type = llvm.IntTypeInContext(ofile.context, ptr_bit_count) orelse return error.OutOfMemory;
-                    const indices = []*llvm.Value{
+                    const indices = [_]*llvm.Value{
                         llvm.ConstNull(usize_llvm_type) orelse return error.OutOfMemory,
                         llvm.ConstInt(usize_llvm_type, base_array.elem_index, 0) orelse return error.OutOfMemory,
                     };

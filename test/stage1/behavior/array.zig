@@ -34,7 +34,7 @@ test "void arrays" {
 }
 
 test "array literal" {
-    const hex_mult = []u16{
+    const hex_mult = [_]u16{
         4096,
         256,
         16,
@@ -54,7 +54,7 @@ test "array dot len const expr" {
 const ArrayDotLenConstExpr = struct {
     y: [some_array.len]u8,
 };
-const some_array = []u8{
+const some_array = [_]u8{
     0,
     1,
     2,
@@ -62,7 +62,7 @@ const some_array = []u8{
 };
 
 test "nested arrays" {
-    const array_of_strings = [][]const u8{
+    const array_of_strings = [_][]const u8{
         "hello",
         "this",
         "is",
@@ -158,7 +158,7 @@ fn testArrayByValAtComptime(b: [2]u8) u8 {
 }
 
 test "comptime evalutating function that takes array by value" {
-    const arr = []u8{ 0, 1 };
+    const arr = [_]u8{ 0, 1 };
     _ = comptime testArrayByValAtComptime(arr);
     _ = comptime testArrayByValAtComptime(arr);
 }
@@ -175,22 +175,22 @@ fn plusOne(x: u32) u32 {
 test "array literal as argument to function" {
     const S = struct {
         fn entry(two: i32) void {
-            foo([]i32{
+            foo([_]i32{
                 1,
                 2,
                 3,
             });
-            foo([]i32{
+            foo([_]i32{
                 1,
                 two,
                 3,
             });
-            foo2(true, []i32{
+            foo2(true, [_]i32{
                 1,
                 2,
                 3,
             });
-            foo2(true, []i32{
+            foo2(true, [_]i32{
                 1,
                 two,
                 3,
@@ -215,19 +215,19 @@ test "array literal as argument to function" {
 test "double nested array to const slice cast in array literal" {
     const S = struct {
         fn entry(two: i32) void {
-            const cases = [][]const []const i32{
-                [][]const i32{[]i32{1}},
-                [][]const i32{[]i32{ 2, 3 }},
-                [][]const i32{
-                    []i32{4},
-                    []i32{ 5, 6, 7 },
+            const cases = [_][]const []const i32{
+                [_][]const i32{[_]i32{1}},
+                [_][]const i32{[_]i32{ 2, 3 }},
+                [_][]const i32{
+                    [_]i32{4},
+                    [_]i32{ 5, 6, 7 },
                 },
             };
             check(cases);
 
-            const cases2 = [][]const i32{
-                []i32{1},
-                []i32{ two, 3 },
+            const cases2 = [_][]const i32{
+                [_]i32{1},
+                [_]i32{ two, 3 },
             };
             expect(cases2.len == 2);
             expect(cases2[0].len == 1);
@@ -236,12 +236,12 @@ test "double nested array to const slice cast in array literal" {
             expect(cases2[1][0] == 2);
             expect(cases2[1][1] == 3);
 
-            const cases3 = [][]const []const i32{
-                [][]const i32{[]i32{1}},
-                [][]const i32{[]i32{ two, 3 }},
-                [][]const i32{
-                    []i32{4},
-                    []i32{ 5, 6, 7 },
+            const cases3 = [_][]const []const i32{
+                [_][]const i32{[_]i32{1}},
+                [_][]const i32{[_]i32{ two, 3 }},
+                [_][]const i32{
+                    [_]i32{4},
+                    [_]i32{ 5, 6, 7 },
                 },
             };
             check(cases3);

@@ -3,6 +3,33 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "slice passed as array init type",
+        \\export fn entry() void {
+        \\    const x = []u8{};
+        \\}
+    ,
+        "tmp.zig:2:19: error: expected array type or [_], found slice",
+    );
+
+    cases.add(
+        "inferred array size invalid here",
+        \\export fn entry() void {
+        \\    const x = [_]u8;
+        \\}
+    ,
+        "tmp.zig:2:15: error: inferred array size invalid here",
+    );
+
+    cases.add(
+        "initializing array with struct syntax",
+        \\export fn entry() void {
+        \\    const x = [_]u8{ .y = 2 };
+        \\}
+    ,
+        "tmp.zig:2:15: error: initializing array with struct syntax",
+    );
+
+    cases.add(
         "compile error in struct init expression",
         \\const Foo = struct {
         \\    a: i32 = crap,
@@ -204,6 +231,33 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "empty while loop body",
+        \\export fn a() void {
+        \\    while(true);
+        \\}
+    ,
+        "tmp.zig:2:16: error: expected loop body, found ';'",
+    );
+
+    cases.add(
+        "empty for loop body",
+        \\export fn a() void {
+        \\    for(undefined) |x|;
+        \\}
+    ,
+        "tmp.zig:2:23: error: expected loop body, found ';'",
+    );
+
+    cases.add(
+        "empty if body",
+        \\export fn a() void {
+        \\    if(true);
+        \\}
+    ,
+        "tmp.zig:2:13: error: expected if body, found ';'",
+    );
+
+    cases.add(
         "import outside package path",
         \\comptime{
         \\    _ = @import("../a.zig");
@@ -375,8 +429,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest(
         "comptime vector overflow shows the index",
         \\comptime {
-        \\    var a: @Vector(4, u8) = []u8{ 1, 2, 255, 4 };
-        \\    var b: @Vector(4, u8) = []u8{ 5, 6, 1, 8 };
+        \\    var a: @Vector(4, u8) = [_]u8{ 1, 2, 255, 4 };
+        \\    var b: @Vector(4, u8) = [_]u8{ 5, 6, 1, 8 };
         \\    var x = a + b;
         \\}
     ,
@@ -902,7 +956,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "implicit cast const array to mutable slice",
         \\export fn entry() void {
-        \\    const buffer: [1]u8 = []u8{8};
+        \\    const buffer: [1]u8 = [_]u8{8};
         \\    const sliceA: []u8 = &buffer;
         \\}
     ,
@@ -1239,8 +1293,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "`_` should not be usable inside for",
         \\export fn returns() void {
-        \\    for ([]void{}) |_, i| {
-        \\        for ([]void{}) |_, j| {
+        \\    for ([_]void{}) |_, i| {
+        \\        for ([_]void{}) |_, j| {
         \\            return _;
         \\        }
         \\    }
@@ -2861,10 +2915,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "struct init syntax for array",
-        \\const foo = []u16{.x = 1024,};
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\const foo = [3]u16{ .x = 1024 };
+        \\comptime {
+        \\    _ = foo;
+        \\}
     ,
-        "tmp.zig:1:18: error: type '[]u16' does not support struct initialization syntax",
+        "tmp.zig:1:19: error: type '[3]u16' does not support struct initialization syntax",
     );
 
     cases.add(
@@ -3116,7 +3172,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\const member_fn_type = @typeOf(Foo.member_a);
-        \\const members = []member_fn_type {
+        \\const members = [_]member_fn_type {
         \\    Foo.member_a,
         \\    Foo.member_b,
         \\};
@@ -3142,25 +3198,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "wrong function type",
-        \\const fns = []fn() void { a, b, c };
+        \\const fns = [_]fn() void { a, b, c };
         \\fn a() i32 {return 0;}
         \\fn b() i32 {return 1;}
         \\fn c() i32 {return 2;}
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        "tmp.zig:1:27: error: expected type 'fn() void', found 'fn() i32'",
+        "tmp.zig:1:28: error: expected type 'fn() void', found 'fn() i32'",
     );
 
     cases.add(
         "extern function pointer mismatch",
-        \\const fns = [](fn(i32)i32) { a, b, c };
+        \\const fns = [_](fn(i32)i32) { a, b, c };
         \\pub fn a(x: i32) i32 {return x + 0;}
         \\pub fn b(x: i32) i32 {return x + 1;}
         \\export fn c(x: i32) i32 {return x + 2;}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
     ,
-        "tmp.zig:1:36: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
+        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
     );
 
     cases.add(
@@ -3261,7 +3317,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "indexing an array of size zero",
-        \\const array = []u8{};
+        \\const array = [_]u8{};
         \\export fn foo() void {
         \\    const pointer = &array[0];
         \\}
@@ -4590,16 +4646,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "setting a section on an extern variable",
-        \\extern var foo: i32 linksection(".text2");
-        \\export fn entry() i32 {
-        \\    return foo;
-        \\}
-    ,
-        "tmp.zig:1:33: error: cannot set section of external variable 'foo'",
-    );
-
-    cases.add(
         "setting a section on a local variable",
         \\export fn entry() i32 {
         \\    var foo: i32 linksection(".text2") = 1234;
@@ -4607,16 +4653,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
-    );
-
-    cases.add(
-        "setting a section on an extern fn",
-        \\extern fn foo() linksection(".text2") void;
-        \\export fn entry() void {
-        \\    foo();
-        \\}
-    ,
-        "tmp.zig:1:29: error: cannot set section of external function 'foo'",
     );
 
     cases.add(
@@ -4854,7 +4890,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "calling a var args function only known at runtime",
-        \\var foos = []fn(...) void { foo1, foo2 };
+        \\var foos = [_]fn(...) void { foo1, foo2 };
         \\
         \\fn foo1(args: ...) void {}
         \\fn foo2(args: ...) void {}
@@ -4868,7 +4904,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "calling a generic function only known at runtime",
-        \\var foos = []fn(var) void { foo1, foo2 };
+        \\var foos = [_]fn(var) void { foo1, foo2 };
         \\
         \\fn foo1(arg: var) void {}
         \\fn foo2(arg: var) void {}
@@ -5022,7 +5058,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "increase pointer alignment in @ptrCast",
         \\export fn entry() u32 {
-        \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    var bytes: [4]u8 = [_]u8{0x01, 0x02, 0x03, 0x04};
         \\    const ptr = @ptrCast(*u32, &bytes[0]);
         \\    return ptr.*;
         \\}
@@ -5249,7 +5285,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\export fn entry() void {
-        \\    const tests = []TestCase {
+        \\    const tests = [_]TestCase {
         \\        Free("001"),
         \\        Free("002"),
         \\        LibC("078"),
@@ -5257,7 +5293,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        Free("117"),
         \\    };
         \\
-        \\    for ([]Mode { Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
+        \\    for ([_]Mode { Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
         \\        inline for (tests) |test_case| {
         \\            const foo = test_case.filename ++ ".zig";
         \\        }

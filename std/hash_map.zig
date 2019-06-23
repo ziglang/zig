@@ -77,7 +77,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .entries = []Entry{},
+                .entries = [_]Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
@@ -157,8 +157,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         fn ensureCapacityExact(self: *Self, new_capacity: usize) !void {
             // capacity must always be a power of two to allow for modulo
             // optimization in the constrainIndex fn
-            const is_power_of_two = new_capacity & (new_capacity - 1) == 0;
-            assert(is_power_of_two);
+            assert(math.isPowerOfTwo(new_capacity));
 
             if (new_capacity <= self.entries.len) {
                 return;
@@ -184,6 +183,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return putAssumeCapacity(self, key, value);
         }
 
+        /// Calls put() and asserts that no kv pair is clobbered.
+        pub fn putNoClobber(self: *Self, key: K, value: V) !void {
+            assert((try self.put(key, value)) == null);
+        }
+
         pub fn putAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             assert(self.count() < self.entries.len);
             self.incrementModificationCount();
@@ -200,10 +204,15 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return hm.internalGet(key);
         }
 
+        pub fn getValue(hm: *const Self, key: K) ?V {
+            return if (hm.get(key)) |kv| kv.value else null;
+        }
+
         pub fn contains(hm: *const Self, key: K) bool {
             return hm.get(key) != null;
         }
 
+        /// Returns any kv pair that was removed.
         pub fn remove(hm: *Self, key: K) ?KV {
             if (hm.entries.len == 0) return null;
             hm.incrementModificationCount();
@@ -237,6 +246,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             return null;
         }
 
+        /// Calls remove(), asserts that a kv pair is removed, and discards it.
+        pub fn removeAssertDiscard(hm: *Self, key: K) void {
+            assert(hm.remove(key) != null);
+        }
+
         pub fn iterator(hm: *const Self) Iterator {
             return Iterator{
                 .hm = hm,
@@ -251,7 +265,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
             try other.initCapacity(self.entries.len);
             var it = self.iterator();
             while (it.next()) |entry| {
-                assert((try other.put(entry.key, entry.value)) == null);
+                try other.putNoClobber(entry.key, entry.value);
             }
             return other;
         }
@@ -383,18 +397,15 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 }
 
 test "basic hash map usage" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
     testing.expect((try map.put(2, 22)) == null);
     testing.expect((try map.put(3, 33)) == null);
     testing.expect((try map.put(4, 44)) == null);
-    testing.expect((try map.put(5, 55)) == null);
 
+    try map.putNoClobber(5, 55);
     testing.expect((try map.put(5, 66)).?.value == 55);
     testing.expect((try map.put(5, 55)).?.value == 66);
 
@@ -417,31 +428,32 @@ test "basic hash map usage" {
 
     testing.expect(map.contains(2));
     testing.expect(map.get(2).?.value == 22);
+    testing.expect(map.getValue(2).? == 22);
 
     const rmv1 = map.remove(2);
     testing.expect(rmv1.?.key == 2);
     testing.expect(rmv1.?.value == 22);
     testing.expect(map.remove(2) == null);
     testing.expect(map.get(2) == null);
+    testing.expect(map.getValue(2) == null);
+
+    map.removeAssertDiscard(3);
 }
 
 test "iterator hash map" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var reset_map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var reset_map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer reset_map.deinit();
 
-    testing.expect((try reset_map.put(1, 11)) == null);
-    testing.expect((try reset_map.put(2, 22)) == null);
-    testing.expect((try reset_map.put(3, 33)) == null);
+    try reset_map.putNoClobber(1, 11);
+    try reset_map.putNoClobber(2, 22);
+    try reset_map.putNoClobber(3, 33);
 
-    var keys = []i32{
+    var keys = [_]i32{
         3,
         2,
         1,
     };
-    var values = []i32{
+    var values = [_]i32{
         33,
         22,
         11,
@@ -473,10 +485,7 @@ test "iterator hash map" {
 }
 
 test "ensure capacity" {
-    var direct_allocator = std.heap.DirectAllocator.init();
-    defer direct_allocator.deinit();
-
-    var map = AutoHashMap(i32, i32).init(&direct_allocator.allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
     defer map.deinit();
 
     try map.ensureCapacity(20);
@@ -546,12 +555,12 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         },
 
         builtin.TypeId.Float => |info| {
-            return autoHash(@bitCast(@IntType(false, info.bits), key), rng);
+            return autoHash(@bitCast(@IntType(false, info.bits), key), rng, HashInt);
         },
-        builtin.TypeId.Bool => return autoHash(@boolToInt(key), rng),
-        builtin.TypeId.Enum => return autoHash(@enumToInt(key), rng),
-        builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), rng),
-        builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng),
+        builtin.TypeId.Bool => return autoHash(@boolToInt(key), rng, HashInt),
+        builtin.TypeId.Enum => return autoHash(@enumToInt(key), rng, HashInt),
+        builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), rng, HashInt),
+        builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng, HashInt),
 
         builtin.TypeId.BoundFn,
         builtin.TypeId.ComptimeFloat,

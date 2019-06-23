@@ -1,7 +1,9 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
-const TypeInfo = @import("builtin").TypeInfo;
-const TypeId = @import("builtin").TypeId;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
+const builtin = @import("builtin");
+const TypeInfo = builtin.TypeInfo;
+const TypeId = builtin.TypeId;
 
 test "type info: tag type, void info" {
     testBasic();
@@ -316,4 +318,21 @@ fn passTypeInfo(comptime info: TypeInfo) type {
 test "type info: TypeId -> TypeInfo impl cast" {
     _ = passTypeInfo(TypeId.Void);
     _ = comptime passTypeInfo(TypeId.Void);
+}
+
+test "type info: extern fns with and without lib names" {
+    const S = struct {
+        extern fn bar1() void;
+        extern "cool" fn bar2() void;
+    };
+    const info = @typeInfo(S);
+    comptime {
+        for (info.Struct.decls) |decl| {
+            if (std.mem.eql(u8, decl.name, "bar1")) {
+                expect(decl.data.Fn.lib_name == null);
+            } else {
+                std.testing.expectEqual(([]const u8)("cool"), decl.data.Fn.lib_name.?);
+            }
+        }
+    }
 }

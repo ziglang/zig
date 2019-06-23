@@ -145,7 +145,7 @@ pub const FindFirstFileError = error{
 };
 
 pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, []u16{ '\\', '*', 0 });
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*', 0 });
     const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == INVALID_HANDLE_VALUE) {
@@ -632,6 +632,7 @@ pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) G
 
 pub const CreateProcessError = error{
     FileNotFound,
+    AccessDenied,
     InvalidName,
     Unexpected,
 };
@@ -663,6 +664,7 @@ pub fn CreateProcessW(
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
             ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            ERROR.ACCESS_DENIED => return error.AccessDenied,
             ERROR.INVALID_PARAMETER => unreachable,
             ERROR.INVALID_NAME => return error.InvalidName,
             else => |err| return unexpectedError(err),
@@ -725,7 +727,7 @@ pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
 }
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedSuffixedFileW(s, []u16{0});
+    return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
 }
 
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
@@ -745,7 +747,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
         }
     }
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = []u16{ '\\', '\\', '?', '\\' };
+        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
     };
@@ -767,10 +769,7 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         // 614 is the length of the longest windows error desciption
         var buf_u16: [614]u16 = undefined;
         var buf_u8: [614]u8 = undefined;
-        var len = kernel32.FormatMessageW(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
-            buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
+        var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
         std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
         std.debug.dumpCurrentStackTrace(null);

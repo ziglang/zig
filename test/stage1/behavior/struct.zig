@@ -184,7 +184,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    expect(testPassSliceOfEmptyStructToFn([]EmptyStruct2{EmptyStruct2{}}) == 1);
+    expect(testPassSliceOfEmptyStructToFn([_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -313,7 +313,7 @@ test "packed array 24bits" {
         expect(@sizeOf(FooArray24Bits) == 2 + 2 * 4 + 2);
     }
 
-    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes = [_]u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
     const ptr = &@bytesToSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     expect(ptr.a == 0);
@@ -363,7 +363,7 @@ test "aligned array of packed struct" {
         expect(@sizeOf(FooArrayOfAligned) == 2 * 2);
     }
 
-    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
+    var bytes = [_]u8{0xbb} ** @sizeOf(FooArrayOfAligned);
     const ptr = &@bytesToSlice(FooArrayOfAligned, bytes[0..bytes.len])[0];
 
     expect(ptr.a[0].a == 0xbb);
@@ -432,7 +432,7 @@ const Expr = union(enum) {
 };
 
 fn alloc(comptime T: type) []T {
-    return []T{};
+    return [_]T{};
 }
 
 test "call method with mutable reference to struct with no fields" {
