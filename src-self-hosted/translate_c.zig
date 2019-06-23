@@ -271,7 +271,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => blk: {
             const fn_proto_type = @ptrCast(*const ZigClangFunctionProtoType, fn_type);
-            break :blk transFnProto(rp, fn_proto_type, fn_decl_loc, decl_ctx) catch |err| switch (err) {
+            break :blk transFnProto(rp, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
                 },
@@ -280,7 +280,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         },
         .FunctionNoProto => blk: {
             const fn_no_proto_type = @ptrCast(*const ZigClangFunctionType, fn_type);
-            break :blk transFnNoProto(rp, fn_no_proto_type, fn_decl_loc, decl_ctx) catch |err| switch (err) {
+            break :blk transFnNoProto(rp, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
                 },
@@ -420,7 +420,6 @@ fn transCompoundStmtInline(
     while (it != end_it) : (it += 1) {
         const result = try transStmt(rp, parent_scope, it.*, .unused, .r_value);
         scope = result.child_scope;
-        std.debug.warn("id: {}\n", result.node.id);
         if (result.node != &block_node.base)
             try block_node.statements.push(result.node);
     }
@@ -661,10 +660,13 @@ fn transCCast(
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
     if (cIsUnsignedInteger(dst_type) and qualTypeIsPtr(src_type)) {
+        const cast_node = try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc));
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
         try builtin_node.params.push(expr);
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        return &(try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc), &builtin_node.base)).base;
+        try cast_node.op.Call.params.push(&builtin_node.base);
+        cast_node.rtoken = try appendToken(rp.c, .RParen, ")");
+        return &cast_node.base;
     }
     if (cIsUnsignedInteger(src_type) and qualTypeIsPtr(dst_type)) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
@@ -677,7 +679,10 @@ fn transCCast(
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
     // TODO: maybe truncate to reduce size
-    return &(try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc), expr)).base;
+    const cast_node = try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc));
+    try cast_node.op.Call.params.push(expr);
+    cast_node.rtoken = try appendToken(rp.c, .RParen, ")");
+    return &cast_node.base;
 }
 
 fn transExpr(
@@ -728,13 +733,15 @@ fn transCPtrCast(
         // void has 1-byte alignment, so @alignCast is not needed
         try ptrcast_node.params.push(expr);
     } else {
+        const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
         const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignOf");
         const child_type_node = try transQualType(rp, child_type, loc);
         try alignof_node.params.push(child_type_node);
-        const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
+        alignof_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         try aligncast_node.params.push(&alignof_node.base);
         _ = try appendToken(rp.c, .Comma, ",");
         try aligncast_node.params.push(expr);
+        aligncast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         try ptrcast_node.params.push(&aligncast_node.base);
     }
     ptrcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -909,7 +916,7 @@ fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.Builti
     return node;
 }
 
-fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node, first_arg: *ast.Node) !*ast.Node.SuffixOp {
+fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
@@ -921,37 +928,34 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node, first_arg: *ast.Node) 
                 .async_attr = null,
             },
         },
-        .rtoken = try appendToken(c, .RParen, ")"),
+        .rtoken = undefined, // set after appending args
     };
-    try node.op.Call.params.push(first_arg);
     return node;
 }
 
 fn transCreateNodePrefixOp(
     c: *Context,
     op: ast.Node.PrefixOp.Op,
-    rhs: *ast.Node,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
-) !*ast.Node {
+) !*ast.Node.PrefixOp {
     const node = try c.a().create(ast.Node.PrefixOp);
     node.* = ast.Node.PrefixOp{
         .base = ast.Node{ .id = .PrefixOp },
         .op_token = try appendToken(c, op_tok_id, bytes),
         .op = op,
-        .rhs = rhs,
+        .rhs = undefined, // translate and set afterward
     };
-    return &node.base;
+    return node;
 }
 
 fn transCreateNodePtrType(
     c: *Context,
     is_const: bool,
     is_volatile: bool,
-    rhs: *ast.Node,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
-) !*ast.Node {
+) !*ast.Node.PrefixOp {
     const node = try c.a().create(ast.Node.PrefixOp);
     node.* = ast.Node.PrefixOp{
         .base = ast.Node{ .id = .PrefixOp },
@@ -964,9 +968,9 @@ fn transCreateNodePtrType(
                 .volatile_token = if (is_volatile) try appendToken(c, .Keyword_volatile, "volatile") else null,
             },
         },
-        .rhs = rhs,
+        .rhs = undefined, // translate and set afterward
     };
-    return &node.base;
+    return node;
 }
 
 fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
@@ -1038,7 +1042,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         },
         .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
-            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null);
+            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null, false);
             return &fn_proto.base;
         },
         .Paren => {
@@ -1047,28 +1051,33 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         },
         .Pointer => {
             const child_qt = ZigClangType_getPointeeType(ty);
-            const child_node = try transQualType(rp, child_qt, source_loc);
-            if (qualTypeChildIsFnProto(child_qt))
-                return transCreateNodePrefixOp(rp.c, .OptionalType, child_node, .QuestionMark, "?");
+            if (qualTypeChildIsFnProto(child_qt)) {
+                const optional_node = try transCreateNodePrefixOp(rp.c, .OptionalType, .QuestionMark, "?");
+                optional_node.rhs = try transQualType(rp, child_qt, source_loc);
+                return &optional_node.base;
+            }
             if (typeIsOpaque(rp.c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
+                const optional_node = try transCreateNodePrefixOp(rp.c, .OptionalType, .QuestionMark, "?");
                 const pointer_node = try transCreateNodePtrType(
                     rp.c,
                     ZigClangQualType_isConstQualified(child_qt),
                     ZigClangQualType_isVolatileQualified(child_qt),
-                    child_node,
                     .Asterisk,
                     "*",
                 );
-                return transCreateNodePrefixOp(rp.c, .OptionalType, pointer_node, .QuestionMark, "?");
+                optional_node.rhs = &pointer_node.base;
+                pointer_node.rhs = try transQualType(rp, child_qt, source_loc);
+                return &optional_node.base;
             }
-            return transCreateNodePtrType(
+            const pointer_node = try transCreateNodePtrType(
                 rp.c,
                 ZigClangQualType_isConstQualified(child_qt),
                 ZigClangQualType_isVolatileQualified(child_qt),
-                child_node,
                 .BracketStarCBracket,
                 "[*c]",
             );
+            pointer_node.rhs = try transQualType(rp, child_qt, source_loc);
+            return &pointer_node.base;
         },
         else => {
             const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
@@ -1103,6 +1112,7 @@ fn transFnProto(
     fn_proto_ty: *const ZigClangFunctionProtoType,
     source_loc: ZigClangSourceLocation,
     fn_decl_context: ?FnDeclContext,
+    is_pub: bool,
 ) !*ast.Node.FnProto {
     const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
     const cc = try transCC(rp, fn_ty, source_loc);
@@ -1113,7 +1123,7 @@ fn transFnProto(
         return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
     }
 
-    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc);
+    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn transFnNoProto(
@@ -1121,10 +1131,11 @@ fn transFnNoProto(
     fn_ty: *const ZigClangFunctionType,
     source_loc: ZigClangSourceLocation,
     fn_decl_context: ?FnDeclContext,
+    is_pub: bool,
 ) !*ast.Node.FnProto {
     const cc = try transCC(rp, fn_ty, source_loc);
     const is_var_args = if (fn_decl_context) |ctx| !ctx.is_export else true;
-    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc);
+    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn finishTransFnProto(
@@ -1134,6 +1145,7 @@ fn finishTransFnProto(
     fn_decl_context: ?FnDeclContext,
     is_var_args: bool,
     cc: CallingConvention,
+    is_pub: bool,
 ) !*ast.Node.FnProto {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
 
@@ -1141,7 +1153,7 @@ fn finishTransFnProto(
     // TODO check for align attribute
 
     // pub extern fn name(...) T
-    const pub_tok = try appendToken(rp.c, .Keyword_pub, "pub");
+    const pub_tok = if (is_pub) try appendToken(rp.c, .Keyword_pub, "pub") else null;
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const extern_export_inline_tok = if (is_export)
         try appendToken(rp.c, .Keyword_export, "export")
