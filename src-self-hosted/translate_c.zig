@@ -336,6 +336,7 @@ fn transStmt(
         .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt), result_used),
         .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used),
         .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
+        .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -645,6 +646,41 @@ fn transReturnStmt(
         .child_scope = scope,
         .node_scope = scope,
     };
+}
+
+fn transStringLiteral(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangStringLiteral,
+    result_used: ResultUsed,
+) !TransResult {
+    const kind = ZigClangStringLiteral_getKind(stmt);
+    switch (kind) {
+        .Ascii, .UTF8 => {
+            var len: usize = undefined;
+            const cstr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &len);
+            const zstr = try rp.c.str(cstr);
+            const token = try appendToken(rp.c, .StringLiteral, zstr);
+            const node = try rp.c.a().create(ast.Node.StringLiteral);
+            node.* = ast.Node.StringLiteral{
+                .base = ast.Node{ .id = .StringLiteral },
+                .token = token,
+            };
+            const res = TransResult{
+                .node = &node.base,
+                .child_scope = scope,
+                .node_scope = scope,
+            };
+            return maybeSuppressResult(rp, scope, result_used, res);
+        },
+        .UTF16, .UTF32, .Wide => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)),
+            "TODO: support string literal kind {}",
+            kind,
+        ),
+    }
 }
 
 fn transCCast(
