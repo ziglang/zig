@@ -1406,6 +1406,7 @@ enum BuiltinFnId {
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
     BuiltinFnIdShlWithOverflow,
+    BuiltinFnIdMulAdd,
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
@@ -1433,6 +1434,19 @@ enum BuiltinFnId {
     BuiltinFnIdRem,
     BuiltinFnIdMod,
     BuiltinFnIdSqrt,
+    BuiltinFnIdSin,
+    BuiltinFnIdCos,
+    BuiltinFnIdExp,
+    BuiltinFnIdExp2,
+    BuiltinFnIdLn,
+    BuiltinFnIdLog2,
+    BuiltinFnIdLog10,
+    BuiltinFnIdFabs,
+    BuiltinFnIdFloor,
+    BuiltinFnIdCeil,
+    BuiltinFnIdTrunc,
+    BuiltinFnIdNearbyInt,
+    BuiltinFnIdRound,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
@@ -1554,9 +1568,8 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdClz,
     ZigLLVMFnIdPopCount,
     ZigLLVMFnIdOverflowArithmetic,
-    ZigLLVMFnIdFloor,
-    ZigLLVMFnIdCeil,
-    ZigLLVMFnIdSqrt,
+    ZigLLVMFnIdFMA,
+    ZigLLVMFnIdFloatOp,
     ZigLLVMFnIdBswap,
     ZigLLVMFnIdBitReverse,
 };
@@ -1583,7 +1596,9 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
         } pop_count;
         struct {
+            BuiltinFnId op;
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } floating;
         struct {
             AddSubMul add_sub_mul;
@@ -2235,6 +2250,8 @@ enum IrInstructionId {
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
+    IrInstructionIdMulAdd,
+    IrInstructionIdFloatOp,
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
@@ -2296,7 +2313,6 @@ enum IrInstructionId {
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
-    IrInstructionIdSqrt,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
@@ -3038,6 +3054,15 @@ struct IrInstructionOverflowOp {
     ZigType *result_ptr_type;
 };
 
+struct IrInstructionMulAdd {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *op1;
+    IrInstruction *op2;
+    IrInstruction *op3;
+};
+
 struct IrInstructionAlignOf {
     IrInstruction base;
 
@@ -3461,11 +3486,13 @@ struct IrInstructionMarkErrRetTracePtr {
     IrInstruction *err_ret_trace_ptr;
 };
 
-struct IrInstructionSqrt {
+// For float ops which take a single argument
+struct IrInstructionFloatOp {
     IrInstruction base;
 
+    BuiltinFnId op;
     IrInstruction *type;
-    IrInstruction *op;
+    IrInstruction *op1;
 };
 
 struct IrInstructionCheckRuntimeScope {
