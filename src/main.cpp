@@ -963,7 +963,7 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {
-        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target, 
+        CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
         codegen_set_strip(g, strip);
         g->subsystem = subsystem;
