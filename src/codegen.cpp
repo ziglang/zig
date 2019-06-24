@@ -5451,7 +5451,7 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executab
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
     LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
             LLVMPointerType(get_llvm_type(g, instruction->vector->value.type), 0), "");
-    gen_store_untyped(g, vector, casted_ptr, 0, false);
+    gen_store_untyped(g, vector, casted_ptr, get_ptr_align(g, instruction->result_loc->value.type), false);
     return result_loc;
 }
 
