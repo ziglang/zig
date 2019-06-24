@@ -356,6 +356,7 @@ fn transBinaryOperator(
     result_used: ResultUsed,
 ) TransError!TransResult {
     const op = ZigClangBinaryOperator_getOpcode(stmt);
+    const qt = ZigClangBinaryOperator_getType(stmt);
     switch (op) {
         .PtrMemD, .PtrMemI, .Cmp => return revertAndWarn(
             rp,
@@ -369,11 +370,31 @@ fn transBinaryOperator(
             .child_scope = scope,
             .node_scope = scope,
         },
+        .Add => {
+            const node = if (cIsUnsignedInteger(qt))
+                try transCreateNodeInfixOp(rp, scope, stmt, .AddWrap, .PlusPercent, "+%")
+            else
+                try transCreateNodeInfixOp(rp, scope, stmt, .Add, .Plus, "+");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = &node.base,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Sub => {
+            const node = if (cIsUnsignedInteger(qt))
+                try transCreateNodeInfixOp(rp, scope, stmt, .SubWrap, .MinusPercent, "-%")
+            else
+                try transCreateNodeInfixOp(rp, scope, stmt, .Sub, .Minus, "-");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = &node.base,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
         .Mul,
         .Div,
         .Rem,
-        .Sub,
-        .Add,
         .Shl,
         .Shr,
         .LT,
@@ -660,7 +681,7 @@ fn transStringLiteral(
             var len: usize = undefined;
             const cstr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &len);
             const zstr = try rp.c.str(cstr);
-            const token = try appendToken(rp.c, .StringLiteral, zstr);
+            const token = try appendTokenFmt(rp.c, .StringLiteral, "c\"{}\"", zstr); // TODO: escape string
             const node = try rp.c.a().create(ast.Node.StringLiteral);
             node.* = ast.Node.StringLiteral{
                 .base = ast.Node{ .id = .StringLiteral },
@@ -792,6 +813,8 @@ fn maybeSuppressResult(
     result: TransResult,
 ) !TransResult {
     if (used == .used) return result;
+    // NOTE: This is backwards, but the semicolon must immediately follow the node.
+    _ = try appendToken(rp.c, .Semicolon, ";");
     const lhs = try appendIdentifier(rp.c, "_");
     const op_token = try appendToken(rp.c, .Equal, "=");
     const op_node = try rp.c.a().create(ast.Node.InfixOp);
@@ -981,6 +1004,28 @@ fn transCreateNodePrefixOp(
         .op_token = try appendToken(c, op_tok_id, bytes),
         .op = op,
         .rhs = undefined, // translate and set afterward
+    };
+    return node;
+}
+
+fn transCreateNodeInfixOp(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangBinaryOperator,
+    op: ast.Node.InfixOp.Op,
+    op_tok_id: std.zig.Token.Id,
+    bytes: []const u8,
+) !*ast.Node.InfixOp {
+    const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+    const op_token = try appendToken(rp.c, op_tok_id, bytes);
+    const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+    const node = try rp.c.a().create(ast.Node.InfixOp);
+    node.* = ast.Node.InfixOp{
+        .base = ast.Node{ .id = .InfixOp },
+        .op_token = op_token,
+        .lhs = lhs.node,
+        .op = op,
+        .rhs = rhs.node,
     };
     return node;
 }

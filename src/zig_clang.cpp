@@ -2042,3 +2042,8 @@ const struct ZigClangExpr *ZigClangBinaryOperator_getRHS(const struct ZigClangBi
     auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getRHS());
 }
+
+struct ZigClangQualType ZigClangBinaryOperator_getType(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return bitcast(casted->getType());
+}

@@ -965,6 +965,7 @@ pub extern fn ZigClangBinaryOperator_getOpcode(*const ZigClangBinaryOperator) Zi
 pub extern fn ZigClangBinaryOperator_getBeginLoc(*const ZigClangBinaryOperator) ZigClangSourceLocation;
 pub extern fn ZigClangBinaryOperator_getLHS(*const ZigClangBinaryOperator) *const ZigClangExpr;
 pub extern fn ZigClangBinaryOperator_getRHS(*const ZigClangBinaryOperator) *const ZigClangExpr;
+pub extern fn ZigClangBinaryOperator_getType(*const ZigClangBinaryOperator) ZigClangQualType;
 
 pub extern fn ZigClangStringLiteral_getKind(*const ZigClangStringLiteral) ZigClangStringLiteral_StringKind;
 pub extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const ZigClangStringLiteral, *usize) [*c]const u8;
