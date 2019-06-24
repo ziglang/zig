@@ -658,7 +658,7 @@ fn renderExpression(
                         try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
-                    if (exprs.len == 1) {
+                    if (exprs.len == 1 and tree.tokens.at(exprs.at(0).*.lastToken() + 1).id == .RBrace) {
                         const expr = exprs.at(0).*;
 
                         try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
@@ -719,7 +719,7 @@ fn renderExpression(
                         while (it.next()) |expr| : (i += 1) {
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
+                            try renderExpression(allocator, &counting_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
                             const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
@@ -1139,8 +1139,8 @@ fn renderExpression(
             });
 
             const src_params_trailing_comma = blk: {
-                const maybe_comma = tree.prevToken(rparen);
-                break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                const maybe_comma = tree.tokens.at(rparen - 1).id;
+                break :blk maybe_comma == .Comma or maybe_comma == .LineComment;
             };
 
             if (!src_params_trailing_comma) {

@@ -2234,6 +2234,44 @@ test "zig fmt: multiline string in array" {
     );
 }
 
+test "zig fmt: line comment in array" {
+    try testTransform(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0, // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comment after params" {
+    try testTransform(
+        \\fn a(
+        \\    b: u32
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    ,
+        \\fn a(
+        \\    b: u32, // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
