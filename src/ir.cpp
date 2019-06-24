@@ -23280,10 +23280,16 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstructionFloatOp *source_instr,
     BuiltinFnId fop = source_instr->op;
     unsigned bits;
 
-    if (float_type->id == ZigTypeIdComptimeFloat) {
+    switch (float_type->id) {
+    case ZigTypeIdComptimeFloat:
         bits = 128;
-    } else if (float_type->id == ZigTypeIdFloat)
+        break;
+    case ZigTypeIdFloat:
         bits = float_type->data.floating.bit_count;
+        break;
+    default:
+        zig_unreachable();
+    }
 
     switch (bits) {
     case 16: {
