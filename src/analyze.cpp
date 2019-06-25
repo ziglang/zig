@@ -5001,12 +5001,9 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
             field_val->type = wanted_type->data.structure.fields[i].type_entry;
             assert(field_val->type);
             init_const_undefined(g, field_val);
-            ConstParent *parent = get_const_val_parent(g, field_val);
-            if (parent != nullptr) {
-                parent->id = ConstParentIdStruct;
-                parent->data.p_struct.struct_val = const_val;
-                parent->data.p_struct.field_index = i;
-            }
+            field_val->parent.id = ConstParentIdStruct;
+            field_val->parent.data.p_struct.struct_val = const_val;
+            field_val->parent.data.p_struct.field_index = i;
         }
     } else {
         const_val->special = ConstValSpecialUndef;
@@ -5840,11 +5837,6 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
         }
     }
     zig_unreachable();
-}
-
-// Deprecated. Reference the parent field directly.
-ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
-    return &value->parent;
 }
 
 static const ZigTypeId all_type_ids[] = {

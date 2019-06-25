@@ -3873,8 +3873,20 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
 
     TypeUnionField *field = instruction->field;
 
-    if (!type_has_bits(field->type_entry))
+    if (!type_has_bits(field->type_entry)) {
+        if (union_type->data.unionation.gen_tag_index == SIZE_MAX) {
+            return nullptr;
+        }
+        if (instruction->initializing) {
+            LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
+            LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
+                    union_type->data.unionation.gen_tag_index, "");
+            LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
+                    &field->enum_field->value);
+            gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
+        }
         return nullptr;
+    }
 
     LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
     LLVMTypeRef field_type_ref = LLVMPointerType(get_llvm_type(g, field->type_entry), 0);

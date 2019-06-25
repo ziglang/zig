@@ -1,4 +1,4 @@
-// TODO remove `use` keyword eventually
+// TODO remove `use` keyword eventually: https://github.com/ziglang/zig/issues/2591
 test "zig fmt: change use to usingnamespace" {
     try testTransform(
         \\use @import("std");
@@ -105,7 +105,6 @@ test "zig fmt: linksection" {
 }
 
 test "zig fmt: correctly move doc comments on struct fields" {
-    if (true) return error.SkipZigTest; // TODO
     try testTransform(
         \\pub const section_64 = extern struct {
         \\    sectname: [16]u8, /// name of this section
@@ -917,7 +916,6 @@ test "zig fmt: statements with empty line between" {
 }
 
 test "zig fmt: ptr deref operator and unwrap optional operator" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\const a = b.*;
         \\const a = b.?;
@@ -1020,7 +1018,6 @@ test "zig fmt: same-line comment after a statement" {
 }
 
 test "zig fmt: same-line comment after var decl in struct" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {
         \\    const Data = struct {}; // when on disk.
@@ -1030,7 +1027,6 @@ test "zig fmt: same-line comment after var decl in struct" {
 }
 
 test "zig fmt: same-line comment after field decl" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\pub const dirent = extern struct {
         \\    d_name: u8,
@@ -1106,7 +1102,6 @@ test "zig fmt: line comments in struct initializer" {
 }
 
 test "zig fmt: first line comment in struct initializer" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\pub async fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
@@ -1120,7 +1115,6 @@ test "zig fmt: first line comment in struct initializer" {
 }
 
 test "zig fmt: doc comments before struct field" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\pub const Allocator = struct {
         \\    /// Allocate byte_count bytes and return them in a slice, with the
@@ -1218,7 +1212,6 @@ test "zig fmt: comments before switch prong" {
 }
 
 test "zig fmt: comments before var decl in struct" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {
         \\    // All of these are mandated as little endian
@@ -1609,7 +1602,6 @@ test "zig fmt: indexing" {
 }
 
 test "zig fmt: struct declaration" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\const S = struct {
         \\    const Self = @This();
@@ -1641,7 +1633,6 @@ test "zig fmt: struct declaration" {
 }
 
 test "zig fmt: enum declaration" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\const E = enum {
         \\    Ok,
@@ -1670,7 +1661,6 @@ test "zig fmt: enum declaration" {
 }
 
 test "zig fmt: union declaration" {
-    if (true) return error.SkipZigTest; // TODO
     try testCanonical(
         \\const U = union {
         \\    Int: u8,

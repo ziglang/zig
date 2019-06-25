@@ -17425,11 +17425,9 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[i];
                     field_val->special = ConstValSpecialUndef;
                     field_val->type = struct_type->data.structure.fields[i].type_entry;
-                    ConstParent *parent = get_const_val_parent(ira->codegen, field_val);
-                    assert(parent != nullptr);
-                    parent->id = ConstParentIdStruct;
-                    parent->data.p_struct.struct_val = struct_val;
-                    parent->data.p_struct.field_index = i;
+                    field_val->parent.id = ConstParentIdStruct;
+                    field_val->parent.data.p_struct.struct_val = struct_val;
+                    field_val->parent.data.p_struct.field_index = i;
                 }
             }
             IrInstruction *result;
@@ -17507,11 +17505,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     ConstExprValue *payload_val = create_const_vals(1);
                     payload_val->special = ConstValSpecialUndef;
                     payload_val->type = field->type_entry;
-                    ConstParent *parent = get_const_val_parent(ira->codegen, payload_val);
-                    if (parent != nullptr) {
-                        parent->id = ConstParentIdUnion;
-                        parent->data.p_union.union_val = union_val;
-                    }
+                    payload_val->parent.id = ConstParentIdUnion;
+                    payload_val->parent.data.p_union.union_val = union_val;
 
                     union_val->special = ConstValSpecialStatic;
                     bigint_init_bigint(&union_val->data.x_union.tag, &field->enum_field->value);
@@ -25289,7 +25284,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturnPtr:
         case IrInstructionIdTypeOf:
         case IrInstructionIdStructFieldPtr:
-        case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:
         case IrInstructionIdPromiseType:
         case IrInstructionIdSliceType:
@@ -25389,6 +25383,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             }
         case IrInstructionIdUnwrapErrCode:
             return reinterpret_cast<IrInstructionUnwrapErrCode *>(instruction)->initializing;
+        case IrInstructionIdUnionFieldPtr:
+            return reinterpret_cast<IrInstructionUnionFieldPtr *>(instruction)->initializing;
         case IrInstructionIdErrWrapPayload:
             return reinterpret_cast<IrInstructionErrWrapPayload *>(instruction)->result_loc != nullptr;
         case IrInstructionIdErrWrapCode:
