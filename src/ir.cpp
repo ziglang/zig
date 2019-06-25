@@ -5579,7 +5579,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "Else");
     IrBasicBlock *endif_block = ir_create_basic_block(irb, scope, "EndIf");
 
-    IrInstruction *cond_br_inst = ir_build_cond_br(irb, scope, condition->source_node, condition,
+    IrInstruction *cond_br_inst = ir_build_cond_br(irb, scope, node, condition,
             then_block, else_block, is_comptime);
     ResultLocPeerParent *peer_parent = ir_build_binary_result_peers(irb, cond_br_inst, else_block, endif_block,
             result_loc, is_comptime);
@@ -5833,7 +5833,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 Buf *name = entry_node->data.struct_val_field.name;
                 AstNode *expr_node = entry_node->data.struct_val_field.expr;
 
-                IrInstruction *field_ptr = ir_build_field_ptr(irb, scope, expr_node, container_ptr, name, true);
+                IrInstruction *field_ptr = ir_build_field_ptr(irb, scope, entry_node, container_ptr, name, true);
                 ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = field_ptr;
@@ -16822,11 +16822,6 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         peer_parent->done_resuming = true;
         return ira_resume(ira);
     }
-    if (peer_parent != nullptr && !peer_parent->skipped && peer_parent->base.resolved_loc != nullptr &&
-        type_is_invalid(peer_parent->base.resolved_loc->value.type))
-    {
-        return ira->codegen->invalid_instruction;
-    }
 
     ZigList<IrBasicBlock*> new_incoming_blocks = {0};
     ZigList<IrInstruction*> new_incoming_values = {0};
@@ -17688,7 +17683,7 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
             IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_ptr, container_type, field_ptr_instruction->initializing);
             return result;
         }
-    } else if (is_array_ref(container_type)) {
+    } else if (is_array_ref(container_type) && !field_ptr_instruction->initializing) {
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = create_const_vals(1);
             if (container_type->id == ZigTypeIdPointer) {
@@ -18003,6 +17998,10 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
                 buf_sprintf("type '%s' does not support field access", buf_ptr(&child_type->name)));
             return ira->codegen->invalid_instruction;
         }
+    } else if (field_ptr_instruction->initializing) {
+        ir_add_error(ira, &field_ptr_instruction->base,
+            buf_sprintf("type '%s' does not support struct initialization syntax", buf_ptr(&container_type->name)));
+        return ira->codegen->invalid_instruction;
     } else {
         ir_add_error_node(ira, field_ptr_instruction->base.source_node,
             buf_sprintf("type '%s' does not support field access", buf_ptr(&container_type->name)));
@@ -24796,11 +24795,6 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
         if (!was_written) {
             IrInstruction *store_ptr = ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
             if (type_is_invalid(store_ptr->value.type)) {
-                instruction->result_loc->resolved_loc = ira->codegen->invalid_instruction;
-                if (instruction->result_loc->id == ResultLocIdPeer) {
-                    reinterpret_cast<ResultLocPeer *>(instruction->result_loc)->parent->base.resolved_loc =
-                        ira->codegen->invalid_instruction;
-                }
                 return ira->codegen->invalid_instruction;
             }
         }
@@ -25198,7 +25192,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             ir_assert(new_instruction->value.type != nullptr || new_instruction->value.type != nullptr, old_instruction);
             old_instruction->child = new_instruction;
 
-            if (type_is_invalid(new_instruction->value.type) && ir_should_inline(new_exec, old_instruction->scope)) {
+            if (type_is_invalid(new_instruction->value.type)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
 
