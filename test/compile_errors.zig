@@ -3880,7 +3880,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 2;
         \\}
     ,
-        "tmp.zig:2:15: error: values of type 'comptime_int' must be comptime known",
+        "tmp.zig:5:17: error: cannot store runtime value in type 'comptime_int'",
     );
 
     cases.add(
@@ -5132,7 +5132,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const array = [2]u8{1, 2, 3};
         \\}
     ,
-        "tmp.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal",
+        "tmp.zig:2:31: error: index 2 outside array of size 2",
     );
 
     cases.add(
@@ -5149,36 +5149,47 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-const variables of things that require const variables",
-        \\const Opaque = @OpaqueType();
-        \\
-        \\export fn entry(opaque: *Opaque) void {
+        \\export fn entry1() void {
         \\   var m2 = &2;
-        \\   const y: u32 = m2.*;
-        \\
+        \\}
+        \\export fn entry2() void {
         \\   var a = undefined;
+        \\}
+        \\export fn entry3() void {
         \\   var b = 1;
+        \\}
+        \\export fn entry4() void {
         \\   var c = 1.0;
+        \\}
+        \\export fn entry5() void {
         \\   var d = null;
+        \\}
+        \\export fn entry6(opaque: *Opaque) void {
         \\   var e = opaque.*;
+        \\}
+        \\export fn entry7() void {
         \\   var f = i32;
+        \\}
+        \\export fn entry8() void {
         \\   var h = (Foo {}).bar;
-        \\
+        \\}
+        \\export fn entry9() void {
         \\   var z: noreturn = return;
         \\}
-        \\
+        \\const Opaque = @OpaqueType();
         \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        "tmp.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
-        "tmp.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
+        "tmp.zig:2:4: error: variable of type '*comptime_int' must be const or comptime",
+        "tmp.zig:5:4: error: variable of type '(undefined)' must be const or comptime",
         "tmp.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
-        "tmp.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
-        "tmp.zig:10:4: error: variable of type '(null)' must be const or comptime",
-        "tmp.zig:11:4: error: variable of type 'Opaque' not allowed",
-        "tmp.zig:12:4: error: variable of type 'type' must be const or comptime",
-        "tmp.zig:13:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        "tmp.zig:15:4: error: unreachable code",
+        "tmp.zig:11:4: error: variable of type 'comptime_float' must be const or comptime",
+        "tmp.zig:14:4: error: variable of type '(null)' must be const or comptime",
+        "tmp.zig:17:4: error: variable of type 'Opaque' not allowed",
+        "tmp.zig:20:4: error: variable of type 'type' must be const or comptime",
+        "tmp.zig:23:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
+        "tmp.zig:26:4: error: unreachable code",
     );
 
     cases.add(
@@ -5324,7 +5335,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:37:16: error: cannot store runtime value in compile time variable",
+        "tmp.zig:37:29: error: cannot store runtime value in compile time variable",
     );
 
     cases.add(
@@ -5948,7 +5959,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x, .Baz = u8 };
         \\}
     ,
-        "tmp.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:23: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -5962,7 +5973,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x };
         \\}
     ,
-        "tmp.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:23: error: unable to evaluate constant expression",
     );
 
     cases.addTest(

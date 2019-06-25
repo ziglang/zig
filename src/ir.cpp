@@ -8736,7 +8736,16 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
                 return &codegen->invalid_instruction->value;
             }
             return &value->value;
-        } else if (ir_has_side_effects(instruction) && !instr_is_comptime(instruction)) {
+        } else if (ir_has_side_effects(instruction)) {
+            if (instr_is_comptime(instruction)) {
+                switch (instruction->id) {
+                    case IrInstructionIdUnwrapErrPayload:
+                    case IrInstructionIdUnionFieldPtr:
+                        continue;
+                    default:
+                        break;
+                }
+            }
             exec_add_error_node(codegen, exec, instruction->source_node,
                     buf_sprintf("unable to evaluate constant expression"));
             return &codegen->invalid_instruction->value;
@@ -14498,9 +14507,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
     } else if (result_type->id == ZigTypeIdUnreachable || result_type->id == ZigTypeIdOpaque) {
-        ir_add_error_node(ira, source_node,
-            buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
-        result_type = ira->codegen->builtin_types.entry_invalid;
+        zig_unreachable();
     }
 
     ConstExprValue *init_val = nullptr;
@@ -15053,6 +15060,13 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
         case ResultLocIdVar: {
             ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
             assert(result_loc->source_instruction->id == IrInstructionIdAllocaSrc);
+
+            if (value_type->id == ZigTypeIdUnreachable || value_type->id == ZigTypeIdOpaque) {
+                ir_add_error(ira, result_loc->source_instruction,
+                    buf_sprintf("variable of type '%s' not allowed", buf_ptr(&value_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
             IrInstructionAllocaSrc *alloca_src =
                 reinterpret_cast<IrInstructionAllocaSrc *>(result_loc->source_instruction);
             bool force_comptime;
@@ -15060,6 +15074,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return ira->codegen->invalid_instruction;
             bool is_comptime = force_comptime || (value != nullptr &&
                     value->value.special != ConstValSpecialRuntime && result_loc_var->var->gen_is_const);
+
             if (alloca_src->base.child == nullptr || is_comptime) {
                 uint32_t align = 0;
                 if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, &align)) {
