@@ -471,6 +471,28 @@ test "usesThumb1" {
     //etc.
 }
 
+const use_thumb_1_pre_armv6 = usesThumb1PreArmv6(builtin.arch);
+
+fn usesThumb1PreArmv6(arch: builtin.Arch) bool {
+    return switch (arch) {
+        .thumb => switch (arch.thumb) {
+            .v5,
+            .v5te,
+            .v4t,
+            => true,
+            else => false,
+        },
+        .thumbeb => switch (arch.thumbeb) {
+            .v5,
+            .v5te,
+            .v4t,
+            => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 nakedcc fn __aeabi_memcpy() noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1) {
@@ -505,7 +527,16 @@ nakedcc fn __aeabi_memmove() noreturn {
 
 nakedcc fn __aeabi_memset() noreturn {
     @setRuntimeSafety(false);
-    if (use_thumb_1) {
+    if (use_thumb_1_pre_armv6) {
+        asm volatile (
+            \\ eors    r1, r2
+            \\ eors    r2, r1
+            \\ eors    r1, r2
+            \\ push    {r7, lr}
+            \\ b       memset
+            \\ pop     {r7, pc}
+        );
+    } else if (use_thumb_1) {
         asm volatile (
             \\ mov     r3, r1
             \\ mov     r1, r2
@@ -527,7 +558,15 @@ nakedcc fn __aeabi_memset() noreturn {
 
 nakedcc fn __aeabi_memclr() noreturn {
     @setRuntimeSafety(false);
-    if (use_thumb_1) {
+    if (use_thumb_1_pre_armv6) {
+        asm volatile (
+            \\ adds    r2, r1, #0
+            \\ movs    r1, #0
+            \\ push    {r7, lr}
+            \\ bl      memset
+            \\ pop     {r7, pc}
+        );
+    } else if (use_thumb_1) {
         asm volatile (
             \\ mov     r2, r1
             \\ movs    r1, #0
