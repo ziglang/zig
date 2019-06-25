@@ -3873,9 +3873,6 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
 
     TypeUnionField *field = instruction->field;
 
-    if (!type_has_bits(field->type_entry))
-        return nullptr;
-
     LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
     LLVMTypeRef field_type_ref = LLVMPointerType(get_llvm_type(g, field->type_entry), 0);
 
@@ -3907,6 +3904,9 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
+
+    if (!type_has_bits(field->type_entry))
+        return nullptr;
 
     LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
             union_type->data.unionation.gen_union_index, "");

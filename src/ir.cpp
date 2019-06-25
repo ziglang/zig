@@ -15626,6 +15626,12 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     if (value == ira->codegen->invalid_instruction)
         return ira->codegen->invalid_instruction;
 
+    if (ptr->id == IrInstructionIdUnionFieldPtr && child_type->id == ZigTypeIdVoid) {
+        IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node, ptr, value);
+        result->value.type = ira->codegen->builtin_types.entry_void;
+        return result;
+    }
+
     switch (type_has_one_possible_value(ira->codegen, child_type)) {
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
