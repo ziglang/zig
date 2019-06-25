@@ -203,7 +203,7 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
     assert(get_src_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
     ConstExprValue *result;
-    
+
     switch (type_has_one_possible_value(g, const_val->type->data.pointer.child_type)) {
         case OnePossibleValueInvalid:
             zig_unreachable();
@@ -215,7 +215,7 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
         case OnePossibleValueNo:
             break;
     }
-    
+
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
@@ -4242,7 +4242,7 @@ static void populate_invalid_variable_in_scope(CodeGen *g, Scope *scope, AstNode
     TldVar *tld_var = allocate<TldVar>(1);
     init_tld(&tld_var->base, TldIdVar, var_name, VisibModPub, node, &scope_decls->base);
     tld_var->base.resolution = TldResolutionInvalid;
-    tld_var->var = add_variable(g, node, &scope_decls->base, var_name, false, 
+    tld_var->var = add_variable(g, node, &scope_decls->base, var_name, false,
             &g->invalid_instruction->value, &tld_var->base, g->builtin_types.entry_invalid);
     scope_decls->decl_table.put(var_name, &tld_var->base);
 }
@@ -11031,7 +11031,7 @@ static void ir_start_next_bb(IrAnalyze *ira) {
                 ira->old_bb_index += 1;
                 continue;
             }
-            // if it's already started, or 
+            // if it's already started, or
             // if it's a suspended block,
             // then skip it
             if (old_bb->suspended ||
@@ -13259,7 +13259,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         } else {
             return is_non_null;
         }
-    } else if (is_equality_cmp && 
+    } else if (is_equality_cmp &&
         ((op1->value.type->id == ZigTypeIdNull && op2->value.type->id == ZigTypeIdPointer &&
             op2->value.type->data.pointer.ptr_len == PtrLenC) ||
         (op2->value.type->id == ZigTypeIdNull && op1->value.type->id == ZigTypeIdPointer &&
@@ -16821,6 +16821,11 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
         peer_parent->done_resuming = true;
         return ira_resume(ira);
+    }
+    if (peer_parent != nullptr && !peer_parent->skipped && peer_parent->base.resolved_loc != nullptr &&
+        type_is_invalid(peer_parent->base.resolved_loc->value.type))
+    {
+        return ira->codegen->invalid_instruction;
     }
 
     ZigList<IrBasicBlock*> new_incoming_blocks = {0};
@@ -20966,7 +20971,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to make dir: %s", err_str(err)));
             return ira->codegen->invalid_instruction;
         }
-        
+
         if ((err = os_write_file(&tmp_c_file_path, &cimport_scope->buf))) {
             ir_add_error_node(ira, node, buf_sprintf("C import failed: unable to write .h file: %s", err_str(err)));
             return ira->codegen->invalid_instruction;
@@ -21933,7 +21938,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
         return ira->codegen->invalid_instruction;
 
     // TODO test this at comptime with u8 and non-u8 types
-    // TODO test with dest ptr being a global runtime variable 
+    // TODO test with dest ptr being a global runtime variable
     if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
         casted_src_ptr->value.special == ConstValSpecialStatic &&
         casted_count->value.special == ConstValSpecialStatic &&
@@ -24789,7 +24794,15 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
             return result_loc;
 
         if (!was_written) {
-            ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
+            IrInstruction *store_ptr = ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
+            if (type_is_invalid(store_ptr->value.type)) {
+                instruction->result_loc->resolved_loc = ira->codegen->invalid_instruction;
+                if (instruction->result_loc->id == ResultLocIdPeer) {
+                    reinterpret_cast<ResultLocPeer *>(instruction->result_loc)->parent->base.resolved_loc =
+                        ira->codegen->invalid_instruction;
+                }
+                return ira->codegen->invalid_instruction;
+            }
         }
 
         if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
