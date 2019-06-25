@@ -10,9 +10,17 @@ const lossyCast = std.math.lossyCast;
 
 pub const default_max_depth = 3;
 
+pub const Alignment = enum {
+    Left,
+    Center,
+    Right,
+};
+
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
+    alignment: ?Alignment = null,
+    fill: u8 = ' ',
 };
 
 fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, comptime next_arg: *comptime_int) comptime_int {
@@ -24,6 +32,18 @@ fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, 
         next_arg.* += 1;
         return arg;
     }
+}
+
+fn peekIsAlign(comptime fmt: []const u8) bool {
+    // Should only be called during a state transition to the format segment.
+    std.debug.assert(fmt[0] == ':');
+
+    inline for (([_]u8{ 1, 2 })[0..]) |i| {
+        if (fmt.len > i and (fmt[i] == '<' or fmt[i] == '^' or fmt[i] == '>')) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Renders fmt string with args, calling output with slices of bytes.
@@ -46,6 +66,7 @@ pub fn format(
         Positional,
         CloseBrace,
         Specifier,
+        FormatFillAndAlign,
         FormatWidth,
         FormatPrecision,
         Pointer,
@@ -92,7 +113,7 @@ pub fn format(
                     state = .Pointer;
                 },
                 ':' => {
-                    state = .FormatWidth;
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
                     specifier_end = i;
                 },
                 '0'...'9' => {
@@ -139,7 +160,7 @@ pub fn format(
             .Specifier => switch (c) {
                 ':' => {
                     specifier_end = i;
-                    state = .FormatWidth;
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
                 },
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
@@ -157,6 +178,24 @@ pub fn format(
                     start_index = i + 1;
                 },
                 else => {},
+            },
+            // Only entered if the format string contains a fill/align segment.
+            .FormatFillAndAlign => switch (c) {
+                '<' => {
+                    options.alignment = Alignment.Left;
+                    state = .FormatWidth;
+                },
+                '^' => {
+                    options.alignment = Alignment.Center;
+                    state = .FormatWidth;
+                },
+                '>' => {
+                    options.alignment = Alignment.Right;
+                    state = .FormatWidth;
+                },
+                else => {
+                    options.fill = c;
+                },
             },
             .FormatWidth => switch (c) {
                 '0'...'9' => {
@@ -1570,4 +1609,8 @@ test "positional" {
 
 test "positional with specifier" {
     try testFmt("10.0", "{0d:.1}", f64(9.999));
+}
+
+test "positional/alignment/width/precision" {
+    try testFmt("10.0", "{0d: >3.1}", f64(9.999));
 }
