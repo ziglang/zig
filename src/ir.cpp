@@ -12283,6 +12283,9 @@ static IrInstruction *ir_analyze_vector_to_array(IrAnalyze *ira, IrInstruction *
         result->value.type = array_type;
         return result;
     }
+    if (result_loc == nullptr) {
+        result_loc = no_result_loc();
+    }
     IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, array_type, nullptr, true, false);
     if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
         return result_loc_inst;
