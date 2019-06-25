@@ -678,10 +678,20 @@ fn transStringLiteral(
     const kind = ZigClangStringLiteral_getKind(stmt);
     switch (kind) {
         .Ascii, .UTF8 => {
-            var len: usize = undefined;
-            const cstr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &len);
+            var clen: usize = undefined;
+            const cstr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &clen);
             const zstr = try rp.c.str(cstr);
-            const token = try appendTokenFmt(rp.c, .StringLiteral, "c\"{}\"", zstr); // TODO: escape string
+
+            var len: usize = 0;
+            for (zstr) |c| len += escapeChar(c).len;
+
+            const buf = try rp.c.a().alloc(u8, len + "c\"\"".len);
+            buf[0] = 'c';
+            buf[1] = '"';
+            writeEscapedString(buf[2..], zstr);
+            buf[buf.len - 1] = '"';
+
+            const token = try appendToken(rp.c, .StringLiteral, buf);
             const node = try rp.c.a().create(ast.Node.StringLiteral);
             node.* = ast.Node.StringLiteral{
                 .base = ast.Node{ .id = .StringLiteral },
@@ -701,6 +711,37 @@ fn transStringLiteral(
             "TODO: support string literal kind {}",
             kind,
         ),
+    }
+}
+
+fn escapedStringLen(s: []const u8) usize {
+    var len: usize = 0;
+    for (s) |c| len += escapeChar(c).len;
+    return len;
+}
+
+fn writeEscapedString(buf: []u8, s: []const u8) void {
+    var i: usize = 0;
+    for (s) |c| {
+        const escaped = escapeChar(c);
+        std.mem.copy(u8, buf[i..], escaped);
+        i += escaped.len;
+    }
+}
+
+fn escapeChar(c: u8) []const u8 {
+    // TODO: https://github.com/ziglang/zig/issues/2749
+    switch (c) {
+        // Printable ASCII except for ' " \
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => return ([_]u8{c})[0..],
+        '\'', '\"', '\\' => return ([_]u8{ '\\', c })[0..],
+        '\n' => return "\\n"[0..],
+        '\r' => return "\\r"[0..],
+        '\t' => return "\\t"[0..],
+        else => {
+            var buf: [4]u8 = undefined;
+            return std.fmt.bufPrint(buf[0..], "\\x{x2}", c) catch unreachable;
+        },
     }
 }
 
