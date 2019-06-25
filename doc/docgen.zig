@@ -933,7 +933,9 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             std.zig.Token.Id.BracketStarCBracket,
             => try writeEscaped(out, src[token.start..token.end]),
 
-            std.zig.Token.Id.Invalid => return parseError(
+            std.zig.Token.Id.AmpersandAmpersand,
+            std.zig.Token.Id.Invalid,
+            => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",
