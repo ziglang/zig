@@ -427,9 +427,23 @@ fn renderExpression(
                 },
 
                 ast.Node.PrefixOp.Op.ArrayType => |array_index| {
-                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, array_index, Space.None);
-                    try renderToken(tree, stream, tree.nextToken(array_index.lastToken()), indent, start_col, Space.None); // ]
+                    const lbracket = prefix_op_node.op_token;
+                    const rbracket = tree.nextToken(array_index.lastToken());
+
+                    try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
+
+                    const starts_with_comment = tree.tokens.at(lbracket + 1).id == .LineComment;
+                    const ends_with_comment = tree.tokens.at(rbracket - 1).id == .LineComment;
+                    const new_indent = if (ends_with_comment) indent + indent_delta else indent;
+                    const new_space = if (ends_with_comment) Space.Newline else Space.None;
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, array_index, new_space);
+                    if (starts_with_comment) {
+                        try stream.writeByte('\n');
+                    }
+                    if (ends_with_comment or starts_with_comment) {
+                        try stream.writeByteNTimes(' ', indent);
+                    }
+                    try renderToken(tree, stream, rbracket, indent, start_col, Space.None); // ]
                 },
                 ast.Node.PrefixOp.Op.BitNot,
                 ast.Node.PrefixOp.Op.BoolNot,
@@ -524,7 +538,18 @@ fn renderExpression(
 
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
                     try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, index_expr, Space.None);
+
+                    const starts_with_comment = tree.tokens.at(lbracket + 1).id == .LineComment;
+                    const ends_with_comment = tree.tokens.at(rbracket - 1).id == .LineComment;
+                    const new_indent = if (ends_with_comment) indent + indent_delta else indent;
+                    const new_space = if (ends_with_comment) Space.Newline else Space.None;
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, index_expr, new_space);
+                    if (starts_with_comment) {
+                        try stream.writeByte('\n');
+                    }
+                    if (ends_with_comment or starts_with_comment) {
+                        try stream.writeByteNTimes(' ', indent);
+                    }
                     return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
                 },
 
@@ -559,7 +584,7 @@ fn renderExpression(
 
                     if (field_inits.len == 0) {
                         try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
+                        try renderToken(tree, stream, lbrace, indent + indent_delta, start_col, Space.None);
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
 
@@ -2019,7 +2044,7 @@ fn renderTokenOffset(
 
                     const after_comment_token = tree.tokens.at(token_index + offset);
                     const next_line_indent = switch (after_comment_token.id) {
-                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => indent - indent_delta,
+                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => if (indent > indent_delta) indent - indent_delta else 0,
                         else => indent,
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);
