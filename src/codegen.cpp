@@ -691,7 +691,9 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
             scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
-            ZigLLVMFnSetSubprogram(fn_llvm_value(g, fn_table_entry), subprogram);
+            if (!g->strip_debug_symbols) {
+                ZigLLVMFnSetSubprogram(fn_llvm_value(g, fn_table_entry), subprogram);
+            }
             return scope->di_scope;
         }
         case ScopeIdDecls:

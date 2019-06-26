@@ -10726,6 +10726,8 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         } else if (prev_inst->value.type->id == ZigTypeIdOptional) {
             return prev_inst->value.type;
         } else {
+            if ((err = type_resolve(ira->codegen, prev_inst->value.type, ResolveStatusSizeKnown)))
+                return ira->codegen->builtin_types.entry_invalid;
             return get_optional_type(ira->codegen, prev_inst->value.type);
         }
     } else {
@@ -21547,7 +21549,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
             dest_slice_type, nullptr, true, false);
-    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
         return result_loc;
     }
 

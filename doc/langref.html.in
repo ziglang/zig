@@ -5096,7 +5096,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|values of type 'type' must be comptime known#}
+      {#code_begin|test_err|cannot store runtime value in type 'type'#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
