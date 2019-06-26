@@ -2246,6 +2246,20 @@ test "zig fmt: if type expr" {
     );
 }
 
+test "zig fmt: comment after empty comment" {
+    try testTransform(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    ,
+        \\const x = true;
+        \\//a
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
