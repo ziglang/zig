@@ -10093,9 +10093,21 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 {
     Error err;
     assert(instruction_count >= 1);
-    IrInstruction *prev_inst = instructions[0];
-    if (type_is_invalid(prev_inst->value.type)) {
-        return ira->codegen->builtin_types.entry_invalid;
+    IrInstruction *prev_inst;
+    size_t i = 0;
+    for (;;) {
+        prev_inst = instructions[i];
+        if (type_is_invalid(prev_inst->value.type)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (prev_inst->value.type->id == ZigTypeIdUnreachable) {
+            i += 1;
+            if (i == instruction_count) {
+                return prev_inst->value.type;
+            }
+            continue;
+        }
+        break;
     }
     ErrorTableEntry **errors = nullptr;
     size_t errors_count = 0;
@@ -10120,7 +10132,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
     bool any_are_null = (prev_inst->value.type->id == ZigTypeIdNull);
     bool convert_to_const_slice = false;
-    for (size_t i = 1; i < instruction_count; i += 1) {
+    for (; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
         ZigType *cur_type = cur_inst->value.type;
         ZigType *prev_type = prev_inst->value.type;
@@ -10139,7 +10151,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         }
 
         if (prev_type->id == ZigTypeIdErrorSet) {
-            assert(err_set_type != nullptr);
+            ir_assert(err_set_type != nullptr, prev_inst);
             if (cur_type->id == ZigTypeIdErrorSet) {
                 if (type_is_global_error_set(err_set_type)) {
                     continue;

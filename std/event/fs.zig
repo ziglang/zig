@@ -1290,10 +1290,9 @@ pub fn Watch(comptime V: type) type {
                                 error.FileDescriptorAlreadyPresentInSet => unreachable,
                                 error.OperationCausesCircularLoop => unreachable,
                                 error.FileDescriptorNotRegistered => unreachable,
-                                error.SystemResources => error.SystemResources,
-                                error.UserResourceLimitReached => error.UserResourceLimitReached,
                                 error.FileDescriptorIncompatibleWithEpoll => unreachable,
                                 error.Unexpected => unreachable,
+                                else => |e| e,
                             };
                             await (async channel.put(transformed_err) catch unreachable);
                         };

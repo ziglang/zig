@@ -496,3 +496,26 @@ test "peer type resolution: unreachable, null, slice" {
     };
     S.doTheTest(1, "hi");
 }
+
+test "peer type resolution: unreachable, error set, unreachable" {
+    const Error = error {
+        FileDescriptorAlreadyPresentInSet,
+        OperationCausesCircularLoop,
+        FileDescriptorNotRegistered,
+        SystemResources,
+        UserResourceLimitReached,
+        FileDescriptorIncompatibleWithEpoll,
+        Unexpected,
+    };
+    var err = Error.SystemResources;
+    const transformed_err = switch (err) {
+        error.FileDescriptorAlreadyPresentInSet => unreachable,
+        error.OperationCausesCircularLoop => unreachable,
+        error.FileDescriptorNotRegistered => unreachable,
+        error.SystemResources => error.SystemResources,
+        error.UserResourceLimitReached => error.UserResourceLimitReached,
+        error.FileDescriptorIncompatibleWithEpoll => unreachable,
+        error.Unexpected => unreachable,
+    };
+    expect(transformed_err == error.SystemResources);
+}
