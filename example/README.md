@@ -14,9 +14,11 @@
  * **mix_o_files** - how to mix .zig and .c files together as object files
  
 ## Run the examples
-to run these examples, use the latest zig, and a command like:
+To run an example, [build](https://github.com/ziglang/zig#building-from-source) or [download](https://ziglang.org/download) the latest version of Zig and call `zig run` on the example's [root file](https://ziglang.org/documentation/master/#Root-Source-File).
+
 `zig run hello_world/hello.zig`
-or build and run in 2 steps (from the hello_world directory):
+
+Or build and run in 2 steps (from the hello_world directory):
 
 ``` shell
 $ zig build-exe hello.zig
