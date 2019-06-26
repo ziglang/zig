@@ -22,5 +22,4 @@ or build and run in 2 steps (from the hello_world directory):
 $ zig build-exe hello.zig
 $ ./hello
 Hello, world!
-
 ```
