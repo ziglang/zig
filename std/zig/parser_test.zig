@@ -2265,6 +2265,16 @@ test "zig fmt: line comment in array" {
         \\}
         \\
     );
+    try testCanonical(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0,
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: comment after params" {
@@ -2278,6 +2288,14 @@ test "zig fmt: comment after params" {
     ,
         \\fn a(
         \\    b: u32, // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+    try testCanonical(
+        \\fn a(
+        \\    b: u32,
+        \\    // c: u32,
         \\    // d: u32,
         \\) void {}
         \\
