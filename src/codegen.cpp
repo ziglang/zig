@@ -3373,9 +3373,6 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrI
     if (!type_has_bits(var->var_type))
         return nullptr;
 
-    if (var->ref_count == 0 && g->build_mode != BuildModeDebug)
-        return nullptr;
-
     var->value_ref = ir_llvm_value(g, instruction->var_ptr);
     gen_var_debug_decl(g, var);
     return nullptr;
