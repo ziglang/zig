@@ -1,4 +1,4 @@
-// TODO remove `use` keyword eventually
+// TODO remove `use` keyword eventually: https://github.com/ziglang/zig/issues/2591
 test "zig fmt: change use to usingnamespace" {
     try testTransform(
         \\use @import("std");
@@ -1105,7 +1105,7 @@ test "zig fmt: first line comment in struct initializer" {
     try testCanonical(
         \\pub async fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
-        \\        // TODO guaranteed allocation elision
+        \\        // guaranteed allocation elision
         \\        .held = await (async self.lock.acquire() catch unreachable),
         \\        .value = &self.private_data,
         \\    };

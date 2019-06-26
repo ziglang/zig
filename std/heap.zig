@@ -360,9 +360,9 @@ pub const ArenaAllocator = struct {
         var it = self.buffer_list.first;
         while (it) |node| {
             // this has to occur before the free because the free frees node
-            it = node.next;
-
+            const next_it = node.next;
             self.child_allocator.free(node.data);
+            it = next_it;
         }
     }
 

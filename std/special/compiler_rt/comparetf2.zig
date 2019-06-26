@@ -73,12 +73,15 @@ pub extern fn __getf2(a: f128, b: f128) c_int {
 
     if (aAbs > infRep or bAbs > infRep) return GE_UNORDERED;
     if ((aAbs | bAbs) == 0) return GE_EQUAL;
-    return if ((aInt & bInt) >= 0) if (aInt < bInt)
-        GE_LESS
-    else if (aInt == bInt)
-        GE_EQUAL
-    else
-        GE_GREATER else if (aInt > bInt)
+    // zig fmt issue here, see https://github.com/ziglang/zig/issues/2661
+    return if ((aInt & bInt) >= 0)
+        if (aInt < bInt)
+            GE_LESS
+        else if (aInt == bInt)
+            GE_EQUAL
+        else
+            GE_GREATER
+    else if (aInt > bInt)
         GE_LESS
     else if (aInt == bInt)
         GE_EQUAL

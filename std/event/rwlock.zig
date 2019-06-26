@@ -212,8 +212,8 @@ pub const RwLock = struct {
 };
 
 test "std.event.RwLock" {
-    // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
+    // https://github.com/ziglang/zig/issues/2377
+    if (true) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 

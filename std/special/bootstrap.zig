@@ -114,20 +114,20 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
 // and we want fewer call frames in stack traces.
 inline fn callMain() u8 {
     switch (@typeId(@typeOf(root.main).ReturnType)) {
-        builtin.TypeId.NoReturn => {
+        .NoReturn => {
             root.main();
         },
-        builtin.TypeId.Void => {
+        .Void => {
             root.main();
             return 0;
         },
-        builtin.TypeId.Int => {
+        .Int => {
             if (@typeOf(root.main).ReturnType.bit_count != 8) {
                 @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
             }
             return root.main();
         },
-        builtin.TypeId.ErrorUnion => {
+        .ErrorUnion => {
             root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
                 if (builtin.os != builtin.Os.zen) {

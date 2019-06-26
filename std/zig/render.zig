@@ -939,10 +939,10 @@ fn renderExpression(
             }
 
             switch (container_decl.init_arg_expr) {
-                ast.Node.ContainerDecl.InitArg.None => {
+                .None => {
                     try renderToken(tree, stream, container_decl.kind_token, indent, start_col, Space.Space); // union
                 },
-                ast.Node.ContainerDecl.InitArg.Enum => |enum_tag_type| {
+                .Enum => |enum_tag_type| {
                     try renderToken(tree, stream, container_decl.kind_token, indent, start_col, Space.None); // union
 
                     const lparen = tree.nextToken(container_decl.kind_token);
@@ -962,7 +962,7 @@ fn renderExpression(
                         try renderToken(tree, stream, tree.nextToken(enum_token), indent, start_col, Space.Space); // )
                     }
                 },
-                ast.Node.ContainerDecl.InitArg.Type => |type_expr| {
+                .Type => |type_expr| {
                     try renderToken(tree, stream, container_decl.kind_token, indent, start_col, Space.None); // union
 
                     const lparen = tree.nextToken(container_decl.kind_token);

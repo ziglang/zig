@@ -263,8 +263,8 @@ pub async fn connect(loop: *Loop, _address: *const std.net.Address) !File {
 }
 
 test "listen on a port, send bytes, receive bytes" {
-    // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded) return error.SkipZigTest;
+    // https://github.com/ziglang/zig/issues/2377
+    if (true) return error.SkipZigTest;
 
     if (builtin.os != builtin.Os.linux) {
         // TODO build abstractions for other operating systems

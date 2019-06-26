@@ -61,3 +61,16 @@ test "vector bit operators" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "implicit cast vector to array" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: @Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+            var result_array: [4]i32 = a;
+            result_array = a;
+            expect(mem.eql(i32, result_array, [4]i32{ 1, 2, 3, 4 }));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

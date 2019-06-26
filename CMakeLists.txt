@@ -6734,6 +6734,7 @@ add_custom_command(
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     DEPENDS
+        zig0
         "${CMAKE_SOURCE_DIR}/src-self-hosted/dep_tokenizer.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"
