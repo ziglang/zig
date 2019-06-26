@@ -12,3 +12,15 @@
  * **shared_library** - demonstration of building a shared library and generating
    a header file for interop with C code.
  * **mix_o_files** - how to mix .zig and .c files together as object files
+ 
+## Run the examples
+to run these examples, use the latest zig, and a command like:
+`zig run hello_world/hello.zig`
+or build and run in 2 steps (from the hello_world directory):
+
+``` shell
+$ zig build-exe hello.zig
+$ ./hello
+Hello, world!
+
+```
