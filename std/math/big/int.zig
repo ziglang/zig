@@ -519,6 +519,7 @@ pub const Int = struct {
     pub fn format(
         self: Int,
         comptime fmt: []const u8,
+        comptime options: std.fmt.FormatOptions,
         context: var,
         comptime FmtError: type,
         output: fn (@typeOf(context), []const u8) FmtError!void,

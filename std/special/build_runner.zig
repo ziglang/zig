@@ -167,7 +167,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
-        try out_stream.print("  {s22} {}\n", top_level_step.step.name, top_level_step.description);
+        try out_stream.print("  {s:22} {}\n", top_level_step.step.name, top_level_step.description);
     }
 
     try out_stream.write(
@@ -188,7 +188,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         for (builder.available_options_list.toSliceConst()) |option| {
             const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
-            try out_stream.print("{s24} {}\n", name, option.description);
+            try out_stream.print("{s:24} {}\n", name, option.description);
         }
     }
 
