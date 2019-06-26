@@ -998,7 +998,7 @@ fn printCharValues(out: var, bytes: []const u8) !void {
 
 fn printUnderstandableChar(out: var, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        std.fmt.format(out.context, anyerror, out.output, "\\x{X2}", char) catch {};
+        std.fmt.format(out.context, anyerror, out.output, "\\x{X:2}", char) catch {};
     } else {
         try out.write("'");
         try out.write([_]u8{printable_char_tab[char]});

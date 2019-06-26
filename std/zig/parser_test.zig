@@ -2234,6 +2234,18 @@ test "zig fmt: multiline string in array" {
     );
 }
 
+test "zig fmt: if type expr" {
+    try testCanonical(
+        \\const mycond = true;
+        \\pub fn foo() if (mycond) i32 else void {
+        \\    if (mycond) {
+        \\        return 42;
+        \\    }
+        \\}
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
