@@ -74,7 +74,8 @@ pub fn build(b: *Builder) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
-        test_step.dependOn(&exe.step);
+        // TODO re-enable this after https://github.com/ziglang/zig/issues/2377
+        //test_step.dependOn(&exe.step);
     }
     const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") orelse false;
     exe.setVerboseLink(verbose_link_exe);
