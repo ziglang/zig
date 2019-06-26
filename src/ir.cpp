@@ -10399,6 +10399,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         if (prev_type->id == ZigTypeIdNull) {
             prev_inst = cur_inst;
+            any_are_null = true;
             continue;
         }
 

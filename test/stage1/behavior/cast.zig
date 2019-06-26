@@ -482,3 +482,17 @@ test "@intCast to u0 and use the result" {
     S.doTheTest(0, 1, 0);
     comptime S.doTheTest(0, 1, 0);
 }
+
+test "peer type resolution: unreachable, null, slice" {
+    const S = struct {
+        fn doTheTest(num: usize, word: []const u8) void {
+            const result = switch (num) {
+                0 => null,
+                1 => word,
+                else => unreachable,
+            };
+            expect(mem.eql(u8, result.?, "hi"));
+        }
+    };
+    S.doTheTest(1, "hi");
+}
