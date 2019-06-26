@@ -405,15 +405,15 @@ const use_thumb_1 = usesThumb1(builtin.arch);
 
 fn usesThumb1(arch: builtin.Arch) bool {
     return switch (arch) {
-        .arm => switch (arch.arm) {
+        .arm => |sub_arch| switch (sub_arch) {
             .v6m => true,
             else => false,
         },
-        .armeb => switch (arch.armeb) {
+        .armeb => |sub_arch| switch (sub_arch) {
             .v6m => true,
             else => false,
         },
-        .thumb => switch (arch.thumb) {
+        .thumb => |sub_arch| switch (sub_arch) {
             .v5,
             .v5te,
             .v4t,
@@ -423,7 +423,7 @@ fn usesThumb1(arch: builtin.Arch) bool {
             => true,
             else => false,
         },
-        .thumbeb => switch (arch.thumbeb) {
+        .thumbeb => |sub_arch| switch (sub_arch) {
             .v5,
             .v5te,
             .v4t,
@@ -475,18 +475,12 @@ const use_thumb_1_pre_armv6 = usesThumb1PreArmv6(builtin.arch);
 
 fn usesThumb1PreArmv6(arch: builtin.Arch) bool {
     return switch (arch) {
-        .thumb => switch (arch.thumb) {
-            .v5,
-            .v5te,
-            .v4t,
-            => true,
+        .thumb => |sub_arch| switch (sub_arch) {
+            .v5, .v5te, .v4t => true,
             else => false,
         },
-        .thumbeb => switch (arch.thumbeb) {
-            .v5,
-            .v5te,
-            .v4t,
-            => true,
+        .thumbeb => |sub_arch| switch (sub_arch) {
+            .v5, .v5te, .v4t => true,
             else => false,
         },
         else => false,
