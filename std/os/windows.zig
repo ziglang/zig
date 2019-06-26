@@ -348,6 +348,7 @@ pub const DeleteFileError = error{
     FileNotFound,
     AccessDenied,
     NameTooLong,
+    FileBusy,
     Unexpected,
 };
 
@@ -363,6 +364,7 @@ pub fn DeleteFileW(filename: [*]const u16) DeleteFileError!void {
             ERROR.ACCESS_DENIED => return error.AccessDenied,
             ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
             ERROR.INVALID_PARAMETER => return error.NameTooLong,
+            ERROR.SHARING_VIOLATION => return error.FileBusy,
             else => |err| return unexpectedError(err),
         }
     }
