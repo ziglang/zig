@@ -180,6 +180,8 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->root_package = new_package(".", "", "");
     }
 
+    g->root_package->package_table.put(buf_create_from_str("root"), g->root_package);
+
     g->zig_std_special_dir = buf_alloc();
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
@@ -8053,6 +8055,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    g->std_package->package_table.put(buf_create_from_str("root"),
+            g->is_test_build ? g->test_runner_package : g->root_package);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents,
             SourceKindPkgMain);
 
@@ -8522,7 +8526,7 @@ static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *ba
 
 static ZigPackage *create_bootstrap_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
     ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig", "std.special");
-    package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
+    package->package_table.put(buf_create_from_str("root"), pkg_with_main);
     return package;
 }
 
@@ -9375,6 +9379,7 @@ void codegen_add_time_event(CodeGen *g, const char *name) {
 static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
     if (buf_len(&pkg->root_src_path) == 0)
         return;
+    pkg->added_to_cache = true;
 
     Buf *rel_full_path = buf_alloc();
     os_path_join(&pkg->root_src_dir, &pkg->root_src_path, rel_full_path);
@@ -9386,9 +9391,7 @@ static void add_cache_pkg(CodeGen *g, CacheHash *ch, ZigPackage *pkg) {
         if (!entry)
             break;
 
-        // TODO: I think we need a more sophisticated detection of
-        // packages we have already seen
-        if (entry->value != pkg) {
+        if (!pkg->added_to_cache) {
             cache_buf(ch, entry->key);
             add_cache_pkg(g, ch, entry->value);
         }
@@ -9645,6 +9648,10 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
     if (g->std_package != nullptr) {
         assert(g->compile_var_package != nullptr);
         pkg->package_table.put(buf_create_from_str("std"), g->std_package);
+
+        ZigPackage *main_pkg = g->is_test_build ? g->test_runner_package : g->root_package;
+        pkg->package_table.put(buf_create_from_str("root"), main_pkg);
+
         pkg->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     }
     return pkg;

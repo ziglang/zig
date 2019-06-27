@@ -1110,6 +1110,8 @@ struct ZigPackage {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigPackage *, buf_hash, buf_eql_buf> package_table;
+
+    bool added_to_cache;
 };
 
 // Stuff that only applies to a struct which is the implicit root struct of a file
