@@ -3,12 +3,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "slice passed as array init type with elems",
+        \\export fn entry() void {
+        \\    const x = []u8{1, 2};
+        \\}
+    ,
+        "tmp.zig:2:15: error: expected array type or [_], found slice",
+    );
+
+    cases.add(
         "slice passed as array init type",
         \\export fn entry() void {
         \\    const x = []u8{};
         \\}
     ,
-        "tmp.zig:2:19: error: expected array type or [_], found slice",
+        "tmp.zig:2:15: error: expected array type or [_], found slice",
     );
 
     cases.add(

@@ -17280,7 +17280,11 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     ZigType *actual_array_type = ir_resolve_type(ira, elem_ptr_instruction->init_array_type->child);
                     if (type_is_invalid(actual_array_type))
                         return ira->codegen->invalid_instruction;
-                    assert(actual_array_type->id == ZigTypeIdArray);
+                    if (actual_array_type->id != ZigTypeIdArray) {
+                        ir_add_error(ira, elem_ptr_instruction->init_array_type,
+                            buf_sprintf("expected array type or [_], found slice"));
+                        return ira->codegen->invalid_instruction;
+                    }
 
                     ConstExprValue *array_init_val = create_const_vals(1);
                     array_init_val->special = ConstValSpecialStatic;
@@ -19575,7 +19579,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
-        ir_add_error(ira, &instruction->base,
+        ir_add_error(ira, instruction->container_type,
             buf_sprintf("expected array type or [_], found slice"));
         return ira->codegen->invalid_instruction;
     }
