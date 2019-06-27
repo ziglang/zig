@@ -83,8 +83,12 @@ const HeaderEntry = struct {
     }
 };
 
+var test_memory: [32 * 1024]u8 = undefined;
+var test_fba_state = std.heap.FixedBufferAllocator.init(&test_memory);
+const test_allocator = &test_fba_state.allocator;
+
 test "HeaderEntry" {
-    var e = try HeaderEntry.init(debug.global_allocator, "foo", "bar", null);
+    var e = try HeaderEntry.init(test_allocator, "foo", "bar", null);
     defer e.deinit();
     testing.expectEqualSlices(u8, "foo", e.name);
     testing.expectEqualSlices(u8, "bar", e.value);
@@ -376,7 +380,7 @@ pub const Headers = struct {
 };
 
 test "Headers.iterator" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("cookie", "somevalue", null);
@@ -399,7 +403,7 @@ test "Headers.iterator" {
 }
 
 test "Headers.contains" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("cookie", "somevalue", null);
@@ -409,7 +413,7 @@ test "Headers.contains" {
 }
 
 test "Headers.delete" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("baz", "qux", null);
@@ -437,7 +441,7 @@ test "Headers.delete" {
 }
 
 test "Headers.orderedRemove" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("baz", "qux", null);
@@ -460,7 +464,7 @@ test "Headers.orderedRemove" {
 }
 
 test "Headers.swapRemove" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("baz", "qux", null);
@@ -483,7 +487,7 @@ test "Headers.swapRemove" {
 }
 
 test "Headers.at" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("cookie", "somevalue", null);
@@ -503,7 +507,7 @@ test "Headers.at" {
 }
 
 test "Headers.getIndices" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("set-cookie", "x=1", null);
@@ -515,27 +519,27 @@ test "Headers.getIndices" {
 }
 
 test "Headers.get" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("set-cookie", "x=1", null);
     try h.append("set-cookie", "y=2", null);
 
     {
-        const v = try h.get(debug.global_allocator, "not-present");
+        const v = try h.get(test_allocator, "not-present");
         testing.expect(null == v);
     }
     {
-        const v = (try h.get(debug.global_allocator, "foo")).?;
-        defer debug.global_allocator.free(v);
+        const v = (try h.get(test_allocator, "foo")).?;
+        defer test_allocator.free(v);
         const e = v[0];
         testing.expectEqualSlices(u8, "foo", e.name);
         testing.expectEqualSlices(u8, "bar", e.value);
         testing.expectEqual(false, e.never_index);
     }
     {
-        const v = (try h.get(debug.global_allocator, "set-cookie")).?;
-        defer debug.global_allocator.free(v);
+        const v = (try h.get(test_allocator, "set-cookie")).?;
+        defer test_allocator.free(v);
         {
             const e = v[0];
             testing.expectEqualSlices(u8, "set-cookie", e.name);
@@ -552,30 +556,30 @@ test "Headers.get" {
 }
 
 test "Headers.getCommaSeparated" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("set-cookie", "x=1", null);
     try h.append("set-cookie", "y=2", null);
 
     {
-        const v = try h.getCommaSeparated(debug.global_allocator, "not-present");
+        const v = try h.getCommaSeparated(test_allocator, "not-present");
         testing.expect(null == v);
     }
     {
-        const v = (try h.getCommaSeparated(debug.global_allocator, "foo")).?;
-        defer debug.global_allocator.free(v);
+        const v = (try h.getCommaSeparated(test_allocator, "foo")).?;
+        defer test_allocator.free(v);
         testing.expectEqualSlices(u8, "bar", v);
     }
     {
-        const v = (try h.getCommaSeparated(debug.global_allocator, "set-cookie")).?;
-        defer debug.global_allocator.free(v);
+        const v = (try h.getCommaSeparated(test_allocator, "set-cookie")).?;
+        defer test_allocator.free(v);
         testing.expectEqualSlices(u8, "x=1,y=2", v);
     }
 }
 
 test "Headers.sort" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("cookie", "somevalue", null);
@@ -596,7 +600,7 @@ test "Headers.sort" {
 }
 
 test "Headers.format" {
-    var h = Headers.init(debug.global_allocator);
+    var h = Headers.init(test_allocator);
     defer h.deinit();
     try h.append("foo", "bar", null);
     try h.append("cookie", "somevalue", null);
