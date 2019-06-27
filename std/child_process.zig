@@ -548,7 +548,8 @@ pub const ChildProcess = struct {
 
             var it = mem.tokenize(PATH, ";");
             retry: while (it.next()) |search_path| {
-                var ext_it = mem.tokenize(PATHEXT, ";");
+                var ext_it = Chain(OneItemIterator([]u8), @typeOf(mem.tokenize).ReturnType).init(
+                    OneItemIterator([]u8).init(""), mem.tokenize(PATHEXT, ";"));
                 while (ext_it.next()) |app_ext| {
                     const app_basename = try mem.concat(self.allocator, u8, [_][]const u8{app_name[0..app_name.len - 1], app_ext});
                     defer self.allocator.free(app_basename);
@@ -767,4 +768,48 @@ pub fn createWindowsEnvBlock(allocator: *mem.Allocator, env_map: *const BufMap) 
     result[i] = 0;
     i += 1;
     return allocator.shrink(result, i);
+}
+
+// TODO: does this already exist somewhere?
+fn Chain(comptime T: type, comptime U: type) type {
+    return struct {
+        t: T,
+        u: U,
+        onU: bool,
+        pub fn init(t: T, u: U) @This() {
+            return @This() {
+                .t = t,
+                .u = u,
+                .onU = false,
+            };
+        }
+        pub fn next(self: *@This()) @typeOf(T.next).ReturnType {
+            if (!self.onU) {
+                if (self.t.next()) |tvalue| {
+                    return tvalue;
+                }
+                self.onU = true;
+            }
+            return self.u.next();
+        }
+    };
+}
+
+// TODO: does this already exist?
+fn OneItemIterator(comptime T: type) type {
+    return struct {
+        t: ?T,
+        pub fn init(t: T) @This() {
+            return @This() {
+                .t = t,
+            };
+        }
+        pub fn next(self: *@This()) ?T {
+            if (self.t) |tvalue| {
+                self.t = null;
+                return tvalue;
+            }
+            return null;
+        }
+    };
 }
