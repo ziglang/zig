@@ -1,7 +1,6 @@
-// This file is in a package which has the root source file exposed as "@root".
-// It is included in the compilation unit when exporting an executable.
+// This file is included in the compilation unit when exporting an executable.
 
-const root = @import("@root");
+const root = @import("root");
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
