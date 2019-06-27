@@ -7156,7 +7156,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
-                &switch_else_var, lval, &this_peer_result_loc->base))
+                &switch_else_var, LValNone, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -7233,7 +7233,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0,
-                &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
+                &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -7283,7 +7283,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, items, prong_item_count,
-            &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
+            &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
         {
             return irb->codegen->invalid_instruction;
         }
@@ -7334,7 +7334,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
     }
-    return ir_expr_wrap(irb, scope, result_instruction, result_loc);
+    return ir_lval_wrap(irb, scope, result_instruction, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {

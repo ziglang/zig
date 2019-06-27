@@ -376,3 +376,18 @@ test "return result loc and then switch with range implicit casted to error unio
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "switch with null and T peer types and inferred result location type" {
+    const S = struct {
+        fn doTheTest(c: u8) void {
+            if (switch (c) {
+                0 => true,
+                else => null,
+            }) |v| {
+                @panic("fail");
+            }
+        }
+    };
+    S.doTheTest(1);
+    comptime S.doTheTest(1);
+}
