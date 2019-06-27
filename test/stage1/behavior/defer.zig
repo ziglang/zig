@@ -76,3 +76,20 @@ fn testNestedFnErrDefer() anyerror!void {
     };
     return S.baz();
 }
+
+test "return variable while defer expression in scope to modify it" {
+    const S = struct {
+        fn doTheTest() void {
+            expect(notNull().? == 1);
+        }
+
+        fn notNull() ?u8 {
+            var res: ?u8 = 1;
+            defer res = null;
+            return res;
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
