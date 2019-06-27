@@ -1481,7 +1481,7 @@ test "subArrayPtr" {
 }
 
 /// Round an address up to the nearest aligned address
-/// The alignment must be greater than 0.
+/// The alignment must be a power of 2 and greater than 0.
 pub fn alignForward(addr: usize, alignment: usize) usize {
     return alignBackward(addr + (alignment - 1), alignment);
 }
@@ -1502,8 +1502,9 @@ test "alignForward" {
 }
 
 /// Round an address up to the previous aligned address
-/// The alignment must be greater than 0.
+/// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
+    assert(@popCount(usize, alignment) == 1);
     // 000010000 // example addr
     // 000001111 // subtract 1
     // 111110000 // binary not
@@ -1511,7 +1512,7 @@ pub fn alignBackward(addr: usize, alignment: usize) usize {
 }
 
 /// Given an address and an alignment, return true if the address is a multiple of the alignment
-/// The alignment must be greater than 0.
+/// The alignment must be a power of 2 and greater than 0.
 pub fn isAligned(addr: usize, alignment: usize) bool {
     return alignBackward(addr, alignment) == addr;
 }
