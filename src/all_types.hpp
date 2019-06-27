@@ -1908,6 +1908,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool function_sections;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

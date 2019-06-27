@@ -95,7 +95,7 @@ static const bool assertions_on = false;
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
-        bool is_small, bool time_report)
+        bool is_small, bool time_report, bool function_sections)
 {
     TimePassesIsEnabled = time_report;
 
@@ -107,6 +107,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine->setO0WantsFastISel(true);
+
+    target_machine->Options.FunctionSections = function_sections;
 
     Module* module = unwrap(module_ref);
 

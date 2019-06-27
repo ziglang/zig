@@ -7042,7 +7042,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
         case EmitFileTypeBinary:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                         ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
+                        g->enable_time_report, g->function_sections))
             {
                 zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -7058,7 +7058,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
         case EmitFileTypeAssembly:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                         ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
+                        g->enable_time_report, g->function_sections))
             {
                 zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -7068,7 +7068,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
         case EmitFileTypeLLVMIr:
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                         ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
+                        g->enable_time_report, g->function_sections))
             {
                 zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
             }
@@ -8735,6 +8735,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
+    cache_bool(cache_hash, g->function_sections);
 
     *out_cache_hash = cache_hash;
     return ErrorNone;

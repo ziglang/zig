@@ -283,6 +283,7 @@ extern fn ZigLLVMTargetMachineEmitToFile(
     error_message: *[*]u8,
     is_debug: bool,
     is_small: bool,
+    function_sections: bool,
 ) bool;
 
 pub const BuildCall = ZigLLVMBuildCall;

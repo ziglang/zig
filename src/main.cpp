@@ -85,6 +85,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
         "  --override-std-dir [arg]     use an alternate Zig standard library\n"
+        "  -ffunction-sections          places each function in a seperate section\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt [path]  for static libraries, include compiler-rt symbols\n"
@@ -450,6 +451,7 @@ int main(int argc, char **argv) {
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
     WantPIC want_pic = WantPICAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
+    bool function_sections = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -688,6 +690,8 @@ int main(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
                 cur_pkg = cur_pkg->parent;
+            } else if (strcmp(arg, "-ffunction-sections") == 0) {
+                function_sections = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -1101,6 +1105,7 @@ int main(int argc, char **argv) {
             g->bundle_compiler_rt = bundle_compiler_rt;
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
+            g->function_sections = function_sections;
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
