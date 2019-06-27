@@ -126,3 +126,19 @@ test "2 break statements and an else" {
     S.entry(true, false);
     comptime S.entry(true, false);
 }
+
+test "for with null and T peer types and inferred result location type" {
+    const S = struct {
+        fn doTheTest(slice: []const u8) void {
+            if (for (slice) |item| {
+                if (item == 10) {
+                    break item;
+                }
+            } else null) |v| {
+                @panic("fail");
+            }
+        }
+    };
+    S.doTheTest([_]u8{ 1, 2 });
+    comptime S.doTheTest([_]u8{ 1, 2 });
+}

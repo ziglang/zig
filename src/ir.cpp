@@ -6521,7 +6521,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     loop_scope->is_comptime = is_comptime;
     loop_scope->incoming_blocks = &incoming_blocks;
     loop_scope->incoming_values = &incoming_values;
-    loop_scope->lval = lval;
+    loop_scope->lval = LValNone;
     loop_scope->peer_parent = peer_parent;
 
     // Note the body block of the loop is not the place that lval and result_loc are used -
@@ -6548,7 +6548,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
         }
         ResultLocPeer *peer_result = create_peer_result(peer_parent);
         peer_parent->peers.append(peer_result);
-        else_result = ir_gen_node_extra(irb, else_node, parent_scope, lval, &peer_result->base);
+        else_result = ir_gen_node_extra(irb, else_node, parent_scope, LValNone, &peer_result->base);
         if (else_result == irb->codegen->invalid_instruction)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6570,7 +6570,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length,
             incoming_blocks.items, incoming_values.items, peer_parent);
-    return ir_expr_wrap(irb, parent_scope, phi, result_loc);
+    return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
