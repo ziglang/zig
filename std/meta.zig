@@ -117,6 +117,44 @@ test "std.meta.Child" {
     testing.expect(Child(promise->u8) == u8);
 }
 
+/// Given an array/pointer type, return the slice type `[]Child`.
+pub fn SliceType(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        TypeId.Array => |info| []const info.child,
+        TypeId.Pointer => |info| if (info.is_const) []const info.child else []info.child,
+        else => @compileError("Expected pointer or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+    };
+}
+
+test "std.meta.SliceType" {
+    testing.expect(SliceType([]u8) == []u8);
+    testing.expect(SliceType([]const u8) == []const u8);
+    testing.expect(SliceType(*u8) == []u8);
+    testing.expect(SliceType(*const u8) == []const u8);
+    testing.expect(SliceType([*]u8) == []u8);
+    testing.expect(SliceType([*]const u8) == []const u8);
+    testing.expect(SliceType([10]u8) == []const u8);
+}
+
+/// Given an array/pointer type, return the pointer type `[*]Child`.
+fn ArrayPointerType(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        TypeId.Array => |info| [*]const info.child,
+        TypeId.Pointer => |info| if (info.is_const) [*]const info.child else [*]info.child,
+        else => @compileError("Expected pointer or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+    };
+}
+
+test "std.meta.ArrayPointerType" {
+    testing.expect(ArrayPointerType([]u8) == [*]u8);
+    testing.expect(ArrayPointerType([]const u8) == [*]const u8);
+    testing.expect(ArrayPointerType(*u8) == [*]u8);
+    testing.expect(ArrayPointerType(*const u8) == [*]const u8);
+    testing.expect(ArrayPointerType([*]u8) == [*]u8);
+    testing.expect(ArrayPointerType([*]const u8) == [*]const u8);
+    testing.expect(ArrayPointerType([10]u8) == [*]const u8);
+}
+
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
     return switch (@typeInfo(T)) {
         TypeId.Struct => |info| info.layout,

@@ -530,6 +530,7 @@ set(ZIG_STD_FILES
     "io.zig"
     "io/c_out_stream.zig"
     "io/seekable_stream.zig"
+    "iterators.zig"
     "json.zig"
     "lazy_init.zig"
     "linked_list.zig"

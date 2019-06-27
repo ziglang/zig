@@ -39,6 +39,7 @@ pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
 pub const io = @import("io.zig");
+pub const iterators = @import("iterators.zig");
 pub const json = @import("json.zig");
 pub const lazyInit = @import("lazy_init.zig").lazyInit;
 pub const macho = @import("macho.zig");
@@ -92,6 +93,7 @@ test "std" {
     _ = @import("heap.zig");
     _ = @import("http.zig");
     _ = @import("io.zig");
+    _ = @import("iterators.zig");
     _ = @import("json.zig");
     _ = @import("lazy_init.zig");
     _ = @import("macho.zig");
