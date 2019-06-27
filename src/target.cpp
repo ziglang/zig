@@ -486,17 +486,17 @@ void get_native_target(ZigTarget *target) {
 Error target_parse_archsub(ZigLLVM_ArchType *out_arch, ZigLLVM_SubArchType *out_sub,
         const char *archsub_ptr, size_t archsub_len)
 {
+    *out_arch = ZigLLVM_UnknownArch;
+    *out_sub = ZigLLVM_NoSubArch;
     for (size_t arch_i = 0; arch_i < array_length(arch_list); arch_i += 1) {
         ZigLLVM_ArchType arch = arch_list[arch_i];
         SubArchList sub_arch_list = target_subarch_list(arch);
         size_t subarch_count = target_subarch_count(sub_arch_list);
-        if (subarch_count == 0) {
-            if (mem_eql_str(archsub_ptr, archsub_len, target_arch_name(arch))) {
-                *out_arch = arch;
-                *out_sub = ZigLLVM_NoSubArch;
+        if (mem_eql_str(archsub_ptr, archsub_len, target_arch_name(arch))) {
+            *out_arch = arch;
+            if (subarch_count == 0) {
                 return ErrorNone;
             }
-            continue;
         }
         for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
             ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);

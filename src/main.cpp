@@ -913,8 +913,20 @@ int main(int argc, char **argv) {
         get_native_target(&target);
     } else {
         if ((err = target_parse_triple(&target, target_string))) {
-            fprintf(stderr, "invalid target: %s\n", err_str(err));
-            return print_error_usage(arg0);
+            if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
+                fprintf(stderr, "'%s' requires a sub-architecture. Try one of these:\n",
+                        target_arch_name(target.arch));
+                SubArchList sub_arch_list = target_subarch_list(target.arch);
+                size_t subarch_count = target_subarch_count(sub_arch_list);
+                for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
+                    ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+                    fprintf(stderr, "  %s%s\n", target_arch_name(target.arch), target_subarch_name(sub));
+                }
+                return print_error_usage(arg0);
+            } else {
+                fprintf(stderr, "invalid target: %s\n", err_str(err));
+                return print_error_usage(arg0);
+            }
         }
     }
 
