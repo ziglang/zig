@@ -357,7 +357,14 @@ pub const Headers = struct {
         self.rebuild_index();
     }
 
-    pub fn format(self: Self, comptime fmt: []const u8, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+    pub fn format(
+        self: Self,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@typeOf(context), []const u8) Errors!void,
+    ) Errors!void {
         var it = self.iterator();
         while (it.next()) |entry| {
             try output(context, entry.name);
