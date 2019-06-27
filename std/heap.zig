@@ -713,6 +713,53 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+pub const NoErrorOutStream = std.io.OutStream(error{});
+pub const LoggingAllocator = struct {
+    allocator: Allocator,
+    parentAllocator: *Allocator,
+    outStream: *NoErrorOutStream,
+
+    const Self = @This();
+
+    pub fn init(parentAllocator: *Allocator, outStream: *NoErrorOutStream) Self {
+        return Self{
+            .allocator = Allocator{
+                .reallocFn = realloc,
+                .shrinkFn = shrink,
+            },
+            .parentAllocator = parentAllocator,
+            .outStream = outStream,
+        };
+    }
+
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
+        const self = @fieldParentPtr(Self, "allocator", allocator);
+        if (old_mem.len == 0) {
+            self.outStream.print("allocation of {} ", new_size) catch unreachable;
+        } else {
+            self.outStream.print("resize from {} to {} ", old_mem.len, new_size) catch unreachable;
+        }
+        const result = self.parentAllocator.reallocFn(self.parentAllocator, old_mem, old_align, new_size, new_align);
+        if (result) |buff| {
+            self.outStream.print("success!\n") catch unreachable;
+        } else |err| {
+            self.outStream.print("failure!\n") catch unreachable;
+        }
+        return result;
+    }
+
+    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        const self = @fieldParentPtr(Self, "allocator", allocator);
+        const result = self.parentAllocator.shrinkFn(self.parentAllocator, old_mem, old_align, new_size, new_align);
+        if (new_size == 0) {
+            self.outStream.print("free of {} bytes success!\n", old_mem.len) catch unreachable;
+        } else {
+            self.outStream.print("shrink from {} bytes to {} bytes success!\n", old_mem.len, new_size) catch unreachable;
+        }
+        return result;
+    }
+};
+
 test "c_allocator" {
     if (builtin.link_libc) {
         var slice = try c_allocator.alloc(u8, 50);
