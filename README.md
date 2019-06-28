@@ -6,9 +6,19 @@ Zig is an open-source programming language designed for **robustness**,
 ## Resources
 
  * [Introduction](https://ziglang.org/#Introduction)
- * [Download & Documentation](https://ziglang.org/download)
+ * [Download & Documentation](https://ziglang.org/download) (These docs function as the quick-reference guide.)
  * [Community](https://github.com/ziglang/zig/wiki/Community)
  * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
+
+## Standard Library Docs
+
+Documentation for the standard library doesn't exist yet, though there will be full docs by version 1.0.
+For now, you can search through `std/` for items of interest with a text editor.
+
+It isn't a priority right now as the focus on more on implementing features and getting stuff working well.
+
+If you have any questions on how parts of the stdlib work, you can always ask us about it; see the 'Community' resource above.
+
 
 ## Building from Source
 
