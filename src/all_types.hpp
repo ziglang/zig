@@ -70,17 +70,6 @@ struct IrExecutable {
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
 
-    IrInstruction *coro_handle;
-    IrInstruction *atomic_state_field_ptr; // this one is shared and in the promise
-    IrInstruction *coro_result_ptr_field_ptr;
-    IrInstruction *coro_result_field_ptr;
-    IrInstruction *await_handle_var_ptr; // this one is where we put the one we extracted from the promise
-    IrBasicBlock *coro_early_final;
-    IrBasicBlock *coro_normal_final;
-    IrBasicBlock *coro_suspend_block;
-    IrBasicBlock *coro_final_cleanup_block;
-    ZigVar *coro_allocator_var;
-
     bool invalid;
     bool is_inline;
     bool is_generic_instantiation;
@@ -489,7 +478,6 @@ enum NodeType {
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
-    NodeTypePromiseType,
     NodeTypeEnumLiteral,
 };
 
@@ -522,7 +510,6 @@ struct AstNodeFnProto {
     AstNode *section_expr;
 
     bool auto_err_set;
-    AstNode *async_allocator_type;
 };
 
 struct AstNodeFnDef {
@@ -657,7 +644,6 @@ struct AstNodeFnCallExpr {
     bool is_builtin;
     bool is_async;
     bool seen; // used by @compileLog
-    AstNode *async_allocator;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -949,10 +935,6 @@ struct AstNodeSuspend {
     AstNode *block;
 };
 
-struct AstNodePromiseType {
-    AstNode *payload_type; // can be NULL
-};
-
 struct AstNodeEnumLiteral {
     Token *period;
     Token *identifier;
@@ -1018,7 +1000,6 @@ struct AstNode {
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
-        AstNodePromiseType promise_type;
         AstNodeEnumLiteral enum_literal;
     } data;
 };
@@ -1047,7 +1028,6 @@ struct FnTypeId {
     bool is_var_args;
     CallingConvention cc;
     uint32_t alignment;
-    ZigType *async_allocator_type;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);
@@ -1241,11 +1221,6 @@ struct ZigTypeBoundFn {
     ZigType *fn_type;
 };
 
-struct ZigTypePromise {
-    // null if `promise` instead of `promise->T`
-    ZigType *result_type;
-};
-
 struct ZigTypeVector {
     // The type must be a pointer, integer, or float
     ZigType *elem_type;
@@ -1276,7 +1251,6 @@ enum ZigTypeId {
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
-    ZigTypeIdPromise,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
 };
@@ -1314,7 +1288,6 @@ struct ZigType {
         ZigTypeUnion unionation;
         ZigTypeFn fn;
         ZigTypeBoundFn bound_fn;
-        ZigTypePromise promise;
         ZigTypeVector vector;
         ZigTypeOpaque opaque;
     } data;
@@ -1322,8 +1295,6 @@ struct ZigType {
     // use these fields to make sure we don't duplicate type table entries for the same type
     ZigType *pointer_parent[2]; // [0 - mut, 1 - const]
     ZigType *optional_parent;
-    ZigType *promise_parent;
-    ZigType *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
@@ -1709,20 +1680,6 @@ struct CodeGen {
     LLVMValueRef trap_fn_val;
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
-    LLVMValueRef coro_destroy_fn_val;
-    LLVMValueRef coro_id_fn_val;
-    LLVMValueRef coro_alloc_fn_val;
-    LLVMValueRef coro_size_fn_val;
-    LLVMValueRef coro_begin_fn_val;
-    LLVMValueRef coro_suspend_fn_val;
-    LLVMValueRef coro_end_fn_val;
-    LLVMValueRef coro_free_fn_val;
-    LLVMValueRef coro_resume_fn_val;
-    LLVMValueRef coro_save_fn_val;
-    LLVMValueRef coro_promise_fn_val;
-    LLVMValueRef coro_alloc_helper_fn_val;
-    LLVMValueRef coro_frame_fn_val;
-    LLVMValueRef merge_err_ret_traces_fn_val;
     LLVMValueRef add_error_return_trace_addr_fn_val;
     LLVMValueRef stacksave_fn_val;
     LLVMValueRef stackrestore_fn_val;
@@ -1797,7 +1754,6 @@ struct CodeGen {
         ZigType *entry_var;
         ZigType *entry_global_error_set;
         ZigType *entry_arg_tuple;
-        ZigType *entry_promise;
         ZigType *entry_enum_literal;
     } builtin_types;
     ZigType *align_amt_type;
@@ -1985,7 +1941,6 @@ enum ScopeId {
     ScopeIdSuspend,
     ScopeIdFnDef,
     ScopeIdCompTime,
-    ScopeIdCoroPrelude,
     ScopeIdRuntime,
 };
 
@@ -2128,12 +2083,6 @@ struct ScopeFnDef {
     ZigFn *fn_entry;
 };
 
-// This scope is created to indicate that the code in the scope
-// is auto-generated coroutine prelude stuff.
-struct ScopeCoroPrelude {
-    Scope base;
-};
-
 // synchronized with code in define_builtin_compile_vars
 enum AtomicOrder {
     AtomicOrderUnordered,
@@ -2231,7 +2180,6 @@ enum IrInstructionId {
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
-    IrInstructionIdPromiseType,
     IrInstructionIdSliceType,
     IrInstructionIdGlobalAsm,
     IrInstructionIdAsm,
@@ -2329,26 +2277,10 @@ enum IrInstructionId {
     IrInstructionIdErrorReturnTrace,
     IrInstructionIdErrorUnion,
     IrInstructionIdCancel,
-    IrInstructionIdGetImplicitAllocator,
-    IrInstructionIdCoroId,
-    IrInstructionIdCoroAlloc,
-    IrInstructionIdCoroSize,
-    IrInstructionIdCoroBegin,
-    IrInstructionIdCoroAllocFail,
-    IrInstructionIdCoroSuspend,
-    IrInstructionIdCoroEnd,
-    IrInstructionIdCoroFree,
-    IrInstructionIdCoroResume,
-    IrInstructionIdCoroSave,
-    IrInstructionIdCoroPromise,
-    IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
     IrInstructionIdAtomicLoad,
-    IrInstructionIdPromiseResultType,
-    IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
-    IrInstructionIdMergeErrRetTraces,
     IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
@@ -2606,7 +2538,6 @@ struct IrInstructionCallSrc {
     IrInstruction **args;
     ResultLoc *result_loc;
 
-    IrInstruction *async_allocator;
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
@@ -2622,7 +2553,6 @@ struct IrInstructionCallGen {
     IrInstruction **args;
     IrInstruction *result_loc;
 
-    IrInstruction *async_allocator;
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
@@ -2741,12 +2671,6 @@ struct IrInstructionPtrType {
     bool is_const;
     bool is_volatile;
     bool is_allow_zero;
-};
-
-struct IrInstructionPromiseType {
-    IrInstruction base;
-
-    IrInstruction *payload_type;
 };
 
 struct IrInstructionSliceType {
@@ -3178,7 +3102,6 @@ struct IrInstructionFnProto {
     IrInstruction **param_types;
     IrInstruction *align_value;
     IrInstruction *return_type;
-    IrInstruction *async_allocator_type_value;
     bool is_var_args;
 };
 
@@ -3414,89 +3337,6 @@ struct IrInstructionCancel {
     IrInstruction *target;
 };
 
-enum ImplicitAllocatorId {
-    ImplicitAllocatorIdArg,
-    ImplicitAllocatorIdLocalVar,
-};
-
-struct IrInstructionGetImplicitAllocator {
-    IrInstruction base;
-
-    ImplicitAllocatorId id;
-};
-
-struct IrInstructionCoroId {
-    IrInstruction base;
-
-    IrInstruction *promise_ptr;
-};
-
-struct IrInstructionCoroAlloc {
-    IrInstruction base;
-
-    IrInstruction *coro_id;
-};
-
-struct IrInstructionCoroSize {
-    IrInstruction base;
-};
-
-struct IrInstructionCoroBegin {
-    IrInstruction base;
-
-    IrInstruction *coro_id;
-    IrInstruction *coro_mem_ptr;
-};
-
-struct IrInstructionCoroAllocFail {
-    IrInstruction base;
-
-    IrInstruction *err_val;
-};
-
-struct IrInstructionCoroSuspend {
-    IrInstruction base;
-
-    IrInstruction *save_point;
-    IrInstruction *is_final;
-};
-
-struct IrInstructionCoroEnd {
-    IrInstruction base;
-};
-
-struct IrInstructionCoroFree {
-    IrInstruction base;
-
-    IrInstruction *coro_id;
-    IrInstruction *coro_handle;
-};
-
-struct IrInstructionCoroResume {
-    IrInstruction base;
-
-    IrInstruction *awaiter_handle;
-};
-
-struct IrInstructionCoroSave {
-    IrInstruction base;
-
-    IrInstruction *coro_handle;
-};
-
-struct IrInstructionCoroPromise {
-    IrInstruction base;
-
-    IrInstruction *coro_handle;
-};
-
-struct IrInstructionCoroAllocHelper {
-    IrInstruction base;
-
-    IrInstruction *realloc_fn;
-    IrInstruction *coro_size;
-};
-
 struct IrInstructionAtomicRmw {
     IrInstruction base;
 
@@ -3518,18 +3358,6 @@ struct IrInstructionAtomicLoad {
     AtomicOrder resolved_ordering;
 };
 
-struct IrInstructionPromiseResultType {
-    IrInstruction base;
-
-    IrInstruction *promise_type;
-};
-
-struct IrInstructionAwaitBookkeeping {
-    IrInstruction base;
-
-    IrInstruction *promise_result_type;
-};
-
 struct IrInstructionSaveErrRetAddr {
     IrInstruction base;
 };
@@ -3538,14 +3366,6 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction base;
 
     IrInstruction *value;
-};
-
-struct IrInstructionMergeErrRetTraces {
-    IrInstruction base;
-
-    IrInstruction *coro_promise_ptr;
-    IrInstruction *src_err_ret_trace_ptr;
-    IrInstruction *dest_err_ret_trace_ptr;
 };
 
 struct IrInstructionMarkErrRetTracePtr {
@@ -3776,17 +3596,6 @@ static const size_t err_union_payload_index = 1;
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.
 static const size_t stack_trace_ptr_count = 32;
-
-// these belong to the async function
-#define RETURN_ADDRESSES_FIELD_NAME "return_addresses"
-#define ERR_RET_TRACE_FIELD_NAME "err_ret_trace"
-#define RESULT_FIELD_NAME "result"
-#define ASYNC_REALLOC_FIELD_NAME "reallocFn"
-#define ASYNC_SHRINK_FIELD_NAME "shrinkFn"
-#define ATOMIC_STATE_FIELD_NAME "atomic_state"
-// these point to data belonging to the awaiter
-#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
-#define RESULT_PTR_FIELD_NAME "result_ptr"
 
 #define NAMESPACE_SEP_CHAR '.'
 #define NAMESPACE_SEP_STR "."

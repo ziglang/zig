@@ -560,7 +560,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         builtin.TypeId.Bool => return autoHash(@boolToInt(key), rng, HashInt),
         builtin.TypeId.Enum => return autoHash(@enumToInt(key), rng, HashInt),
         builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), rng, HashInt),
-        builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng, HashInt),
+        builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng, HashInt),
 
         builtin.TypeId.BoundFn,
         builtin.TypeId.ComptimeFloat,

@@ -39,8 +39,6 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         ZigType *field_types[], size_t field_count);
-ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
-ZigType *get_promise_frame_type(CodeGen *g, ZigType *return_type);
 ZigType *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(ZigType *type_entry);
 
@@ -117,7 +115,6 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
-Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
@@ -204,7 +201,6 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
 
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry);
 
-uint32_t get_coro_frame_align_bytes(CodeGen *g);
 bool fn_type_can_fail(FnTypeId *fn_type_id);
 bool type_can_fail(ZigType *type_entry);
 bool fn_eval_cacheable(Scope *scope, ZigType *return_type);

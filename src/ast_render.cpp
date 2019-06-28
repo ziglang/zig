@@ -257,8 +257,6 @@ static const char *node_type_str(NodeType node_type) {
             return "AwaitExpr";
         case NodeTypeSuspend:
             return "Suspend";
-        case NodeTypePromiseType:
-            return "PromiseType";
         case NodeTypePointerType:
             return "PointerType";
         case NodeTypeEnumLiteral:
@@ -692,13 +690,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "@");
                 }
                 if (node->data.fn_call_expr.is_async) {
-                    fprintf(ar->f, "async");
-                    if (node->data.fn_call_expr.async_allocator != nullptr) {
-                        fprintf(ar->f, "<");
-                        render_node_extra(ar, node->data.fn_call_expr.async_allocator, true);
-                        fprintf(ar->f, ">");
-                    }
-                    fprintf(ar->f, " ");
+                    fprintf(ar->f, "async ");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
                 bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypePointerType);
@@ -853,15 +845,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "[_]");
                 render_node_ungrouped(ar, node->data.inferred_array_type.child_type);
-                break;
-            }
-        case NodeTypePromiseType:
-            {
-                fprintf(ar->f, "promise");
-                if (node->data.promise_type.payload_type != nullptr) {
-                    fprintf(ar->f, "->");
-                    render_node_grouped(ar, node->data.promise_type.payload_type);
-                }
                 break;
             }
         case NodeTypeErrorType:

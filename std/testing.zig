@@ -45,7 +45,6 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
         TypeId.EnumLiteral,
         TypeId.Enum,
         TypeId.Fn,
-        TypeId.Promise,
         TypeId.Vector,
         TypeId.ErrorSet,
         => {
