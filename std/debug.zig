@@ -805,7 +805,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         .allocator = allocator,
         .coff_header = undefined,
         .pe_header = undefined,
-        .sections = undefined,
+        .sections = ArrayList(coff.Section).init(allocator),
         .guid = undefined,
         .age = undefined,
     };

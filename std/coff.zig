@@ -145,7 +145,6 @@ pub const Coff = struct {
         if (self.sections.len == self.coff_header.number_of_sections)
             return;
 
-        self.sections = ArrayList(Section).init(self.allocator);
         try self.sections.ensureCapacity(self.coff_header.number_of_sections);
 
         var file_stream = self.in_file.inStream();
