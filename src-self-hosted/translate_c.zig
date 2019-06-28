@@ -372,22 +372,22 @@ fn transBinaryOperator(
         },
         .Add => {
             const node = if (cIsUnsignedInteger(qt))
-                try transCreateNodeInfixOp(rp, scope, stmt, .AddWrap, .PlusPercent, "+%")
+                try transCreateNodeInfixOp(rp, scope, stmt, .AddWrap, .PlusPercent, "+%", true)
             else
-                try transCreateNodeInfixOp(rp, scope, stmt, .Add, .Plus, "+");
+                try transCreateNodeInfixOp(rp, scope, stmt, .Add, .Plus, "+", true);
             return maybeSuppressResult(rp, scope, result_used, TransResult{
-                .node = &node.base,
+                .node = node,
                 .child_scope = scope,
                 .node_scope = scope,
             });
         },
         .Sub => {
             const node = if (cIsUnsignedInteger(qt))
-                try transCreateNodeInfixOp(rp, scope, stmt, .SubWrap, .MinusPercent, "-%")
+                try transCreateNodeInfixOp(rp, scope, stmt, .SubWrap, .MinusPercent, "-%", true)
             else
-                try transCreateNodeInfixOp(rp, scope, stmt, .Sub, .Minus, "-");
+                try transCreateNodeInfixOp(rp, scope, stmt, .Sub, .Minus, "-", true);
             return maybeSuppressResult(rp, scope, result_used, TransResult{
-                .node = &node.base,
+                .node = node,
                 .child_scope = scope,
                 .node_scope = scope,
             });
@@ -1056,7 +1056,9 @@ fn transCreateNodeInfixOp(
     op: ast.Node.InfixOp.Op,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
-) !*ast.Node.InfixOp {
+    grouped: bool,
+) !*ast.Node {
+    const lparen = if (grouped) try appendToken(rp.c, .LParen, "(") else undefined;
     const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
     const op_token = try appendToken(rp.c, op_tok_id, bytes);
     const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
@@ -1068,7 +1070,16 @@ fn transCreateNodeInfixOp(
         .op = op,
         .rhs = rhs.node,
     };
-    return node;
+    if (!grouped) return &node.base;
+    const rparen = try appendToken(rp.c, .RParen, ")");
+    const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+    grouped_expr.* = ast.Node.GroupedExpression{
+        .base = ast.Node{ .id = .GroupedExpression },
+        .lparen = lparen,
+        .expr = &node.base,
+        .rparen = rparen,
+    };
+    return &grouped_expr.base;
 }
 
 fn transCreateNodePtrType(
@@ -1096,10 +1107,21 @@ fn transCreateNodePtrType(
 }
 
 fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
+    const num_limbs = ZigClangAPSInt_getNumWords(int.?);
+    var big = try std.math.big.Int.initCapacity(c.a(), num_limbs);
+    defer big.deinit();
+    const data = ZigClangAPSInt_getRawData(int.?);
+    var i: usize = 0;
+    while (i < num_limbs) : (i += 1) big.limbs[i] = data[i];
+    const str = big.toString(c.a(), 10) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    const token = try appendToken(c, .IntegerLiteral, str);
     const node = try c.a().create(ast.Node.IntegerLiteral);
     node.* = ast.Node.IntegerLiteral{
         .base = ast.Node{ .id = .IntegerLiteral },
-        .token = try appendToken(c, .IntegerLiteral, "3333333"), // TODO
+        .token = token,
     };
     return &node.base;
 }
