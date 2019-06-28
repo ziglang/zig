@@ -615,6 +615,15 @@ fn transImplicitCastExpr(
                 .child_scope = scope,
             };
         },
+        .IntegralCast => {
+            const dest_type = ZigClangExpr_getType(@ptrCast(*const ZigClangExpr, expr));
+            const src_type = ZigClangExpr_getType(sub_expr);
+            return TransResult{
+                .node = try transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node.node),
+                .node_scope = scope,
+                .child_scope = scope,
+            };
+        },
         .FunctionToPointerDecay, .ArrayToPointerDecay => {
             return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
         },

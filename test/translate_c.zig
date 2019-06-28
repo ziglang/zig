@@ -18,7 +18,46 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     );
 
+    cases.add_both("simple var decls",
+        \\void foo(void) {
+        \\    int a;
+        \\    char b = 123;
+        \\    const int c;
+        \\    const unsigned d = 440;
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    var b: u8 = u8(123);
+        \\    const c: c_int = undefined;
+        \\    const d: c_uint = c_uint(440);
+        \\}
+    );
+
+    cases.add_both("ignore result, explicit function arguments",
+        \\void foo(void) {
+        \\    int a;
+        \\    1;
+        \\    "hey";
+        \\    1 + 1;
+        \\    1 - 1;
+        \\    a = 1;
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    _ = 1;
+        \\    _ = c"hey";
+        \\    _ = (1 + 1);
+        \\    _ = (1 - 1);
+        \\    a = 1;
+        \\}
+    );
+
     /////////////// Cases that pass for only stage2 ////////////////
+    // TODO: restore these tests after removing "import mode" concept
+    // https://github.com/ziglang/zig/issues/2780
+
     // cases.add_2("Parameterless function prototypes",
     //     \\void a() {}
     //     \\void b(void) {}
@@ -39,7 +78,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     //     \\pub extern fn bar() void {}
     // );
 
+    cases.add_2("parameterless function prototypes",
+        \\void a() {}
+        \\void b(void) {}
+        \\void c();
+        \\void d(void);
+    ,
+        \\pub fn a(...) void {}
+        \\pub fn b() void {}
+        \\pub extern fn c(...) void;
+        \\pub extern fn d() void;
+    );
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
+
+    cases.add_both("simple function definition",
+        \\void foo(void) {}
+        \\static void bar(void) {}
+    ,
+        \\pub fn foo() void {}
+        \\pub fn bar() void {}
+    );
 
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
@@ -132,7 +191,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     );
 
-    cases.add("ignore result",
+    cases.add("ignore result, no function arguments",
         \\void foo() {
         \\    int a;
         \\    1;
