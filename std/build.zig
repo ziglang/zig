@@ -769,7 +769,7 @@ pub const Builder = struct {
                 if (code != 0) {
                     warn("The following command exited with error code {}:\n", code);
                     printCmd(null, argv);
-                    std.debug.panic("exec failed");
+                    std.os.exit(@truncate(u8, code));
                 }
                 return stdout.toOwnedSlice();
             },
