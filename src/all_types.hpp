@@ -1759,7 +1759,7 @@ struct CodeGen {
     ZigPackage *compile_var_package;
     ZigType *compile_var_import;
     ZigType *root_import;
-    ZigType *bootstrap_import;
+    ZigType *start_import;
     ZigType *test_runner_import;
 
     struct {

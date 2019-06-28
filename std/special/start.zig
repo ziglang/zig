@@ -59,7 +59,7 @@ nakedcc fn _start() noreturn {
 extern fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
-        _ = @import("bootstrap_windows_tls.zig");
+        _ = @import("start_windows_tls.zig");
     }
     std.os.windows.kernel32.ExitProcess(callMain());
 }
