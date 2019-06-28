@@ -740,7 +740,7 @@ fn escapeChar(c: u8) []const u8 {
         '\t' => return "\\t"[0..],
         else => {
             var buf: [4]u8 = undefined;
-            return std.fmt.bufPrint(buf[0..], "\\x{x2}", c) catch unreachable;
+            return std.fmt.bufPrint(buf[0..], "\\x{x:2}", c) catch unreachable;
         },
     }
 }
