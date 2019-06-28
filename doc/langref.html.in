@@ -7354,91 +7354,91 @@ test "@setRuntimeSafety" {
       <pre>{#syntax#}@sqrt(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
-      when available. Supports f16, f32, f64, and f128, as well as vectors.
+      when available. Supports {#syntax#}f16{#endsyntax#}, {#syntax#}f32{#endsyntax#}, {#syntax#}f64{#endsyntax#}, and {#syntax#}f128{#endsyntax#}, as well as vectors.
       </p>
       {#header_close#}
       {#header_open|@sin#}
       <pre>{#syntax#}@sin(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@exp#}
       <pre>{#syntax#}@exp(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Base-e exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@exp2#}
       <pre>{#syntax#}@exp2(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@ln#}
       <pre>{#syntax#}@ln(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@log2#}
       <pre>{#syntax#}@log2(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@log10#}
       <pre>{#syntax#}@log10(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@fabs#}
       <pre>{#syntax#}@fabs(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@floor#}
       <pre>{#syntax#}@floor(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the largest integral value not greater than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the largest integral value not less than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@trunc#}
       <pre>{#syntax#}@trunc(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, towards zero. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@round#}
       <pre>{#syntax#}@round(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
 
