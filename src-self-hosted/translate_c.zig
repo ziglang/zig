@@ -1452,7 +1452,7 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
         .start = start_index,
         .end = end_index,
     };
-    try c.source_buffer.appendByte('\n');
+    try c.source_buffer.appendByte(' ');
 
     return token_index;
 }
