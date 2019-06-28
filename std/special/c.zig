@@ -146,7 +146,7 @@ export fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) i
     var index: usize = 0;
     while (index != n) : (index += 1) {
         if (vl[index] != vr[index]) {
-          return 1;
+            return 1;
         }
     }
 
@@ -254,32 +254,110 @@ export fn fmod(x: f64, y: f64) f64 {
 
 // TODO add intrinsics for these (and probably the double version too)
 // and have the math stuff use the intrinsic. same as @mod and @rem
-export fn floorf(x: f32) f32 {return math.floor(x);}
-export fn ceilf(x: f32) f32 {return math.ceil(x);}
-export fn floor(x: f64) f64 {return math.floor(x);}
-export fn ceil(x: f64) f64 {return math.ceil(x);}
-export fn fma(a: f64, b: f64, c: f64) f64 {return math.fma(f64, a, b, c);}
-export fn fmaf(a: f32, b: f32, c: f32) f32 {return math.fma(f32, a, b, c);}
-export fn sin(a: f64) f64 {return math.sin(a);}
-export fn sinf(a: f32) f32 {return math.sin(a);}
-export fn cos(a: f64) f64 {return math.cos(a);}
-export fn cosf(a: f32) f32 {return math.cos(a);}
-export fn exp(a: f64) f64 {return math.exp(a);}
-export fn expf(a: f32) f32 {return math.exp(a);}
-export fn exp2(a: f64) f64 {return math.exp2(a);}
-export fn exp2f(a: f32) f32 {return math.exp2(a);}
-export fn log(a: f64) f64 {return math.ln(a);}
-export fn logf(a: f32) f32 {return math.ln(a);}
-export fn log2(a: f64) f64 {return math.log2(a);}
-export fn log2f(a: f32) f32 {return math.log2(a);}
-export fn log10(a: f64) f64 {return math.log10(a);}
-export fn log10f(a: f32) f32 {return math.log10(a);}
-export fn fabs(a: f64) f64 {return math.fabs(a);}
-export fn fabsf(a: f32) f32 {return math.fabs(a);}
-export fn trunc(a: f64) f64 {return math.trunc(a);}
-export fn truncf(a: f32) f32 {return math.trunc(a);}
-export fn round(a: f64) f64 {return math.round(a);}
-export fn roundf(a: f32) f32 {return math.round(a);}
+export fn floorf(x: f32) f32 {
+    return math.floor(x);
+}
+
+export fn ceilf(x: f32) f32 {
+    return math.ceil(x);
+}
+
+export fn floor(x: f64) f64 {
+    return math.floor(x);
+}
+
+export fn ceil(x: f64) f64 {
+    return math.ceil(x);
+}
+
+export fn fma(a: f64, b: f64, c: f64) f64 {
+    return math.fma(f64, a, b, c);
+}
+
+export fn fmaf(a: f32, b: f32, c: f32) f32 {
+    return math.fma(f32, a, b, c);
+}
+
+export fn sin(a: f64) f64 {
+    return math.sin(a);
+}
+
+export fn sinf(a: f32) f32 {
+    return math.sin(a);
+}
+
+export fn cos(a: f64) f64 {
+    return math.cos(a);
+}
+
+export fn cosf(a: f32) f32 {
+    return math.cos(a);
+}
+
+export fn exp(a: f64) f64 {
+    return math.exp(a);
+}
+
+export fn expf(a: f32) f32 {
+    return math.exp(a);
+}
+
+export fn exp2(a: f64) f64 {
+    return math.exp2(a);
+}
+
+export fn exp2f(a: f32) f32 {
+    return math.exp2(a);
+}
+
+export fn log(a: f64) f64 {
+    return math.ln(a);
+}
+
+export fn logf(a: f32) f32 {
+    return math.ln(a);
+}
+
+export fn log2(a: f64) f64 {
+    return math.log2(a);
+}
+
+export fn log2f(a: f32) f32 {
+    return math.log2(a);
+}
+
+export fn log10(a: f64) f64 {
+    return math.log10(a);
+}
+
+export fn log10f(a: f32) f32 {
+    return math.log10(a);
+}
+
+export fn fabs(a: f64) f64 {
+    return math.fabs(a);
+}
+
+export fn fabsf(a: f32) f32 {
+    return math.fabs(a);
+}
+
+export fn trunc(a: f64) f64 {
+    return math.trunc(a);
+}
+
+export fn truncf(a: f32) f32 {
+    return math.trunc(a);
+}
+
+export fn round(a: f64) f64 {
+    return math.round(a);
+}
+
+export fn roundf(a: f32) f32 {
+    return math.round(a);
+}
+
 fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
