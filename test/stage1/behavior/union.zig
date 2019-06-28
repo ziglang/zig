@@ -402,3 +402,23 @@ test "comptime union field value equality" {
     expect(a0 != a1);
     expect(b0 != b1);
 }
+
+test "return union init with void payload" {
+    const S = struct {
+        fn entry() void {
+            expect(func().state == State.one);
+        }
+        const Outer = union(enum) {
+            state: State,
+        };
+        const State = union(enum) {
+            one: void,
+            two: u32,
+        };
+        fn func() Outer {
+            return Outer{ .state = State{ .one = {} }};
+        }
+    };
+    S.entry();
+    comptime S.entry();
+}

@@ -110,3 +110,35 @@ fn testContinueOuter() void {
     }
     expect(counter == array.len);
 }
+
+test "2 break statements and an else" {
+    const S = struct {
+        fn entry(t: bool, f: bool) void {
+            var buf: [10]u8 = undefined;
+            var ok = false;
+            ok = for (buf) |item| {
+                if (f) break false;
+                if (t) break true;
+            } else false;
+            expect(ok);
+        }
+    };
+    S.entry(true, false);
+    comptime S.entry(true, false);
+}
+
+test "for with null and T peer types and inferred result location type" {
+    const S = struct {
+        fn doTheTest(slice: []const u8) void {
+            if (for (slice) |item| {
+                if (item == 10) {
+                    break item;
+                }
+            } else null) |v| {
+                @panic("fail");
+            }
+        }
+    };
+    S.doTheTest([_]u8{ 1, 2 });
+    comptime S.doTheTest([_]u8{ 1, 2 });
+}

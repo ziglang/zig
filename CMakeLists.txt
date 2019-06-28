@@ -389,6 +389,8 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF32.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_subMagsF64.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/s_tryPropagateNaNF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f16_mulAdd.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/f128M_mulAdd.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/softfloat_state.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui32_to_f128M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui64_to_f128M.c"
@@ -522,6 +524,9 @@ set(ZIG_STD_FILES
     "hash/siphash.zig"
     "hash_map.zig"
     "heap.zig"
+    "heap/logging_allocator.zig"
+    "http.zig"
+    "http/headers.zig"
     "io.zig"
     "io/c_out_stream.zig"
     "io/seekable_stream.zig"
@@ -6653,15 +6658,18 @@ set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
 set(EXE_LDFLAGS " ")
 if(MSVC)
     set(EXE_LDFLAGS "/STACK:16777216")
-elseif(ZIG_STATIC)
+elseif(MINGW) 
+    set(EXE_LDFLAGS "${EXE_LDFLAGS} -Wl,--stack,16777216")
+endif()
+
+if(ZIG_STATIC)
     if(APPLE)
         set(EXE_LDFLAGS "-static-libgcc -static-libstdc++")
     else()
         set(EXE_LDFLAGS "-static")
     endif()
-else()
-    set(EXE_LDFLAGS " ")
 endif()
+
 if(ZIG_TEST_COVERAGE)
     set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -fprofile-arcs -ftest-coverage")
@@ -6729,6 +6737,7 @@ add_custom_command(
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     DEPENDS
+        zig0
         "${CMAKE_SOURCE_DIR}/src-self-hosted/dep_tokenizer.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/stage1.zig"
         "${CMAKE_SOURCE_DIR}/src-self-hosted/translate_c.zig"

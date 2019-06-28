@@ -360,3 +360,34 @@ test "switch prongs with error set cases make a new error set type for capture v
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "return result loc and then switch with range implicit casted to error union" {
+    const S = struct {
+        fn doTheTest() void {
+            expect((func(0xb) catch unreachable) == 0xb);
+        }
+        fn func(d: u8) anyerror!u8 {
+            return switch (d) {
+                0xa...0xf => d,
+                else => unreachable,
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "switch with null and T peer types and inferred result location type" {
+    const S = struct {
+        fn doTheTest(c: u8) void {
+            if (switch (c) {
+                0 => true,
+                else => null,
+            }) |v| {
+                @panic("fail");
+            }
+        }
+    };
+    S.doTheTest(1);
+    comptime S.doTheTest(1);
+}

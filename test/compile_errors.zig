@@ -3,12 +3,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "slice passed as array init type with elems",
+        \\export fn entry() void {
+        \\    const x = []u8{1, 2};
+        \\}
+    ,
+        "tmp.zig:2:15: error: expected array type or [_], found slice",
+    );
+
+    cases.add(
         "slice passed as array init type",
         \\export fn entry() void {
         \\    const x = []u8{};
         \\}
     ,
-        "tmp.zig:2:19: error: expected array type or [_], found slice",
+        "tmp.zig:2:15: error: expected array type or [_], found slice",
     );
 
     cases.add(
@@ -49,16 +58,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = struct {
         \\    a: undefined,
         \\};
-        \\const Bar = union {
-        \\    a: undefined,
-        \\};
-        \\pub fn main() void {
+        \\export fn entry1() void {
         \\    const foo: Foo = undefined;
-        \\    const bar: Bar = undefined;
         \\}
     ,
         "tmp.zig:2:8: error: expected type 'type', found '(undefined)'",
-        "tmp.zig:5:8: error: expected type 'type', found '(undefined)'",
     );
 
     cases.add(
@@ -461,13 +465,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const G = packed struct {
         \\    x: Enum,
         \\};
-        \\export fn entry() void {
+        \\export fn entry1() void {
         \\    var a: A = undefined;
+        \\}
+        \\export fn entry2() void {
         \\    var b: B = undefined;
+        \\}
+        \\export fn entry3() void {
         \\    var r: C = undefined;
+        \\}
+        \\export fn entry4() void {
         \\    var d: D = undefined;
+        \\}
+        \\export fn entry5() void {
         \\    var e: E = undefined;
+        \\}
+        \\export fn entry6() void {
         \\    var f: F = undefined;
+        \\}
+        \\export fn entry7() void {
         \\    var g: G = undefined;
         \\}
         \\const S = struct {
@@ -489,7 +505,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:14:5: error: non-packed, non-extern struct 'U' not allowed in packed struct; no guaranteed in-memory representation",
         "tmp.zig:17:5: error: type '?anyerror' not allowed in packed struct; no guaranteed in-memory representation",
         "tmp.zig:20:5: error: type 'Enum' not allowed in packed struct; no guaranteed in-memory representation",
-        "tmp.zig:38:14: note: enum declaration does not specify an integer tag type",
+        "tmp.zig:50:14: note: enum declaration does not specify an integer tag type",
     );
 
     cases.addCase(x: {
@@ -721,7 +737,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var oops = @bitCast(u7, byte);
         \\}
     ,
-        "tmp.zig:2:16: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
+        "tmp.zig:2:25: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
     );
 
     cases.add(
@@ -1381,7 +1397,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    for (xx) |f| {}
         \\}
     ,
-        "tmp.zig:7:15: error: variable of type 'Foo' must be const or comptime",
+        "tmp.zig:7:5: error: values of type 'Foo' must be comptime known, but index value is runtime known",
     );
 
     cases.add(
@@ -2250,6 +2266,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\extern fn bar(x: *void) void { }
+        \\export fn entry2() void {
+        \\    bar(&{});
+        \\}
     ,
         "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
         "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
@@ -2576,7 +2595,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\fn b() void {}
     ,
-        "tmp.zig:3:5: error: unreachable code",
+        "tmp.zig:3:6: error: unreachable code",
     );
 
     cases.add(
@@ -2596,7 +2615,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:3:5: error: use of undeclared identifier 'b'",
-        "tmp.zig:4:5: error: use of undeclared identifier 'c'",
     );
 
     cases.add(
@@ -2662,7 +2680,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const a: noreturn = {};
         \\}
     ,
-        "tmp.zig:2:14: error: variable of type 'noreturn' not allowed",
+        "tmp.zig:2:25: error: expected type 'noreturn', found 'void'",
     );
 
     cases.add(
@@ -2725,9 +2743,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad : bool = undefined;
         \\    bad[bad] = bad[bad];
         \\}
+        \\export fn g() void {
+        \\    var bad : bool = undefined;
+        \\    _ = bad[bad];
+        \\}
     ,
         "tmp.zig:3:8: error: array access of non-array type 'bool'",
-        "tmp.zig:3:19: error: array access of non-array type 'bool'",
+        "tmp.zig:7:12: error: array access of non-array type 'bool'",
     );
 
     cases.add(
@@ -2737,9 +2759,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var bad = false;
         \\    array[bad] = array[bad];
         \\}
+        \\export fn g() void {
+        \\    var array = "aoeu";
+        \\    var bad = false;
+        \\    _ = array[bad];
+        \\}
     ,
         "tmp.zig:4:11: error: expected type 'usize', found 'bool'",
-        "tmp.zig:4:24: error: expected type 'usize', found 'bool'",
+        "tmp.zig:9:15: error: expected type 'usize', found 'bool'",
     );
 
     cases.add(
@@ -2757,12 +2784,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "missing else clause",
         \\fn f(b: bool) void {
         \\    const x : i32 = if (b) h: { break :h 1; };
+        \\}
+        \\fn g(b: bool) void {
         \\    const y = if (b) h: { break :h i32(1); };
         \\}
-        \\export fn entry() void { f(true); }
+        \\export fn entry() void { f(true); g(true); }
     ,
         "tmp.zig:2:42: error: integer value 1 cannot be implicitly casted to type 'void'",
-        "tmp.zig:3:15: error: incompatible types: 'i32' and 'void'",
+        "tmp.zig:5:15: error: incompatible types: 'i32' and 'void'",
     );
 
     cases.add(
@@ -2773,9 +2802,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a.foo = 1;
         \\    const y = a.bar;
         \\}
+        \\export fn g() void {
+        \\    var a : A = undefined;
+        \\    const y = a.bar;
+        \\}
     ,
         "tmp.zig:4:6: error: no member named 'foo' in struct 'A'",
-        "tmp.zig:5:16: error: no member named 'bar' in struct 'A'",
+        "tmp.zig:9:16: error: no member named 'bar' in struct 'A'",
     );
 
     cases.add(
@@ -2920,7 +2953,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = foo;
         \\}
     ,
-        "tmp.zig:1:19: error: type '[3]u16' does not support struct initialization syntax",
+        "tmp.zig:1:21: error: type '[3]u16' does not support struct initialization syntax",
     );
 
     cases.add(
@@ -3239,7 +3272,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(Foo)); }
     ,
-        "tmp.zig:5:25: error: unable to evaluate constant expression",
+        "tmp.zig:5:18: error: unable to evaluate constant expression",
         "tmp.zig:2:12: note: called from here",
         "tmp.zig:2:8: note: called from here",
     );
@@ -3856,7 +3889,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 2;
         \\}
     ,
-        "tmp.zig:2:15: error: values of type 'comptime_int' must be comptime known",
+        "tmp.zig:5:17: error: cannot store runtime value in type 'comptime_int'",
     );
 
     cases.add(
@@ -5108,7 +5141,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const array = [2]u8{1, 2, 3};
         \\}
     ,
-        "tmp.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal",
+        "tmp.zig:2:31: error: index 2 outside array of size 2",
     );
 
     cases.add(
@@ -5125,36 +5158,47 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "non-const variables of things that require const variables",
-        \\const Opaque = @OpaqueType();
-        \\
-        \\export fn entry(opaque: *Opaque) void {
+        \\export fn entry1() void {
         \\   var m2 = &2;
-        \\   const y: u32 = m2.*;
-        \\
+        \\}
+        \\export fn entry2() void {
         \\   var a = undefined;
+        \\}
+        \\export fn entry3() void {
         \\   var b = 1;
+        \\}
+        \\export fn entry4() void {
         \\   var c = 1.0;
+        \\}
+        \\export fn entry5() void {
         \\   var d = null;
+        \\}
+        \\export fn entry6(opaque: *Opaque) void {
         \\   var e = opaque.*;
+        \\}
+        \\export fn entry7() void {
         \\   var f = i32;
+        \\}
+        \\export fn entry8() void {
         \\   var h = (Foo {}).bar;
-        \\
+        \\}
+        \\export fn entry9() void {
         \\   var z: noreturn = return;
         \\}
-        \\
+        \\const Opaque = @OpaqueType();
         \\const Foo = struct {
         \\    fn bar(self: *const Foo) void {}
         \\};
     ,
-        "tmp.zig:4:4: error: variable of type '*comptime_int' must be const or comptime",
-        "tmp.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
+        "tmp.zig:2:4: error: variable of type '*comptime_int' must be const or comptime",
+        "tmp.zig:5:4: error: variable of type '(undefined)' must be const or comptime",
         "tmp.zig:8:4: error: variable of type 'comptime_int' must be const or comptime",
-        "tmp.zig:9:4: error: variable of type 'comptime_float' must be const or comptime",
-        "tmp.zig:10:4: error: variable of type '(null)' must be const or comptime",
-        "tmp.zig:11:4: error: variable of type 'Opaque' not allowed",
-        "tmp.zig:12:4: error: variable of type 'type' must be const or comptime",
-        "tmp.zig:13:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        "tmp.zig:15:4: error: unreachable code",
+        "tmp.zig:11:4: error: variable of type 'comptime_float' must be const or comptime",
+        "tmp.zig:14:4: error: variable of type '(null)' must be const or comptime",
+        "tmp.zig:17:4: error: variable of type 'Opaque' not allowed",
+        "tmp.zig:20:4: error: variable of type 'type' must be const or comptime",
+        "tmp.zig:23:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
+        "tmp.zig:26:4: error: unreachable code",
     );
 
     cases.add(
@@ -5300,7 +5344,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:37:16: error: cannot store runtime value in compile time variable",
+        "tmp.zig:37:29: error: cannot store runtime value in compile time variable",
     );
 
     cases.add(
@@ -5924,7 +5968,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x, .Baz = u8 };
         \\}
     ,
-        "tmp.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:23: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -5938,7 +5982,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = Foo { .Bar = x };
         \\}
     ,
-        "tmp.zig:7:30: error: unable to evaluate constant expression",
+        "tmp.zig:7:23: error: unable to evaluate constant expression",
     );
 
     cases.addTest(

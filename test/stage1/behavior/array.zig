@@ -172,6 +172,12 @@ fn plusOne(x: u32) u32 {
     return x + 1;
 }
 
+test "runtime initialize array elem and then implicit cast to slice" {
+    var two: i32 = 2;
+    const x: []const i32 = [_]i32{two};
+    expect(x[0] == 2);
+}
+
 test "array literal as argument to function" {
     const S = struct {
         fn entry(two: i32) void {
@@ -227,7 +233,7 @@ test "double nested array to const slice cast in array literal" {
 
             const cases2 = [_][]const i32{
                 [_]i32{1},
-                [_]i32{ two, 3 },
+                &[_]i32{ two, 3 },
             };
             expect(cases2.len == 2);
             expect(cases2[0].len == 1);
@@ -238,7 +244,7 @@ test "double nested array to const slice cast in array literal" {
 
             const cases3 = [_][]const []const i32{
                 [_][]const i32{[_]i32{1}},
-                [_][]const i32{[_]i32{ two, 3 }},
+                &[_][]const i32{&[_]i32{ two, 3 }},
                 [_][]const i32{
                     [_]i32{4},
                     [_]i32{ 5, 6, 7 },

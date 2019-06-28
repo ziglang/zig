@@ -9,16 +9,15 @@ const std = @import("std");
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     switch (builtin.os) {
-        // TODO: fix panic in zen
-        builtin.Os.freestanding, builtin.Os.zen => {
+        .freestanding => {
             while (true) {}
         },
-        builtin.Os.wasi => {
+        .wasi => {
             std.debug.warn("{}", msg);
             _ = std.os.wasi.proc_raise(std.os.wasi.SIGABRT);
             unreachable;
         },
-        builtin.Os.uefi => {
+        .uefi => {
             // TODO look into using the debug info and logging helpful messages
             std.os.abort();
         },
