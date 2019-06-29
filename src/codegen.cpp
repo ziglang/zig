@@ -202,7 +202,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->link_libs_list.append(g->libc_link_lib);
     }
 
-    get_target_triple(&g->triple_str, g->zig_target);
+    get_target_triple(&g->triple_str, g->zig_target, true);
     g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
 
     if (!target_has_debug_info(g->zig_target)) {
@@ -8309,7 +8309,7 @@ static void detect_libc(CodeGen *g) {
         !target_os_is_darwin(g->zig_target->os))
     {
         Buf triple_buf = BUF_INIT;
-        get_target_triple(&triple_buf, g->zig_target);
+        get_target_triple(&triple_buf, g->zig_target, false);
         fprintf(stderr,
             "Zig is unable to provide a libc for the chosen target '%s'.\n"
             "The target is non-native, so Zig also cannot use the native libc installation.\n"

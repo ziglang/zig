@@ -147,6 +147,10 @@ static int print_target_list(FILE *f) {
     ZigTarget native;
     get_native_target(&native);
 
+    Buf native_target = BUF_INIT;
+    get_target_triple(&native_target, &native, false);
+    fprintf(f, "Native Target:\n  %s\n\n", buf_ptr(&native_target));
+
     fprintf(f, "Architectures:\n");
     size_t arch_count = target_arch_count();
     for (size_t arch_i = 0; arch_i < arch_count; arch_i += 1) {
@@ -937,7 +941,7 @@ int main(int argc, char **argv) {
 
     if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
         Buf triple_buf = BUF_INIT;
-        get_target_triple(&triple_buf, &target);
+        get_target_triple(&triple_buf, &target, false);
         fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
         return print_error_usage(arg0);
     }

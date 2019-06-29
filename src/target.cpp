@@ -714,14 +714,22 @@ void init_all_targets(void) {
     LLVMInitializeAllAsmParsers();
 }
 
-void get_target_triple(Buf *triple, const ZigTarget *target) {
+void get_target_triple(Buf *triple, const ZigTarget *target, bool full_triple) {
     buf_resize(triple, 0);
-    buf_appendf(triple, "%s%s-%s-%s-%s",
+    if (full_triple) {
+        buf_appendf(triple, "%s%s-%s-%s-%s",
             ZigLLVMGetArchTypeName(target->arch),
             ZigLLVMGetSubArchTypeName(target->sub_arch),
             ZigLLVMGetVendorTypeName(target->vendor),
             ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
             ZigLLVMGetEnvironmentTypeName(target->abi));
+    } else {
+        buf_appendf(triple, "%s%s-%s-%s",
+            ZigLLVMGetArchTypeName(target->arch),
+            ZigLLVMGetSubArchTypeName(target->sub_arch),
+            ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
+            ZigLLVMGetEnvironmentTypeName(target->abi));
+    }
 }
 
 bool target_os_is_darwin(Os os) {
