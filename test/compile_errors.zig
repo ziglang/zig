@@ -6485,6 +6485,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
+        "using LLVM syntax for @shuffle",
+        \\export fn entry() void {
+        \\    const v: @Vector(4, u32) = [4]u32{0, 1, 2, 3};
+        \\    const x: @Vector(4, u32) = [4]u32{4, 5, 6, 7};
+        \\    var z = @shuffle(u32, v, x, [8]i32{0, 1, 2, 3, 4, 5, 6, 7});
+        \\}
+    ,
+        "tmp.zig:4:39: error: mask index out of bounds",
+        "tmp.zig:4:39: note: when computing vector element at index 4",
+        "tmp.zig:4:39: note: selections from the second vector are specified with negative numbers",
+    );
+
+    cases.addTest(
         "nested vectors",
         \\export fn entry() void {
         \\    const V = @Vector(4, @Vector(4, u8));

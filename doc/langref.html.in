@@ -8226,6 +8226,28 @@ fn foo(comptime T: type, ptr: *T) T {
       {#link|pointer|Pointers#}.
       </p>
       {#header_close#}
+
+      {#header_open|@shuffle#}
+      <pre>{#syntax#}@shuffle(comptime ElemType: type, a: @Vector(_, ElemType), b: @Vector(_, ElemType), comptime mask: @Vector(_, u32)) @Vector(mask.len, ElemType){#endsyntax#}</pre>
+      <p>
+      Does the {#syntax#}shufflevector{#endsyntax#} instruction. Each element in {#syntax#}comptime{#endsyntax#}
+      (and always {#syntax#}i32{#endsyntax#}) {#syntax#}mask{#endsyntax#} selects a element from either {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#}.
+      Positive numbers select from {#syntax#}a{#endsyntax#} (starting at 0), while negative values select
+      from {#syntax#}b{#endsyntax#} (starting at -1 and going down). It is recommended to use the {#syntax#}~{#endsyntax#}
+      operator from indexes from b so that both indexes can start from 0 (i.e. ~0 is -1). If either the {#syntax#}mask{#endsyntax#}
+      value or the value from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} that it selects are {#syntax#}undefined{#endsyntax#}
+      then the resulting value is {#syntax#}undefined{#endsyntax#}. Also see {#link|SIMD#} and
+      the relevent <a href="https://llvm.org/docs/LangRef.html#i-shufflevector">LLVM Documentation on
+      {#syntax#}shufflevector{#endsyntax#}</a>, although note that the mask values are interpreted differently than in LLVM-IR.
+      Also, unlike LLVM-IR, the number of elements in {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} do not have to match.
+      The {#syntax#}undefined{#endsyntax#} identifier can be selected from up to the length of the other vector,
+      and yields {#syntax#}undefined{#endsyntax#}. If both vectors are {#syntax#}undefined{#endsyntax#}, yields an
+      {#syntax#}undefined{#endsyntax#} {#syntax#}ElemType{#endsyntax#} vector with length of {#syntax#}mask{#endsyntax#}.</p>
+      <p>
+      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
+      {#link|pointer|Pointers#}. The mask may be any vector length that the target supports, and its' length determines the result length.
+      </p>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Build Mode#}
