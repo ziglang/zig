@@ -687,17 +687,17 @@ fn transStringLiteral(
     const kind = ZigClangStringLiteral_getKind(stmt);
     switch (kind) {
         .Ascii, .UTF8 => {
-            var clen: usize = undefined;
-            const cstr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &clen);
-            const zstr = try rp.c.str(cstr);
+            var len: usize = undefined;
+            const bytes_ptr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &len);
+            const str = bytes_ptr[0..len];
 
-            var len: usize = 0;
-            for (zstr) |c| len += escapeChar(c).len;
+            len = 0;
+            for (str) |c| len += escapeChar(c).len;
 
             const buf = try rp.c.a().alloc(u8, len + "c\"\"".len);
             buf[0] = 'c';
             buf[1] = '"';
-            writeEscapedString(buf[2..], zstr);
+            writeEscapedString(buf[2..], str);
             buf[buf.len - 1] = '"';
 
             const token = try appendToken(rp.c, .StringLiteral, buf);
