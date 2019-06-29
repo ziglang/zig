@@ -15,7 +15,7 @@ Zig is an open-source programming language designed for **robustness**,
 Documentation for the standard library doesn't exist yet, though there will be full docs by version 1.0.
 For now, you can search through `std/` for items of interest with a text editor.
 
-It isn't a priority right now as the focus on more on implementing features and getting stuff working well.
+It isn't a priority right now as the focus is more on implementing features and getting stuff working well.
 
 If you have any questions on how parts of the stdlib work, you can always ask us about it; see the 'Community' resource above.
 
