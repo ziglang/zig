@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 pub const struct_ZigClangAPSInt = @OpaqueType();
 pub const struct_ZigClangAPFloat = @OpaqueType();
 pub const struct_ZigClangASTContext = @OpaqueType();
@@ -938,7 +940,7 @@ pub const struct_ZigClangExprEvalResult = extern struct {
 
 pub const struct_ZigClangAPValue = extern struct {
     Kind: ZigClangAPValue_ValueKind,
-    Data: [68]u8, // TODO: is there a way to statically assert that this matches the .h?
+    Data: if (builtin.os == .windows) [52]u8 else [68]u8,
 };
 
 pub const ZigClangAPValue_ValueKind = extern enum {

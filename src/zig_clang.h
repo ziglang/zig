@@ -47,7 +47,12 @@ enum ZigClangAPValue_ValueKind {
 
 struct ZigClangAPValue {
     enum ZigClangAPValue_ValueKind Kind;
-    char Data[68]; // experimentally-derived size of clang::APValue::DataType
+    // experimentally-derived size of clang::APValue::DataType
+#ifdef _WIN32
+    char Data[52];
+#else
+    char Data[68];
+#endif
 };
 
 struct ZigClangExprEvalResult {
