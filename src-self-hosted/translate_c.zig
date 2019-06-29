@@ -691,8 +691,9 @@ fn transStringLiteral(
             const bytes_ptr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &len);
             const str = bytes_ptr[0..len];
 
+            var char_buf: [4]u8 = undefined;
             len = 0;
-            for (str) |c| len += escapeChar(c).len;
+            for (str) |c| len += escapeChar(c, &char_buf).len;
 
             const buf = try rp.c.a().alloc(u8, len + "c\"\"".len);
             buf[0] = 'c';
@@ -725,33 +726,35 @@ fn transStringLiteral(
 
 fn escapedStringLen(s: []const u8) usize {
     var len: usize = 0;
-    for (s) |c| len += escapeChar(c).len;
+    var char_buf: [4]u8 = undefined;
+    for (s) |c| len += escapeChar(c, &char_buf).len;
     return len;
 }
 
 fn writeEscapedString(buf: []u8, s: []const u8) void {
+    var char_buf: [4]u8 = undefined;
     var i: usize = 0;
     for (s) |c| {
-        const escaped = escapeChar(c);
+        const escaped = escapeChar(c, &char_buf);
         std.mem.copy(u8, buf[i..], escaped);
         i += escaped.len;
     }
 }
 
-fn escapeChar(c: u8) []const u8 {
+// Returns either a string literal or a slice of `buf`.
+fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
     // TODO: https://github.com/ziglang/zig/issues/2749
-    switch (c) {
+    const escaped = switch (c) {
         // Printable ASCII except for ' " \
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => return ([_]u8{c})[0..],
-        '\'', '\"', '\\' => return ([_]u8{ '\\', c })[0..],
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => ([_]u8{c})[0..],
+        '\'', '\"', '\\' => ([_]u8{ '\\', c })[0..],
         '\n' => return "\\n"[0..],
         '\r' => return "\\r"[0..],
         '\t' => return "\\t"[0..],
-        else => {
-            var buf: [4]u8 = undefined;
-            return std.fmt.bufPrint(buf[0..], "\\x{x:2}", c) catch unreachable;
-        },
-    }
+        else => return std.fmt.bufPrint(char_buf[0..], "\\x{x:2}", c) catch unreachable,
+    };
+    std.mem.copy(u8, char_buf, escaped);
+    return char_buf[0..escaped.len];
 }
 
 fn transCCast(
