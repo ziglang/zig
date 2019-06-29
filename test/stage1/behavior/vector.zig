@@ -74,3 +74,17 @@ test "implicit cast vector to array" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector shuffle" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
+            const mask: @Vector(4, i32) = [4]i32{ 0, ~i32(2), 3, ~i32(3)};
+            var res = @shuffle(i32, v, x, mask);
+            expect(mem.eql(i32, ([4]i32)(res), [4]i32{ 2147483647, 3, 40, 4 }));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
