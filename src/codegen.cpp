@@ -4227,6 +4227,35 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
 
+static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executable, IrInstructionShuffleVector *instruction) {
+    uint64_t len_a = instruction->a->value.type->data.vector.len,
+        len_c = instruction->mask->value.type->data.vector.len;
+
+    // LLVM uses integers larger than the length of the first array to
+    // index into the second array. This was deemed unnecessarily fragile
+    // when changing code, so Zig uses negative numbers to index the
+    // second vector. These start at -1 and go down, are are easiest to use
+    // with the ~ operator. Here we convert between the two formats.
+    IrInstruction *mask = instruction->mask;
+    LLVMValueRef *values = allocate<LLVMValueRef>(len_c);
+    for (uint64_t i = 0;i < len_c;i++) {
+        if (mask->value.data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef) {
+            values[i] = LLVMGetUndef(LLVMInt32Type());
+        } else {
+            int64_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
+            if (v < 0)
+                v = (uint32_t)~v + (uint32_t)len_a;
+            values[i] = LLVMConstInt(LLVMInt32Type(), v, false);
+        }
+    }
+
+    return LLVMBuildShuffleVector(g->builder,
+        ir_llvm_value(g, instruction->a),
+        ir_llvm_value(g, instruction->b),
+        LLVMConstVector(values, len_c),
+        "");
+}
+
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
     ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
@@ -5808,6 +5837,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
         case IrInstructionIdPtrOfArrayToSlice:
             return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
+        case IrInstructionIdShuffleVector:
+            return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
     }
     zig_unreachable();
 }
@@ -7361,6 +7392,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdVectorType, "Vector", 2);
+    create_builtin_fn(g, BuiltinFnIdShuffle, "shuffle", 4);
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 1);

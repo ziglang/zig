@@ -713,6 +713,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionVectorType *) {
     return IrInstructionIdVectorType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionShuffleVector *) {
+    return IrInstructionIdShuffleVector;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolNot *) {
     return IrInstructionIdBoolNot;
 }
@@ -2286,6 +2290,23 @@ static IrInstruction *ir_build_vector_type(IrBuilder *irb, Scope *scope, AstNode
 
     ir_ref_instruction(len, irb->current_basic_block);
     ir_ref_instruction(elem_type, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_shuffle_vector(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *scalar_type, IrInstruction *a, IrInstruction *b, IrInstruction *mask)
+{
+    IrInstructionShuffleVector *instruction = ir_build_instruction<IrInstructionShuffleVector>(irb, scope, source_node);
+    instruction->scalar_type = scalar_type;
+    instruction->a = a;
+    instruction->b = b;
+    instruction->mask = mask;
+
+    ir_ref_instruction(scalar_type, irb->current_basic_block);
+    ir_ref_instruction(a, irb->current_basic_block);
+    ir_ref_instruction(b, irb->current_basic_block);
+    ir_ref_instruction(mask, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4998,6 +5019,32 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *vector_type = ir_build_vector_type(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, vector_type, lval, result_loc);
+            }
+        case BuiltinFnIdShuffle:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                IrInstruction *arg3_value = ir_gen_node(irb, arg3_node, scope);
+                if (arg3_value == irb->codegen->invalid_instruction)
+                    return arg3_value;
+
+                IrInstruction *shuffle_vector = ir_build_shuffle_vector(irb, scope, node,
+                    arg0_value, arg1_value, arg2_value, arg3_value);
+                return ir_lval_wrap(irb, scope, shuffle_vector, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:
             {
@@ -21882,6 +21929,118 @@ static IrInstruction *ir_analyze_instruction_vector_type(IrAnalyze *ira, IrInstr
     return ir_const_type(ira, &instruction->base, vector_type);
 }
 
+static IrInstruction *mask_type_fail(IrAnalyze *ira, IrInstruction *mask) {
+    ir_add_error(ira, mask,
+        buf_sprintf("@shuffle mask operand must be a vector of integers no larger than 32 bits, got '%s'.",
+            buf_ptr(&mask->value.type->name)));
+    return ira->codegen->invalid_instruction;
+}
+
+static IrInstruction *ir_analyze_instruction_shuffle_vector(IrAnalyze *ira, IrInstructionShuffleVector *instruction) {
+    ZigType *scalar_type = ir_resolve_type(ira, instruction->scalar_type);
+    assert(scalar_type);
+    if (type_is_invalid(scalar_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *a = instruction->a->child;
+    IrInstruction *b = instruction->b->child;
+    IrInstruction *mask = instruction->mask->child;
+    assert(a && b && mask);
+
+    if (scalar_type->id != ZigTypeIdInt &&
+        scalar_type->id != ZigTypeIdFloat &&
+        scalar_type->id != ZigTypeIdPointer) {
+        ir_add_error(ira, instruction->scalar_type,
+            buf_sprintf("@shuffle type argument must be int, float or pointer, not '%s'",
+                buf_ptr(&scalar_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *mask_type = mask->value.type;
+    if (type_is_invalid(mask_type))
+        return ira->codegen->invalid_instruction;
+
+    if (mask_type->id != ZigTypeIdVector)
+        mask_type_fail(ira, mask);
+
+    ZigType *mask_scalar_type = mask_type->data.array.child_type;
+    if (mask_scalar_type->id != ZigTypeIdInt)
+        mask_type_fail(ira, mask);
+
+    if (mask_scalar_type->data.integral.bit_count != 32 ||
+        mask_scalar_type->data.integral.is_signed != true)
+        mask_type_fail(ira, mask);
+
+    if (scalar_type != a->value.type->data.vector.elem_type ||
+        scalar_type != b->value.type->data.vector.elem_type) {
+        ir_add_error(ira, b,
+            buf_sprintf("type '%s' does not match '%s'",
+                buf_ptr(&a->value.type->name),
+                buf_ptr(&b->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    ConstExprValue *mask_val = ir_resolve_const(ira, mask, UndefOk);
+    if (!mask_val) {
+        ir_add_error(ira, mask,
+            buf_sprintf("mask must be comptime"));
+        return ira->codegen->invalid_instruction;
+    }
+    uint64_t len_a = a->value.type->data.vector.len, len_b = b->value.type->data.vector.len,
+        len_c = mask->value.type->data.vector.len;
+    for (uint32_t i = 0;i < mask->value.type->data.vector.len;i++) {
+        if (mask->value.data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef)
+            continue;
+        int64_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
+        if (v >= 0 && (uint64_t)v > len_a) {
+            if ((uint64_t)v > len_a + len_b)
+                ir_add_error(ira, a,
+                    buf_sprintf("mask index out of bounds"));
+            else
+                ir_add_error(ira, a,
+                    buf_sprintf("mask index out of bounds. "
+                        "Selections from the second array are specified with negative numbers."));
+        } else if (v < 0 && (uint64_t)~v > len_b)
+            ir_add_error(ira, b,
+                buf_sprintf("mask index out of bounds"));
+        else
+            continue;
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *result_type = get_vector_type(ira->codegen, len_c, scalar_type);
+    if (instr_is_comptime(a) &&
+        instr_is_comptime(b)) {
+        IrInstruction *result = ir_const(ira, &instruction->base, result_type);
+        result->value.data.x_array.data.s_none.elements = create_const_vals(len_c);
+        for (uint32_t i = 0;i < mask->value.type->data.vector.len;i++) {
+            if (mask->value.data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef)
+                result->value.data.x_array.data.s_none.elements[i].special =
+                    ConstValSpecialUndef;
+            int64_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
+            if (v >= 0)
+                result->value.data.x_array.data.s_none.elements[i] =
+                    a->value.data.x_array.data.s_none.elements[v];
+            else if (v < 0)
+                result->value.data.x_array.data.s_none.elements[i] =
+                    b->value.data.x_array.data.s_none.elements[~v];
+            else
+                zig_unreachable();
+            result->value.data.x_array.data.s_none.elements[i].special =
+                ConstValSpecialStatic;
+        }
+        result->value.special = ConstValSpecialStatic;
+        return result;
+    }
+
+    // All static analysis passed, and not comptime
+    IrInstruction *result = ir_build_shuffle_vector(&ira->new_irb,
+        instruction->base.scope, instruction->base.source_node,
+        instruction->scalar_type, a, b, mask);
+    result->value.type = result_type;
+    result->value.special = ConstValSpecialRuntime;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstructionBoolNot *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -25420,6 +25579,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_int_type(ira, (IrInstructionIntType *)instruction);
         case IrInstructionIdVectorType:
             return ir_analyze_instruction_vector_type(ira, (IrInstructionVectorType *)instruction);
+        case IrInstructionIdShuffleVector:
+            return ir_analyze_instruction_shuffle_vector(ira, (IrInstructionShuffleVector *)instruction);
         case IrInstructionIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdMemset:
@@ -25757,6 +25918,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
         case IrInstructionIdVectorType:
+        case IrInstructionIdShuffleVector:
         case IrInstructionIdBoolNot:
         case IrInstructionIdSliceSrc:
         case IrInstructionIdMemberCount:
