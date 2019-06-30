@@ -421,6 +421,15 @@ static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_bool_vector_to_bool(IrPrint *irp, IrInstructionBoolVectorToBool *instruction) {
+    fprintf(irp->f, "(");
+    ir_print_other_instruction(irp, instruction->vector);
+    if (instruction->is_any)
+        fprintf(irp->f, ").any()");
+    else
+        fprintf(irp->f, ").all()");
+}
+
 static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
     if (instruction->field_name_buffer) {
         fprintf(irp->f, "fieldptr ");
@@ -1717,6 +1726,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);
+            break;
+        case IrInstructionIdBoolVectorToBool:
+            ir_print_bool_vector_to_bool(irp, (IrInstructionBoolVectorToBool *)instruction);
             break;
         case IrInstructionIdFieldPtr:
             ir_print_field_ptr(irp, (IrInstructionFieldPtr *)instruction);

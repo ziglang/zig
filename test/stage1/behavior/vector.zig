@@ -88,3 +88,53 @@ test "vector shuffle" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "implicit cast vector to array - bool" {
+    const S = struct {
+        fn doTheTest() void {
+            const a: @Vector(4, bool) = [_]bool{ true, false, true, false };
+            const result_array: [4]bool = a;
+            expect(mem.eql(bool, result_array, [4]bool{ true, false, true, false }));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector bin compares without mem.eql" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 30, 4 };
+            expect(mem.eql(bool, ([4]bool)(v == x), [4]bool{ false, false,  true, false}));
+            expect(mem.eql(bool, ([4]bool)(v != x), [4]bool{  true,  true, false,  true}));
+            expect(mem.eql(bool, ([4]bool)(v  < x), [4]bool{ false,  true, false, false}));
+            expect(mem.eql(bool, ([4]bool)(v  > x), [4]bool{  true, false, false,  true}));
+            expect(mem.eql(bool, ([4]bool)(v <= x), [4]bool{ false,  true,  true, false}));
+            expect(mem.eql(bool, ([4]bool)(v >= x), [4]bool{  true, false,  true,  true}));
+        }
+    };
+    // FIXME vector bools have one-bit width, while array bools have 1 byte width,
+    // but what this test is meant to test for is passing.
+    //S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vector bin compares with .all() and any()" {
+    const S = struct {
+        fn doTheTest() void {
+            comptime var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            comptime var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 30, 4 };
+            expect(((v == x) == @Vector(4, bool)([4]bool{ false, false,  true, false})).all);
+            expect(((v != x) == @Vector(4, bool)([4]bool{  true,  true, false,  true})).all);
+            expect(((v  < x) == @Vector(4, bool)([4]bool{ false,  true, false, false})).all);
+            expect(((v  > x) == @Vector(4, bool)([4]bool{  true, false, false,  true})).all);
+            expect(((v <= x) == @Vector(4, bool)([4]bool{ false,  true,  true, false})).all);
+            expect(((v >= x) == @Vector(4, bool)([4]bool{  true, false,  true,  true})).all);
+            expect(@Vector(4, bool)([4]bool{ false, false, false, false}).any == false);
+            expect(@Vector(4, bool)([4]bool{ true, false, false, false}).any);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

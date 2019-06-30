@@ -4021,6 +4021,7 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
 bool is_valid_vector_elem_type(ZigType *elem_type) {
     return elem_type->id == ZigTypeIdInt ||
         elem_type->id == ZigTypeIdFloat ||
+        elem_type->id == ZigTypeIdBool ||
         get_codegen_ptr_type(elem_type) != nullptr;
 }
 
