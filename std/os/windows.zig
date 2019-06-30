@@ -361,6 +361,7 @@ pub fn DeleteFileW(filename: [*]const u16) DeleteFileError!void {
     if (kernel32.DeleteFileW(filename) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
             ERROR.ACCESS_DENIED => return error.AccessDenied,
             ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
             ERROR.INVALID_PARAMETER => return error.NameTooLong,
