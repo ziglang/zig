@@ -5,7 +5,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
-const wyhash = std.hash.wyhash;
+const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 
@@ -557,7 +557,7 @@ pub fn autoHash(key: var, seed: u64) u64 {
         builtin.TypeId.EnumLiteral,
         => @compileError("cannot hash this type"),
 
-        builtin.TypeId.Int => return wyhash(std.mem.asBytes(&key), seed),
+        builtin.TypeId.Int => return Wyhash.hash(seed, std.mem.asBytes(&key)),
 
         builtin.TypeId.Float => |info| return autoHash(@bitCast(@IntType(false, info.bits), key), seed),
 
@@ -594,7 +594,7 @@ pub fn autoHash(key: var, seed: u64) u64 {
             // If there's no unused bits in the child type, we can just hash
             // this as an array of bytes.
             if (info.child.bit_count % 8 == 0) {
-                return wyhash(mem.asBytes(&key), seed);
+                return Wyhash.hash(seed, mem.asBytes(&key));
             }
 
             // Otherwise, hash every element.
