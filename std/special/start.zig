@@ -112,6 +112,8 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMain() u8 {
+    comptime const BadMainReturnTypeMessage = "expected return type of main to be 'u8', '!u8', 'noreturn', 'void', or '!void', but got '"
+        ++ @typeName(@typeOf(root.main).ReturnType) ++ "'";
     switch (@typeId(@typeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
@@ -122,12 +124,12 @@ inline fn callMain() u8 {
         },
         .Int => {
             if (@typeOf(root.main).ReturnType.bit_count != 8) {
-                @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
+                @compileError(BadMainReturnTypeMessage);
             }
             return root.main();
         },
         .ErrorUnion => {
-            root.main() catch |err| {
+            const result = root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
                 if (builtin.os != builtin.Os.zen) {
                     if (@errorReturnTrace()) |trace| {
@@ -136,9 +138,20 @@ inline fn callMain() u8 {
                 }
                 return 1;
             };
-            return 0;
+            switch (@typeInfo(@typeOf(result))) {
+                .Void => {
+                    return 0;
+                },
+                .Int => |IntType| {
+                    if (IntType.bits != 8) {
+                        @compileError(BadMainReturnTypeMessage);
+                    }
+                    return result;
+                 },
+                else => @compileError(BadMainReturnTypeMessage),
+            }
         },
-        else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'"),
+        else => @compileError(BadMainReturnTypeMessage),
     }
 }
 
