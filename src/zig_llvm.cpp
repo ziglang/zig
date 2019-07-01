@@ -39,7 +39,9 @@
 #include <llvm/Support/TargetParser.h>
 #include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/TargetRegistry.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/CodeGenCWrappers.h>
 #include <llvm/Transforms/Coroutines.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
@@ -93,9 +95,63 @@ static const bool assertions_on = true;
 static const bool assertions_on = false;
 #endif
 
+LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
+    const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
+    LLVMCodeModel CodeModel, bool function_sections)
+{
+    Optional<Reloc::Model> RM;
+    switch (Reloc){
+        case LLVMRelocStatic:
+            RM = Reloc::Static;
+            break;
+        case LLVMRelocPIC:
+            RM = Reloc::PIC_;
+            break;
+        case LLVMRelocDynamicNoPic:
+            RM = Reloc::DynamicNoPIC;
+            break;
+        case LLVMRelocROPI:
+            RM = Reloc::ROPI;
+            break;
+        case LLVMRelocRWPI:
+            RM = Reloc::RWPI;
+            break;
+        case LLVMRelocROPI_RWPI:
+            RM = Reloc::ROPI_RWPI;
+            break;
+        default:
+            break;
+    }
+
+    bool JIT;
+    Optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
+
+    CodeGenOpt::Level OL;
+    switch (Level) {
+        case LLVMCodeGenLevelNone:
+            OL = CodeGenOpt::None;
+            break;
+        case LLVMCodeGenLevelLess:
+            OL = CodeGenOpt::Less;
+            break;
+        case LLVMCodeGenLevelAggressive:
+            OL = CodeGenOpt::Aggressive;
+            break;
+        default:
+            OL = CodeGenOpt::Default;
+            break;
+    }
+
+    TargetOptions opt;
+    opt.FunctionSections = function_sections;
+
+    return reinterpret_cast<LLVMTargetMachineRef>(const_cast<TargetMachine *>(
+        reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,  OL, JIT)));
+}
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool function_sections)
+        bool is_small, bool time_report)
 {
     TimePassesIsEnabled = time_report;
 
@@ -107,8 +163,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine->setO0WantsFastISel(true);
-
-    target_machine->Options.FunctionSections = function_sections;
 
     Module* module = unwrap(module_ref);
 

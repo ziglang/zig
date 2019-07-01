@@ -163,8 +163,8 @@ extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) ?[*]u8;
 pub const CreateTargetDataLayout = LLVMCreateTargetDataLayout;
 extern fn LLVMCreateTargetDataLayout(T: *TargetMachine) ?*TargetData;
 
-pub const CreateTargetMachine = LLVMCreateTargetMachine;
-extern fn LLVMCreateTargetMachine(
+pub const CreateTargetMachine = ZigLLVMCreateTargetMachine;
+extern fn ZigLLVMCreateTargetMachine(
     T: *Target,
     Triple: [*]const u8,
     CPU: [*]const u8,
@@ -172,6 +172,7 @@ extern fn LLVMCreateTargetMachine(
     Level: CodeGenOptLevel,
     Reloc: RelocMode,
     CodeModel: CodeModel,
+    function_sections: bool,
 ) ?*TargetMachine;
 
 pub const GetHostCPUName = LLVMGetHostCPUName;
@@ -283,7 +284,6 @@ extern fn ZigLLVMTargetMachineEmitToFile(
     error_message: *[*]u8,
     is_debug: bool,
     is_small: bool,
-    function_sections: bool,
 ) bool;
 
 pub const BuildCall = ZigLLVMBuildCall;
