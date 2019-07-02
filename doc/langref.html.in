@@ -6801,6 +6801,19 @@ test "@hasDecl" {
     assert(!@hasDecl(Foo, "nope1234"));
 }
       {#code_end#}
+      {#see_also|@hasField#}
+      {#header_close#}
+
+      {#header_open|@hasField#}
+      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <p>Returns whether the field name of a struct, union, or enum exists.</p>
+      <p>
+      The result is a compile time constant.
+      </p>
+      <p>
+      It does not include functions, variables, or constants.
+      </p>
+      {#see_also|@hasDecl#}
       {#header_close#}
 
       {#header_open|@import#}

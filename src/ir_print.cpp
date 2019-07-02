@@ -1270,6 +1270,14 @@ static void ir_print_type_info(IrPrint *irp, IrInstructionTypeInfo *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_has_field(IrPrint *irp, IrInstructionHasField *instruction) {
+    fprintf(irp->f, "@hasField(");
+    ir_print_other_instruction(irp, instruction->container_type);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
     fprintf(irp->f, "@typeId(");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -1964,6 +1972,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);
+            break;
+        case IrInstructionIdHasField:
+            ir_print_has_field(irp, (IrInstructionHasField *)instruction);
             break;
         case IrInstructionIdTypeId:
             ir_print_type_id(irp, (IrInstructionTypeId *)instruction);
