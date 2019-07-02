@@ -522,8 +522,9 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            const h = autoHash(key, 0);
-            return @truncate(u32, h);
+            var hasher = Wyhash.init(0);
+            autoHash(&hasher, key);
+            return @truncate(u32, hasher.final());
         }
     }.hash;
 }
@@ -538,10 +539,7 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
 
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
-/// The underlying hashing algorithm is wyhash.
-pub fn autoHash(key: var, seed: u64) u64 {
-    // We use the fact that wyhash takes an input seed to "chain" hasing when the
-    // key has multiple parts that are not necessarily contiguous in memory.
+pub fn autoHash(hasher: var, key: var) void {
     const Key = @typeOf(key);
     switch (@typeInfo(Key)) {
         builtin.TypeId.NoReturn,
@@ -557,91 +555,101 @@ pub fn autoHash(key: var, seed: u64) u64 {
         builtin.TypeId.EnumLiteral,
         => @compileError("cannot hash this type"),
 
-        builtin.TypeId.Int => return Wyhash.hash(seed, std.mem.asBytes(&key)),
+        builtin.TypeId.Int => hasher.update(std.mem.asBytes(&key)),
 
-        builtin.TypeId.Float => |info| return autoHash(@bitCast(@IntType(false, info.bits), key), seed),
+        builtin.TypeId.Float => |info| autoHash(hasher, @bitCast(@IntType(false, info.bits), key)),
 
-        builtin.TypeId.Bool => return autoHash(@boolToInt(key), seed),
-        builtin.TypeId.Enum => return autoHash(@enumToInt(key), seed),
-        builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), seed),
-        builtin.TypeId.Promise, builtin.TypeId.Fn => return autoHash(@ptrToInt(key), seed),
+        builtin.TypeId.Bool => autoHash(hasher, @boolToInt(key)),
+        builtin.TypeId.Enum => autoHash(hasher, @enumToInt(key)),
+        builtin.TypeId.ErrorSet => autoHash(hasher, @errorToInt(key)),
+        builtin.TypeId.Promise, builtin.TypeId.Fn => autoHash(hasher, @ptrToInt(key)),
 
-        builtin.TypeId.Pointer => |info| return switch (info.size) {
+        builtin.TypeId.Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One,
             builtin.TypeInfo.Pointer.Size.Many,
             builtin.TypeInfo.Pointer.Size.C,
-            => return autoHash(@ptrToInt(key), seed),
+            => autoHash(hasher, @ptrToInt(key)),
 
-            builtin.TypeInfo.Pointer.Size.Slice => return autoHash(key.len, autoHash(key.ptr, seed)),
+            builtin.TypeInfo.Pointer.Size.Slice => {
+                autoHash(hasher, key.ptr);
+                autoHash(hasher, key.len);
+            },
         },
 
-        builtin.TypeId.Optional => return if (key) |k| autoHash(k, seed) else 0,
+        builtin.TypeId.Optional => if (key) |k| autoHash(hasher, k),
 
         builtin.TypeId.Array => {
             // TODO detect via a trait when Key has no padding bits to
             // hash it as an array of bytes.
             // Otherwise, hash every element.
-            var s = seed;
             for (key) |element| {
-                // We reuse the hash of the previous element as the seed for the
-                // next one so that they're dependant.
-                s = autoHash(element, s);
+                autoHash(hasher, element);
             }
-            return s;
         },
 
         builtin.TypeId.Vector => |info| {
-            // If there's no unused bits in the child type, we can just hash
-            // this as an array of bytes.
             if (info.child.bit_count % 8 == 0) {
-                return Wyhash.hash(seed, mem.asBytes(&key));
+                // If there's no unused bits in the child type, we can just hash
+                // this as an array of bytes.
+                hasher.update(mem.asBytes(&key));
+            } else {
+                // Otherwise, hash every element.
+                // TODO remove the copy to an array once field access is done.
+                const array: [info.len]info.child = key;
+                comptime var i: u32 = 0;
+                inline while (i < info.len) : (i += 1) {
+                    autoHash(hasher, array[i]);
+                }
             }
-
-            // Otherwise, hash every element.
-            var s = seed;
-            // TODO remove the copy to an array once field access is done.
-            const array: [info.len]info.child = key;
-            comptime var i: u32 = 0;
-            inline while (i < info.len) : (i += 1) {
-                s = autoHash(array[i], s);
-            }
-            return s;
         },
 
         builtin.TypeId.Struct => |info| {
             // TODO detect via a trait when Key has no padding bits to
             // hash it as an array of bytes.
             // Otherwise, hash every field.
-            var s = seed;
             inline for (info.fields) |field| {
                 // We reuse the hash of the previous field as the seed for the
                 // next one so that they're dependant.
-                s = autoHash(@field(key, field.name), s);
+                autoHash(hasher, @field(key, field.name));
             }
-            return s;
         },
 
-        builtin.TypeId.Union => |info| {
+        builtin.TypeId.Union => |info| blk: {
             if (info.tag_type) |tag_type| {
                 const tag = meta.activeTag(key);
-                const s = autoHash(tag, seed);
+                const s = autoHash(hasher, tag);
                 inline for (info.fields) |field| {
                     const enum_field = field.enum_field.?;
                     if (enum_field.value == @enumToInt(tag)) {
-                        return autoHash(@field(key, enum_field.name), s);
+                        autoHash(hasher, @field(key, enum_field.name));
+                        // TODO use a labelled break when it does not crash the compiler.
+                        // break :blk;
+                        return;
                     }
                 }
                 unreachable;
             } else @compileError("cannot hash untagged union type: " ++ @typeName(Key) ++ ", provide your own hash function");
         },
 
-        builtin.TypeId.ErrorUnion => {
-            return autoHash(key catch |err| return autoHash(err, seed), seed);
+        builtin.TypeId.ErrorUnion => blk: {
+            const payload = key catch |err| {
+                autoHash(hasher, err);
+                break :blk;
+            };
+            autoHash(hasher, payload);
         },
     }
 }
 
+fn testAutoHash(key: var) u64 {
+    var hasher = Wyhash.init(0);
+    autoHash(&hasher, key);
+    return hasher.final();
+}
+
 test "autoHash slice" {
+    // Allocate one array dynamically so that we're assured it is not merged
+    // with the other by the optimization passes.
     const array1 = try std.heap.direct_allocator.create([6]u32);
     defer std.heap.direct_allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
@@ -649,38 +657,46 @@ test "autoHash slice" {
     const a = array1[0..];
     const b = array2[0..];
     const c = array1[0..3];
-    testing.expect(autoHash(a, 0) == autoHash(a, 0));
-    testing.expect(autoHash(a, 0) != autoHash(array1, 0));
-    testing.expect(autoHash(a, 0) != autoHash(b, 0));
-    testing.expect(autoHash(a, 0) != autoHash(c, 0));
+    testing.expect(testAutoHash(a) == testAutoHash(a));
+    testing.expect(testAutoHash(a) != testAutoHash(array1));
+    testing.expect(testAutoHash(a) != testAutoHash(b));
+    testing.expect(testAutoHash(a) != testAutoHash(c));
 }
 
-test "autoHash optional" {
+test "testAutoHash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    testing.expectEqual(autoHash(a, 0), autoHash(u32(123), 0));
-    testing.expect(autoHash(a, 0) != autoHash(b, 0));
-    testing.expectEqual(autoHash(b, 0), 0);
+    testing.expectEqual(testAutoHash(a), testAutoHash(u32(123)));
+    testing.expect(testAutoHash(a) != testAutoHash(b));
+    testing.expectEqual(testAutoHash(b), 0);
 }
 
-test "autoHash array" {
+test "testAutoHash array" {
     const a = [_]u32{ 1, 2, 3 };
-    const h = autoHash(a, 0);
-    testing.expectEqual(h, autoHash(u32(3), autoHash(u32(2), autoHash(u32(1), 0))));
+    const h = testAutoHash(a);
+    var hasher = Wyhash.init(0);
+    autoHash(&hasher, u32(1));
+    autoHash(&hasher, u32(2));
+    autoHash(&hasher, u32(3));
+    testing.expectEqual(h, hasher.final());
 }
 
-test "autoHash struct" {
+test "testAutoHash struct" {
     const Foo = struct {
         a: u32 = 1,
         b: u32 = 2,
         c: u32 = 3,
     };
     const f = Foo{};
-    const h = autoHash(f, 0);
-    testing.expectEqual(h, autoHash(u32(3), autoHash(u32(2), autoHash(u32(1), 0))));
+    const h = testAutoHash(f);
+    var hasher = Wyhash.init(0);
+    autoHash(&hasher, u32(1));
+    autoHash(&hasher, u32(2));
+    autoHash(&hasher, u32(3));
+    testing.expectEqual(h, hasher.final());
 }
 
-test "autoHash union" {
+test "testAutoHash union" {
     const Foo = union(enum) {
         A: u32,
         B: f32,
@@ -690,24 +706,24 @@ test "autoHash union" {
     const a = Foo{ .A = 18 };
     var b = Foo{ .B = 12.34 };
     const c = Foo{ .C = 18 };
-    testing.expect(autoHash(a, 0) == autoHash(a, 0));
-    testing.expect(autoHash(a, 0) != autoHash(b, 0));
-    testing.expect(autoHash(a, 0) != autoHash(c, 0));
+    testing.expect(testAutoHash(a) == testAutoHash(a));
+    testing.expect(testAutoHash(a) != testAutoHash(b));
+    testing.expect(testAutoHash(a) != testAutoHash(c));
 
     b = Foo{ .A = 18 };
-    testing.expect(autoHash(a, 0) == autoHash(b, 0));
+    testing.expect(testAutoHash(a) == testAutoHash(b));
 }
 
-test "autoHash vector" {
+test "testAutoHash vector" {
     const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
     const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    testing.expect(autoHash(a, 0) == autoHash(a, 0));
-    testing.expect(autoHash(a, 0) != autoHash(b, 0));
-    testing.expect(autoHash(a, 0) != autoHash(c, 0));
+    testing.expect(testAutoHash(a) == testAutoHash(a));
+    testing.expect(testAutoHash(a) != testAutoHash(b));
+    testing.expect(testAutoHash(a) != testAutoHash(c));
 }
 
-test "autoHash error union" {
+test "testAutoHash error union" {
     const Errors = error{Test};
     const Foo = struct {
         a: u32 = 1,
@@ -716,7 +732,7 @@ test "autoHash error union" {
     };
     const f = Foo{};
     const g: Errors!Foo = Errors.Test;
-    testing.expect(autoHash(f, 0) != autoHash(g, 0));
-    testing.expect(autoHash(f, 0) == autoHash(Foo{}, 0));
-    testing.expect(autoHash(g, 0) == autoHash(Errors.Test, 0));
+    testing.expect(testAutoHash(f) != testAutoHash(g));
+    testing.expect(testAutoHash(f) == testAutoHash(Foo{}));
+    testing.expect(testAutoHash(g) == testAutoHash(Errors.Test));
 }
