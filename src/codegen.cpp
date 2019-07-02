@@ -8606,6 +8606,38 @@ static Buf *get_resolved_root_src_path(CodeGen *g) {
     return resolved_path;
 }
 
+static bool want_startup_code(CodeGen *g) {
+    // Test builds get handled separately.
+    if (g->is_test_build)
+        return false;
+
+    // start code does not handle UEFI target
+    if (g->zig_target->os == OsUefi)
+        return false;
+
+    // WASM freestanding can still have an entry point but other freestanding targets do not.
+    if (g->zig_target->os == OsFreestanding && !target_is_wasm(g->zig_target))
+        return false;
+
+    // Declaring certain export functions means skipping the start code
+    if (g->have_c_main || g->have_winmain || g->have_winmain_crt_startup)
+        return false;
+
+    // If there is a pub main in the root source file, that means we need start code.
+    if (g->have_pub_main)
+        return true;
+
+    if (g->out_type == OutTypeExe) {
+        // For build-exe, we might add start code even though there is no pub main, so that the
+        // programmer gets the "no pub main" compile error. However if linking libc and there is
+        // a C source file, that might have main().
+        return g->c_source_files.length == 0 || g->libc_link_lib == nullptr;
+    }
+
+    // For objects and libraries, and we don't have pub main, no start code.
+    return false;
+}
+
 static void gen_root_source(CodeGen *g) {
     Buf *resolved_path = get_resolved_root_src_path(g);
     if (resolved_path == nullptr)
@@ -8646,11 +8678,7 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && (g->zig_target->os != OsFreestanding || target_is_wasm(g->zig_target)) &&
-        g->zig_target->os != OsUefi &&
-        !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
-        ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
-    {
+    if (want_startup_code(g)) {
         g->start_import = add_special_code(g, create_start_pkg(g, g->root_package), "start.zig");
     }
     if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
