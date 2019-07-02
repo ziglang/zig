@@ -1067,6 +1067,51 @@ test "io.readLineFrom" {
     testing.expectEqualSlices(u8, "Line 1Line 22Line 333", buf.toSlice());
 }
 
+pub fn readLineFromIterator(stream: var, buf: *std.Buffer) type {
+    const StreamType = @typeOf(stream);
+    const Iterator = struct {
+        stream: StreamType,
+        buf: *std.Buffer,
+        pub fn next(self: *@This()) !?[]u8 {
+            return readLineFrom(self.stream, self.buf) catch |err| {
+                return switch (err) {
+                    error.EndOfStream => null,
+                    else => err,
+                };
+            };
+        }
+    };
+    return Iterator {
+        .stream = stream,
+        .buf = buf,
+    };
+}
+
+test "io.readLineFromIterator" {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var buf = try std.Buffer.initSize(allocator, 0);
+    var mem_stream = SliceInStream.init(
+        \\Line 1
+        \\Line 22
+        \\Line 333
+    );
+    const expected = [_] []const u8 {
+        "Line 1",
+        "Line 22",
+        "Line 333",
+    };
+    const stream = &mem_stream.stream;
+    var it = readLineFromIterator(stream, &buf);
+    var index : usize = 0;
+    while (try it.next()) |line| {
+        testing.expectEqualSlices(u8, expected[index], line);
+        index += 1;
+    }
+    testing.expectEqualSlices(u8, "Line 1Line 22Line 333", buf.toSlice());
+}
+
 pub fn readLineSlice(slice: []u8) ![]u8 {
     var stdin = try getStdIn();
     var stdin_stream = stdin.inStream();
