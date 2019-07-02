@@ -99,6 +99,32 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     };
 }
 
+/// Tries to print the stack trace starting from the supplied base pointer to stderr,
+/// unbuffered, and ignores any error returned.
+/// TODO multithreaded awareness
+pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
+    const stderr = getStderrStream() catch return;
+    if (builtin.strip_debug_info) {
+        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
+        return;
+    }
+    const debug_info = getSelfDebugInfo() catch |err| {
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
+        return;
+    };
+    const tty_color = wantTtyColor();
+    printSourceAtAddress(debug_info, stderr, ip, tty_color) catch return;
+    const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
+    printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_color) catch return;
+    var it = StackIterator{
+        .first_addr = null,
+        .fp = bp,
+    };
+    while (it.next()) |return_address| {
+        printSourceAtAddress(debug_info, stderr, return_address - 1, tty_color) catch return;
+    }
+}
+
 /// Returns a slice with the same pointer as addresses, with a potentially smaller len.
 /// On Windows, when first_address is not null, we ask for at least 32 stack frames,
 /// and then try to find the first address. If addresses.len is more than 32, we
@@ -2290,4 +2316,45 @@ fn getDebugInfoAllocator() *mem.Allocator {
     debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;
+}
+
+/// Whether or not the current target can print useful debug information when a segfault occurs.
+pub const have_segfault_handling_support = builtin.arch == .x86_64 and builtin.os == .linux;
+
+/// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
+pub fn attachSegfaultHandler() void {
+    if (!have_segfault_handling_support) {
+        @compileError("segfault handler not supported for this target");
+    }
+    var act = os.Sigaction{
+        .sigaction = handleSegfault,
+        .mask = os.empty_sigset,
+        .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
+    };
+
+    os.sigaction(os.SIGSEGV, &act, null);
+}
+
+extern fn handleSegfault(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
+    // Reset to the default handler so that if a segfault happens in this handler it will crash
+    // the process. Also when this handler returns, the original instruction will be repeated
+    // and the resulting segfault will crash the process rather than continually dump stack traces.
+    var act = os.Sigaction{
+        .sigaction = os.SIG_DFL,
+        .mask = os.empty_sigset,
+        .flags = 0,
+    };
+    os.sigaction(os.SIGSEGV, &act, null);
+
+    const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+    const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
+    const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]);
+    const addr = @ptrToInt(info.fields.sigfault.addr);
+    std.debug.warn("Segmentation fault at address 0x{x}\n", addr);
+    dumpStackTraceFromBase(bp, ip);
+
+    // We cannot allow the signal handler to return because when it runs the original instruction
+    // again, the memory may be mapped and undefined behavior would occur rather than repeating
+    // the segfault. So we simply abort here.
+    os.abort();
 }

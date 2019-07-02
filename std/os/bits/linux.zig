@@ -12,6 +12,8 @@ pub usingnamespace switch (builtin.arch) {
 
 pub const pid_t = i32;
 pub const fd_t = i32;
+pub const uid_t = i32;
+pub const clock_t = isize;
 
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
@@ -712,22 +714,23 @@ pub const all_mask = [_]u32{ 0xffffffff, 0xffffffff };
 pub const app_mask = [_]u32{ 0xfffffffc, 0x7fffffff };
 
 pub const k_sigaction = extern struct {
-    handler: extern fn (i32) void,
+    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
     flags: usize,
     restorer: extern fn () void,
     mask: [2]u32,
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
-    handler: extern fn (i32) void,
+pub const Sigaction = extern struct {
+    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
     mask: sigset_t,
     flags: u32,
+    restorer: ?extern fn () void = null,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
+pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
+pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
 pub const empty_sigset = [_]usize{0} ** sigset_t.len;
 
 pub const in_port_t = u16;

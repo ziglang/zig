@@ -99,6 +99,15 @@ fn posixCallMainAndExit() noreturn {
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
+
+    const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
+        root.enable_segfault_handler
+    else
+        std.debug.runtime_safety and std.debug.have_segfault_handling_support;
+    if (enable_segfault_handler) {
+        std.debug.attachSegfaultHandler();
+    }
+
     return callMain();
 }
 
