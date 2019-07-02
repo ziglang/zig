@@ -826,15 +826,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     defer self_file.close();
 
     const coff_obj = try allocator.create(coff.Coff);
-    coff_obj.* = coff.Coff{
-        .in_file = self_file,
-        .allocator = allocator,
-        .coff_header = undefined,
-        .pe_header = undefined,
-        .sections = undefined,
-        .guid = undefined,
-        .age = undefined,
-    };
+    coff_obj.* = coff.Coff.init(allocator, self_file);
 
     var di = DebugInfo{
         .coff = coff_obj,

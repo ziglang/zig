@@ -39,6 +39,18 @@ pub const Coff = struct {
     guid: [16]u8,
     age: u32,
 
+    pub fn init(allocator: *mem.Allocator, in_file: File) Coff {
+        return Coff{
+            .in_file = in_file,
+            .allocator = allocator,
+            .coff_header = undefined,
+            .pe_header = undefined,
+            .sections = ArrayList(Section).init(allocator),
+            .guid = undefined,
+            .age = undefined,
+        };
+    }
+
     pub fn loadHeader(self: *Coff) !void {
         const pe_pointer_offset = 0x3C;
 
@@ -142,10 +154,10 @@ pub const Coff = struct {
     }
 
     pub fn loadSections(self: *Coff) !void {
-        if (self.sections.len != 0)
+        if (self.sections.len == self.coff_header.number_of_sections)
             return;
 
-        self.sections = ArrayList(Section).init(self.allocator);
+        try self.sections.ensureCapacity(self.coff_header.number_of_sections);
 
         var file_stream = self.in_file.inStream();
         const in = &file_stream.stream;
