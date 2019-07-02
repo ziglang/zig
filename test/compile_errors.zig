@@ -3,6 +3,15 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "wrong type to @hasField",
+        \\export fn entry() bool {
+        \\    return @hasField(i32, "hi");
+        \\}
+    ,
+        "tmp.zig:2:22: error: type 'i32' does not support @hasField",
+    );
+
+    cases.add(
         "slice passed as array init type with elems",
         \\export fn entry() void {
         \\    const x = []u8{1, 2};

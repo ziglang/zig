@@ -1380,15 +1380,14 @@ static IrInstruction *ir_build_field_ptr(IrBuilder *irb, Scope *scope, AstNode *
 }
 
 static IrInstruction *ir_build_has_field(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *container_type, IrInstruction *field_name_expr)
+    IrInstruction *container_type, IrInstruction *field_name)
 {
     IrInstructionHasField *instruction = ir_build_instruction<IrInstructionHasField>(irb, scope, source_node);
     instruction->container_type = container_type;
-    instruction->field_name_buffer = nullptr;
-    instruction->field_name_expr = field_name_expr;
+    instruction->field_name = field_name;
 
     ir_ref_instruction(container_type, irb->current_basic_block);
-    ir_ref_instruction(field_name_expr, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5132,7 +5131,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 IrInstruction *type_info = ir_build_has_field(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, type_info, lval);
+                return ir_lval_wrap(irb, scope, type_info, lval, result_loc);
             }
         case BuiltinFnIdTypeInfo:
             {
@@ -22655,36 +22654,30 @@ static IrInstruction *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInstr
 
 static IrInstruction *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstructionHasField *instruction) {
     Error err;
-    IrInstruction *container_type_value = instruction->container_type->child;
-    ZigType *container_type = ir_resolve_type(ira, container_type_value);
+    ZigType *container_type = ir_resolve_type(ira, instruction->container_type->child);
     if (type_is_invalid(container_type))
         return ira->codegen->invalid_instruction;
 
-    if ((err = ensure_complete_type(ira->codegen, container_type)))
+    if ((err = type_resolve(ira->codegen, container_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
-    Buf *field_name = instruction->field_name_buffer;
-    if (!field_name) {
-        IrInstruction *field_name_expr = instruction->field_name_expr->child;
-        field_name = ir_resolve_str(ira, field_name_expr);
-        if (!field_name)
-            return ira->codegen->invalid_instruction;
-    }
+    Buf *field_name = ir_resolve_str(ira, instruction->field_name->child);
+    if (field_name == nullptr)
+        return ira->codegen->invalid_instruction;
 
     bool result;
-    if (container_type->id == ZigTypeIdStruct)
-        result = (bool)find_struct_type_field(container_type, field_name);
-    else if (container_type->id == ZigTypeIdEnum)
-        result = (bool)find_enum_type_field(container_type, field_name);
-    else if (container_type->id == ZigTypeIdUnion)
-        result = (bool)find_union_type_field(container_type, field_name);
-    else {
-        ir_add_error(ira, container_type_value,
-            buf_sprintf("type '%s' does not support @memberName", buf_ptr(&container_type->name)));
+    if (container_type->id == ZigTypeIdStruct) {
+        result = find_struct_type_field(container_type, field_name) != nullptr;
+    } else if (container_type->id == ZigTypeIdEnum) {
+        result = find_enum_type_field(container_type, field_name) != nullptr;
+    } else if (container_type->id == ZigTypeIdUnion) {
+        result = find_union_type_field(container_type, field_name) != nullptr;
+    } else {
+        ir_add_error(ira, instruction->container_type,
+            buf_sprintf("type '%s' does not support @hasField", buf_ptr(&container_type->name)));
         return ira->codegen->invalid_instruction;
     }
-    return ir_build_const_bool(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, result);
+    return ir_const_bool(ira, &instruction->base, result);
 }
 
 static IrInstruction *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstructionBreakpoint *instruction) {

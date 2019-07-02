@@ -1274,7 +1274,7 @@ static void ir_print_has_field(IrPrint *irp, IrInstructionHasField *instruction)
     fprintf(irp->f, "@hasField(");
     ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->field_name_expr);
+    ir_print_other_instruction(irp, instruction->field_name);
     fprintf(irp->f, ")");
 }
 

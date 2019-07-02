@@ -3339,8 +3339,7 @@ struct IrInstructionHasField {
     IrInstruction base;
 
     IrInstruction *container_type;
-    Buf *field_name_buffer;
-    IrInstruction *field_name_expr;
+    IrInstruction *field_name;
 };
 
 struct IrInstructionTypeId {
