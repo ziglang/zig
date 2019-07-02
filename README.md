@@ -9,6 +9,7 @@ Zig is an open-source programming language designed for **robustness**,
  * [Download & Documentation](https://ziglang.org/download)
  * [Community](https://github.com/ziglang/zig/wiki/Community)
  * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
+ * [Frequently Asked Questions](https://github.com/ziglang/zig/wiki/FAQ)
 
 ## Building from Source
 

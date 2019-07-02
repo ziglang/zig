@@ -156,6 +156,11 @@
     </style>
   </head>
   <body>
+    <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
+    <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
+    <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
+    <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
+    master
     <div id="contents">
       {#header_open|Introduction#}
       <p>
@@ -181,6 +186,9 @@
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
       This HTML document depends on no external files, so you can use it offline.
+      </p>
+      <p>
+      <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
       </p>
       {#header_close#}
 
