@@ -262,6 +262,8 @@ static bool get_cache_opt(CacheOpt opt, bool default_value) {
 extern "C" int ZigClang_main(int argc, char **argv);
 
 int main(int argc, char **argv) {
+    stage2_attach_segfault_handler();
+
     char *arg0 = argv[0];
     Error err;
 

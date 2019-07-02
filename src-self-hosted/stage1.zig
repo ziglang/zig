@@ -455,3 +455,10 @@ export const stage2_DepNextResult = extern struct {
         prereq,
     };
 };
+
+// ABI warning
+export fn stage2_attach_segfault_handler() void {
+    if (std.debug.runtime_safety and std.debug.have_segfault_handling_support) {
+        std.debug.attachSegfaultHandler();
+    }
+}
