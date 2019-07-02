@@ -9598,7 +9598,7 @@ void codegen_build_and_link(CodeGen *g) {
                 fprintf(stderr, "Unable to check cache: %s is not a directory\n",
                     buf_ptr(manifest_dir));
             } else {
-                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+                fprintf(stderr, "Unable to check cache: %s: %s\n", buf_ptr(manifest_dir), err_str(err));
             }
             exit(1);
         }
