@@ -109,7 +109,7 @@ fn stringEql(a: []const u8, b: []const u8) bool {
 }
 
 fn stringHash(s: []const u8) u32 {
-    return @truncate(u32, std.hash.wyhash(s, 0));
+    return @truncate(u32, std.hash.Wyhash.hash(0, s));
 }
 
 const HeaderList = std.ArrayList(HeaderEntry);
