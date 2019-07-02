@@ -1,6 +1,9 @@
 const adler = @import("hash/adler.zig");
 pub const Adler32 = adler.Adler32;
 
+const auto_hash = @import("hash/auto_hash.zig");
+pub const autoHash = auto_hash.autoHash;
+
 // pub for polynomials + generic crc32 construction
 pub const crc = @import("hash/crc.zig");
 pub const Crc32 = crc.Crc32;
@@ -30,6 +33,7 @@ pub const Wyhash = wyhash.Wyhash;
 
 test "hash" {
     _ = @import("hash/adler.zig");
+    _ = @import("hash/auto_hash.zig");
     _ = @import("hash/crc.zig");
     _ = @import("hash/fnv.zig");
     _ = @import("hash/siphash.zig");
