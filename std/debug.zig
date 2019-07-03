@@ -2311,7 +2311,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = (builtin.arch == .x86_64 and builtin.os == .linux) or builtin.os == .windows;
+pub const have_segfault_handling_support = (builtin.arch == builtin.Arch.x86_64 and builtin.os == .linux) or builtin.os == .windows;
 
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
 pub fn attachSegfaultHandler() void {
