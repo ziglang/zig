@@ -539,3 +539,25 @@ pub const FORMAT_MESSAGE_FROM_STRING = 0x00000400;
 pub const FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000;
 pub const FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200;
 pub const FORMAT_MESSAGE_MAX_WIDTH_MASK = 0x000000FF;
+
+pub const EXCEPTION_DATATYPE_MISALIGNMENT = 0x80000002;
+pub const EXCEPTION_ACCESS_VIOLATION = 0xc0000005;
+pub const EXCEPTION_ILLEGAL_INSTRUCTION = 0xc000001d;
+pub const EXCEPTION_STACK_OVERFLOW = 0xc00000fd;
+pub const EXCEPTION_CONTINUE_SEARCH = 0;
+
+pub const EXCEPTION_RECORD = extern struct {
+    ExceptionCode: u32,
+    ExceptionFlags: u32,
+    ExceptionRecord: *EXCEPTION_RECORD,
+    ExceptionAddress: *c_void,
+    NumberParameters: u32,
+    ExceptionInformation: [15]usize,
+};
+
+pub const EXCEPTION_POINTERS = extern struct {
+    ExceptionRecord: *EXCEPTION_RECORD,
+    ContextRecord: *c_void,
+};
+
+pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;

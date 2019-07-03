@@ -2311,23 +2311,31 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = builtin.arch == .x86_64 and builtin.os == .linux;
+pub const have_segfault_handling_support = (builtin.arch == .x86_64 and builtin.os == .linux) or builtin.os == .windows;
 
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    var act = os.Sigaction{
-        .sigaction = handleSegfault,
-        .mask = os.empty_sigset,
-        .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
-    };
+    switch (builtin.os) {
+        .linux => {
+            var act = os.Sigaction{
+                .sigaction = handleSegfaultLinux,
+                .mask = os.empty_sigset,
+                .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
+            };
 
-    os.sigaction(os.SIGSEGV, &act, null);
+            os.sigaction(os.SIGSEGV, &act, null);
+        },
+        .windows => {
+            _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
+        },
+        else => unreachable,
+    }
 }
 
-extern fn handleSegfault(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
+extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
@@ -2349,4 +2357,15 @@ extern fn handleSegfault(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_
     // again, the memory may be mapped and undefined behavior would occur rather than repeating
     // the segfault. So we simply abort here.
     os.abort();
+}
+
+stdcallcc fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) c_long {
+    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+    switch (info.ExceptionRecord.ExceptionCode) {
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access"),
+        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", info.ExceptionRecord.ExceptionInformation[1]),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction"),
+        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow"),
+        else => return windows.EXCEPTION_CONTINUE_SEARCH,
+    }
 }
