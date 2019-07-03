@@ -773,10 +773,10 @@ pub const Builder = struct {
                 }
                 return stdout.toOwnedSlice();
             },
-            else => {
+            .Signal, .Stopped, .Unknown => |code| {
                 warn("The following command terminated unexpectedly:\n");
                 printCmd(null, argv);
-                std.debug.panic("exec failed");
+                std.os.exit(@truncate(u8, code));
             },
         }
 
