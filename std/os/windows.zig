@@ -779,3 +779,18 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     }
     return error.Unexpected;
 }
+
+pub fn getSubSystem() ?builtin.SubSystem {
+    if (builtin.os == .windows or builtin.os == .uefi) {
+        if (@hasDecl(builtin, "subsystem")) return builtin.subsystem;
+        const root = @import("root");
+        if (@hasDecl(root, "main") or @hasDecl(root, "wmain") or @hasDecl(root, "mainCRTStartup") or @hasDecl(root, "wmainCRTStartup")) {
+            return builtin.SubSystem.Console;
+        } else if (@hasDecl(root, "WinMain") or @hasDecl(root, "wWinMain") or @hasDecl(root, "WinMainCRTStartup") or @hasDecl(root, "wWinMainCRTStartup")) {
+            return builtin.SubSystem.Windows;
+        } else {
+            return builtin.SubSystem.Console;
+        }
+    }
+    return null;
+}
