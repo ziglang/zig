@@ -6048,4 +6048,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:30: error: expression value is ignored",
         "tmp.zig:9:30: error: expression value is ignored",
     );
+
+    cases.add(
+        "capture group on switch prong with different payloads",
+        \\const Union = union(enum) {
+        \\    A: usize,
+        \\    B: isize,
+        \\};
+        \\comptime {
+        \\    var u = Union{ .A = 8 };
+        \\    switch (u) {
+        \\        .A, .B => |e| unreachable,
+        \\    }
+        \\}
+    ,
+        "tmp.zig:8:20: error: switch prong contains cases with different payloads",
+        "tmp.zig:8:20: note: payload types are usize and isize",
+    );
 }

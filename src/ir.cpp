@@ -19160,8 +19160,8 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
                 if (field->type_entry != payload) {
                     if (!invalid_payload) {
                         invalid_payload = ir_add_error(ira, &instruction->base,
-                            buf_sprintf("switch prong contains cases with differing payloads"));
-                        invalid_payload_list = buf_sprintf("types %s", buf_ptr(&field->type_entry->name));
+                            buf_sprintf("switch prong contains cases with different payloads"));
+                        invalid_payload_list = buf_sprintf("payload types are %s", buf_ptr(&field->type_entry->name));
                     }
 
                     if (i == instruction->prongs_len - 1)
