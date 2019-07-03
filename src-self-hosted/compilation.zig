@@ -516,6 +516,7 @@ pub const Compilation = struct {
             opt_level,
             reloc_mode,
             llvm.CodeModelDefault,
+            false // TODO: add -ffunction-sections option
         ) orelse return error.OutOfMemory;
         defer llvm.DisposeTargetMachine(comp.target_machine);
 

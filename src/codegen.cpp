@@ -8134,8 +8134,9 @@ static void init(CodeGen *g) {
         target_specific_features = "";
     }
 
-    g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
-            target_specific_cpu_args, target_specific_features, opt_level, reloc_mode, LLVMCodeModelDefault);
+    g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
+            target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
+            LLVMCodeModelDefault, g->function_sections);
 
     g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 
@@ -8767,6 +8768,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
+    cache_bool(cache_hash, g->function_sections);
 
     *out_cache_hash = cache_hash;
     return ErrorNone;
@@ -9479,6 +9481,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->have_stack_probing);
     cache_bool(ch, g->is_dummy_so);
+    cache_bool(ch, g->function_sections);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);

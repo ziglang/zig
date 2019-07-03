@@ -791,6 +791,8 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
         new_link_lib->provided_explicitly = parent_gen->libc_link_lib->provided_explicitly;
     }
 
+    child_gen->function_sections = true;
+
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
 }
