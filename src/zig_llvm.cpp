@@ -145,8 +145,9 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     TargetOptions opt;
     opt.FunctionSections = function_sections;
 
-    return reinterpret_cast<LLVMTargetMachineRef>(const_cast<TargetMachine *>(
-        reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,  OL, JIT)));
+    TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
+            OL, JIT);
+    return reinterpret_cast<LLVMTargetMachineRef>(TM);
 }
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
