@@ -1632,7 +1632,9 @@ static void ir_print_union_init_named_field(IrPrint *irp, IrInstructionUnionInit
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->field_name);
     fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->value);
+    ir_print_other_instruction(irp, instruction->field_result_loc);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->result_loc);
     fprintf(irp->f, ")");
 }
 

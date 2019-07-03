@@ -5065,6 +5065,12 @@ test "@intToPtr for pointer to zero bit type" {
       {#header_close#}
       {#header_close#}
 
+      {#header_open|Result Location Semantics#}
+      <p>
+      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
+      </p>
+      {#header_close#}
+
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
@@ -7807,6 +7813,17 @@ pub const TypeInfo = union(TypeId) {
       expression passed as an argument. The expression is evaluated.
       </p>
 
+      {#header_close#}
+
+      {#header_open|@unionInit#}
+      <pre>{#syntax#}@unionInit(comptime Union: type, comptime active_field_name: []const u8, init_expr) Union{#endsyntax#}</pre>
+      <p>
+      This is the same thing as {#link|union#} initialization syntax, except that the field name is a
+      {#link|comptime#}-known value rather than an identifier token.
+      </p>
+      <p>
+      {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
+      </p>
       {#header_close#}
 
       {#header_open|@Vector#}

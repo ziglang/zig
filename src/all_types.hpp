@@ -3610,7 +3610,8 @@ struct IrInstructionUnionInitNamedField {
 
     IrInstruction *union_type;
     IrInstruction *field_name;
-    IrInstruction *value;
+    IrInstruction *field_result_loc;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionHasDecl {
