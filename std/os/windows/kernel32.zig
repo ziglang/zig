@@ -1,5 +1,7 @@
 usingnamespace @import("bits.zig");
 
+pub extern "kernel32" stdcallcc fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) ?*c_void;
+
 pub extern "kernel32" stdcallcc fn CancelIoEx(hFile: HANDLE, lpOverlapped: LPOVERLAPPED) BOOL;
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
