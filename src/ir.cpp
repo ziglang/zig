@@ -1069,6 +1069,7 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAssertNonNull *)
     return IrInstructionIdAssertNonNull;
 }
 
+<<<<<<< HEAD
 static constexpr IrInstructionId ir_instruction_id(IrInstructionHasDecl *) {
     return IrInstructionIdHasDecl;
 }
@@ -1087,6 +1088,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAllocaGen *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionEndExpr *) {
     return IrInstructionIdEndExpr;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInitNamedField *) {
+    return IrInstructionIdUnionInitNamedField;
 }
 
 template<typename T>
@@ -3323,6 +3328,21 @@ static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope,
 
     return &instruction->base;
 }
+
+static IrInstruction *ir_build_union_init_2(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *union_type_value, IrInstruction *field_name_expr, IrInstruction *value) {
+    IrInstructionUnionInit2 *instruction = ir_build_instruction<IrInstructionUnionInit2>(irb, scope, source_node);
+    instruction->union_type_value = union_type_value;
+    instruction->field_name_expr = field_name_expr;
+    instruction->value = value;
+
+    ir_ref_instruction(union_type_value, irb->current_basic_block);
+    ir_ref_instruction(field_name_expr, irb->current_basic_block);
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 
 static IrInstruction *ir_build_vector_to_array(IrAnalyze *ira, IrInstruction *source_instruction,
         ZigType *result_type, IrInstruction *vector, IrInstruction *result_loc)
@@ -5650,6 +5670,29 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *has_decl = ir_build_has_decl(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, has_decl, lval, result_loc);
+            }
+        case BuiltinFnIdUnionInit:
+            {
+
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                IrInstruction *result = ir_build_union_init_2(irb, scope, node, arg0_value, arg1_value, arg2_value);
+
+                // TODO: Not sure if we need ir_lval_wrap or not.
+                return result;
             }
     }
     zig_unreachable();
@@ -25326,6 +25369,35 @@ static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInst
     return instruction->result_loc_bit_cast->parent->gen_instruction;
 }
 
+static IrInstruction *ir_analyze_instruction_union_init_2(IrAnalyze *ira, IrInstructionUnionInit2 *union_init_instruction)
+{
+    Error err;
+    IrInstruction *union_type_value = union_init_instruction->union_type_value->child;
+    ZigType *union_type = ir_resolve_type(ira, union_type_value);
+    if (type_is_invalid(union_type)) {
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (union_type->id != ZigTypeIdUnion)
+        return ira->codegen->invalid_instruction;
+
+    if ((err = ensure_complete_type(ira->codegen, union_type)))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *field_name_expr = union_init_instruction->field_name_expr->child;
+    Buf *field_name = ir_resolve_str(ira, field_name_expr);
+    if (!field_name)
+        return ira->codegen->invalid_instruction;
+
+    IrInstructionContainerInitFieldsField *fields = allocate<IrInstructionContainerInitFieldsField>(1);
+
+    fields[0].name = field_name;
+    fields[0].value = union_init_instruction->value;
+    fields[0].source_node = union_init_instruction->base.source_node;
+
+    return ir_analyze_container_init_fields_union(ira, &union_init_instruction->base, union_type, 1, fields);
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -25641,6 +25713,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_end_expr(ira, (IrInstructionEndExpr *)instruction);
         case IrInstructionIdBitCastSrc:
             return ir_analyze_instruction_bit_cast_src(ira, (IrInstructionBitCastSrc *)instruction);
+        case IrInstructionIdUnionInitNamedField:
+            return ir_analyze_instruction_union_init_named_field(ira, (IrInstructionUnionInitNamedField *)instruction);
     }
     zig_unreachable();
 }
@@ -25794,6 +25868,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
+        case IrInstructionIdUnionInitNamedField:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdElemPtr:
         case IrInstructionIdVarPtr:

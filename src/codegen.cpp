@@ -5635,6 +5635,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdRef:
         case IrInstructionIdBitCastSrc:
         case IrInstructionIdTestErrSrc:
+        case IrInstructionIdUnionInitNamedField:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -7419,6 +7420,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
     create_builtin_fn(g, BuiltinFnIdHasDecl, "hasDecl", 2);
+    create_builtin_fn(g, BuiltinFnIdUnionInit, "unionInit", 3);
 }
 
 static const char *bool_to_str(bool b) {
