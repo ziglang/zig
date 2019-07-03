@@ -1149,6 +1149,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "comptime continue inside runtime catch",
+        \\export fn entry(c: bool) void {
+        \\    const ints = [_]u8{ 1, 2 };
+        \\    inline for (ints) |_| {
+        \\        bad() catch |_| continue;
+        \\    }
+        \\}
+        \\fn bad() !void {
+        \\    return error.Bad;
+        \\}
+    ,
+        "tmp.zig:4:25: error: comptime control flow inside runtime block",
+        "tmp.zig:4:15: note: runtime block created here",
+    );
+
+    cases.add(
         "comptime continue inside runtime switch",
         \\export fn entry() void {
         \\    var p: i32 = undefined;

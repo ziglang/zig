@@ -7624,26 +7624,27 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
             is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, err_block);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, parent_scope, is_comptime);
     Scope *err_scope;
     if (var_node) {
         assert(var_node->type == NodeTypeSymbol);
         Buf *var_name = var_node->data.symbol_expr.symbol;
         bool is_const = true;
         bool is_shadowable = false;
-        ZigVar *var = ir_create_var(irb, node, parent_scope, var_name,
+        ZigVar *var = ir_create_var(irb, node, subexpr_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
         IrInstruction *err_ptr = ir_build_unwrap_err_code(irb, err_scope, node, err_union_ptr);
         ir_build_var_decl_src(irb, err_scope, var_node, var, nullptr, err_ptr);
     } else {
-        err_scope = parent_scope;
+        err_scope = subexpr_scope;
     }
     IrInstruction *err_result = ir_gen_node_extra(irb, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
     IrBasicBlock *after_err_block = irb->current_basic_block;
     if (!instr_is_unreachable(err_result))
-        ir_mark_gen(ir_build_br(irb, err_scope, node, end_block, is_comptime));
+        ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
     IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, parent_scope, node, err_union_ptr, false, false);
