@@ -1509,6 +1509,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdHasDecl,
+    BuiltinFnIdUnionInit,
 };
 
 struct BuiltinFnEntry {
@@ -2359,6 +2360,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaGen,
     IrInstructionIdEndExpr,
     IrInstructionIdPtrOfArrayToSlice,
+    IrInstructionIdUnionInitNamedField,
 };
 
 struct IrInstruction {
@@ -3601,6 +3603,15 @@ struct IrInstructionAssertNonNull {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionUnionInitNamedField {
+    IrInstruction base;
+
+    IrInstruction *union_type;
+    IrInstruction *field_name;
+    IrInstruction *field_result_loc;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionHasDecl {

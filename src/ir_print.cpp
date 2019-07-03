@@ -1626,6 +1626,18 @@ static void ir_print_undeclared_ident(IrPrint *irp, IrInstructionUndeclaredIdent
     fprintf(irp->f, "@undeclaredIdent(%s)", buf_ptr(instruction->name));
 }
 
+static void ir_print_union_init_named_field(IrPrint *irp, IrInstructionUnionInitNamedField *instruction) {
+    fprintf(irp->f, "@unionInit(");
+    ir_print_other_instruction(irp, instruction->union_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->field_result_loc);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -2131,6 +2143,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEndExpr:
             ir_print_end_expr(irp, (IrInstructionEndExpr *)instruction);
+            break;
+        case IrInstructionIdUnionInitNamedField:
+            ir_print_union_init_named_field(irp, (IrInstructionUnionInitNamedField *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
