@@ -3016,6 +3016,7 @@ test "switch on tagged union" {
         A: u32,
         C: Point,
         D,
+        E: u32,
     };
 
     var a = Item{ .C = Point{ .x = 1, .y = 2 } };
@@ -3023,8 +3024,9 @@ test "switch on tagged union" {
     // Switching on more complex enums is allowed.
     const b = switch (a) {
         // A capture group is allowed on a match, and will return the enum
-        // value matched.
-        Item.A => |item| item,
+        // value matched. If the payloads of both cases are the same
+        // they can be put into the same switch prong.
+        Item.A, Item.E => |item| item,
 
         // A reference to the matched value can be obtained using `*` syntax.
         Item.C => |*item| blk: {

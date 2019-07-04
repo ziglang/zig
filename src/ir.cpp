@@ -19230,10 +19230,6 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
         assert(enum_type != nullptr);
         assert(enum_type->id == ZigTypeIdEnum);
 
-        if (instruction->prongs_len != 1) {
-            return target_value_ptr;
-        }
-
         IrInstruction *prong_value = instruction->prongs_ptr[0]->child;
         if (type_is_invalid(prong_value->value.type))
             return ira->codegen->invalid_instruction;
@@ -19247,6 +19243,40 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
             return ira->codegen->invalid_instruction;
 
         TypeUnionField *field = find_union_field_by_tag(target_type, &prong_val->data.x_enum_tag);
+
+        if (instruction->prongs_len != 1) {
+            ErrorMsg *invalid_payload = nullptr;
+            Buf *invalid_payload_list = nullptr;
+
+            for (size_t i = 1; i < instruction->prongs_len; i++) {
+                IrInstruction *casted_prong_value = ir_implicit_cast(ira, instruction->prongs_ptr[i]->child, enum_type);
+                if (type_is_invalid(casted_prong_value->value.type))
+                    return ira->codegen->invalid_instruction;
+                
+                ConstExprValue *next_prong = ir_resolve_const(ira, casted_prong_value, UndefBad);
+                if (!next_prong)
+                    return ira->codegen->invalid_instruction;
+
+                ZigType *payload = find_union_field_by_tag(target_type, &next_prong->data.x_enum_tag)->type_entry;
+
+                if (field->type_entry != payload) {
+                    if (!invalid_payload) {
+                        invalid_payload = ir_add_error(ira, &instruction->base,
+                            buf_sprintf("switch prong contains cases with different payloads"));
+                        invalid_payload_list = buf_sprintf("payload types are %s", buf_ptr(&field->type_entry->name));
+                    }
+
+                    if (i == instruction->prongs_len - 1)
+                        buf_append_buf(invalid_payload_list, buf_sprintf(" and %s", buf_ptr(&payload->name)));
+                    else
+                        buf_append_buf(invalid_payload_list, buf_sprintf(", %s", buf_ptr(&payload->name)));
+                }
+            }
+
+            if (invalid_payload)
+                add_error_note(ira->codegen, invalid_payload,
+                    ((IrInstruction*)instruction)->source_node, invalid_payload_list);
+        }
 
         if (instr_is_comptime(target_value_ptr)) {
             ConstExprValue *target_val_ptr = ir_resolve_const(ira, target_value_ptr, UndefBad);
