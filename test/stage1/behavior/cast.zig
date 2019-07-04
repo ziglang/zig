@@ -404,6 +404,16 @@ test "implicit cast from *[N]T to ?[*]T" {
     expect(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
 
+test "implicit cast from *[N]T to [*c]T" {
+    var x: [4]u16 = [4]u16{ 0, 1, 2, 3 };
+    var y: [*c]u16 = &x;
+
+    expect(std.mem.eql(u16, x[0..4], y[0..4]));
+    x[0] = 8;
+    y[3] = 6;
+    expect(std.mem.eql(u16, x[0..4], y[0..4]));
+}
+
 test "implicit cast from *T to ?*c_void" {
     var a: u8 = 1;
     incrementVoidPtrValue(&a);

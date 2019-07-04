@@ -12773,9 +12773,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // *[N]T to [*]T
+    // *[N]T to [*]T and [*c]T
     if (wanted_type->id == ZigTypeIdPointer &&
-        wanted_type->data.pointer.ptr_len == PtrLenUnknown &&
+        (wanted_type->data.pointer.ptr_len == PtrLenUnknown || wanted_type->data.pointer.ptr_len == PtrLenC) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == ZigTypeIdArray)
