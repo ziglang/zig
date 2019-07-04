@@ -477,7 +477,7 @@ pub const Builder = struct {
         }
         const description = self.fmt("create a release build ({})", @tagName(mode));
         self.is_release = self.option(bool, "release", description) orelse false;
-        self.release_mode = if (is_release) mode else builtin.Mode.Debug;
+        self.release_mode = if (self.is_release) mode else builtin.Mode.Debug;
     }
 
     /// If you call this without first calling `setPreferredReleaseMode` then it gives the build user

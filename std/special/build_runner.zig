@@ -154,7 +154,6 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         try runBuild(builder);
     }
 
-    // This usage text has to be synchronized with src/main.cpp
     try out_stream.print(
         \\Usage: {} build [steps] [options]
         \\
