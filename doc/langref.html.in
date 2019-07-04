@@ -3024,7 +3024,7 @@ test "switch on tagged union" {
     // Switching on more complex enums is allowed.
     const b = switch (a) {
         // A capture group is allowed on a match, and will return the enum
-        // value matched. If the payloads of both cases are the same
+        // value matched. If the payload types of both cases are the same
         // they can be put into the same switch prong.
         Item.A, Item.E => |item| item,
 

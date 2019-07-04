@@ -392,20 +392,36 @@ test "switch with null and T peer types and inferred result location type" {
     comptime S.doTheTest(1);
 }
 
-test "switch prongs with cases with identical payloads" {
+test "switch prongs with cases with identical payload types" {
     const Union = union(enum) {
         A: usize,
         B: isize,
         C: usize,
     };
     const S = struct {
-        fn doTheTest(u: Union) void {
+        fn doTheTest() void {
+            doTheSwitch1(Union{ .A = 8 });
+            doTheSwitch2(Union{ .B = -8 });
+        }
+        fn doTheSwitch1(u: Union) void {
             switch (u) {
-                .A, .C => |e| expect(@typeOf(e) == usize),
-                .B => |e| expect(@typeOf(e) == isize),
+                .A, .C => |e| {
+                    expect(@typeOf(e) == usize);
+                    expect(e == 8);
+                },
+                .B => |e| @panic("fail"),
+            }
+        }
+        fn doTheSwitch2(u: Union) void {
+            switch (u) {
+                .A, .C => |e| @panic("fail"),
+                .B => |e| {
+                    expect(@typeOf(e) == isize);
+                    expect(e == -8);
+                },
             }
         }
     };
-    S.doTheTest(Union{ .A = 8 });
-    comptime S.doTheTest(Union{ .B = -8 });
+    S.doTheTest();
+    comptime S.doTheTest();
 }
