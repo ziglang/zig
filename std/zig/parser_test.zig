@@ -68,7 +68,7 @@ test "zig fmt: enum literal inside array literal" {
 
 test "zig fmt: character literal larger than u8" {
     try testCanonical(
-        \\const x = '\U01f4a9';
+        \\const x = '\u{01f4a9}';
         \\
     );
 }

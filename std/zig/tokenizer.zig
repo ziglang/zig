@@ -240,6 +240,9 @@ pub const Tokenizer = struct {
         CharLiteral,
         CharLiteralBackslash,
         CharLiteralHexEscape,
+        CharLiteralUnicodeEscapeSawU,
+        CharLiteralUnicodeEscape,
+        CharLiteralUnicodeInvalid,
         CharLiteralEnd,
         Backslash,
         Equal,
@@ -296,7 +299,6 @@ pub const Tokenizer = struct {
             .end = undefined,
         };
         var seen_escape_digits: usize = undefined;
-        var expected_escape_digits: usize = undefined;
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
@@ -664,17 +666,9 @@ pub const Tokenizer = struct {
                     'x' => {
                         state = State.CharLiteralHexEscape;
                         seen_escape_digits = 0;
-                        expected_escape_digits = 2;
                     },
                     'u' => {
-                        state = State.CharLiteralHexEscape;
-                        seen_escape_digits = 0;
-                        expected_escape_digits = 4;
-                    },
-                    'U' => {
-                        state = State.CharLiteralHexEscape;
-                        seen_escape_digits = 0;
-                        expected_escape_digits = 6;
+                        state = State.CharLiteralUnicodeEscapeSawU;
                     },
                     else => {
                         state = State.CharLiteralEnd;
@@ -682,9 +676,9 @@ pub const Tokenizer = struct {
                 },
 
                 State.CharLiteralHexEscape => switch (c) {
-                    '0'...'9', 'a'...'z', 'A'...'F' => {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {
                         seen_escape_digits += 1;
-                        if (seen_escape_digits == expected_escape_digits) {
+                        if (seen_escape_digits == 2) {
                             state = State.CharLiteralEnd;
                         }
                     },
@@ -692,6 +686,43 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                },
+
+                State.CharLiteralUnicodeEscapeSawU => switch (c) {
+                    '{' => {
+                        state = State.CharLiteralUnicodeEscape;
+                        seen_escape_digits = 0;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        state = State.CharLiteralUnicodeInvalid;
+                    },
+                },
+
+                State.CharLiteralUnicodeEscape => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {
+                        seen_escape_digits += 1;
+                    },
+                    '}' => {
+                        if (seen_escape_digits == 0) {
+                            result.id = Token.Id.Invalid;
+                            state = State.CharLiteralUnicodeInvalid;
+                        } else {
+                            state = State.CharLiteralEnd;
+                        }
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        state = State.CharLiteralUnicodeInvalid;
+                    },
+                },
+
+                State.CharLiteralUnicodeInvalid => switch (c) {
+                    // Keep consuming characters until an obvious stopping point.
+                    // This consolidates e.g. `u{0ab1Q}` into a single invalid token
+                    // instead of creating the tokens `u{0ab1`, `Q`, `}`
+                    '0'...'9', 'a'...'z', 'A'...'Z', '}' => {},
+                    else => break,
                 },
 
                 State.CharLiteralEnd => switch (c) {
@@ -1055,6 +1086,9 @@ pub const Tokenizer = struct {
                 State.CharLiteral,
                 State.CharLiteralBackslash,
                 State.CharLiteralHexEscape,
+                State.CharLiteralUnicodeEscapeSawU,
+                State.CharLiteralUnicodeEscape,
+                State.CharLiteralUnicodeInvalid,
                 State.CharLiteralEnd,
                 State.StringLiteralBackslash,
                 State.LBracketStar,
@@ -1208,7 +1242,60 @@ test "tokenizer - unknown length pointer and then c pointer" {
 test "tokenizer - char literal with hex escape" {
     testTokenize(
         \\'\x1b'
-    , [_]Token.Id{Token.Id.CharLiteral});
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\'\x1'
+    , [_]Token.Id{ .Invalid, .Invalid });
+}
+
+test "tokenizer - char literal with unicode escapes" {
+    // Valid unicode escapes
+    testTokenize(
+        \\'\u{3}'
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\'\u{01}'
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\'\u{2a}'
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\'\u{3f9}'
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\'\u{6E09aBc1523}'
+    , [_]Token.Id{.CharLiteral});
+    testTokenize(
+        \\"\u{440}"
+    , [_]Token.Id{.StringLiteral});
+
+    // Invalid unicode escapes
+    testTokenize(
+        \\'\u'
+    , [_]Token.Id{.Invalid});
+    testTokenize(
+        \\'\u{{'
+    , [_]Token.Id{ .Invalid, .Invalid });
+    testTokenize(
+        \\'\u{}'
+    , [_]Token.Id{ .Invalid, .Invalid });
+    testTokenize(
+        \\'\u{s}'
+    , [_]Token.Id{ .Invalid, .Invalid });
+    testTokenize(
+        \\'\u{2z}'
+    , [_]Token.Id{ .Invalid, .Invalid });
+    testTokenize(
+        \\'\u{4a'
+    , [_]Token.Id{.Invalid});
+
+    // Test old-style unicode literals
+    testTokenize(
+        \\'\u0333'
+    , [_]Token.Id{ .Invalid, .Invalid });
+    testTokenize(
+        \\'\U0333'
+    , [_]Token.Id{ .Invalid, .IntegerLiteral, .Invalid });
 }
 
 test "tokenizer - float literal e exponent" {
