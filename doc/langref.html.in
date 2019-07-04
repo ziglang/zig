@@ -2350,12 +2350,12 @@ fn doTheTest() void {
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
     switch (builtin.endian) {
-        builtin.Endian.Big => {
+        .Big => {
             assert(divided.half1 == 0x12);
             assert(divided.quarter3 == 0x3);
             assert(divided.quarter4 == 0x4);
         },
-        builtin.Endian.Little => {
+        .Little => {
             assert(divided.half1 == 0x34);
             assert(divided.quarter3 == 0x2);
             assert(divided.quarter4 == 0x1);
@@ -2630,6 +2630,8 @@ test "@tagName" {
     assert(mem.eql(u8, @tagName(Small.Three), "Three"));
 }
       {#code_end#}
+      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+
       {#header_open|extern enum#}
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
@@ -2646,6 +2648,7 @@ const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
+
       {#header_open|packed enum#}
       <p>By default, the size of enums is not guaranteed.</p>
       <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the
@@ -2664,8 +2667,40 @@ test "packed enum" {
       {#code_end#}
       <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
       {#header_close#}
-      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+
+      {#header_open|Enum Literals#}
+      <p>
+      Enum literals allow specifying the name of an enum field without specifying the enum type:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "enum literals" {
+    const color1: Color = .Auto;
+    const color2 = Color.Auto;
+    assert(color1 == color2);
+}
+
+test "switch using enum literals" {
+    const color = Color.On;
+    const result = switch (color) {
+        .Auto => false,
+        .On => true,
+        .Off => false,
+    };
+    assert(result);
+}
+      {#code_end#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|union#}
       <p>
       A bare {#syntax#}union{#endsyntax#} defines a set of possible types that a value
@@ -3006,7 +3041,57 @@ test "switch on tagged union" {
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
+
+      {#header_open|Exhaustive Switching#}
+      <p>
+      When a {#syntax#}switch{#endsyntax#} expression does not have an {#syntax#}else{#endsyntax#} clause,
+      it must exhaustively list all the possible values. Failure to do so is a compile error:
+      </p>
+      {#code_begin|test_err|not handled in switch#}
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "exhaustive switching" {
+    const color = Color.Off;
+    switch (color) {
+        Color.Auto => {},
+        Color.On => {},
+    }
+}
+      {#code_end#}
       {#header_close#}
+
+      {#header_open|Switching with Enum Literals#}
+      <p>
+      {#link|Enum Literals#} can be useful to use with {#syntax#}switch{#endsyntax#} to avoid
+      repetitively specifying {#link|enum#} or {#link|union#} types:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "enum literals with switch" {
+    const color = Color.Off;
+    const result = switch (color) {
+        .Auto => false,
+        .On => false,
+        .Off => true,
+    };
+    assert(result);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|while#}
       <p>
       A while loop is used to repeatedly execute an expression until
