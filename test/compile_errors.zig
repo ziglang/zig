@@ -3,6 +3,24 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "capture group on switch prong with incompatible payload types",
+        \\const Union = union(enum) {
+        \\    A: usize,
+        \\    B: isize,
+        \\};
+        \\comptime {
+        \\    var u = Union{ .A = 8 };
+        \\    switch (u) {
+        \\        .A, .B => |e| unreachable,
+        \\    }
+        \\}
+    ,
+        "tmp.zig:8:20: error: capture group with incompatible types",
+        "tmp.zig:8:9: note: type 'usize' here",
+        "tmp.zig:8:13: note: type 'isize' here",
+    );
+
+    cases.add(
         "wrong type to @hasField",
         \\export fn entry() bool {
         \\    return @hasField(i32, "hi");
