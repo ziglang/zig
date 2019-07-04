@@ -20,6 +20,21 @@ pub const shell32 = @import("windows/shell32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
+pub const subsystem = blk: {
+    if (builtin.os == .windows or builtin.os == .uefi) {
+        if (@hasDecl(builtin, "subsystem")) break :blk builtin.subsystem;
+        const root = @import("root");
+        if (@hasDecl(root, "main") or @hasDecl(root, "wmain") or @hasDecl(root, "mainCRTStartup") or @hasDecl(root, "wmainCRTStartup")) {
+            break :blk builtin.SubSystem.Console;
+        } else if (@hasDecl(root, "WinMain") or @hasDecl(root, "wWinMain") or @hasDecl(root, "WinMainCRTStartup") or @hasDecl(root, "wWinMainCRTStartup")) {
+            break :blk builtin.SubSystem.Windows;
+        } else {
+            break :blk builtin.SubSystem.Console;
+        }
+    }
+    break :blk null;
+};
+
 pub const CreateFileError = error{
     SharingViolation,
     PathAlreadyExists,
@@ -778,19 +793,4 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
-}
-
-pub fn getSubSystem() ?builtin.SubSystem {
-    if (builtin.os == .windows or builtin.os == .uefi) {
-        if (@hasDecl(builtin, "subsystem")) return builtin.subsystem;
-        const root = @import("root");
-        if (@hasDecl(root, "main") or @hasDecl(root, "wmain") or @hasDecl(root, "mainCRTStartup") or @hasDecl(root, "wmainCRTStartup")) {
-            return builtin.SubSystem.Console;
-        } else if (@hasDecl(root, "WinMain") or @hasDecl(root, "wWinMain") or @hasDecl(root, "WinMainCRTStartup") or @hasDecl(root, "wWinMainCRTStartup")) {
-            return builtin.SubSystem.Windows;
-        } else {
-            return builtin.SubSystem.Console;
-        }
-    }
-    return null;
 }

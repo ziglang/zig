@@ -62,9 +62,6 @@ extern fn WinMainCRTStartup() noreturn {
         _ = @import("start_windows_tls.zig");
     }
 
-    // TODO we need a userland function for detecting the subsystem
-    // but when getting type info there are some errors that prevent
-    // detecting the subsystem reliably
     if (std.os.windows.getSubSystem().? != .Windows) {
         var err_mode = std.os.windows.kernel32.GetThreadErrorMode();
         _ = std.os.windows.kernel32.SetThreadErrorMode(err_mode | std.os.windows.kernel32.SEM_FAILCRITICALERRORS | std.os.windows.kernel32.SEM_NOGPFAULTERRORBOX, &err_mode);

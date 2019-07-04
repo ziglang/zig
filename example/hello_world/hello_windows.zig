@@ -1,4 +1,4 @@
-use @import("std").os.windows;
+usingnamespace @import("std").os.windows;
 
 extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) c_int;
 
