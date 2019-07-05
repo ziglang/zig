@@ -566,7 +566,7 @@ test "string literals" {
     assert(normal_bytes.len == 5);
     assert(normal_bytes[1] == 'e');
     assert('e' == '\x65');
-    assert('\U01f4a9' == 128169);
+    assert('\u{1f4a9}' == 128169);
     assert(mem.eql(u8, "hello", "h\x65llo"));
 
     // A C string literal is a null terminated pointer.
@@ -616,12 +616,8 @@ test "string literals" {
           <td>hexadecimal 8-bit character code (2 digits)</td>
         </tr>
         <tr>
-            <td><code>\uNNNN</code></td>
-          <td>hexadecimal 16-bit Unicode character code UTF-8 encoded (4 digits)</td>
-        </tr>
-        <tr>
-            <td><code>\UNNNNNN</code></td>
-          <td>hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)</td>
+            <td><code>\u{NNNNNN}</code></td>
+          <td>hexadecimal Unicode character code UTF-8 encoded (1 or more digits)</td>
         </tr>
       </table>
       </div>
@@ -10008,8 +10004,7 @@ eof &lt;- !.
 hex &lt;- [0-9a-fA-F]
 char_escape
     &lt;- "\\x" hex hex
-     / "\\u" hex hex hex hex
-     / "\\U" hex hex hex hex hex hex
+     / "\\u{" hex+ "}"
      / "\\" [nr\\t'"]
 char_char
     &lt;- char_escape
