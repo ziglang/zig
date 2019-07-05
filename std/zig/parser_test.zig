@@ -8,6 +8,15 @@ test "zig fmt: change use to usingnamespace" {
     );
 }
 
+test "zig fmt: whitespace fixes" {
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}",
+        \\test "" {
+        \\    const hi = x;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: while else err prong with no block" {
     try testCanonical(
         \\test "" {

@@ -301,10 +301,7 @@ pub const Tokenizer = struct {
             const c = self.buffer[self.index];
             switch (state) {
                 State.Start => switch (c) {
-                    ' ' => {
-                        result.start = self.index + 1;
-                    },
-                    '\n' => {
+                    ' ', '\n', '\t', '\r' => {
                         result.start = self.index + 1;
                     },
                     'c' => {

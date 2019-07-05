@@ -375,28 +375,21 @@ fn printErrMsgToFile(
     const text = text_buf.toOwnedSlice();
 
     const stream = &file.outStream().stream;
-    if (!color_on) {
-        try stream.print(
-            "{}:{}:{}: error: {}\n",
-            path,
-            start_loc.line + 1,
-            start_loc.column + 1,
-            text,
-        );
-        return;
-    }
+    try stream.print( "{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
 
-    try stream.print(
-        "{}:{}:{}: error: {}\n{}\n",
-        path,
-        start_loc.line + 1,
-        start_loc.column + 1,
-        text,
-        tree.source[start_loc.line_start..start_loc.line_end],
-    );
+    if (!color_on) return;
+
+    // Print \r and \t as one space each so that column counts line up
+    for (tree.source[start_loc.line_start..start_loc.line_end]) |byte| {
+        try stream.writeByte(switch (byte) {
+            '\r', '\t' => ' ',
+            else => byte,
+        });
+    }
+    try stream.writeByte('\n');
     try stream.writeByteNTimes(' ', start_loc.column);
     try stream.writeByteNTimes('~', last_token.end - first_token.start);
-    try stream.write("\n");
+    try stream.writeByte('\n');
 }
 
 export fn stage2_DepTokenizer_init(input: [*]const u8, len: usize) stage2_DepTokenizer {
