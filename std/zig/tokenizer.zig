@@ -429,6 +429,9 @@ pub const Tokenizer = struct {
                         state = State.IntegerLiteral;
                         result.id = Token.Id.IntegerLiteral;
                     },
+                    '\t', '\r' => {
+                        result.start = self.index + 1;
+                    },
                     else => {
                         result.id = Token.Id.Invalid;
                         self.index += 1;
