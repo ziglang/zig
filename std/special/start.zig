@@ -73,7 +73,7 @@ extern fn WinMainCRTStartup() noreturn {
     }
 
     enableSegfaultHandler();
-    
+
     std.os.windows.kernel32.ExitProcess(callMain());
 }
 
