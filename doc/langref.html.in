@@ -2743,6 +2743,9 @@ test "simple union" {
       <p>
       In order to use {#link|switch#} with a union, it must be a {#link|Tagged union#}.
       </p>
+      <p>
+      To initialize a union when the tag is a {#link|comptime#}-known name, see {#link|@unionInit#}.
+      </p>
 
       {#header_open|Tagged union#}
       <p>Unions can be declared with an enum tag type.
