@@ -926,6 +926,50 @@ pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32
     return syscall4(SYS_io_uring_register, @bitCast(usize, isize(fd)), opcode, @ptrToInt(arg), nr_args);
 }
 
+pub fn fcntl(fd: i32, cmd: u32, arg: u32) usize {
+    var args = 0;
+
+    if (cmd == F_SETFL) {
+        args |= O_LARGEFILE;
+    }
+
+    if (cmd == F_SETLKW) {
+        return syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), cmd, args);
+    }
+
+    if (cmd == F_GETOWN) {
+        var ex: f_owner_ex = undefined;
+        var ret = syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), F_GETOWN_EX, &ex);
+        if (ret == -EINVAL) return syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), cmd, args);
+        if (ret != 0) return ret;
+        return if (ex.@"type" == F_OWNER_PGRP) -ex.pid else ex.pid;
+    }
+
+    if (cmd == F_DUPFD_CLOEXEC) {
+        var ret = syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), F_DUPFD_CLOEXEC, args);
+        if (ret != -EINVAL) {
+            if (ret >= 0) {
+                _ = syscall4(SYS_fcntl, ret, F_SETFD, FD_CLOEXEC);
+            }
+            return ret;
+        }
+        ret = syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), F_DUPFD_CLOEXEC, 0);
+        if (ret != -EINVAL) {
+            if (ret >= 0) {
+                _ = syscall2(SYS_close, ret);
+            }
+            return -EINVAL;
+        }
+        ret = syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), F_DUPFD, arg);
+        if (ret >= 0) {
+            _ = syscall4(SYS_fcntl, ret, F_SETFD, FD_CLOEXEC);
+        }
+        return ret;
+    }
+
+    return syscall4(SYS_fcntl, @bitCast(usize, isize(fd)), cmd, arg);
+}
+
 test "" {
     if (is_the_target) {
         _ = @import("linux/test.zig");

@@ -732,3 +732,167 @@ pub const UNICODE_STRING = extern struct {
     MaximumLength: USHORT,
     Buffer: [*]WCHAR,
 };
+
+pub const AF_UNSPEC = 0;
+pub const AF_UNIX = 1;
+pub const AF_INET = 2;
+pub const AF_IPX = 6;
+pub const AF_APPLETALK = 16;
+pub const AF_NETBIOS = 17;
+pub const AF_INET6 = 23;
+pub const AF_IRDA = 26;
+pub const AF_BTH = 32;
+
+pub const SD_RECEIVE = 0;
+pub const SD_SEND = 1;
+pub const SD_BOTH = 2;
+
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+
+pub const FIONBIO = 0x8004667e;
+pub const WSA_FLAG_NO_HANDLE_INHERIT = 0x80;
+
+pub const SOL_SOCKET = 0xffff;
+pub const SOMAXCONN = 0x7fffffff;
+
+pub const SO_ACCEPTCONN = 2;
+pub const SO_BROADCAST = 32;
+pub const SO_CONNDATA = 28672;
+pub const SO_CONNDATALEN = 28676;
+pub const SO_CONNECT_TIME = 28684;
+pub const SO_CONNOPT = 28673;
+pub const SO_CONNOPTLEN = 28677;
+pub const SO_DEBUG = 1;
+pub const SO_DISCDATA = 28674;
+pub const SO_DISCDATALEN = 28678;
+pub const SO_DISCOPT = 28675;
+pub const SO_DISCOPTLEN = 28679;
+pub const SO_DONTROUTE = 16;
+pub const SO_ERROR = 4103;
+pub const SO_KEEPALIVE = 8;
+pub const SO_LINGER = 128;
+pub const SO_MAXDG = 28681;
+pub const SO_MAXPATHDG = 28682;
+pub const SO_OOBINLINE = 256;
+pub const SO_OPENTYPE = 28680;
+pub const SO_RCVBUF = 4098;
+pub const SO_RCVLOWAT = 4100;
+pub const SO_RCVTIMEO = 4102;
+pub const SO_REUSEADDR = 4;
+pub const SO_SNDBUF = 4097;
+pub const SO_SNDLOWAT = 4099;
+pub const SO_SNDTIMEO = 4101;
+pub const SO_SYNCHRONOUS_ALERT = 16;
+pub const SO_SYNCHRONOUS_NONALERT = 32;
+pub const SO_TYPE = 4104;
+pub const SO_UPDATE_ACCEPT_CONTEXT = 28683;
+pub const SO_USELOOPBACK = 64;
+
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const BTHPROTO_RFCOMM = 3;
+pub const IPPROTO_IPV4 = 4;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_PUP = 12;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IDP = 22;
+pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_ND = 77;
+pub const IPPROTO_RM = 113;
+pub const IPPROTO_RAW = 255;
+
+pub const TCP_NODELAY = 0x0001;
+
+// pub const IP_TTL = 4;
+
+// pub const IP_MULTICAST_TTL = 10;
+// pub const IP_MULTICAST_LOOP = 11;
+// pub const IP_ADD_MEMBERSHIP = 12;
+// pub const IP_DROP_MEMBERSHIP = 13;
+
+// pub const IPV6_MULTICAST_TTL = 10;
+// pub const IPV6_MULTICAST_LOOP = 11;
+// pub const IPV6_ADD_MEMBERSHIP = 12;
+// pub const IPV6_DROP_MEMBERSHIP = 13;
+
+// pub const MSG_PEEK: c_int = 0x2;
+// pub const NI_MAXSERV = 32;
+// pub const NI_MAXHOST = 1025;
+
+// pub const ERROR_IO_PENDING = c_long(997);
+// pub const ERROR_NETNAME_DELETED = c_long(64);
+// pub const STATUS_PENDING = c_long(259);
+
+pub const INVALID_SOCKET = ~SOCKET(0);
+
+pub const SOCKET = usize;
+
+pub const in_port_t = c_ushort;
+pub const sa_family_t = c_ushort;
+pub const socklen_t = c_int;
+
+pub const sockaddr = extern union {
+    in: sockaddr_in,
+    in6: sockaddr_in6,
+};
+
+pub const sockaddr_in = extern struct {
+    family: sa_family_t,
+    port: in_port_t,
+    addr: DWORD,
+    zero: [8]u8,
+};
+
+pub const sockaddr_in6 = extern struct {
+    family: sa_family_t,
+    port: in_port_t,
+    flowinfo: c_ulong,
+    addr: [16]u8,
+    scope_id: c_ulong,
+};
+
+pub const addrinfo = extern struct {
+    ai_flags: c_int,
+    ai_family: c_int,
+    ai_socktype: c_int,
+    ai_protocol: c_int,
+    ai_addrlen: usize,
+    ai_canonname: [*]u8,
+    ai_addr: *sockaddr,
+    ai_next: ?*addrinfo,
+};
+
+pub const WSAData = extern struct {
+    wVersion: WORD,
+    wHighVersion: WORD,
+    iMaxSockets: c_ushort,
+    iMaxUdpDg: c_ushort,
+    lpVendorInfo: ?[*]u8,
+    szDescription: [257]u8,
+    szSystemStatus: [129]u8,
+};
+
+pub const WSABuf = extern struct {
+    len: usize,
+    buf: [*]u8,
+};
+
+pub const WSABufConst = extern struct {
+    len: usize,
+    buf: [*]const u8,
+};
+
+pub const WSAMSG = extern struct {
+    name: *sockaddr,
+    namelen: INT,
+    lpBuffers: *WSABuf,
+    dwBufferCount: ULONG,
+    Control: WSABuf,
+    dwFlags: ULONG,
+};

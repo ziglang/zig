@@ -4,25 +4,22 @@ const assert = std.debug.assert;
 const net = @This();
 const mem = std.mem;
 const os = std.os;
+const system = os.system;
 
-pub const TmpWinAddr = struct {
-    family: u8,
-    data: [14]u8,
-};
-
-pub const OsAddress = switch (builtin.os) {
-    builtin.Os.windows => TmpWinAddr,
-    else => os.sockaddr,
-};
+pub const OsAddress = os.system.sockaddr;
 
 pub const Address = struct {
     os_addr: OsAddress,
 
+    pub fn init(addr: OsAddress) Address {
+        return Address{ .os_addr = addr };
+    }
+
     pub fn initIp4(ip4: u32, _port: u16) Address {
         return Address{
-            .os_addr = os.sockaddr{
-                .in = os.sockaddr_in{
-                    .family = os.AF_INET,
+            .os_addr = OsAddress{
+                .in = system.sockaddr_in{
+                    .family = system.AF_INET,
                     .port = mem.nativeToBig(u16, _port),
                     .addr = ip4,
                     .zero = [_]u8{0} ** 8,
@@ -33,9 +30,9 @@ pub const Address = struct {
 
     pub fn initIp6(ip6: *const Ip6Addr, _port: u16) Address {
         return Address{
-            .os_addr = os.sockaddr{
-                .in6 = os.sockaddr_in6{
-                    .family = os.AF_INET6,
+            .os_addr = OsAddress{
+                .in6 = system.sockaddr_in6{
+                    .family = system.AF_INET6,
                     .port = mem.nativeToBig(u16, _port),
                     .flowinfo = 0,
                     .addr = ip6.addr,
@@ -49,22 +46,24 @@ pub const Address = struct {
         return mem.bigToNative(u16, self.os_addr.in.port);
     }
 
-    pub fn initPosix(addr: os.sockaddr) Address {
-        return Address{ .os_addr = addr };
-    }
-
-    pub fn format(self: *const Address, out_stream: var) !void {
+    pub fn format(
+        self: *const Address,
+        comptime fmt: []const u8,
+        context: var,
+        comptime FmtError: type,
+        output: fn (@typeOf(context), []const u8) FmtError!void,
+    ) FmtError!void {
         switch (self.os_addr.in.family) {
-            os.AF_INET => {
-                const native_endian_port = mem.bigToNative(u16, self.os_addr.in.port);
-                const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
-                try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
+            sys.AF_INET => {
+                const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in.port);
+                const bytes = @ptrCast([*]const u8, &self.os_addr.in.addr);
+                return std.fmt.format(context, FmtError, output, "{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
             },
-            os.AF_INET6 => {
-                const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
-                try out_stream.print("[TODO render ip6 address]:{}", native_endian_port);
+            sys.AF_INET6 => {
+                const native_endian_port = std.mem.endianSwapIfLe(u16, self.os_addr.in6.port);
+                return std.fmt.format(context, FmtError, output, "[TODO render ip6 address]:{}", native_endian_port);
             },
-            else => try out_stream.write("(unrecognized address family)"),
+            else => return std.fmt.format(context, FmtError, output, "(unrecognized address family)"),
         }
     }
 };

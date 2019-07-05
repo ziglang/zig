@@ -3565,3 +3565,288 @@ pub const REQUEST_PAUSED = 3050;
 
 /// Reissue the given operation as a cached IO operation.
 pub const IO_REISSUE_AS_CACHED = 3950;
+
+/// Specified event object handle is invalid.
+pub const WSA_INVALID_HANDLE = 6;
+
+/// Insufficient memory available.
+pub const WSA_NOT_ENOUGH_MEMORY = 8;
+
+/// One or more parameters are invalid.
+pub const WSA_INVALID_PARAMETER = 87;
+
+/// Overlapped operation aborted.
+pub const WSA_OPERATION_ABORTED = 995;
+
+/// Overlapped I/O event object not in signaled state.
+pub const WSA_IO_INCOMPLETE = 996;
+
+/// Overlapped operations will complete later.
+pub const WSA_IO_PENDING = 997;
+
+/// Interrupted function call.
+pub const WSAEINTR = 10004;
+
+/// File handle is not valid.
+pub const WSAEBADF = 10009;
+
+/// Permission denied.
+pub const WSAEACCES = 10013;
+
+/// Bad address.
+pub const WSAEFAULT = 10014;
+
+/// Invalid argument.
+pub const WSAEINVAL = 10022;
+
+/// Too many open files.
+pub const WSAEMFILE = 10024;
+
+/// Resource temporarily unavailable.
+pub const WSAEWOULDBLOCK = 10035;
+
+/// Operation now in progress.
+pub const WSAEINPROGRESS = 10036;
+
+/// Operation already in progress.
+pub const WSAEALREADY = 10037;
+
+/// Socket operation on nonsocket.
+pub const WSAENOTSOCK = 10038;
+
+/// Destination address required.
+pub const WSAEDESTADDRREQ = 10039;
+
+/// Message too long.
+pub const WSAEMSGSIZE = 10040;
+
+/// Protocol wrong type for socket.
+pub const WSAEPROTOTYPE = 10041;
+
+/// Bad protocol option.
+pub const WSAENOPROTOOPT = 10042;
+
+/// Protocol not supported.
+pub const WSAEPROTONOSUPPORT = 10043;
+
+/// Socket type not supported.
+pub const WSAESOCKTNOSUPPORT = 10044;
+
+/// Operation not supported.
+pub const WSAEOPNOTSUPP = 10045;
+
+/// Protocol family not supported.
+pub const WSAEPFNOSUPPORT = 10046;
+
+/// Address family not supported by protocol family.
+pub const WSAEAFNOSUPPORT = 10047;
+
+/// Address already in use.
+pub const WSAEADDRINUSE = 10048;
+
+/// Cannot assign requested address.
+pub const WSAEADDRNOTAVAIL = 10049;
+
+/// Network is down.
+pub const WSAENETDOWN = 10050;
+
+/// Network is unreachable.
+pub const WSAENETUNREACH = 10051;
+
+/// Network dropped connection on reset.
+pub const WSAENETRESET = 10052;
+
+/// Software caused connection abort.
+pub const WSAECONNABORTED = 10053;
+
+/// Connection reset by peer.
+pub const WSAECONNRESET = 10054;
+
+/// No buffer space available.
+pub const WSAENOBUFS = 10055;
+
+/// Socket is already connected.
+pub const WSAEISCONN = 10056;
+
+/// Socket is not connected.
+pub const WSAENOTCONN = 10057;
+
+/// Cannot send after socket shutdown.
+pub const WSAESHUTDOWN = 10058;
+
+/// Too many references.
+pub const WSAETOOMANYREFS = 10059;
+
+/// Connection timed out.
+pub const WSAETIMEDOUT = 10060;
+
+/// Connection refused.
+pub const WSAECONNREFUSED = 10061;
+
+/// Cannot translate name.
+pub const WSAELOOP = 10062;
+
+/// Name too long.
+pub const WSAENAMETOOLONG = 10063;
+
+/// Host is down.
+pub const WSAEHOSTDOWN = 10064;
+
+/// No route to host.
+pub const WSAEHOSTUNREACH = 10065;
+
+/// Directory not empty.
+pub const WSAENOTEMPTY = 10066;
+
+/// Too many processes.
+pub const WSAEPROCLIM = 10067;
+
+/// User quota exceeded.
+pub const WSAEUSERS = 10068;
+
+/// Disk quota exceeded.
+pub const WSAEDQUOT = 10069;
+
+/// Stale file handle reference.
+pub const WSAESTALE = 10070;
+
+/// Item is remote.
+pub const WSAEREMOTE = 10071;
+
+/// Network subsystem is unavailable.
+pub const WSASYSNOTREADY = 10091;
+
+/// Winsock.dll version out of range.
+pub const WSAVERNOTSUPPORTED = 10092;
+
+/// Successful WSAStartup not yet performed.
+pub const WSANOTINITIALISED = 10093;
+
+/// Graceful shutdown in progress.
+pub const WSAEDISCON = 10101;
+
+/// No more results.
+pub const WSAENOMORE = 10102;
+
+/// Call has been canceled.
+pub const WSAECANCELLED = 10103;
+
+/// Procedure call table is invalid.
+pub const WSAEINVALIDPROCTABLE = 10104;
+
+/// Service provider is invalid.
+pub const WSAEINVALIDPROVIDER = 10105;
+
+/// Service provider failed to initialize.
+pub const WSAEPROVIDERFAILEDINIT = 10106;
+
+/// System call failure.
+pub const WSASYSCALLFAILURE = 10107;
+
+/// Service not found.
+pub const WSASERVICE_NOT_FOUND = 10108;
+
+/// Class type not found.
+pub const WSATYPE_NOT_FOUND = 10109;
+
+/// No more results.
+pub const WSA_E_NO_MORE = 10110;
+
+/// Call was canceled.
+pub const WSA_E_CANCELLED = 10111;
+
+/// Database query was refused.
+pub const WSAEREFUSED = 10112;
+
+/// Host not found.
+pub const WSAHOST_NOT_FOUND = 11001;
+
+/// Nonauthoritative host not found.
+pub const WSATRY_AGAIN = 11002;
+
+/// This is a nonrecoverable error.
+pub const WSANO_RECOVERY = 11003;
+
+/// Valid name, no data record of requested type.
+pub const WSANO_DATA = 11004;
+
+/// QoS receivers.
+pub const WSA_QOS_RECEIVERS = 11005;
+
+/// QoS senders.
+pub const WSA_QOS_SENDERS = 11006;
+
+/// No QoS senders.
+pub const WSA_QOS_NO_SENDERS = 11007;
+
+/// QoS no receivers.
+pub const WSA_QOS_NO_RECEIVERS = 11008;
+
+/// QoS request confirmed.
+pub const WSA_QOS_REQUEST_CONFIRMED = 11009;
+
+/// QoS admission error.
+pub const WSA_QOS_ADMISSION_FAILURE = 11010;
+
+/// QoS policy failure.
+pub const WSA_QOS_POLICY_FAILURE = 11011;
+
+/// QoS bad style.
+pub const WSA_QOS_BAD_STYLE = 11012;
+
+/// QoS bad object.
+pub const WSA_QOS_BAD_OBJECT = 11013;
+
+/// QoS traffic control error.
+pub const WSA_QOS_TRAFFIC_CTRL_ERROR = 11014;
+
+/// QoS generic error.
+pub const WSA_QOS_GENERIC_ERROR = 11015;
+
+/// QoS service type error.
+pub const WSA_QOS_ESERVICETYPE = 11016;
+
+/// QoS flowspec error.
+pub const WSA_QOS_EFLOWSPEC = 11017;
+
+/// Invalid QoS provider buffer.
+pub const WSA_QOS_EPROVSPECBUF = 11018;
+
+/// Invalid QoS filter style.
+pub const WSA_QOS_EFILTERSTYLE = 11019;
+
+/// Invalid QoS filter type.
+pub const WSA_QOS_EFILTERTYPE = 11020;
+
+/// Incorrect QoS filter count.
+pub const WSA_QOS_EFILTERCOUNT = class;
+
+/// Invalid QoS object length.
+pub const WSA_QOS_EOBJLENGTH = 11022;
+
+/// Incorrect QoS flow count.
+pub const WSA_QOS_EFLOWCOUNT = 11023;
+
+/// Unrecognized QoS object.
+pub const WSA_QOS_EUNKOWNPSOBJ = 11024;
+
+/// Invalid QoS policy object.
+pub const WSA_QOS_EPOLICYOBJ = 11025;
+
+/// Invalid QoS flow descriptor.
+pub const WSA_QOS_EFLOWDESC = 11026;
+
+/// Invalid QoS provider-specific flowspec.
+pub const WSA_QOS_EPSFLOWSPEC = 11027;
+
+/// Invalid QoS provider-specific filterspec.
+pub const WSA_QOS_EPSFILTERSPEC = 11028;
+
+/// Invalid QoS shape discard mode object.
+pub const WSA_QOS_ESDMODEOBJ = 11029;
+
+/// Invalid QoS shaping rate object.
+pub const WSA_QOS_ESHAPERATEOBJ = 11030;
+
+/// Reserved policy QoS element type.
+pub const WSA_QOS_RESERVED_PETYPE = 11031;

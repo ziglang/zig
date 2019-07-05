@@ -409,9 +409,8 @@ pub const SCM_TIMESTAMPING_PKTINFO = 58;
 pub const SO_PEERGROUPS = 59;
 pub const SO_ZEROCOPY = 60;
 
-pub const SOL_SOCKET = 1;
-
 pub const SOL_IP = 0;
+pub const SOL_SOCKET = 1;
 pub const SOL_IPV6 = 41;
 pub const SOL_ICMPV6 = 58;
 
@@ -1143,5 +1142,8 @@ pub const IORING_REGISTER_BUFFERS = 0;
 pub const IORING_UNREGISTER_BUFFERS = 1;
 pub const IORING_REGISTER_FILES = 2;
 pub const IORING_UNREGISTER_FILES = 3;
-pub const IORING_REGISTER_EVENTFD = 4;
-pub const IORING_UNREGISTER_EVENTFD = 5;
+
+pub const f_owner_ex = extern struct {
+    @"type": i32,
+    pid: i32,
+};

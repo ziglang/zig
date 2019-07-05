@@ -17,6 +17,7 @@ pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const shell32 = @import("windows/shell32.zig");
+pub const ws2_32 = @import("ws2_32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
