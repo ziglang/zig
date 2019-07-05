@@ -1898,7 +1898,7 @@ fn renderTokenOffset(
             return renderToken(tree, stream, token_index + 1, indent, start_col, Space.Newline);
         },
         else => {
-            if (tree.tokens.at(token_index + 2).id == Token.Id.MultilineStringLiteralLine) {
+            if (token_index + 2 < tree.tokens.len and tree.tokens.at(token_index + 2).id == Token.Id.MultilineStringLiteralLine) {
                 try stream.write(",");
                 return;
             } else {

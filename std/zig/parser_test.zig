@@ -2246,6 +2246,15 @@ test "zig fmt: if type expr" {
     );
 }
 
+test "zig fmt: file ends with struct field" {
+    try testTransform(
+        \\a: bool
+    ,
+        \\a: bool,
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
