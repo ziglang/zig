@@ -9,10 +9,13 @@ test "zig fmt: change use to usingnamespace" {
 }
 
 test "zig fmt: whitespace fixes" {
-    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}",
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
         \\    const hi = x;
         \\}
+        \\// zig fmt: off
+        \\test ""{
+        \\    const a  = b;}
         \\
     );
 }

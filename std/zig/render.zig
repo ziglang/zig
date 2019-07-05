@@ -108,14 +108,15 @@ fn renderRoot(
                         Token.Id.LineComment => {},
                         Token.Id.Eof => {
                             const start = tree.tokens.at(start_token_index + 1).start;
-                            try stream.write(tree.source[start..]);
+                            try copyFixingWhitespace(stream, tree.source[start..]);
                             return;
                         },
                         else => continue,
                     }
                     if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(end_token)[2..], " "), "zig fmt: on")) {
                         const start = tree.tokens.at(start_token_index + 1).start;
-                        try stream.print("{}\n", tree.source[start..end_token.end]);
+                        try copyFixingWhitespace(stream, tree.source[start..end_token.end]);
+                        try stream.writeByte('\n');
                         while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
                             decl = (it.next() orelse return).*;
                         }
@@ -2121,3 +2122,11 @@ const FindByteOutStream = struct {
         };
     }
 };
+
+fn copyFixingWhitespace(stream: var, slice: []const u8) @typeOf(stream).Child.Error!void {
+    for (slice) |byte| switch (byte) {
+        '\t' => try stream.write("    "),
+        '\r' => {},
+        else => try stream.writeByte(byte),
+    };
+}
