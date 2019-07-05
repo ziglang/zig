@@ -12,6 +12,7 @@ pub extern "ws2_32" stdcallcc fn getnameinfo(
 ) c_int;
 
 // TODO use GetAddrInfoW?
+// TODO(emekoi): https://github.com/ziglang/zig/pull/2822/files#r300552261
 pub extern "ws2_32" stdcallcc fn getaddrinfo(
     pNodeName: ?[*]const u8,
     pServiceName: [*]const u8,
@@ -56,7 +57,7 @@ pub extern "ws2_32" stdcallcc fn listen(s: SOCKET, backlog: c_int) c_int;
 
 pub extern "ws2_32" stdcallcc fn sendto(s: SOCKET, buf: ?[*]const u8, len: c_int, flags: c_int, to: ?*const sockaddr, tolen: c_int) c_int;
 
-pub extern "ws2_32" stdcallcc fn accept(s: SOCKET, addr: ?*sockaddr, addrlen: ?*c_int) SOCKET;
+pub extern "ws2_32" stdcallcc fn accept(s: SOCKET, addr: ?*sockaddr, addrlen: ?*socklen_t) SOCKET;
 
 pub extern "ws2_32" stdcallcc fn closesocket(s: SOCKET) c_int;
 

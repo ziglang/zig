@@ -837,6 +837,7 @@ pub const in_port_t = c_ushort;
 pub const sa_family_t = c_ushort;
 pub const socklen_t = c_int;
 
+// TODO(emekoi): https://github.com/ziglang/zig/pull/2822/files#r300754220
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
