@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const testing = std.testing;
 
 const default_seed: u32 = 0xc70f6907;
 
@@ -68,10 +69,10 @@ pub const Murmur2_32 = struct {
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u32 {
         const m: u32 = 0x5bd1e995;
-        const len: u32 = 4;
+        const len: u32 = 8;
         var h1: u32 = seed ^ len;
         var k1: u32 = undefined;
-        k1 = @intCast(u32, v) *% m;
+        k1 = @intCast(u32, v & 0xffffffff) *% m;
         k1 ^= k1 >> 24;
         k1 *%= m;
         h1 *%= m;
@@ -133,10 +134,7 @@ pub const Murmur2_64 = struct {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 4;
         var h1: u64 = seed ^ (len *% m);
-        var k1: u64 = undefined;
-        k1 = v *% m;
-        k1 ^= k1 >> 47;
-        k1 *%= m;
+        var k1: u64 = v;
         h1 ^= k1;
         h1 *%= m;
         h1 ^= h1 >> 47;
@@ -154,12 +152,7 @@ pub const Murmur2_64 = struct {
         const len: u64 = 8;
         var h1: u64 = seed ^ (len *% m);
         var k1: u64 = undefined;
-        k1 = @intCast(u32, v) *% m;
-        k1 ^= k1 >> 47;
-        k1 *%= m;
-        h1 ^= k1;
-        h1 *%= m;
-        k1 = @intCast(u32, v >> 32) *% m;
+        k1 = v *% m;
         k1 ^= k1 >> 47;
         k1 *%= m;
         h1 ^= k1;
@@ -262,7 +255,7 @@ pub const Murmur3_32 = struct {
         const len: u32 = 8;
         var h1: u32 = seed;
         var k1: u32 = undefined;
-        k1 = @intCast(u32, v) *% c1;
+        k1 = @intCast(u32, v & 0xffffffff) *% c1;
         k1 = rotl32(k1, 15);
         k1 *%= c2;
         h1 ^= k1;
@@ -310,13 +303,43 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
 }
 
 test "murmur2_32" {
-    std.testing.expectEqual(SMHasherTest(Murmur2_32.hashWithSeed, 32), 0x27864C1E);
+    testing.expectEqual(SMHasherTest(Murmur2_32.hashWithSeed, 32), 0x27864C1E);
+    var v0: u32 = 0x12345678;
+    var v1: u64 = 0x1234567812345678;
+    var v0le: u32 = v0;
+    var v1le: u64 = v1;
+    if (builtin.endian == builtin.Endian.Big) {
+        v0le = @byteSwap(u32, v0le);
+        v1le = @byteSwap(u64, v1le);
+    }
+    testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_32.hashUint32(v0));
+    testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_32.hashUint64(v1));
 }
 
 test "murmur2_64" {
     std.testing.expectEqual(SMHasherTest(Murmur2_64.hashWithSeed, 64), 0x1F0D3804);
+    var v0: u32 = 0x12345678;
+    var v1: u64 = 0x1234567812345678;
+    var v0le: u32 = v0;
+    var v1le: u64 = v1;
+    if (builtin.endian == builtin.Endian.Big) {
+        v0le = @byteSwap(u32, v0le);
+        v1le = @byteSwap(u64, v1le);
+    }
+    testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_64.hashUint32(v0));
+    testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_64.hashUint64(v1));
 }
 
 test "murmur3_32" {
     std.testing.expectEqual(SMHasherTest(Murmur3_32.hashWithSeed, 32), 0xB0F57EE3);
+    var v0: u32 = 0x12345678;
+    var v1: u64 = 0x1234567812345678;
+    var v0le: u32 = v0;
+    var v1le: u64 = v1;
+    if (builtin.endian == builtin.Endian.Big) {
+        v0le = @byteSwap(u32, v0le);
+        v1le = @byteSwap(u64, v1le);
+    }
+    testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur3_32.hashUint32(v0));
+    testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur3_32.hashUint64(v1));
 }
