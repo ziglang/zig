@@ -9798,7 +9798,6 @@ PrimaryTypeExpr
      / IDENTIFIER
      / IfTypeExpr
      / INTEGER
-     / KEYWORD_anyerror
      / KEYWORD_comptime TypeExpr
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_false
@@ -10104,7 +10103,6 @@ end_of_word &lt;- ![a-zA-Z0-9_] skip
 KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
-KEYWORD_anyerror    &lt;- 'anyerror'    end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10153,7 +10151,7 @@ KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
-keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror / KEYWORD_asm
+keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
          / KEYWORD_async / KEYWORD_await / KEYWORD_break / KEYWORD_cancel
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer

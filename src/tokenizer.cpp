@@ -109,7 +109,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"align", TokenIdKeywordAlign},
     {"allowzero", TokenIdKeywordAllowZero},
     {"and", TokenIdKeywordAnd},
-    {"anyerror", TokenIdKeywordAnyerror},
     {"asm", TokenIdKeywordAsm},
     {"async", TokenIdKeywordAsync},
     {"await", TokenIdKeywordAwait},
@@ -1528,7 +1527,6 @@ const char * token_name(TokenId id) {
         case TokenIdFloatLiteral: return "FloatLiteral";
         case TokenIdIntLiteral: return "IntLiteral";
         case TokenIdKeywordAsync: return "async";
-        case TokenIdKeywordAnyerror: return "anyerror";
         case TokenIdKeywordAllowZero: return "allowzero";
         case TokenIdKeywordAwait: return "await";
         case TokenIdKeywordResume: return "resume";

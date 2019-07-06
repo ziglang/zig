@@ -53,7 +53,6 @@ enum TokenId {
     TokenIdKeywordAlign,
     TokenIdKeywordAllowZero,
     TokenIdKeywordAnd,
-    TokenIdKeywordAnyerror,
     TokenIdKeywordAsm,
     TokenIdKeywordAsync,
     TokenIdKeywordAwait,
