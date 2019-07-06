@@ -13,7 +13,7 @@ pub const Murmur2_32 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
         const m: u32 = 0x5bd1e995;
-        const len = @intCast(u32, str.len);
+        const len = @truncate(u32, str.len);
         var h1: u32 = seed ^ len;
         for (@ptrCast([*]allowzero align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
@@ -72,12 +72,12 @@ pub const Murmur2_32 = struct {
         const len: u32 = 8;
         var h1: u32 = seed ^ len;
         var k1: u32 = undefined;
-        k1 = @intCast(u32, v & 0xffffffff) *% m;
+        k1 = @truncate(u32, v) *% m;
         k1 ^= k1 >> 24;
         k1 *%= m;
         h1 *%= m;
         h1 ^= k1;
-        k1 = @intCast(u32, v >> 32) *% m;
+        k1 = @truncate(u32, v >> 32) *% m;
         k1 ^= k1 >> 24;
         k1 *%= m;
         h1 *%= m;
@@ -98,7 +98,7 @@ pub const Murmur2_64 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
-        const len = @intCast(u64, str.len);
+        const len = @truncate(u64, str.len);
         var h1: u64 = seed ^ (len *% m);
         for (@ptrCast([*]allowzero align(1) const u64, str.ptr)[0..(len >> 3)]) |v| {
             var k1: u64 = v;
@@ -178,7 +178,7 @@ pub const Murmur3_32 = struct {
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
         const c1: u32 = 0xcc9e2d51;
         const c2: u32 = 0x1b873593;
-        const len = @intCast(u32, str.len);
+        const len = @truncate(u32, str.len);
         var h1: u32 = seed;
         for (@ptrCast([*]allowzero align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
@@ -255,14 +255,14 @@ pub const Murmur3_32 = struct {
         const len: u32 = 8;
         var h1: u32 = seed;
         var k1: u32 = undefined;
-        k1 = @intCast(u32, v & 0xffffffff) *% c1;
+        k1 = @truncate(u32, v) *% c1;
         k1 = rotl32(k1, 15);
         k1 *%= c2;
         h1 ^= k1;
         h1 = rotl32(h1, 13);
         h1 *%= 5;
         h1 +%= 0xe6546b64;
-        k1 = @intCast(u32, v >> 32) *% c1;
+        k1 = @truncate(u32, v >> 32) *% c1;
         k1 = rotl32(k1, 15);
         k1 *%= c2;
         h1 ^= k1;
@@ -291,7 +291,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {
-        key[i] = @intCast(u8, i);
+        key[i] = @truncate(u8, i);
 
         var h = hash_fn(key[0..i], 256 - i);
         if (builtin.endian == builtin.Endian.Big)
@@ -299,7 +299,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 
-    return @intCast(u32, hash_fn(hashes, 0) & 0xffffffff);
+    return @truncate(u32, hash_fn(hashes, 0));
 }
 
 test "murmur2_32" {

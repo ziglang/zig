@@ -45,7 +45,7 @@ pub const CityHash32 = struct {
     }
 
     fn hash32Len0To4(str: []const u8) u32 {
-        const len: u32 = @intCast(u32, str.len);
+        const len: u32 = @truncate(u32, str.len);
         var b: u32 = 0;
         var c: u32 = 9;
         for (str) |v| {
@@ -56,7 +56,7 @@ pub const CityHash32 = struct {
     }
 
     fn hash32Len5To12(str: []const u8) u32 {
-        var a: u32 = @intCast(u32, str.len);
+        var a: u32 = @truncate(u32, str.len);
         var b: u32 = a *% 5;
         var c: u32 = 9;
         const d: u32 = b;
@@ -69,7 +69,7 @@ pub const CityHash32 = struct {
     }
 
     fn hash32Len13To24(str: []const u8) u32 {
-        const len: u32 = @intCast(u32, str.len);
+        const len: u32 = @truncate(u32, str.len);
         const a: u32 = fetch32(str.ptr + (str.len >> 1) - 4);
         const b: u32 = fetch32(str.ptr + 4);
         const c: u32 = fetch32(str.ptr + str.len - 8);
@@ -91,7 +91,7 @@ pub const CityHash32 = struct {
             }
         }
 
-        const len: u32 = @intCast(u32, str.len);
+        const len: u32 = @truncate(u32, str.len);
         var h: u32 = len;
         var g: u32 = c1 *% len;
         var f: u32 = g;
@@ -214,7 +214,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen0To16(str: []const u8) u64 {
-        const len: u64 = @intCast(u64, str.len);
+        const len: u64 = @truncate(u64, str.len);
         if (len >= 8) {
             const mul: u64 = k2 +% len *% 2;
             const a: u64 = fetch64(str.ptr) + k2;
@@ -233,14 +233,14 @@ pub const CityHash64 = struct {
             const b: u8 = str[str.len >> 1];
             const c: u8 = str[str.len - 1];
             const y: u32 = @intCast(u32, a) +% (@intCast(u32, b) << 8);
-            const z: u32 = @intCast(u32, str.len) +% (@intCast(u32, c) << 2);
+            const z: u32 = @truncate(u32, str.len) +% (@intCast(u32, c) << 2);
             return shiftmix(@intCast(u64, y) *% k2 ^ @intCast(u64, z) *% k0) *% k2;
         }
         return k2;
     }
 
     fn hashLen17To32(str: []const u8) u64 {
-        const len: u64 = @intCast(u64, str.len);
+        const len: u64 = @truncate(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k1;
         const b: u64 = fetch64(str.ptr + 8);
@@ -251,7 +251,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen33To64(str: []const u8) u64 {
-        const len: u64 = @intCast(u64, str.len);
+        const len: u64 = @truncate(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k2;
         const b: u64 = fetch64(str.ptr + 8);
@@ -305,7 +305,7 @@ pub const CityHash64 = struct {
             return hashLen33To64(str);
         }
 
-        var len: u64 = @intCast(u64, str.len);
+        var len: u64 = @truncate(u64, str.len);
 
         var x: u64 = fetch64(str.ptr + str.len - 40);
         var y: u64 = fetch64(str.ptr + str.len - 16) +% fetch64(str.ptr + str.len - 56);
@@ -367,7 +367,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 
-    return @intCast(u32, hash_fn(hashes, 0) & 0xffffffff);
+    return @truncate(u32, hash_fn(hashes, 0));
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
