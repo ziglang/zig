@@ -5415,6 +5415,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "invalid legacy unicode escape",
+        \\export fn entry() void {
+        \\    const a = '\U1234';
+        \\}
+    ,
+        "tmp.zig:2:17: error: invalid character: 'U'",
+    );
+
+    cases.add(
+        "invalid empty unicode escape",
+        \\export fn entry() void {
+        \\    const a = '\u{}';
+        \\}
+    ,
+        "tmp.zig:2:19: error: empty unicode escape sequence",
+    );
+
+    cases.add(
         "non-printable invalid character",
         "\xff\xfe" ++
             \\fn test() bool {\r
