@@ -10,6 +10,8 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "os.hpp"
+#include "compiler.hpp"
+#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -466,6 +468,29 @@ const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     return ZigLLVMGetEnvironmentTypeName(abi);
 }
 
+Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
+    glibc_ver->major = 2;
+    glibc_ver->minor = 0;
+    glibc_ver->patch = 0;
+    SplitIterator it = memSplit(str(text), str("GLIBC_."));
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorUnknownABI;
+        glibc_ver->major = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->minor = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->patch = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    return ErrorNone;
+}
+
 void get_native_target(ZigTarget *target) {
     ZigLLVM_OSType os_type;
     ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
@@ -481,6 +506,17 @@ void get_native_target(ZigTarget *target) {
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
+    target->glibc_version = nullptr;
+#ifdef ZIG_OS_LINUX
+    if (target_is_glibc(target)) {
+        target->glibc_version = allocate<ZigGLibCVersion>(1);
+        Error err;
+        if ((err = glibc_detect_native_version(target->glibc_version))) {
+            // Use a default version.
+            *target->glibc_version = {2, 17, 0};
+        }
+    }
+#endif
 }
 
 Error target_parse_archsub(ZigLLVM_ArchType *out_arch, ZigLLVM_SubArchType *out_sub,

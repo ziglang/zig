@@ -15,6 +15,7 @@
 #include "target.hpp"
 #include "libc_installation.hpp"
 #include "userland.h"
+#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -96,6 +97,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --forbid-library [lib]       make it an error to link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
+        "  --version-script [path]      provide a version .map file\n"
         "  --object [obj]               add object file to build\n"
         "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
@@ -189,10 +191,33 @@ static int print_target_list(FILE *f) {
     for (size_t i = 0; i < libc_count; i += 1) {
         ZigTarget libc_target;
         target_libc_enum(i, &libc_target);
-        fprintf(f, "  %s-%s-%s\n", target_arch_name(libc_target.arch),
-                target_os_name(libc_target.os), target_abi_name(libc_target.abi));
+        bool is_native = native.arch == libc_target.arch &&
+            native.os == libc_target.os &&
+            native.abi == libc_target.abi;
+        const char *native_str = is_native ? " (native)" : "";
+        fprintf(f, "  %s-%s-%s%s\n", target_arch_name(libc_target.arch),
+                target_os_name(libc_target.os), target_abi_name(libc_target.abi), native_str);
     }
 
+    fprintf(f, "\nAvailable glibc versions:\n");
+    ZigGLibCAbi *glibc_abi;
+    Error err;
+    if ((err = glibc_load_metadata(&glibc_abi, get_zig_lib_dir(), true))) {
+        return EXIT_FAILURE;
+    }
+    for (size_t i = 0; i < glibc_abi->all_versions.length; i += 1) {
+        ZigGLibCVersion *this_ver = &glibc_abi->all_versions.at(i);
+        bool is_native = native.glibc_version != nullptr &&
+            native.glibc_version->major == this_ver->major &&
+            native.glibc_version->minor == this_ver->minor &&
+            native.glibc_version->patch == this_ver->patch;
+        const char *native_str = is_native ? " (native)" : "";
+        if (this_ver->patch == 0) {
+            fprintf(f, "  %d.%d%s\n", this_ver->major, this_ver->minor, native_str);
+        } else {
+            fprintf(f, "  %d.%d.%d%s\n", this_ver->major, this_ver->minor, this_ver->patch, native_str);
+        }
+    }
     return EXIT_SUCCESS;
 }
 
@@ -437,6 +462,8 @@ int main(int argc, char **argv) {
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
+    Buf *version_script = nullptr;
+    const char *target_glibc = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
@@ -783,6 +810,10 @@ int main(int argc, char **argv) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
+                } else if (strcmp(arg, "--version-script") == 0) {
+                    version_script = buf_create_from_str(argv[i]); 
+                } else if (strcmp(arg, "-target-glibc") == 0) {
+                    target_glibc = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
                 } else if (strcmp(arg, "--test-filter") == 0) {
@@ -904,6 +935,10 @@ int main(int argc, char **argv) {
     ZigTarget target;
     if (target_string == nullptr) {
         get_native_target(&target);
+        if (target_glibc != nullptr) {
+            fprintf(stderr, "-target-glibc provided but no -target parameter\n");
+            return print_error_usage(arg0);
+        }
     } else {
         if ((err = target_parse_triple(&target, target_string))) {
             if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
@@ -920,6 +955,22 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "invalid target: %s\n", err_str(err));
                 return print_error_usage(arg0);
             }
+        }
+        if (target_is_glibc(&target)) {
+            target.glibc_version = allocate<ZigGLibCVersion>(1);
+
+            if (target_glibc != nullptr) {
+                if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
+                    fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
+                    return print_error_usage(arg0);
+                }
+            } else {
+                // Default cross-compiling glibc version
+                *target.glibc_version = {2, 17, 0};
+            }
+        } else if (target_glibc != nullptr) {
+            fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
+            return print_error_usage(arg0);
         }
     }
 
@@ -1074,6 +1125,7 @@ int main(int argc, char **argv) {
             codegen_set_is_test(g, cmd == CmdTest);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
+            g->version_script_path = version_script; 
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 

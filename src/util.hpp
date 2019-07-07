@@ -314,6 +314,7 @@ struct SplitIterator {
 
 bool SplitIterator_isSplitByte(SplitIterator *self, uint8_t byte);
 Optional< Slice<uint8_t> > SplitIterator_next(SplitIterator *self);
+Optional< Slice<uint8_t> > SplitIterator_next_separate(SplitIterator *self);
 Slice<uint8_t> SplitIterator_rest(SplitIterator *self);
 SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes);
 

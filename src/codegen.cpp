@@ -24,9 +24,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define CACHE_OUT_SUBDIR "o"
-#define CACHE_HASH_SUBDIR "h"
-
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -9502,6 +9499,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf(ch, &g->libc->kernel32_lib_dir);
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
+    cache_buf_opt(ch, g->version_script_path);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);
@@ -9695,3 +9693,35 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
     }
     return pkg;
 }
+
+CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
+        ZigLibCInstallation *libc)
+{
+    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
+    child_gen->disable_gen_h = true;
+    child_gen->want_stack_check = WantStackCheckDisabled;
+    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
+    child_gen->verbose_ast = parent_gen->verbose_ast;
+    child_gen->verbose_link = parent_gen->verbose_link;
+    child_gen->verbose_ir = parent_gen->verbose_ir;
+    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
+    child_gen->verbose_cimport = parent_gen->verbose_cimport;
+    child_gen->verbose_cc = parent_gen->verbose_cc;
+    child_gen->llvm_argv = parent_gen->llvm_argv;
+    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
+
+    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
+    child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
+    child_gen->valgrind_support = ValgrindSupportDisabled;
+
+    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
+
+    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
+    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
+
+    child_gen->enable_cache = true;
+
+    return child_gen;
+}
+

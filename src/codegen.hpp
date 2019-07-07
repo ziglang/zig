@@ -20,6 +20,9 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
     ZigLibCInstallation *libc, Buf *cache_dir);
 
+CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
+        ZigLibCInstallation *libc);
+
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);

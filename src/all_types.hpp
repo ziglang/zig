@@ -1921,6 +1921,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
+    Buf *version_script_path; 
 
     const char **llvm_argv;
     size_t llvm_argv_len;
@@ -3787,6 +3788,9 @@ static const size_t stack_trace_ptr_count = 32;
 
 #define NAMESPACE_SEP_CHAR '.'
 #define NAMESPACE_SEP_STR "."
+
+#define CACHE_OUT_SUBDIR "o"
+#define CACHE_HASH_SUBDIR "h"
 
 enum FloatMode {
     FloatModeStrict,

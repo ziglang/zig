@@ -11,6 +11,7 @@
 #include "analyze.hpp"
 #include "compiler.hpp"
 #include "install_files.h"
+#include "glibc.hpp"
 
 struct LinkJob {
     CodeGen *codegen;
@@ -18,37 +19,6 @@ struct LinkJob {
     bool link_in_crt;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
 };
-
-static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
-        ZigLibCInstallation *libc)
-{
-    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
-    child_gen->disable_gen_h = true;
-    child_gen->want_stack_check = WantStackCheckDisabled;
-    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
-    child_gen->verbose_ast = parent_gen->verbose_ast;
-    child_gen->verbose_link = parent_gen->verbose_link;
-    child_gen->verbose_ir = parent_gen->verbose_ir;
-    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
-    child_gen->verbose_cimport = parent_gen->verbose_cimport;
-    child_gen->verbose_cc = parent_gen->verbose_cc;
-    child_gen->llvm_argv = parent_gen->llvm_argv;
-    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
-
-    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
-    child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
-    child_gen->valgrind_support = ValgrindSupportDisabled;
-
-    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
-
-    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
-    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
-
-    child_gen->enable_cache = true;
-
-    return child_gen;
-}
 
 static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
     CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
@@ -74,18 +44,6 @@ static const char *path_from_libc(CodeGen *g, const char *subpath) {
 
 static const char *path_from_libunwind(CodeGen *g, const char *subpath) {
     return path_from_zig_lib(g, "libunwind", subpath);
-}
-
-static const char *build_dummy_so(CodeGen *parent, const char *name, size_t major_version) {
-    Buf *glibc_dummy_root_src = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s.zig",
-            buf_ptr(parent->zig_lib_dir), name);
-    CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str(name));
-    codegen_set_lib_version(child_gen, major_version, 0, 0);
-    child_gen->is_dynamic = true;
-    child_gen->is_dummy_so = true;
-    codegen_build_and_link(child_gen);
-    return buf_ptr(&child_gen->output_file_path);
 }
 
 static const char *build_libunwind(CodeGen *parent) {
@@ -892,6 +850,30 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->rpath_table.put(rpath, true);
 }
 
+static void add_glibc_libs(LinkJob *lj) {
+    Error err;
+    ZigGLibCAbi *glibc_abi;
+    if ((err = glibc_load_metadata(&glibc_abi, lj->codegen->zig_lib_dir, true))) {
+        fprintf(stderr, "%s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *artifact_dir;
+    if ((err = glibc_build_dummies_and_maps(lj->codegen, glibc_abi, lj->codegen->zig_target,
+                    &artifact_dir, true)))
+    {
+        fprintf(stderr, "%s\n", err_str(err));
+        exit(1);
+    }
+
+    size_t lib_count = glibc_lib_count();
+    for (size_t i = 0; i < lib_count; i += 1) {
+        const ZigGLibCLib *lib = glibc_lib_enum(i);
+        Buf *so_path = buf_sprintf("%s" OS_SEP "lib%s.so.%d.0.0", buf_ptr(artifact_dir), lib->name, lib->sover);
+        lj->args.append(buf_ptr(so_path));
+    }
+}
+
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -990,6 +972,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (is_dyn_lib) {
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
+
+        if (g->version_script_path != nullptr) {
+            lj->args.append("-version-script");
+            lj->args.append(buf_ptr(g->version_script_path));
+        }
     }
 
     // .o files
@@ -1053,11 +1040,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             }
         } else if (target_is_glibc(g->zig_target)) {
             lj->args.append(build_libunwind(g));
-            lj->args.append(build_dummy_so(g, "c", 6));
-            lj->args.append(build_dummy_so(g, "m", 6));
-            lj->args.append(build_dummy_so(g, "pthread", 0));
-            lj->args.append(build_dummy_so(g, "dl", 2));
-            lj->args.append(build_dummy_so(g, "rt", 1));
+            add_glibc_libs(lj);
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else if (target_is_musl(g->zig_target)) {
             lj->args.append(build_libunwind(g));
