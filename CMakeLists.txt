@@ -2667,13 +2667,6 @@ set(ZIG_MUSL_SRC_FILES
 )
 
 set(ZIG_LIBC_FILES
-    "dummy/c.zig"
-    "dummy/c/i386.zig"
-    "dummy/c/x86_64.zig"
-    "dummy/dl.zig"
-    "dummy/m.zig"
-    "dummy/pthread.zig"
-    "dummy/rt.zig"
     "glibc/bits/byteswap.h"
     "glibc/bits/endian.h"
     "glibc/bits/floatn-common.h"
