@@ -130,10 +130,19 @@ pub const dirent = extern struct {
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
+pub const socklen_t = u32;
 
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
+};
+
+pub const sockaddr_storage = extern struct {
+    len: u8,
+    family: sa_family_t,
+    pad1: [6]u8,
+    pad2: i64,
+    pad3: [112]u8,
 };
 
 pub const sockaddr_in = extern struct {

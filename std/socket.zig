@@ -10,7 +10,7 @@ const os = std.os;
 const is_windows = builtin.os == Os.windows;
 
 const is_posix = switch (builtin.os) {
-    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd => true,
+    builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => true,
     else => false,
 };
 
@@ -161,8 +161,8 @@ pub const Socket = struct {
                 system.EAFNOSUPPORT => return SocketError.AddressFamilyNotSupported,
                 system.EINVAL => return SocketError.ProtocolFamilyNotAvailable,
                 system.EMFILE => return SocketError.ProcessFdQuotaExceeded,
-                system.ENFILE => return SocketError.system.emFdQuotaExceeded,
-                system.ENOBUFS, system.ENOMEM => return SocketError.system.emResources,
+                system.ENFILE => return SocketError.SystemFdQuotaExceeded,
+                system.ENOBUFS, system.ENOMEM => return SocketError.SystemResources,
                 system.EPROTONOSUPPORT => return SocketError.ProtocolNotSupported,
                 else => |err| return unexpectedError(err),
             }
