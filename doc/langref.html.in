@@ -7212,7 +7212,7 @@ test "call foo" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(comptime T: type, integer: T) std.math.Log2Int(@typeInfo(T).Int.bits + 1){#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(comptime T: type, integer: T) @import("std").math.Log2Int(@typeInfo(T).Int.bits + 1){#endsyntax#}</pre>
       <p>Counts the number of bits set in an integer.</p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
