@@ -74,22 +74,31 @@ pub const PROT_EXEC = 4;
 pub const PROT_GROWSDOWN = 0x01000000;
 pub const PROT_GROWSUP = 0x02000000;
 
-pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
+/// Share changes
 pub const MAP_SHARED = 0x01;
+
+/// Changes are private
 pub const MAP_PRIVATE = 0x02;
+
+/// share + validate extension flags
+pub const MAP_SHARED_VALIDATE = 0x03;
+
+/// Mask for type of mapping
 pub const MAP_TYPE = 0x0f;
+
+/// Interpret addr exactly
 pub const MAP_FIXED = 0x10;
+
+/// don't use a file
 pub const MAP_ANONYMOUS = 0x20;
-pub const MAP_NORESERVE = 0x4000;
-pub const MAP_GROWSDOWN = 0x0100;
-pub const MAP_DENYWRITE = 0x0800;
-pub const MAP_EXECUTABLE = 0x1000;
-pub const MAP_LOCKED = 0x2000;
-pub const MAP_POPULATE = 0x8000;
-pub const MAP_NONBLOCK = 0x10000;
-pub const MAP_STACK = 0x20000;
-pub const MAP_HUGETLB = 0x40000;
-pub const MAP_FILE = 0;
+
+/// For anonymous mmap, memory could be uninitialized
+pub const MAP_UNINITIALIZED = 0x4000000;
+
+// MAP_ 0x0100 - 0x80000 flags are per architecture
+
+/// MAP_FIXED which doesn't unmap underlying mapping
+pub const MAP_FIXED_NOREPLACE = 0x100000;
 
 pub const F_OK = 0;
 pub const X_OK = 1;
