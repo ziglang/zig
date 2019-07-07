@@ -352,6 +352,12 @@ pub const SYS_pidfd_send_signal = 424;
 pub const SYS_io_uring_setup = 425;
 pub const SYS_io_uring_enter = 426;
 pub const SYS_io_uring_register = 427;
+pub const SYS_open_tree = 428;
+pub const SYS_move_mount = 429;
+pub const SYS_fsopen = 430;
+pub const SYS_fsconfig = 431;
+pub const SYS_fsmount = 432;
+pub const SYS_fspick = 433;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;

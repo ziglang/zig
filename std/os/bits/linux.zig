@@ -52,6 +52,9 @@ pub const AT_STATX_FORCE_SYNC = 0x2000;
 /// - Don't sync attributes with the server
 pub const AT_STATX_DONT_SYNC = 0x4000;
 
+/// Apply to the entire subtree
+pub const AT_RECURSIVE = 0x8000;
+
 pub const FUTEX_WAIT = 0;
 pub const FUTEX_WAKE = 1;
 pub const FUTEX_FD = 2;
@@ -1084,7 +1087,8 @@ pub const io_uring_sqe = extern struct {
     pub const union1 = extern union {
         rw_flags: kernel_rwf,
         fsync_flags: u32,
-        poll_event: u16,
+        poll_events: u16,
+        sync_range_flags: u32,
     };
     union1: union1,
     user_data: u64,
@@ -1100,6 +1104,9 @@ pub const io_uring_sqe = extern struct {
 /// use fixed fileset
 pub const IOSQE_FIXED_FILE = (1 << 0);
 
+/// issue after inflight IO
+pub const IOSQE_IO_DRAIN = (1 << 1);
+
 pub const IORING_OP_NOP = 0;
 pub const IORING_OP_READV = 1;
 pub const IORING_OP_WRITEV = 2;
@@ -1108,6 +1115,7 @@ pub const IORING_OP_READ_FIXED = 4;
 pub const IORING_OP_WRITE_FIXED = 5;
 pub const IORING_OP_POLL_ADD = 6;
 pub const IORING_OP_POLL_REMOVE = 7;
+pub const IORING_OP_SYNC_FILE_RANGE = 8;
 
 // io_uring_sqe.fsync_flags
 pub const IORING_FSYNC_DATASYNC = (1 << 0);
@@ -1135,3 +1143,5 @@ pub const IORING_REGISTER_BUFFERS = 0;
 pub const IORING_UNREGISTER_BUFFERS = 1;
 pub const IORING_REGISTER_FILES = 2;
 pub const IORING_UNREGISTER_FILES = 3;
+pub const IORING_REGISTER_EVENTFD = 4;
+pub const IORING_UNREGISTER_EVENTFD = 5;
