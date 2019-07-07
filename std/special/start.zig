@@ -24,6 +24,16 @@ comptime {
     }
 }
 
+fn enableSegfaultHandler() void {
+    const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
+        root.enable_segfault_handler
+    else
+        std.debug.runtime_safety and std.debug.have_segfault_handling_support;
+    if (enable_segfault_handler) {
+        std.debug.attachSegfaultHandler();
+    }
+}
+
 extern fn wasm_freestanding_start() void {
     _ = callMain();
 }
@@ -61,6 +71,9 @@ extern fn WinMainCRTStartup() noreturn {
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
     }
+
+    enableSegfaultHandler();
+
     std.os.windows.kernel32.ExitProcess(callMain());
 }
 
@@ -99,6 +112,9 @@ fn posixCallMainAndExit() noreturn {
 inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
+
+    enableSegfaultHandler();
+
     return callMain();
 }
 

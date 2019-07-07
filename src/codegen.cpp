@@ -5592,6 +5592,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
+        case IrInstructionIdHasField:
         case IrInstructionIdTypeId:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrType:
@@ -5634,6 +5635,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdRef:
         case IrInstructionIdBitCastSrc:
         case IrInstructionIdTestErrSrc:
+        case IrInstructionIdUnionInitNamedField:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -7328,6 +7330,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdField, "field", 2);
     create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
+    create_builtin_fn(g, BuiltinFnIdHasField, "hasField", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
@@ -7417,6 +7420,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
     create_builtin_fn(g, BuiltinFnIdHasDecl, "hasDecl", 2);
+    create_builtin_fn(g, BuiltinFnIdUnionInit, "unionInit", 3);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8130,8 +8134,9 @@ static void init(CodeGen *g) {
         target_specific_features = "";
     }
 
-    g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
-            target_specific_cpu_args, target_specific_features, opt_level, reloc_mode, LLVMCodeModelDefault);
+    g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
+            target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
+            LLVMCodeModelDefault, g->function_sections);
 
     g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 
@@ -8335,6 +8340,10 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
     args.append("-nostdinc");
     args.append("-fno-spell-checking");
+
+    if (g->function_sections) {
+        args.append("-ffunction-sections");
+    }
 
     if (translate_c) {
         // this gives us access to preprocessing entities, presumably at
@@ -8606,6 +8615,38 @@ static Buf *get_resolved_root_src_path(CodeGen *g) {
     return resolved_path;
 }
 
+static bool want_startup_code(CodeGen *g) {
+    // Test builds get handled separately.
+    if (g->is_test_build)
+        return false;
+
+    // start code does not handle UEFI target
+    if (g->zig_target->os == OsUefi)
+        return false;
+
+    // WASM freestanding can still have an entry point but other freestanding targets do not.
+    if (g->zig_target->os == OsFreestanding && !target_is_wasm(g->zig_target))
+        return false;
+
+    // Declaring certain export functions means skipping the start code
+    if (g->have_c_main || g->have_winmain || g->have_winmain_crt_startup)
+        return false;
+
+    // If there is a pub main in the root source file, that means we need start code.
+    if (g->have_pub_main)
+        return true;
+
+    if (g->out_type == OutTypeExe) {
+        // For build-exe, we might add start code even though there is no pub main, so that the
+        // programmer gets the "no pub main" compile error. However if linking libc and there is
+        // a C source file, that might have main().
+        return g->c_source_files.length == 0 || g->libc_link_lib == nullptr;
+    }
+
+    // For objects and libraries, and we don't have pub main, no start code.
+    return false;
+}
+
 static void gen_root_source(CodeGen *g) {
     Buf *resolved_path = get_resolved_root_src_path(g);
     if (resolved_path == nullptr)
@@ -8646,11 +8687,7 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && (g->zig_target->os != OsFreestanding || target_is_wasm(g->zig_target)) &&
-        g->zig_target->os != OsUefi &&
-        !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
-        ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
-    {
+    if (want_startup_code(g)) {
         g->start_import = add_special_code(g, create_start_pkg(g, g->root_package), "start.zig");
     }
     if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
@@ -8732,6 +8769,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->build_mode);
     cache_bool(cache_hash, g->have_pic);
     cache_bool(cache_hash, want_valgrind_support(g));
+    cache_bool(cache_hash, g->function_sections);
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
@@ -9447,6 +9485,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->have_stack_probing);
     cache_bool(ch, g->is_dummy_so);
+    cache_bool(ch, g->function_sections);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -9570,7 +9609,7 @@ void codegen_build_and_link(CodeGen *g) {
                 fprintf(stderr, "Unable to check cache: %s is not a directory\n",
                     buf_ptr(manifest_dir));
             } else {
-                fprintf(stderr, "Unable to check cache: %s\n", err_str(err));
+                fprintf(stderr, "Unable to check cache: %s: %s\n", buf_ptr(manifest_dir), err_str(err));
             }
             exit(1);
         }

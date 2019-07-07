@@ -542,7 +542,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
     var ksa = k_sigaction{
-        .handler = act.handler,
+        .sigaction = act.sigaction,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
         .restorer = @ptrCast(extern fn () void, restore_rt),
@@ -555,7 +555,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         return result;
     }
     if (oact) |old| {
-        old.handler = ksa_old.handler;
+        old.sigaction = ksa_old.sigaction;
         old.flags = @truncate(u32, ksa_old.flags);
         @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), @sizeOf(@typeOf(ksa_old.mask)));
     }

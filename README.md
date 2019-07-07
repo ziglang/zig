@@ -9,6 +9,7 @@ Zig is an open-source programming language designed for **robustness**,
  * [Download & Documentation](https://ziglang.org/download)
  * [Community](https://github.com/ziglang/zig/wiki/Community)
  * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
+ * [Frequently Asked Questions](https://github.com/ziglang/zig/wiki/FAQ)
 
 ## Building from Source
 
@@ -70,7 +71,7 @@ Dependencies are the same as Stage 1, except now you can use stage 1 to compile
 Zig code.
 
 ```
-bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
+bin/zig build --prefix $(pwd)/stage2
 ```
 
 This produces `./stage2/bin/zig` which can be used for testing and development.
@@ -89,11 +90,11 @@ use stage 1.
 #### Debug / Development Build
 
 ```
-./stage2/bin/zig build --build-file ../build.zig --prefix $(pwd)/stage3 install
+./stage2/bin/zig build --prefix $(pwd)/stage3
 ```
 
 #### Release / Install Build
 
 ```
-./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
+./stage2/bin/zig build install -Drelease
 ```

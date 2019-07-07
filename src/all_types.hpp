@@ -1416,6 +1416,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberName,
     BuiltinFnIdField,
     BuiltinFnIdTypeInfo,
+    BuiltinFnIdHasField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1508,6 +1509,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdHasDecl,
+    BuiltinFnIdUnionInit,
 };
 
 struct BuiltinFnEntry {
@@ -1908,6 +1910,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool function_sections;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -2307,6 +2310,7 @@ enum IrInstructionId {
     IrInstructionIdByteOffsetOf,
     IrInstructionIdBitOffsetOf,
     IrInstructionIdTypeInfo,
+    IrInstructionIdHasField,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrType,
@@ -2357,6 +2361,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaGen,
     IrInstructionIdEndExpr,
     IrInstructionIdPtrOfArrayToSlice,
+    IrInstructionIdUnionInitNamedField,
 };
 
 struct IrInstruction {
@@ -3333,6 +3338,13 @@ struct IrInstructionTypeInfo {
     IrInstruction *type_value;
 };
 
+struct IrInstructionHasField {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    IrInstruction *field_name;
+};
+
 struct IrInstructionTypeId {
     IrInstruction base;
 
@@ -3592,6 +3604,15 @@ struct IrInstructionAssertNonNull {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionUnionInitNamedField {
+    IrInstruction base;
+
+    IrInstruction *union_type;
+    IrInstruction *field_name;
+    IrInstruction *field_result_loc;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionHasDecl {

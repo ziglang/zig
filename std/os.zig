@@ -138,14 +138,17 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// it raises SIGABRT followed by SIGKILL and finally lo
 pub fn abort() noreturn {
     @setCold(true);
-    if (builtin.link_libc) {
-        system.abort();
-    }
+    // MSVCRT abort() sometimes opens a popup window which is undesirable, so
+    // even when linking libc on Windows we use our own abort implementation.
+    // See https://github.com/ziglang/zig/issues/2071 for more details.
     if (windows.is_the_target) {
         if (builtin.mode == .Debug) {
             @breakpoint();
         }
         windows.kernel32.ExitProcess(3);
+    }
+    if (builtin.link_libc) {
+        system.abort();
     }
     if (builtin.os == .uefi) {
         // TODO there must be a better thing to do here than loop forever
@@ -2526,6 +2529,16 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
         ENOMEM => return error.SizeTooSmall,
         EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Examine and change a signal action.
+pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
+    switch (errno(system.sigaction(sig, act, oact))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        else => unreachable,
     }
 }
 

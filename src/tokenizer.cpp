@@ -190,6 +190,7 @@ enum TokenizeState {
     TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
     TokenizeStateString,
     TokenizeStateStringEscape,
+    TokenizeStateStringEscapeUnicodeStart,
     TokenizeStateCharLiteral,
     TokenizeStateCharLiteralEnd,
     TokenizeStateSawStar,
@@ -241,7 +242,6 @@ struct Tokenize {
     int32_t exp_add_amt;
     bool is_exp_negative;
     size_t char_code_index;
-    size_t char_code_end;
     bool unicode;
     uint32_t char_code;
     int exponent_in_bin_or_dec;
@@ -1071,24 +1071,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.radix = 16;
                         t.char_code = 0;
                         t.char_code_index = 0;
-                        t.char_code_end = 2;
                         t.unicode = false;
                         break;
                     case 'u':
-                        t.state = TokenizeStateCharCode;
-                        t.radix = 16;
-                        t.char_code = 0;
-                        t.char_code_index = 0;
-                        t.char_code_end = 4;
-                        t.unicode = true;
-                        break;
-                    case 'U':
-                        t.state = TokenizeStateCharCode;
-                        t.radix = 16;
-                        t.char_code = 0;
-                        t.char_code_index = 0;
-                        t.char_code_end = 6;
-                        t.unicode = true;
+                        t.state = TokenizeStateStringEscapeUnicodeStart;
                         break;
                     case 'n':
                         handle_string_escape(&t, '\n');
@@ -1112,8 +1098,63 @@ void tokenize(Buf *buf, Tokenization *out) {
                         invalid_char_error(&t, c);
                 }
                 break;
+            case TokenizeStateStringEscapeUnicodeStart:
+                switch (c) {
+                    case '{':
+                        t.state = TokenizeStateCharCode;
+                        t.radix = 16;
+                        t.char_code = 0;
+                        t.char_code_index = 0;
+                        t.unicode = true;
+                        break;
+                    default:
+                        invalid_char_error(&t, c);
+                }
+                break;
             case TokenizeStateCharCode:
                 {
+                    if (t.unicode && c == '}') {
+                        if (t.char_code_index == 0) {
+                            tokenize_error(&t, "empty unicode escape sequence");
+                            break;
+                        }
+                        if (t.char_code > 0x10ffff) {
+                            tokenize_error(&t, "unicode value out of range: %x", t.char_code);
+                            break;
+                        }
+                        if (t.cur_tok->id == TokenIdCharLiteral) {
+                            t.cur_tok->data.char_lit.c = t.char_code;
+                            t.state = TokenizeStateCharLiteralEnd;
+                        } else if (t.char_code <= 0x7f) {
+                            // 00000000 00000000 00000000 0xxxxxxx
+                            handle_string_escape(&t, (uint8_t)t.char_code);
+                        } else if (t.char_code <= 0x7ff) {
+                            // 00000000 00000000 00000xxx xx000000
+                            handle_string_escape(&t, (uint8_t)(0xc0 | (t.char_code >> 6)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
+                        } else if (t.char_code <= 0xffff) {
+                            // 00000000 00000000 xxxx0000 00000000
+                            handle_string_escape(&t, (uint8_t)(0xe0 | (t.char_code >> 12)));
+                            // 00000000 00000000 0000xxxx xx000000
+                            handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
+                        } else if (t.char_code <= 0x10ffff) {
+                            // 00000000 000xxx00 00000000 00000000
+                            handle_string_escape(&t, (uint8_t)(0xf0 | (t.char_code >> 18)));
+                            // 00000000 000000xx xxxx0000 00000000
+                            handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 12) & 0x3f)));
+                            // 00000000 00000000 0000xxxx xx000000
+                            handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
+                        } else {
+                            zig_unreachable();
+                        }
+                        break;
+                    }
+
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         tokenize_error(&t, "invalid digit: '%c'", c);
@@ -1123,44 +1164,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                     t.char_code += digit_value;
                     t.char_code_index += 1;
 
-                    if (t.char_code_index >= t.char_code_end) {
-                        if (t.unicode) {
-                            if (t.char_code > 0x10ffff) {
-                                tokenize_error(&t, "unicode value out of range: %x", t.char_code);
-                                break;
-                            }
-                            if (t.cur_tok->id == TokenIdCharLiteral) {
-                                t.cur_tok->data.char_lit.c = t.char_code;
-                                t.state = TokenizeStateCharLiteralEnd;
-                            } else if (t.char_code <= 0x7f) {
-                                // 00000000 00000000 00000000 0xxxxxxx
-                                handle_string_escape(&t, (uint8_t)t.char_code);
-                            } else if (t.char_code <= 0x7ff) {
-                                // 00000000 00000000 00000xxx xx000000
-                                handle_string_escape(&t, (uint8_t)(0xc0 | (t.char_code >> 6)));
-                                // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
-                            } else if (t.char_code <= 0xffff) {
-                                // 00000000 00000000 xxxx0000 00000000
-                                handle_string_escape(&t, (uint8_t)(0xe0 | (t.char_code >> 12)));
-                                // 00000000 00000000 0000xxxx xx000000
-                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
-                                // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
-                            } else if (t.char_code <= 0x10ffff) {
-                                // 00000000 000xxx00 00000000 00000000
-                                handle_string_escape(&t, (uint8_t)(0xf0 | (t.char_code >> 18)));
-                                // 00000000 000000xx xxxx0000 00000000
-                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 12) & 0x3f)));
-                                // 00000000 00000000 0000xxxx xx000000
-                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
-                                // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
-                            }
-                        } else {
-                            assert(t.char_code <= 255);
-                            handle_string_escape(&t, (uint8_t)t.char_code);
-                        }
+                    if (!t.unicode && t.char_code_index >= 2) {
+                        assert(t.char_code <= 255);
+                        handle_string_escape(&t, (uint8_t)t.char_code);
                     }
                 }
                 break;
@@ -1409,6 +1415,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unterminated string");
             break;
         case TokenizeStateStringEscape:
+        case TokenizeStateStringEscapeUnicodeStart:
         case TokenizeStateCharCode:
             if (t.cur_tok->id == TokenIdStringLiteral) {
                 tokenize_error(&t, "unterminated string");
