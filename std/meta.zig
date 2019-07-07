@@ -74,9 +74,10 @@ test "std.meta.stringToEnum" {
 
 pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
+        TypeId.Bool => 1,
         TypeId.Int => |info| info.bits,
         TypeId.Float => |info| info.bits,
-        else => @compileError("Expected int or float type, found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("Expected bool, int or float type, found '" ++ @typeName(T) ++ "'"),
     };
 }
 
