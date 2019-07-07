@@ -1053,6 +1053,8 @@ pub const LibExeObjStep = struct {
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
+    libc_file: ?[]const u8,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -1146,6 +1148,7 @@ pub const LibExeObjStep = struct {
             .single_threaded = false,
             .installed_path = null,
             .install_step = null,
+            .libc_file = null,
         };
         self.computeOutFileNames();
         return self;
@@ -1319,6 +1322,10 @@ pub const LibExeObjStep = struct {
 
     pub fn setDisableGenH(self: *LibExeObjStep, value: bool) void {
         self.disable_gen_h = value;
+    }
+
+    pub fn setLibCFile(self: *LibExeObjStep, libc_file: ?[]const u8) void {
+        self.libc_file = libc_file;
     }
 
     /// Unless setOutputDir was called, this function must be called only in
@@ -1523,6 +1530,11 @@ pub const LibExeObjStep = struct {
 
         if (self.single_threaded) {
             try zig_args.append("--single-threaded");
+        }
+
+        if (self.libc_file) |libc_file| {
+            try zig_args.append("--libc");
+            try zig_args.append(builder.pathFromRoot(libc_file));
         }
 
         switch (self.build_mode) {
