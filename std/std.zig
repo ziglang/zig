@@ -1,6 +1,7 @@
 pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
 pub const ArrayList = @import("array_list.zig").ArrayList;
 pub const AutoHashMap = @import("hash_map.zig").AutoHashMap;
+pub const BloomFilter = @import("bloom_filter.zig").BloomFilter;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
@@ -48,6 +49,7 @@ pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os.zig");
+pub const packed_int_array = @import("packed_int_array.zig");
 pub const pdb = @import("pdb.zig");
 pub const process = @import("process.zig");
 pub const rand = @import("rand.zig");
@@ -64,6 +66,7 @@ test "std" {
     // run tests from these
     _ = @import("array_list.zig");
     _ = @import("atomic.zig");
+    _ = @import("bloom_filter.zig");
     _ = @import("buf_map.zig");
     _ = @import("buf_set.zig");
     _ = @import("buffer.zig");
