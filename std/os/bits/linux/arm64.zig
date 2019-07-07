@@ -331,12 +331,35 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub const AT_FDCWD = -100;
-pub const AT_SYMLINK_NOFOLLOW = 0x100;
-pub const AT_REMOVEDIR = 0x200;
-pub const AT_SYMLINK_FOLLOW = 0x400;
-pub const AT_NO_AUTOMOUNT = 0x800;
-pub const AT_EMPTY_PATH = 0x1000;
+/// stack-like segment
+pub const MAP_GROWSDOWN = 0x0100;
+
+/// ETXTBSY
+pub const MAP_DENYWRITE = 0x0800;
+
+/// mark it as an executable
+pub const MAP_EXECUTABLE = 0x1000;
+
+/// pages are locked
+pub const MAP_LOCKED = 0x2000;
+
+/// don't check for reservations
+pub const MAP_NORESERVE = 0x4000;
+
+/// populate (prefault) pagetables
+pub const MAP_POPULATE = 0x8000;
+
+/// do not block on IO
+pub const MAP_NONBLOCK = 0x10000;
+
+/// give out an address that is best suited for process/thread stacks
+pub const MAP_STACK = 0x20000;
+
+/// create a huge page mapping
+pub const MAP_HUGETLB = 0x40000;
+
+/// perform synchronous page faults for the mapping
+pub const MAP_SYNC = 0x80000;
 
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";

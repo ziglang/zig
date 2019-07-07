@@ -1,8 +1,11 @@
 const std = @import("../std.zig");
+const maxInt = std.math.maxInt;
 usingnamespace std.c;
 
 extern "c" fn __errno_location() *c_int;
 pub const _errno = __errno_location;
+
+pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) c_int;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
