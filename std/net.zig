@@ -61,7 +61,11 @@ pub const Address = struct {
             sys.AF_INET6 => {
                 const in6 = @ptrCast(system.sockaddr_in, &self.os_addr);
                 const native_endian_port = std.mem.endianSwapIfLe(u16, in6.port);
-                return std.fmt.format(context, FmtError, output, "[TODO render ip6 address]:{}", native_endian_port);
+                return switch (mem.readIntBig(u128, &in6.addr)) {
+                    0 => std.fmt.format(context, FmtError, output, "[::]:{}", native_endian_port),
+                    1 => std.fmt.format(context, FmtError, output, "[::1]:{}", native_endian_port),
+                    else => std.fmt.format(context, FmtError, output, "[TODO render ip6 address]:{}", native_endian_port),
+                };
             },
             else => return std.fmt.format(context, FmtError, output, "(unrecognized address family)"),
         }

@@ -786,6 +786,12 @@ pub const sockaddr = extern union {
     in6: sockaddr_in6,
 };
 
+pub const sockaddr_storage = extern struct {
+    family: sa_family_t,
+    @"align": usize,
+    pad2: [128 - 2 * @sizeOf(usize)]u8,
+};
+
 pub const sockaddr_in = extern struct {
     family: sa_family_t,
     port: in_port_t,
