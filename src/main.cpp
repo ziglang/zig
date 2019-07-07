@@ -75,6 +75,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
         "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
+        "  -target-glibc [version]      target a specific glibc version (default: 2.17)\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-link               enable compiler debug output for linking\n"

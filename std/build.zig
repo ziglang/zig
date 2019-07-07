@@ -1053,7 +1053,8 @@ pub const LibExeObjStep = struct {
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
-    libc_file: ?[]const u8,
+    libc_file: ?[]const u8 = null,
+    target_glibc: ?Version = null,
 
     const LinkObject = union(enum) {
         StaticPath: []const u8,
@@ -1148,7 +1149,6 @@ pub const LibExeObjStep = struct {
             .single_threaded = false,
             .installed_path = null,
             .install_step = null,
-            .libc_file = null,
         };
         self.computeOutFileNames();
         return self;
@@ -1218,6 +1218,14 @@ pub const LibExeObjStep = struct {
             },
         };
         self.computeOutFileNames();
+    }
+
+    pub fn setTargetGLibC(self: *LibExeObjStep, major: u32, minor: u32, patch: u32) void {
+        self.target_glibc = Version{
+            .major = major,
+            .minor = minor,
+            .patch = patch,
+        };
     }
 
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
@@ -1579,6 +1587,11 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-target");
                 try zig_args.append(cross_target.zigTriple(builder.allocator));
             },
+        }
+
+        if (self.target_glibc) |ver| {
+            try zig_args.append("-target-glibc");
+            try zig_args.append(builder.fmt("{}.{}.{}", ver.major, ver.minor, ver.patch));
         }
 
         if (self.linker_script) |linker_script| {
