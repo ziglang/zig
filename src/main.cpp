@@ -1015,6 +1015,10 @@ int main(int argc, char **argv) {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
         codegen_set_strip(g, strip);
+        for (size_t i = 0; i < link_libs.length; i += 1) {
+            LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
+            link_lib->provided_explicitly = true;
+        }
         g->subsystem = subsystem;
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;

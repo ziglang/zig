@@ -7920,6 +7920,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
+            "pub const Version = struct {\n"
+            "    major: u32,\n"
+            "    minor: u32,\n"
+            "    patch: u32,\n"
+            "};\n\n");
+    }
+    {
+        buf_appendf(contents,
         "pub const SubSystem = enum {\n"
         "    Console,\n"
         "    Windows,\n"
@@ -7949,6 +7957,15 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
+    if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {
+        buf_appendf(contents,
+            "pub const glibc_version: ?Version = Version{.major = %d, .minor = %d, .patch = %d};\n",
+                g->zig_target->glibc_version->major,
+                g->zig_target->glibc_version->minor,
+                g->zig_target->glibc_version->patch);
+    } else {
+        buf_appendf(contents, "pub const glibc_version: ?Version = null;\n");
+    }
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
@@ -8005,6 +8022,11 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
+    if (g->zig_target->glibc_version != nullptr) {
+        cache_int(&cache_hash, g->zig_target->glibc_version->major);
+        cache_int(&cache_hash, g->zig_target->glibc_version->minor);
+        cache_int(&cache_hash, g->zig_target->glibc_version->patch);
+    }
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
@@ -9465,6 +9487,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
+    if (g->zig_target->glibc_version != nullptr) {
+        cache_int(ch, g->zig_target->glibc_version->major);
+        cache_int(ch, g->zig_target->glibc_version->minor);
+        cache_int(ch, g->zig_target->glibc_version->patch);
+    }
     cache_int(ch, detect_subsystem(g));
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);

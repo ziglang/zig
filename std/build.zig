@@ -1011,7 +1011,8 @@ pub const LibExeObjStep = struct {
     builder: *Builder,
     name: []const u8,
     target: Target,
-    linker_script: ?[]const u8,
+    linker_script: ?[]const u8 = null,
+    version_script: ?[]const u8 = null,
     out_filename: []const u8,
     is_dynamic: bool,
     version: Version,
@@ -1118,7 +1119,6 @@ pub const LibExeObjStep = struct {
             .root_src = root_src,
             .name = name,
             .target = Target.Native,
-            .linker_script = null,
             .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .version = ver,
@@ -1596,7 +1596,12 @@ pub const LibExeObjStep = struct {
 
         if (self.linker_script) |linker_script| {
             zig_args.append("--linker-script") catch unreachable;
-            zig_args.append(linker_script) catch unreachable;
+            zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
+        }
+
+        if (self.version_script) |version_script| {
+            try zig_args.append("--version-script");
+            try zig_args.append(builder.pathFromRoot(version_script));
         }
 
         if (self.exec_cmd_args) |exec_cmd_args| {
