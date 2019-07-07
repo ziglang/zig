@@ -1961,7 +1961,7 @@ pub fn mmap(
 ) MMapError![]align(mem.page_size) u8 {
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
-        if (rc != MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
+        if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
         break :blk @intCast(usize, system._errno().*);
     } else blk: {
         const rc = system.mmap(ptr, length, prot, flags, fd, offset);
