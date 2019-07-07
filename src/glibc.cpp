@@ -201,9 +201,6 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
     if ((err = os_file_exists(test_if_exists_path, &hit)))
         return err;
 
-    // TODO this is for debugging
-    fprintf(stderr, "dummy so dir: %s\n", buf_ptr(dummy_dir));
-
     if (hit) {
         *out_dir = dummy_dir;
         return ErrorNone;
