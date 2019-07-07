@@ -1,5 +1,10 @@
 // x86-64-specific declarations that are intended to be imported into the POSIX namespace.
 const std = @import("../../../std.zig");
+const pid_t = linux.pid_t;
+const uid_t = linux.uid_t;
+const clock_t = linux.clock_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 
 const linux = std.os.linux;
 const sockaddr = linux.sockaddr;
@@ -407,6 +412,30 @@ pub const ARCH_SET_FS = 0x1002;
 pub const ARCH_GET_FS = 0x1003;
 pub const ARCH_GET_GS = 0x1004;
 
+pub const REG_R8 = 0;
+pub const REG_R9 = 1;
+pub const REG_R10 = 2;
+pub const REG_R11 = 3;
+pub const REG_R12 = 4;
+pub const REG_R13 = 5;
+pub const REG_R14 = 6;
+pub const REG_R15 = 7;
+pub const REG_RDI = 8;
+pub const REG_RSI = 9;
+pub const REG_RBP = 10;
+pub const REG_RBX = 11;
+pub const REG_RDX = 12;
+pub const REG_RAX = 13;
+pub const REG_RCX = 14;
+pub const REG_RSP = 15;
+pub const REG_RIP = 16;
+pub const REG_EFL = 17;
+pub const REG_CSGSFS = 18;
+pub const REG_ERR = 19;
+pub const REG_TRAPNO = 20;
+pub const REG_OLDMASK = 21;
+pub const REG_CR2 = 22;
+
 pub const msghdr = extern struct {
     msg_name: ?*sockaddr,
     msg_namelen: socklen_t,
@@ -468,3 +497,129 @@ pub const timezone = extern struct {
 };
 
 pub const Elf_Symndx = u32;
+
+pub const sigval = extern union {
+    int: i32,
+    ptr: *c_void,
+};
+
+pub const siginfo_t = extern struct {
+    signo: i32,
+    errno: i32,
+    code: i32,
+    fields: extern union {
+        pad: [128 - 2 * @sizeOf(c_int) - @sizeOf(c_long)]u8,
+        common: extern struct {
+            first: extern union {
+                piduid: extern struct {
+                    pid: pid_t,
+                    uid: uid_t,
+                },
+                timer: extern struct {
+                    timerid: i32,
+                    overrun: i32,
+                },
+            },
+            second: extern union {
+                value: sigval,
+                sigchld: extern struct {
+                    status: i32,
+                    utime: clock_t,
+                    stime: clock_t,
+                },
+            },
+        },
+        sigfault: extern struct {
+            addr: *c_void,
+            addr_lsb: i16,
+            first: extern union {
+                addr_bnd: extern struct {
+                    lower: *c_void,
+                    upper: *c_void,
+                },
+                pkey: u32,
+            },
+        },
+        sigpoll: extern struct {
+            band: isize,
+            fd: i32,
+        },
+        sigsys: extern struct {
+            call_addr: *c_void,
+            syscall: i32,
+            arch: u32,
+        },
+    },
+};
+
+pub const greg_t = usize;
+pub const gregset_t = [23]greg_t;
+pub const fpstate = extern struct {
+    cwd: u16,
+    swd: u16,
+    ftw: u16,
+    fop: u16,
+    rip: usize,
+    rdp: usize,
+    mxcsr: u32,
+    mxcr_mask: u32,
+    st: [8]extern struct {
+        significand: [4]u16,
+        exponent: u16,
+        padding: [3]u16 = undefined,
+    },
+    xmm: [16]extern struct {
+        element: [4]u32,
+    },
+    padding: [24]u32 = undefined,
+};
+pub const fpregset_t = *fpstate;
+pub const sigcontext = extern struct {
+    r8: usize,
+    r9: usize,
+    r10: usize,
+    r11: usize,
+    r12: usize,
+    r13: usize,
+    r14: usize,
+    r15: usize,
+
+    rdi: usize,
+    rsi: usize,
+    rbp: usize,
+    rbx: usize,
+    rdx: usize,
+    rax: usize,
+    rcx: usize,
+    rsp: usize,
+    rip: usize,
+    eflags: usize,
+
+    cs: u16,
+    gs: u16,
+    fs: u16,
+    pad0: u16 = undefined,
+
+    err: usize,
+    trapno: usize,
+    oldmask: usize,
+    cr2: usize,
+
+    fpstate: *fpstate,
+    reserved1: [8]usize = undefined,
+};
+
+pub const mcontext_t = extern struct {
+    gregs: gregset_t,
+    fpregs: fpregset_t,
+    reserved1: [8]usize = undefined,
+};
+
+pub const ucontext_t = extern struct {
+    flags: usize,
+    link: *ucontext_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+    sigmask: sigset_t,
+    fpregs_mem: [64]usize,
+};

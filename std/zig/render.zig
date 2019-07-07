@@ -108,14 +108,15 @@ fn renderRoot(
                         Token.Id.LineComment => {},
                         Token.Id.Eof => {
                             const start = tree.tokens.at(start_token_index + 1).start;
-                            try stream.write(tree.source[start..]);
+                            try copyFixingWhitespace(stream, tree.source[start..]);
                             return;
                         },
                         else => continue,
                     }
                     if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(end_token)[2..], " "), "zig fmt: on")) {
                         const start = tree.tokens.at(start_token_index + 1).start;
-                        try stream.print("{}\n", tree.source[start..end_token.end]);
+                        try copyFixingWhitespace(stream, tree.source[start..end_token.end]);
+                        try stream.writeByte('\n');
                         while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
                             decl = (it.next() orelse return).*;
                         }
@@ -1468,9 +1469,12 @@ fn renderExpression(
 
             try renderExpression(allocator, stream, tree, indent, start_col, if_node.condition, Space.None); // condition
 
+            const body_is_if_block = if_node.body.id == ast.Node.Id.If;
             const body_is_block = nodeIsBlock(if_node.body);
 
-            if (body_is_block) {
+            if (body_is_if_block) {
+                try renderExtraNewline(tree, stream, start_col, if_node.body);
+            } else if (body_is_block) {
                 const after_rparen_space = if (if_node.payload == null) Space.BlockStart else Space.Space;
                 try renderToken(tree, stream, rparen, indent, start_col, after_rparen_space); // )
 
@@ -1898,7 +1902,7 @@ fn renderTokenOffset(
             return renderToken(tree, stream, token_index + 1, indent, start_col, Space.Newline);
         },
         else => {
-            if (tree.tokens.at(token_index + 2).id == Token.Id.MultilineStringLiteralLine) {
+            if (token_index + 2 < tree.tokens.len and tree.tokens.at(token_index + 2).id == Token.Id.MultilineStringLiteralLine) {
                 try stream.write(",");
                 return;
             } else {
@@ -2121,3 +2125,11 @@ const FindByteOutStream = struct {
         };
     }
 };
+
+fn copyFixingWhitespace(stream: var, slice: []const u8) @typeOf(stream).Child.Error!void {
+    for (slice) |byte| switch (byte) {
+        '\t' => try stream.write("    "),
+        '\r' => {},
+        else => try stream.writeByte(byte),
+    };
+}

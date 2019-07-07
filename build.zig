@@ -11,6 +11,7 @@ const io = std.io;
 const fs = std.fs;
 
 pub fn build(b: *Builder) !void {
+    b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");

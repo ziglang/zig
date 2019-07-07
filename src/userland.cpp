@@ -26,6 +26,8 @@ void stage2_zen(const char **ptr, size_t *len) {
     stage2_panic(msg, strlen(msg));
 }
 
+void stage2_attach_segfault_handler(void) { }
+
 void stage2_panic(const char *ptr, size_t len) {
     fwrite(ptr, 1, len, stderr);
     fprintf(stderr, "\n");

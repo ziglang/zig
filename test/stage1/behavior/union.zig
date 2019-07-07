@@ -416,9 +416,44 @@ test "return union init with void payload" {
             two: u32,
         };
         fn func() Outer {
-            return Outer{ .state = State{ .one = {} }};
+            return Outer{ .state = State{ .one = {} } };
         }
     };
     S.entry();
     comptime S.entry();
+}
+
+test "@unionInit can modify a union type" {
+    const UnionInitEnum = union(enum) {
+        Boolean: bool,
+        Byte: u8,
+    };
+
+    var value: UnionInitEnum = undefined;
+
+    value = @unionInit(UnionInitEnum, "Boolean", true);
+    expect(value.Boolean == true);
+    value.Boolean = false;
+    expect(value.Boolean == false);
+
+    value = @unionInit(UnionInitEnum, "Byte", 2);
+    expect(value.Byte == 2);
+    value.Byte = 3;
+    expect(value.Byte == 3);
+}
+
+test "@unionInit can modify a pointer value" {
+    const UnionInitEnum = union(enum) {
+        Boolean: bool,
+        Byte: u8,
+    };
+
+    var value: UnionInitEnum = undefined;
+    var value_ptr = &value;
+
+    value_ptr.* = @unionInit(UnionInitEnum, "Boolean", true);
+    expect(value.Boolean == true);
+
+    value_ptr.* = @unionInit(UnionInitEnum, "Byte", 2);
+    expect(value.Byte == 2);
 }

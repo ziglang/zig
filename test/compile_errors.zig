@@ -3,6 +3,33 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "capture group on switch prong with incompatible payload types",
+        \\const Union = union(enum) {
+        \\    A: usize,
+        \\    B: isize,
+        \\};
+        \\comptime {
+        \\    var u = Union{ .A = 8 };
+        \\    switch (u) {
+        \\        .A, .B => |e| unreachable,
+        \\    }
+        \\}
+    ,
+        "tmp.zig:8:20: error: capture group with incompatible types",
+        "tmp.zig:8:9: note: type 'usize' here",
+        "tmp.zig:8:13: note: type 'isize' here",
+    );
+
+    cases.add(
+        "wrong type to @hasField",
+        \\export fn entry() bool {
+        \\    return @hasField(i32, "hi");
+        \\}
+    ,
+        "tmp.zig:2:22: error: type 'i32' does not support @hasField",
+    );
+
+    cases.add(
         "slice passed as array init type with elems",
         \\export fn entry() void {
         \\    const x = []u8{1, 2};
@@ -1137,6 +1164,22 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:4:5: error: no-inline call of inline function",
+    );
+
+    cases.add(
+        "comptime continue inside runtime catch",
+        \\export fn entry(c: bool) void {
+        \\    const ints = [_]u8{ 1, 2 };
+        \\    inline for (ints) |_| {
+        \\        bad() catch |_| continue;
+        \\    }
+        \\}
+        \\fn bad() !void {
+        \\    return error.Bad;
+        \\}
+    ,
+        "tmp.zig:4:25: error: comptime control flow inside runtime block",
+        "tmp.zig:4:15: note: runtime block created here",
     );
 
     cases.add(
@@ -5369,6 +5412,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             "   true\r\n" ++
             "}\r\n",
         "tmp.zig:1:17: error: invalid carriage return, only '\\n' line endings are supported",
+    );
+
+    cases.add(
+        "invalid legacy unicode escape",
+        \\export fn entry() void {
+        \\    const a = '\U1234';
+        \\}
+    ,
+        "tmp.zig:2:17: error: invalid character: 'U'",
+    );
+
+    cases.add(
+        "invalid empty unicode escape",
+        \\export fn entry() void {
+        \\    const a = '\u{}';
+        \\}
+    ,
+        "tmp.zig:2:19: error: empty unicode escape sequence",
     );
 
     cases.add(

@@ -10,7 +10,9 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     @setCold(true);
     switch (builtin.os) {
         .freestanding => {
-            while (true) {}
+            while (true) {
+                @breakpoint();
+            }
         },
         .wasi => {
             std.debug.warn("{}", msg);
