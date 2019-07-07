@@ -331,13 +331,6 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub const AT_FDCWD = -100;
-pub const AT_SYMLINK_NOFOLLOW = 0x100;
-pub const AT_REMOVEDIR = 0x200;
-pub const AT_SYMLINK_FOLLOW = 0x400;
-pub const AT_NO_AUTOMOUNT = 0x800;
-pub const AT_EMPTY_PATH = 0x1000;
-
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";

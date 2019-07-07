@@ -22,6 +22,36 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
+/// Special value used to indicate openat should use the current working directory
+pub const AT_FDCWD = 100;
+
+/// Do not follow symbolic links
+pub const AT_SYMLINK_NOFOLLOW = 0x100;
+
+/// Remove directory instead of unlinking file
+pub const AT_REMOVEDIR = 0x200;
+
+/// Follow symbolic links.
+pub const AT_SYMLINK_FOLLOW = 0x400;
+
+/// Suppress terminal automount traversal
+pub const AT_NO_AUTOMOUNT = 0x800;
+
+/// Allow empty relative pathname
+pub const AT_EMPTY_PATH = 0x1000;
+
+/// Type of synchronisation required from statx()
+pub const AT_STATX_SYNC_TYPE = 0x6000;
+
+/// - Do whatever stat() does
+pub const AT_STATX_SYNC_AS_STAT = 0x0000;
+
+/// - Force the attributes to be sync'd with the server
+pub const AT_STATX_FORCE_SYNC = 0x2000;
+
+/// - Don't sync attributes with the server
+pub const AT_STATX_DONT_SYNC = 0x4000;
+
 pub const FUTEX_WAIT = 0;
 pub const FUTEX_WAKE = 1;
 pub const FUTEX_FD = 2;
