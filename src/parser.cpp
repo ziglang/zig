@@ -1519,7 +1519,6 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / IDENTIFIER
 //      / IfTypeExpr
 //      / INTEGER
-//      / KEYWORD_anyerror
 //      / KEYWORD_comptime TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
 //      / KEYWORD_false
@@ -1613,10 +1612,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         res->data.int_literal.bigint = &int_lit->data.int_lit.bigint;
         return res;
     }
-
-    Token *error_type = eat_token_if(pc, TokenIdKeywordAnyerror);
-    if (error_type != nullptr)
-        return ast_create_node(pc, NodeTypeErrorType, error_type);
 
     Token *comptime = eat_token_if(pc, TokenIdKeywordCompTime);
     if (comptime != nullptr) {
