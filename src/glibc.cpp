@@ -352,7 +352,6 @@ bool eql_glibc_target(const ZigTarget *a, const ZigTarget *b) {
 
 #ifdef ZIG_OS_LINUX
 #include <unistd.h>
-#include <linux/limits.h>
 Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver) {
     Buf *self_libc_path = get_self_libc_path();
     if (self_libc_path == nullptr) {
@@ -365,7 +364,7 @@ Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver) {
         return ErrorUnknownABI;
     }
     Buf *link_name = buf_alloc();
-    buf_resize(link_name, PATH_MAX);
+    buf_resize(link_name, 4096);
     ssize_t amt = readlink(buf_ptr(self_libc_path), buf_ptr(link_name), buf_len(link_name));
     if (amt == -1) {
         return ErrorUnknownABI;
