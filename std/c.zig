@@ -21,6 +21,33 @@ pub fn getErrno(rc: var) u16 {
     }
 }
 
+/// The return type is `type` to force comptime function call execution.
+/// TODO: https://github.com/ziglang/zig/issues/425
+/// If not linking libc, returns struct{pub const ok = false;}
+/// If linking musl libc, returns struct{pub const ok = true;}
+/// If linking gnu libc (glibc), the `ok` value will be true if the target
+/// version is greater than or equal to `glibc_version`.
+/// If linking a libc other than these, returns `false`.
+pub fn versionCheck(glibc_version: builtin.Version) type {
+    return struct {
+        pub const ok = blk: {
+            if (!builtin.link_libc) break :blk false;
+            switch (builtin.abi) {
+                .musl, .musleabi, .musleabihf => break :blk true,
+                .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => {
+                    const ver = builtin.glibc_version orelse break :blk false;
+                    if (ver.major < glibc_version.major) break :blk false;
+                    if (ver.major > glibc_version.major) break :blk true;
+                    if (ver.minor < glibc_version.minor) break :blk false;
+                    if (ver.minor > glibc_version.minor) break :blk true;
+                    break :blk ver.patch >= glibc_version.patch;
+                },
+                else => break :blk false,
+            }
+        };
+    };
+}
+
 // TODO https://github.com/ziglang/zig/issues/265 on this whole file
 
 pub extern "c" fn fopen(filename: [*]const u8, modes: [*]const u8) ?*FILE;

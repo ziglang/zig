@@ -11191,7 +11191,7 @@ static IrBasicBlock *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlock *old_bb,
 }
 
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
-    assert(!old_bb->suspended);
+    ir_assert(!old_bb->suspended, old_bb->instruction_list.at(0));
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;

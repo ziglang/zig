@@ -105,14 +105,18 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
     }
     if (linux.is_the_target) {
         while (true) {
-            // Bypass libc because it's missing on even relatively new versions.
-            switch (linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0))) {
+            const err = if (std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok) blk: {
+                break :blk errno(std.c.getrandom(buf.ptr, buf.len, 0));
+            } else blk: {
+                break :blk linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0));
+            };
+            switch (err) {
                 0 => return,
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 EINTR => continue,
                 ENOSYS => return getRandomBytesDevURandom(buf),
-                else => |err| return unexpectedErrno(err),
+                else => return unexpectedErrno(err),
             }
         }
     }
