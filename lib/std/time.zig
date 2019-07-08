@@ -81,6 +81,315 @@ pub fn localtime(allocator: std.mem.Allocator) LocalTimeError!TimeZone {
     }
 }
 
+/// ISO 8601 compliant date representation.
+pub const Date = struct {
+    /// milliseconds, range 0 to 999
+    millisecond: u16,
+
+    /// seconds, range 0 to 60
+    second: u8,
+
+    /// minutes, range 0 to 59
+    minute: u8,
+
+    /// hours, range 0 to 23
+    hour: u8,
+
+    /// day of the month, range 1 to 31
+    day: u8,
+
+    /// day of the year, range 1 to 366
+    year_day: u16,
+
+    /// day of the week, enum Monday to Sunday
+    week_day: Weekday,
+
+    /// month, enum January to December
+    month: Month,
+
+    /// year, year 0000 is equal to 1 BCE
+    year: i32,
+
+    pub const Weekday = enum(u3) {
+        monday = 1,
+        tuesday = 2,
+        wednesday = 3,
+        thursday = 4,
+        friday = 5,
+        saturday = 6,
+        sunday = 7,
+
+        pub const names = [_][]const u8{
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        };
+    };
+
+    pub const Month = enum(u4) {
+        january = 1,
+        february = 2,
+        march = 3,
+        april = 4,
+        may = 5,
+        june = 6,
+        july = 7,
+        august = 8,
+        september = 9,
+        october = 10,
+        november = 11,
+        december = 12,
+
+        pub const names = [_][]const u8{
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        };
+    };
+
+    /// Get current date in the system's local time.
+    pub fn now(allocator: std.mem.Allocator) LocalTimeError!Date {
+        const utc_timestamp = timestamp();
+
+        var sf = std.heap.stackFallback(4096, allocator);
+        var tz = try localtime(sf.allocator());
+        defer tz.deinit(sf.allocator());
+
+        return fromTimestamp(tz.project(utc_timestamp));
+    }
+
+    /// Convert timestamp in milliseconds to a Date.
+    pub fn fromTimestamp(milliseconds: i64) Date {
+        // Ported from musl, which is licensed under the MIT license:
+        // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+
+        const days_in_month = [12]i8{ 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29 };
+        // 2000-03-01 (mod 400 year, immediately after feb29
+        const leapoch = 946684800 + 86400 * (31 + 29);
+        const days_per_400y = 365 * 400 + 97;
+        const days_per_100y = 365 * 100 + 24;
+        const days_per_4y = 365 * 4 + 1;
+
+        const seconds = @divTrunc(milliseconds, 1000) - leapoch;
+        var days = @divTrunc(seconds, 86400);
+        var rem_seconds = @as(i32, @truncate(@rem(seconds, 86400)));
+        if (rem_seconds < 0) {
+            rem_seconds += 86400;
+            days -= 1;
+        }
+
+        var week_day = @rem((3 + days), 7);
+        if (week_day < 0) {
+            week_day += 7;
+        }
+
+        var qc_cycles = @divTrunc(days, days_per_400y);
+        var rem_days = @as(i32, @intCast(@rem(days, days_per_400y)));
+        if (rem_days < 0) {
+            rem_days += days_per_400y;
+            qc_cycles -= 1;
+        }
+
+        var c_cycles = @divTrunc(rem_days, days_per_100y);
+        if (c_cycles == 4) {
+            c_cycles -= 1;
+        }
+        rem_days -= c_cycles * days_per_100y;
+
+        var q_cycles = @divTrunc(rem_days, days_per_4y);
+        if (q_cycles == 25) {
+            q_cycles -= 1;
+        }
+        rem_days -= q_cycles * days_per_4y;
+
+        var rem_years = @divTrunc(rem_days, 365);
+        if (rem_years == 4) {
+            rem_years -= 1;
+        }
+        rem_days -= rem_years * 365;
+
+        const leap: i32 = if (rem_years == 0 and (q_cycles != 0 or c_cycles == 0)) 1 else 0;
+        var year_day = rem_days + 31 + 28 + leap;
+        if (year_day >= 365 + leap) {
+            year_day -= 365 + leap;
+        }
+
+        var years = rem_years + 4 * q_cycles + 100 * c_cycles + 400 * qc_cycles;
+
+        var months: i32 = 0;
+        while (days_in_month[@as(usize, @intCast(months))] <= rem_days) : (months += 1) {
+            rem_days -= days_in_month[@as(usize, @intCast(months))];
+        }
+
+        if (months >= 10) {
+            months -= 12;
+            years += 1;
+        }
+
+        return .{
+            .year = @intCast(years + 2000),
+            .month = @enumFromInt(months + 3),
+            .day = @intCast(rem_days + 1),
+            .year_day = @intCast(year_day + 1),
+            .week_day = @enumFromInt(week_day),
+            .hour = @intCast(@divTrunc(rem_seconds, 3600)),
+            .minute = @intCast(@rem(@divTrunc(rem_seconds, 60), 60)),
+            .second = @intCast(@rem(rem_seconds, 60)),
+            .millisecond = @intCast(@rem(milliseconds, 1000)),
+        };
+    }
+
+    /// Compare two `Date`s.
+    pub fn order(self: Date, other: Date) std.math.Order {
+        var ord = std.math.order(self.year, other.year);
+        if (ord != .eq) return ord;
+
+        ord = std.math.order(self.year_day, other.year_day);
+        if (ord != .eq) return ord;
+
+        ord = std.math.order(self.hour, other.hour);
+        if (ord != .eq) return ord;
+
+        ord = std.math.order(self.minute, other.minute);
+        if (ord != .eq) return ord;
+
+        ord = std.math.order(self.second, other.second);
+        if (ord != .eq) return ord;
+
+        return std.math.order(self.millisecond, other.millisecond);
+    }
+
+    pub const default_fmt = "%Y-%m-%dT%H%c%M%c%S";
+
+    /// %a Abbreviated weekday name (Sun)
+    /// %A Full weekday name (Sunday)
+    /// %b Abbreviated month name (Mar)
+    /// %B Full month name (March)
+    /// %c A colon ':'
+    /// %d Day of the month (01-31)
+    /// %H Hour in 24h format (00-23)
+    /// %I Hour in 12h format (01-12)
+    /// %j Day of the Year (001-366)
+    /// %m Month as a decimal number (01-12)
+    /// %M Minute (00-59)
+    /// %p AM or PM designation
+    /// %s Millisecond 891
+    /// %S Second (00-60)
+    /// %y Year, last two digits (00-99)
+    /// %Y Year
+    /// %% A % sign
+    pub fn format(
+        date: Date,
+        comptime user_fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        const fmt = if (user_fmt.len != 0) user_fmt else default_fmt;
+
+        comptime var fmt_char = false;
+        comptime var begin = 0;
+
+        inline for (fmt, 0..) |c, i| {
+            if (c == '%' and !fmt_char) {
+                fmt_char = true;
+                const other = fmt[begin..i];
+                if (other.len > 0) {
+                    try writer.writeAll(other);
+                }
+                begin = i + 2;
+                continue;
+            } else if (!fmt_char) {
+                continue;
+            }
+            fmt_char = false;
+
+            switch (c) {
+                'a' => try writer.writeAll(Weekday.names[@intFromEnum(date.week_day) - 1][0..3]),
+                'A' => try writer.writeAll(Weekday.names[@intFromEnum(date.week_day) - 1]),
+                'b' => try writer.writeAll(Month.names[@intFromEnum(date.month) - 1][0..3]),
+                'B' => try writer.writeAll(Month.names[@intFromEnum(date.month) - 1]),
+                'c' => try writer.writeAll(":"),
+                'm' => try std.fmt.formatInt(@intFromEnum(date.month), 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                'd' => try std.fmt.formatInt(date.day, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                'Y' => try std.fmt.formatInt(date.year, 10, .lower, .{ .width = 0, .fill = '0' }, writer),
+                'y' => try std.fmt.formatInt(@as(u32, @intCast(@mod(date.year, 100))), 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                'I' => {
+                    var h = date.hour;
+                    if (h > 12) {
+                        h -= 12;
+                    } else if (h == 0) {
+                        h = 12;
+                    }
+                    try std.fmt.formatInt(h, 10, .lower, .{ .width = 2, .fill = '0' }, writer);
+                },
+                'H' => try std.fmt.formatInt(date.hour, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                'M' => try std.fmt.formatInt(date.minute, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                'S' => try std.fmt.formatInt(date.second, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
+                's' => try std.fmt.formatInt(date.millisecond, 10, .lower, .{ .width = 3, .fill = '0' }, writer),
+                'j' => try std.fmt.formatInt(date.year_day, 10, .lower, .{ .width = 3, .fill = '0' }, writer),
+                'p' => if (date.hour < 12) {
+                    try writer.writeAll("AM");
+                } else {
+                    try writer.writeAll("PM");
+                },
+                '%' => {
+                    try writer.writeAll("%");
+                    begin = i + 1;
+                },
+                else => @compileError("Unknown format character: " ++ [_]u8{fmt[i]}),
+            }
+        }
+        if (fmt_char) {
+            @compileError("Incomplete format string: " ++ fmt);
+        }
+        const remaining = fmt[begin..];
+        if (remaining.len > 0) {
+            try writer.writeAll(remaining);
+        }
+    }
+};
+
+test Date {
+    const date = Date.fromTimestamp(1560870105000);
+
+    try testing.expect(date.millisecond == 0);
+    try testing.expect(date.second == 45);
+    try testing.expect(date.minute == 1);
+    try testing.expect(date.hour == 15);
+    try testing.expect(date.day == 18);
+    try testing.expect(date.year_day == 169);
+    try testing.expect(date.week_day == .tuesday);
+    try testing.expect(date.month == .june);
+    try testing.expect(date.year == 2019);
+}
+
+test "Date.format all" {
+    const date = Date.fromTimestamp(1560816105000);
+    var buf: [100]u8 = undefined;
+    const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{date});
+    try testing.expectEqualStrings("Tue Tuesday Jun June 06 18 19 2019 12 AM 00:01:45.000 169 %", result);
+}
+
+test "Date.format no format" {
+    const date = Date.fromTimestamp(1560870105000);
+    var buf: [100]u8 = undefined;
+    const result = try std.fmt.bufPrint(&buf, "{}", .{date});
+    try testing.expectEqualStrings("2019-06-18T15:01:45", result);
+}
+
 test "sleep" {
     sleep(1);
 }
