@@ -1040,6 +1040,7 @@ pub const LibExeObjStep = struct {
     root_src: ?[]const u8,
     out_h_filename: []const u8,
     out_lib_filename: []const u8,
+    out_pdb_filename: []const u8,
     packages: ArrayList(Pkg),
     build_options_contents: std.Buffer,
     system_linker_hack: bool,
@@ -1125,6 +1126,7 @@ pub const LibExeObjStep = struct {
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
             .out_lib_filename = undefined,
+            .out_pdb_filename = builder.fmt("{}.pdb", name),
             .major_only_filename = undefined,
             .name_only_filename = undefined,
             .packages = ArrayList(Pkg).init(builder.allocator),
@@ -1364,6 +1366,16 @@ pub const LibExeObjStep = struct {
         return fs.path.join(
             self.builder.allocator,
             [_][]const u8{ self.output_dir.?, self.out_h_filename },
+        ) catch unreachable;
+    }
+
+    /// Unless setOutputDir was called, this function must be called only in
+    /// the make step, from a step that has declared a dependency on this one.
+    pub fn getOutputPdbPath(self: *LibExeObjStep) []const u8 {
+        assert(self.target.isWindows());
+        return fs.path.join(
+            self.builder.allocator,
+            [_][]const u8{ self.output_dir.?, self.out_pdb_filename },
         ) catch unreachable;
     }
 
@@ -1831,6 +1843,7 @@ const InstallArtifactStep = struct {
     builder: *Builder,
     artifact: *LibExeObjStep,
     dest_dir: InstallDir,
+    pdb_dir: ?InstallDir,
 
     const Self = @This();
 
@@ -1848,6 +1861,13 @@ const InstallArtifactStep = struct {
                 .Exe => InstallDir.Bin,
                 .Lib => InstallDir.Lib,
             },
+            .pdb_dir = if (artifact.target.isWindows() and !artifact.strip) blk: {
+                if (artifact.kind == .Exe) {
+                    break :blk InstallDir.Bin;
+                } else {
+                    break :blk InstallDir.Lib;
+                }
+            } else null,
         };
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
@@ -1856,6 +1876,9 @@ const InstallArtifactStep = struct {
         if (self.artifact.isDynamicLibrary()) {
             builder.pushInstalledFile(.Lib, artifact.major_only_filename);
             builder.pushInstalledFile(.Lib, artifact.name_only_filename);
+        }
+        if (self.pdb_dir) |pdb_dir| {
+            builder.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
         }
         return self;
     }
@@ -1877,6 +1900,10 @@ const InstallArtifactStep = struct {
         try builder.copyFileMode(self.artifact.getOutputPath(), full_dest_path, mode);
         if (self.artifact.isDynamicLibrary()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
+        }
+        if (self.pdb_dir) |pdb_dir| {
+            const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
+            try builder.copyFile(self.artifact.getOutputPdbPath(), full_pdb_path);
         }
         self.artifact.installed_path = full_dest_path;
     }
