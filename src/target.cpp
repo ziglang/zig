@@ -492,6 +492,9 @@ Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
 }
 
 void get_native_target(ZigTarget *target) {
+    // first zero initialize
+    *target = {};
+
     ZigLLVM_OSType os_type;
     ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
     ZigLLVMGetNativeTarget(
@@ -506,7 +509,6 @@ void get_native_target(ZigTarget *target) {
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
-    target->glibc_version = nullptr;
     if (target_is_glibc(target)) {
         target->glibc_version = allocate<ZigGLibCVersion>(1);
         *target->glibc_version = {2, 17, 0};
@@ -703,6 +705,10 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
 
 Error target_parse_triple(ZigTarget *target, const char *triple) {
     Error err;
+
+    // first initialize all to zero
+    *target = {};
+
     SplitIterator it = memSplit(str(triple), str("-"));
 
     Optional<Slice<uint8_t>> opt_archsub = SplitIterator_next(&it);
@@ -732,9 +738,6 @@ Error target_parse_triple(ZigTarget *target, const char *triple) {
     } else {
         target->abi = target_default_abi(target->arch, target->os);
     }
-
-    target->vendor = ZigLLVM_UnknownVendor;
-    target->is_native = false;
     return ErrorNone;
 }
 
