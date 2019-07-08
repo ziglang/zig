@@ -106,12 +106,22 @@ pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
 
-pub fn getdents(fd: i32, dirp: [*]u8, count: usize) usize {
-    return syscall3(SYS_getdents, @bitCast(usize, isize(fd)), @ptrToInt(dirp), count);
+pub fn getdents(fd: i32, dirp: [*]u8, len: usize) usize {
+    return syscall3(
+        SYS_getdents,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(dirp),
+        std.math.min(len, maxInt(c_int)),
+    );
 }
 
-pub fn getdents64(fd: i32, dirp: [*]u8, count: usize) usize {
-    return syscall3(SYS_getdents64, @bitCast(usize, isize(fd)), @ptrToInt(dirp), count);
+pub fn getdents64(fd: i32, dirp: [*]u8, len: usize) usize {
+    return syscall3(
+        SYS_getdents64,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(dirp),
+        std.math.min(len, maxInt(c_int)),
+    );
 }
 
 pub fn inotify_init1(flags: u32) usize {
