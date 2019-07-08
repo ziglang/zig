@@ -1011,7 +1011,8 @@ pub const LibExeObjStep = struct {
     builder: *Builder,
     name: []const u8,
     target: Target,
-    linker_script: ?[]const u8,
+    linker_script: ?[]const u8 = null,
+    version_script: ?[]const u8 = null,
     out_filename: []const u8,
     is_dynamic: bool,
     version: Version,
@@ -1053,7 +1054,8 @@ pub const LibExeObjStep = struct {
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
 
-    libc_file: ?[]const u8,
+    libc_file: ?[]const u8 = null,
+    target_glibc: ?Version = null,
 
     const LinkObject = union(enum) {
         StaticPath: []const u8,
@@ -1117,7 +1119,6 @@ pub const LibExeObjStep = struct {
             .root_src = root_src,
             .name = name,
             .target = Target.Native,
-            .linker_script = null,
             .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .version = ver,
@@ -1148,7 +1149,6 @@ pub const LibExeObjStep = struct {
             .single_threaded = false,
             .installed_path = null,
             .install_step = null,
-            .libc_file = null,
         };
         self.computeOutFileNames();
         return self;
@@ -1218,6 +1218,14 @@ pub const LibExeObjStep = struct {
             },
         };
         self.computeOutFileNames();
+    }
+
+    pub fn setTargetGLibC(self: *LibExeObjStep, major: u32, minor: u32, patch: u32) void {
+        self.target_glibc = Version{
+            .major = major,
+            .minor = minor,
+            .patch = patch,
+        };
     }
 
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
@@ -1581,9 +1589,19 @@ pub const LibExeObjStep = struct {
             },
         }
 
+        if (self.target_glibc) |ver| {
+            try zig_args.append("-target-glibc");
+            try zig_args.append(builder.fmt("{}.{}.{}", ver.major, ver.minor, ver.patch));
+        }
+
         if (self.linker_script) |linker_script| {
             zig_args.append("--linker-script") catch unreachable;
-            zig_args.append(linker_script) catch unreachable;
+            zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
+        }
+
+        if (self.version_script) |version_script| {
+            try zig_args.append("--version-script");
+            try zig_args.append(builder.pathFromRoot(version_script));
         }
 
         if (self.exec_cmd_args) |exec_cmd_args| {

@@ -10,6 +10,8 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "os.hpp"
+#include "compiler.hpp"
+#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -466,7 +468,33 @@ const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     return ZigLLVMGetEnvironmentTypeName(abi);
 }
 
+Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
+    glibc_ver->major = 2;
+    glibc_ver->minor = 0;
+    glibc_ver->patch = 0;
+    SplitIterator it = memSplit(str(text), str("GLIBC_."));
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorUnknownABI;
+        glibc_ver->major = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->minor = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->patch = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    return ErrorNone;
+}
+
 void get_native_target(ZigTarget *target) {
+    // first zero initialize
+    *target = {};
+
     ZigLLVM_OSType os_type;
     ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
     ZigLLVMGetNativeTarget(
@@ -480,6 +508,16 @@ void get_native_target(ZigTarget *target) {
     target->is_native = true;
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
+    }
+    if (target_is_glibc(target)) {
+        target->glibc_version = allocate<ZigGLibCVersion>(1);
+        *target->glibc_version = {2, 17, 0};
+#ifdef ZIG_OS_LINUX
+        Error err;
+        if ((err = glibc_detect_native_version(target->glibc_version))) {
+            // Fall back to the default version.
+        }
+#endif
     }
 }
 
@@ -667,6 +705,10 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
 
 Error target_parse_triple(ZigTarget *target, const char *triple) {
     Error err;
+
+    // first initialize all to zero
+    *target = {};
+
     SplitIterator it = memSplit(str(triple), str("-"));
 
     Optional<Slice<uint8_t>> opt_archsub = SplitIterator_next(&it);
@@ -696,9 +738,6 @@ Error target_parse_triple(ZigTarget *target, const char *triple) {
     } else {
         target->abi = target_default_abi(target->arch, target->os);
     }
-
-    target->vendor = ZigLLVM_UnknownVendor;
-    target->is_native = false;
     return ErrorNone;
 }
 

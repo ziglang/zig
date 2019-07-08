@@ -421,6 +421,7 @@ set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
@@ -2667,13 +2668,9 @@ set(ZIG_MUSL_SRC_FILES
 )
 
 set(ZIG_LIBC_FILES
-    "dummy/c.zig"
-    "dummy/c/i386.zig"
-    "dummy/c/x86_64.zig"
-    "dummy/dl.zig"
-    "dummy/m.zig"
-    "dummy/pthread.zig"
-    "dummy/rt.zig"
+    "glibc/abi.txt"
+    "glibc/fns.txt"
+    "glibc/vers.txt"
     "glibc/bits/byteswap.h"
     "glibc/bits/endian.h"
     "glibc/bits/floatn-common.h"

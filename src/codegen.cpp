@@ -24,9 +24,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define CACHE_OUT_SUBDIR "o"
-#define CACHE_HASH_SUBDIR "h"
-
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -7923,6 +7920,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     {
         buf_appendf(contents,
+            "pub const Version = struct {\n"
+            "    major: u32,\n"
+            "    minor: u32,\n"
+            "    patch: u32,\n"
+            "};\n\n");
+    }
+    {
+        buf_appendf(contents,
         "pub const SubSystem = enum {\n"
         "    Console,\n"
         "    Windows,\n"
@@ -7952,6 +7957,15 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
+    if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {
+        buf_appendf(contents,
+            "pub const glibc_version: ?Version = Version{.major = %d, .minor = %d, .patch = %d};\n",
+                g->zig_target->glibc_version->major,
+                g->zig_target->glibc_version->minor,
+                g->zig_target->glibc_version->patch);
+    } else {
+        buf_appendf(contents, "pub const glibc_version: ?Version = null;\n");
+    }
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
@@ -8008,6 +8022,11 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
+    if (g->zig_target->glibc_version != nullptr) {
+        cache_int(&cache_hash, g->zig_target->glibc_version->major);
+        cache_int(&cache_hash, g->zig_target->glibc_version->minor);
+        cache_int(&cache_hash, g->zig_target->glibc_version->patch);
+    }
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
@@ -9468,6 +9487,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
+    if (g->zig_target->glibc_version != nullptr) {
+        cache_int(ch, g->zig_target->glibc_version->major);
+        cache_int(ch, g->zig_target->glibc_version->minor);
+        cache_int(ch, g->zig_target->glibc_version->patch);
+    }
     cache_int(ch, detect_subsystem(g));
     cache_bool(ch, g->strip_debug_symbols);
     cache_bool(ch, g->is_test_build);
@@ -9502,6 +9526,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf(ch, &g->libc->kernel32_lib_dir);
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
+    cache_buf_opt(ch, g->version_script_path);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);
@@ -9695,3 +9720,35 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
     }
     return pkg;
 }
+
+CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
+        ZigLibCInstallation *libc)
+{
+    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
+    child_gen->disable_gen_h = true;
+    child_gen->want_stack_check = WantStackCheckDisabled;
+    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
+    child_gen->verbose_ast = parent_gen->verbose_ast;
+    child_gen->verbose_link = parent_gen->verbose_link;
+    child_gen->verbose_ir = parent_gen->verbose_ir;
+    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
+    child_gen->verbose_cimport = parent_gen->verbose_cimport;
+    child_gen->verbose_cc = parent_gen->verbose_cc;
+    child_gen->llvm_argv = parent_gen->llvm_argv;
+    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
+
+    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
+    child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
+    child_gen->valgrind_support = ValgrindSupportDisabled;
+
+    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
+
+    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
+    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
+
+    child_gen->enable_cache = true;
+
+    return child_gen;
+}
+
