@@ -380,10 +380,12 @@ pub const Builder = struct {
         switch (builtin.os) {
             .windows => {},
             else => {
-                const triple = (CrossTarget{
-                    .arch = builtin.arch,
-                    .os = builtin.os,
-                    .abi = builtin.abi,
+                const triple = (Target{
+                    .Cross = CrossTarget{
+                        .arch = builtin.arch,
+                        .os = builtin.os,
+                        .abi = builtin.abi,
+                    },
                 }).linuxTriple(self.allocator);
 
                 // TODO: $ ld --verbose | grep SEARCH_DIR
@@ -505,6 +507,26 @@ pub const Builder = struct {
         self.is_release = mode != .Debug;
         self.release_mode = mode;
         return mode;
+    }
+
+    /// Exposes standard `zig build` options for choosing a target. Pass `null` to support all targets.
+    pub fn standardTargetOptions(self: *Builder, supported_targets: ?[]const Target) Target {
+        if (supported_targets) |target_list| {
+            // TODO detect multiple args and emit an error message
+            // there's probably a better way to collect the target
+            for (target_list) |targ| {
+                const targ_str = targ.zigTriple(self.allocator) catch unreachable;
+                const targ_desc = targ.allocDescription(self.allocator) catch unreachable;
+                const this_targ_opt = self.option(bool, targ_str, targ_desc) orelse false;
+                if (this_targ_opt) {
+                    return targ;
+                }
+            }
+            return Target.Native;
+        } else {
+            const target_str = self.option([]const u8, "target", "the target to build for") orelse return Target.Native;
+            return Target.parse(target_str) catch unreachable; // TODO better error message for bad target
+        }
     }
 
     pub fn addUserInputOption(self: *Builder, name: []const u8, value: []const u8) !bool {
@@ -858,67 +880,193 @@ pub const Builder = struct {
     }
 };
 
-const Version = struct {
+pub const Version = struct {
     major: u32,
     minor: u32,
     patch: u32,
 };
 
-const CrossTarget = struct {
+pub const CrossTarget = struct {
     arch: builtin.Arch,
     os: builtin.Os,
     abi: builtin.Abi,
-
-    pub fn zigTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}{}-{}-{}",
-            @tagName(cross_target.arch),
-            Target.archSubArchName(cross_target.arch),
-            @tagName(cross_target.os),
-            @tagName(cross_target.abi),
-        ) catch unreachable;
-    }
-
-    pub fn linuxTriple(cross_target: CrossTarget, allocator: *Allocator) []u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}-{}-{}",
-            @tagName(cross_target.arch),
-            @tagName(cross_target.os),
-            @tagName(cross_target.abi),
-        ) catch unreachable;
-    }
 };
 
 pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 
+    pub fn zigTriple(self: Target, allocator: *Allocator) ![]u8 {
+        return std.fmt.allocPrint(
+            allocator,
+            "{}{}-{}-{}",
+            @tagName(self.getArch()),
+            Target.archSubArchName(self.getArch()),
+            @tagName(self.getOs()),
+            @tagName(self.getAbi()),
+        );
+    }
+
+    pub fn allocDescription(self: Target, allocator: *Allocator) ![]u8 {
+        // TODO is there anything else worthy of the description that is not
+        // already captured in the triple?
+        return self.zigTriple(allocator);
+    }
+
+    pub fn zigTripleNoSubArch(self: Target, allocator: *Allocator) ![]u8 {
+        return std.fmt.allocPrint(
+            allocator,
+            "{}-{}-{}",
+            @tagName(self.getArch()),
+            @tagName(self.getOs()),
+            @tagName(self.getAbi()),
+        );
+    }
+
+    pub fn linuxTriple(self: Target, allocator: *Allocator) ![]u8 {
+        return std.fmt.allocPrint(
+            allocator,
+            "{}-{}-{}",
+            @tagName(self.getArch()),
+            @tagName(self.getOs()),
+            @tagName(self.getAbi()),
+        );
+    }
+
+    pub fn parse(text: []const u8) !Target {
+        var it = mem.separate(text, "-");
+        const arch_name = it.next() orelse return error.MissingArchitecture;
+        const os_name = it.next() orelse return error.MissingOperatingSystem;
+        const abi_name = it.next();
+
+        var cross = CrossTarget{
+            .arch = try parseArchSub(arch_name),
+            .os = try parseOs(os_name),
+            .abi = undefined,
+        };
+        cross.abi = if (abi_name) |n| try parseAbi(n) else defaultAbi(cross.arch, cross.os);
+        return Target{ .Cross = cross };
+    }
+
+    pub fn defaultAbi(arch: builtin.Arch, target_os: builtin.Os) builtin.Abi {
+        switch (arch) {
+            .wasm32, .wasm64 => return .musl,
+            else => {},
+        }
+        switch (target_os) {
+            .freestanding,
+            .ananas,
+            .cloudabi,
+            .dragonfly,
+            .lv2,
+            .solaris,
+            .haiku,
+            .minix,
+            .rtems,
+            .nacl,
+            .cnk,
+            .aix,
+            .cuda,
+            .nvcl,
+            .amdhsa,
+            .ps4,
+            .elfiamcu,
+            .mesa3d,
+            .contiki,
+            .amdpal,
+            .zen,
+            .hermit,
+            => return .eabi,
+            .openbsd,
+            .macosx,
+            .freebsd,
+            .ios,
+            .tvos,
+            .watchos,
+            .fuchsia,
+            .kfreebsd,
+            .netbsd,
+            .hurd,
+            => return .gnu,
+            .windows,
+            .uefi,
+            => return .msvc,
+            .linux,
+            .wasi,
+            => return .musl,
+        }
+    }
+
+    pub const ParseArchSubError = error{
+        UnknownArchitecture,
+        UnknownSubArchitecture,
+    };
+
+    pub fn parseArchSub(text: []const u8) ParseArchSubError!builtin.Arch {
+        const info = @typeInfo(builtin.Arch);
+        inline for (info.Union.fields) |field| {
+            if (mem.eql(u8, text, field.name)) {
+                if (field.field_type == void) {
+                    return (builtin.Arch)(@field(builtin.Arch, field.name));
+                } else {
+                    const sub_info = @typeInfo(field.field_type);
+                    inline for (sub_info.Enum.fields) |sub_field| {
+                        const combined = field.name ++ sub_field.name;
+                        if (mem.eql(u8, text, combined)) {
+                            return @unionInit(builtin.Arch, field.name, @field(field.field_type, sub_field.name));
+                        }
+                    }
+                    return error.UnknownSubArchitecture;
+                }
+            }
+        }
+        return error.UnknownArchitecture;
+    }
+
+    pub fn parseOs(text: []const u8) !builtin.Os {
+        const info = @typeInfo(builtin.Os);
+        inline for (info.Enum.fields) |field| {
+            if (mem.eql(u8, text, field.name)) {
+                return @field(builtin.Os, field.name);
+            }
+        }
+        return error.UnknownOperatingSystem;
+    }
+
+    pub fn parseAbi(text: []const u8) !builtin.Abi {
+        const info = @typeInfo(builtin.Abi);
+        inline for (info.Enum.fields) |field| {
+            if (mem.eql(u8, text, field.name)) {
+                return @field(builtin.Abi, field.name);
+            }
+        }
+        return error.UnknownApplicationBinaryInterface;
+    }
+
     fn archSubArchName(arch: builtin.Arch) []const u8 {
         return switch (arch) {
-            builtin.Arch.arm => |sub| @tagName(sub),
-            builtin.Arch.armeb => |sub| @tagName(sub),
-            builtin.Arch.thumb => |sub| @tagName(sub),
-            builtin.Arch.thumbeb => |sub| @tagName(sub),
-            builtin.Arch.aarch64 => |sub| @tagName(sub),
-            builtin.Arch.aarch64_be => |sub| @tagName(sub),
-            builtin.Arch.kalimba => |sub| @tagName(sub),
+            .arm => |sub| @tagName(sub),
+            .armeb => |sub| @tagName(sub),
+            .thumb => |sub| @tagName(sub),
+            .thumbeb => |sub| @tagName(sub),
+            .aarch64 => |sub| @tagName(sub),
+            .aarch64_be => |sub| @tagName(sub),
+            .kalimba => |sub| @tagName(sub),
             else => "",
         };
     }
 
     pub fn subArchName(self: Target) []const u8 {
         switch (self) {
-            Target.Native => return archSubArchName(builtin.arch),
-            Target.Cross => |cross| return archSubArchName(cross.arch),
+            .Native => return archSubArchName(builtin.arch),
+            .Cross => |cross| return archSubArchName(cross.arch),
         }
     }
 
     pub fn oFileExt(self: Target) []const u8 {
         const abi = switch (self) {
-            Target.Native => builtin.abi,
-            Target.Cross => |t| t.abi,
+            .Native => builtin.abi,
+            .Cross => |t| t.abi,
         };
         return switch (abi) {
             builtin.Abi.msvc => ".obj",
@@ -942,15 +1090,22 @@ pub const Target = union(enum) {
 
     pub fn getOs(self: Target) builtin.Os {
         return switch (self) {
-            Target.Native => builtin.os,
-            Target.Cross => |t| t.os,
+            .Native => builtin.os,
+            .Cross => |t| t.os,
         };
     }
 
     pub fn getArch(self: Target) builtin.Arch {
         switch (self) {
-            Target.Native => return builtin.arch,
-            Target.Cross => |t| return t.arch,
+            .Native => return builtin.arch,
+            .Cross => |t| return t.arch,
+        }
+    }
+
+    pub fn getAbi(self: Target) builtin.Abi {
+        switch (self) {
+            .Native => return builtin.abi,
+            .Cross => |t| return t.abi,
         }
     }
 
@@ -1206,19 +1361,24 @@ pub const LibExeObjStep = struct {
         }
     }
 
+    /// Deprecated. Use `setTheTarget`.
     pub fn setTarget(
         self: *LibExeObjStep,
         target_arch: builtin.Arch,
         target_os: builtin.Os,
         target_abi: builtin.Abi,
     ) void {
-        self.target = Target{
+        return self.setTheTarget(Target{
             .Cross = CrossTarget{
                 .arch = target_arch,
                 .os = target_os,
                 .abi = target_abi,
             },
-        };
+        });
+    }
+
+    pub fn setTheTarget(self: *LibExeObjStep, target: Target) void {
+        self.target = target;
         self.computeOutFileNames();
     }
 
@@ -1595,9 +1755,9 @@ pub const LibExeObjStep = struct {
 
         switch (self.target) {
             Target.Native => {},
-            Target.Cross => |cross_target| {
+            Target.Cross => {
                 try zig_args.append("-target");
-                try zig_args.append(cross_target.zigTriple(builder.allocator));
+                try zig_args.append(self.target.zigTriple(builder.allocator) catch unreachable);
             },
         }
 
