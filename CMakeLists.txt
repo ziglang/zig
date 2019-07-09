@@ -36,6 +36,11 @@ endif()
 message("Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
+set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
+
+if(ZIG_STATIC)
+    set(ZIG_STATIC_LLVM "on")
+endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED "${ZIG_LIBC_STATIC_LIB_DIR}")
