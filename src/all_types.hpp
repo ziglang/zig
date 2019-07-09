@@ -958,6 +958,7 @@ struct AstNode {
     enum NodeType type;
     size_t line;
     size_t column;
+    char *filename;
     ZigType *owner;
     union {
         AstNodeFnDef fn_def;
