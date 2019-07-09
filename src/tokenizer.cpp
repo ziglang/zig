@@ -233,8 +233,9 @@ struct Tokenize {
     size_t pos;
     TokenizeState state;
     ZigList<Token> *tokens;
-    int line;
-    int column;
+    size_t line;
+    size_t column;
+    char *filename;
     Token *cur_tok;
     Tokenization *out;
     uint32_t radix;
@@ -283,6 +284,7 @@ static void begin_token(Tokenize *t, TokenId id) {
     token->start_line = t->line;
     token->start_column = t->column;
     token->start_pos = t->pos;
+    token->filename = t->filename;
 
     set_token_id(t, token, id);
 
@@ -399,11 +401,12 @@ static void invalid_char_error(Tokenize *t, uint8_t c) {
     tokenize_error(t, "invalid character: '\\x%02x'", c);
 }
 
-void tokenize(Buf *buf, Tokenization *out) {
+void tokenize(Buf *buf, Tokenization *out, char *source_filename) {
     Tokenize t = {0};
     t.out = out;
     t.tokens = out->tokens = allocate<ZigList<Token>>(1);
     t.buf = buf;
+    t.filename = source_filename;
 
     out->line_offsets = allocate<ZigList<size_t>>(1);
 

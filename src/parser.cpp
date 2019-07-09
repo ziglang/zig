@@ -165,6 +165,7 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
     AstNode *node = ast_create_node_no_line_info(pc, type);
     node->line = first_token->start_line;
     node->column = first_token->start_column;
+    node->filename = first_token->filename;
     return node;
 }
 
@@ -173,6 +174,7 @@ static AstNode *ast_create_node_copy_line_info(ParseContext *pc, NodeType type, 
     AstNode *node = ast_create_node_no_line_info(pc, type);
     node->line = from->line;
     node->column = from->column;
+    node->filename = from->filename;
     return node;
 }
 
