@@ -570,6 +570,96 @@ static const char *build_musl(CodeGen *parent) {
     return buf_ptr(&child_gen->output_file_path);
 }
 
+static const char *msvcrt_common_src[] = {
+    "misc" OS_SEP "onexit_table.c",
+    "misc" OS_SEP "register_tls_atexit.c",
+    "stdio" OS_SEP "acrt_iob_func.c",
+    "misc" OS_SEP "_configthreadlocale.c",
+    "misc" OS_SEP "_get_current_locale.c",
+    "misc" OS_SEP "invalid_parameter_handler.c",
+    "misc" OS_SEP "output_format.c",
+    "misc" OS_SEP "purecall.c",
+    "secapi" OS_SEP "_access_s.c",
+    "secapi" OS_SEP "_cgets_s.c",
+    "secapi" OS_SEP "_cgetws_s.c",
+    "secapi" OS_SEP "_chsize_s.c",
+    "secapi" OS_SEP "_controlfp_s.c",
+    "secapi" OS_SEP "_cprintf_s.c",
+    "secapi" OS_SEP "_cprintf_s_l.c",
+    "secapi" OS_SEP "_ctime32_s.c",
+    "secapi" OS_SEP "_ctime64_s.c",
+    "secapi" OS_SEP "_cwprintf_s.c",
+    "secapi" OS_SEP "_cwprintf_s_l.c",
+    "secapi" OS_SEP "_gmtime32_s.c",
+    "secapi" OS_SEP "_gmtime64_s.c",
+    "secapi" OS_SEP "_localtime32_s.c",
+    "secapi" OS_SEP "_localtime64_s.c",
+    "secapi" OS_SEP "_mktemp_s.c",
+    "secapi" OS_SEP "_sopen_s.c",
+    "secapi" OS_SEP "_strdate_s.c",
+    "secapi" OS_SEP "_strtime_s.c",
+    "secapi" OS_SEP "_umask_s.c",
+    "secapi" OS_SEP "_vcprintf_s.c",
+    "secapi" OS_SEP "_vcprintf_s_l.c",
+    "secapi" OS_SEP "_vcwprintf_s.c",
+    "secapi" OS_SEP "_vcwprintf_s_l.c",
+    "secapi" OS_SEP "_vscprintf_p.c",
+    "secapi" OS_SEP "_vscwprintf_p.c",
+    "secapi" OS_SEP "_vswprintf_p.c",
+    "secapi" OS_SEP "_waccess_s.c",
+    "secapi" OS_SEP "_wasctime_s.c",
+    "secapi" OS_SEP "_wctime32_s.c",
+    "secapi" OS_SEP "_wctime64_s.c",
+    "secapi" OS_SEP "_wstrtime_s.c",
+    "secapi" OS_SEP "_wmktemp_s.c",
+    "secapi" OS_SEP "_wstrdate_s.c",
+    "secapi" OS_SEP "asctime_s.c",
+    "secapi" OS_SEP "memcpy_s.c",
+    "secapi" OS_SEP "memmove_s.c",
+    "secapi" OS_SEP "rand_s.c",
+    "secapi" OS_SEP "sprintf_s.c",
+    "secapi" OS_SEP "strerror_s.c",
+    "secapi" OS_SEP "vsprintf_s.c",
+    "secapi" OS_SEP "wmemcpy_s.c",
+    "secapi" OS_SEP "wmemmove_s.c",
+    "stdio" OS_SEP "mingw_lock.c",
+};
+
+static const char *msvcrt_i386_src[] = {
+    "misc" OS_SEP "lc_locale_func.c",
+
+};
+
+static const char *msvcrt_other_src[] = {
+    "misc" OS_SEP "__p___argv.c",
+    "misc" OS_SEP "__p__acmdln.c",
+    "misc" OS_SEP "__p__fmode.c",
+    "misc" OS_SEP "__p__wcmdln.c",
+};
+
+static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
+    CFile *c_file = allocate<CFile>(1);
+    c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), src_path));
+    c_file->args.append("-DHAVE_CONFIG_H");
+    c_file->args.append("-D__LIBMSVCRT__");
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include" OS_SEP));
+
+    c_file->args.append("-std=gnu99");
+    c_file->args.append("-D_CRTBLD");
+    c_file->args.append("-D_WIN32_WINNT=0x0f00");
+    c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+
+    c_file->args.append("-isystem");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+    c_file->args.append("-g");
+    c_file->args.append("-O2");
+
+    child_gen->c_source_files.append(c_file);
+}
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
@@ -648,6 +738,24 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-O2");
 
                 child_gen->c_source_files.append(c_file);
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else if (strcmp(file, "msvcrt-os.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("msvcrt-os"));
+
+            for (size_t i = 0; i < array_length(msvcrt_common_src); i += 1) {
+                add_msvcrt_os_dep(parent, child_gen, msvcrt_common_src[i]);
+            }
+            if (parent->zig_target->arch == ZigLLVM_x86) {
+                for (size_t i = 0; i < array_length(msvcrt_i386_src); i += 1) {
+                    add_msvcrt_os_dep(parent, child_gen, msvcrt_i386_src[i]);
+                }
+            } else {
+                for (size_t i = 0; i < array_length(msvcrt_other_src); i += 1) {
+                    add_msvcrt_os_dep(parent, child_gen, msvcrt_other_src[i]);
+                }
             }
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
@@ -853,6 +961,7 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
     }
 
     child_gen->function_sections = true;
+    child_gen->want_stack_check = WantStackCheckDisabled;
 
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
@@ -1446,7 +1555,9 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         }
 
         lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
+        lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
         lj->args.append(get_def_lib(g, "msvcrt", "mingw" OS_SEP "lib-common" OS_SEP "msvcrt.def.in"));
+        lj->args.append(get_def_lib(g, "kernel32", "mingw" OS_SEP "lib-common" OS_SEP "kernel32.def.in"));
     } else {
         if (is_dll) {
             lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
