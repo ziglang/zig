@@ -1504,18 +1504,28 @@ struct AvailableLibC {
 static const AvailableLibC libcs_available[] = {
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
+    {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
+    {ZigLLVM_aarch64, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_armeb, OsWindows, ZigLLVM_GNU},
+    {ZigLLVM_armeb, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_arm, OsWindows, ZigLLVM_GNU},
+    {ZigLLVM_arm, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_x86, OsWindows, ZigLLVM_MSVC},
+    {ZigLLVM_x86, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABI64},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABIN32},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_Musl},
@@ -1543,6 +1553,8 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_x86_64, OsWindows, ZigLLVM_MSVC},
+    {ZigLLVM_x86_64, OsWindows, ZigLLVM_GNU},
 };
 
 bool target_can_build_libc(const ZigTarget *target) {
@@ -1558,6 +1570,9 @@ bool target_can_build_libc(const ZigTarget *target) {
 }
 
 const char *target_libc_generic_name(const ZigTarget *target) {
+    if (target->os == OsWindows) {
+        return "mingw";
+    }
     switch (target->abi) {
         case ZigLLVM_GNU:
         case ZigLLVM_GNUABIN32:

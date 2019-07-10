@@ -1,0 +1,140 @@
+/*
+ * Copyright 2017 Ihsan Akmal
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "dxgi1_3.idl";
+
+typedef enum DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG
+{
+    DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT = 0x1,
+    DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_OVERLAY_PRESENT = 0x2,
+} DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG;
+
+typedef enum DXGI_OVERLAY_COLOR_SPACE_SUPPORT_FLAG
+{
+    DXGI_OVERLAY_COLOR_SPACE_SUPPORT_FLAG_PRESENT = 0x1,
+} DXGI_OVERLAY_COLOR_SPACE_SUPPORT_FLAG;
+
+typedef enum DXGI_MEMORY_SEGMENT_GROUP
+{
+    DXGI_MEMORY_SEGMENT_GROUP_LOCAL = 0x0,
+    DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL = 0x1,
+} DXGI_MEMORY_SEGMENT_GROUP;
+
+typedef struct DXGI_QUERY_VIDEO_MEMORY_INFO
+{
+    UINT64 Budget;
+    UINT64 CurrentUsage;
+    UINT64 AvailableForReservation;
+    UINT64 CurrentReservation;
+} DXGI_QUERY_VIDEO_MEMORY_INFO;
+
+[
+    object,
+    uuid(94d99bdb-f1f8-4ab0-b236-7da0170edab1),
+    local,
+    pointer_default(unique)
+]
+interface IDXGISwapChain3 : IDXGISwapChain2
+{
+    UINT GetCurrentBackBufferIndex();
+    HRESULT CheckColorSpaceSupport(
+        [in] DXGI_COLOR_SPACE_TYPE colour_space,
+        [out] UINT *colour_space_support
+    );
+    HRESULT SetColorSpace1(
+        [in] DXGI_COLOR_SPACE_TYPE colour_space
+    );
+    HRESULT ResizeBuffers1(
+        [in] UINT buffer_count,
+        [in] UINT width,
+        [in] UINT height,
+        [in] DXGI_FORMAT format,
+        [in] UINT flags,
+        [in] const UINT *node_mask,
+        [in] IUnknown *const *present_queue
+    );
+}
+
+[
+    object,
+    uuid(dc7dca35-2196-414d-9F53-617884032a60),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIOutput4 : IDXGIOutput3
+{
+    HRESULT CheckOverlayColorSpaceSupport(
+        [in] DXGI_FORMAT format,
+        [in] DXGI_COLOR_SPACE_TYPE colour_space,
+        [in] IUnknown *device,
+        [out] UINT *flags
+    );
+}
+
+[
+    object,
+    uuid(1bc6ea02-ef36-464f-bf0c-21ca39e5168a),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIFactory4 : IDXGIFactory3
+{
+    HRESULT EnumAdapterByLuid(
+        [in] LUID luid,
+        [in] REFIID iid,
+        [out] void **adapter
+    );
+    HRESULT EnumWarpAdapter(
+        [in] REFIID iid,
+        [out] void **adapter
+    );
+}
+
+[
+    object,
+    uuid(645967a4-1392-4310-a798-8053ce3e93fd),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIAdapter3 : IDXGIAdapter2
+{
+    HRESULT RegisterHardwareContentProtectionTeardownStatusEvent(
+        [in] HANDLE event,
+        [out] DWORD *cookie
+    );
+    void UnregisterHardwareContentProtectionTeardownStatus(
+        [in] DWORD cookie
+    );
+    HRESULT QueryVideoMemoryInfo(
+        [in] UINT node_index,
+        [in] DXGI_MEMORY_SEGMENT_GROUP segment_group,
+        [out] DXGI_QUERY_VIDEO_MEMORY_INFO *memory_info
+    );
+    HRESULT SetVideoMemoryReservation(
+        [in] UINT node_index,
+        [in] DXGI_MEMORY_SEGMENT_GROUP segment_group,
+        [in] UINT64 reservation
+    );
+    HRESULT RegisterVideoMemoryBudgetChangeNotificationEvent(
+        [in] HANDLE event,
+        [out] DWORD *cookie
+    );
+    void UnregisterVideoMemoryBudgetChangeNotification(
+        [in] DWORD cookie
+    );
+}

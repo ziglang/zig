@@ -1,0 +1,157 @@
+/*
+ * Copyright 2010 Jacek Caban for CodeWeavers
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "oaidl.idl";
+import "ocidl.idl";
+
+cpp_quote("#ifndef _D3D10_1_CONSTANTS")
+cpp_quote("#define _D3D10_1_CONSTANTS")
+const UINT D3D10_1_DEFAULT_SAMPLE_MASK                     = 0xffffffff;
+const UINT D3D10_1_GS_INPUT_REGISTER_COUNT                 = 32;
+const UINT D3D10_1_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT     = 32;
+const UINT D3D10_1_IA_VERTEX_INPUT_STRUCTURE_ELEMENTS_COMPONENTS = 128;
+const UINT D3D10_1_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT = 32;
+const UINT D3D10_1_PS_OUTPUT_MASK_REGISTER_COMPONENTS      = 1;
+const UINT D3D10_1_PS_OUTPUT_MASK_REGISTER_COMPONENT_BIT_COUNT = 32;
+const UINT D3D10_1_PS_OUTPUT_MASK_REGISTER_COUNT           = 1;
+const UINT D3D10_1_SHADER_MAJOR_VERSION                    = 4;
+const UINT D3D10_1_SHADER_MINOR_VERSION                    = 1;
+const UINT D3D10_1_SO_BUFFER_MAX_STRIDE_IN_BYTES           = 2048;
+const UINT D3D10_1_SO_BUFFER_MAX_WRITE_WINDOW_IN_BYTES     = 256;
+const UINT D3D10_1_SO_BUFFER_SLOT_COUNT                    = 4;
+const UINT D3D10_1_SO_MULTIPLE_BUFFER_ELEMENTS_PER_BUFFER  = 1;
+const UINT D3D10_1_SO_SINGLE_BUFFER_COMPONENT_LIMIT        = 64;
+const UINT D3D10_1_STANDARD_VERTEX_ELEMENT_COUNT           = 32;
+const UINT D3D10_1_SUBPIXEL_FRACTIONAL_BIT_COUNT           = 8;
+const UINT D3D10_1_VS_INPUT_REGISTER_COUNT                 = 32;
+const UINT D3D10_1_VS_OUTPUT_REGISTER_COUNT                = 32;
+cpp_quote("#endif")
+
+cpp_quote("#define D3D10_1_FLOAT16_FUSED_TOLERANCE_IN_ULP      (0.6)")
+cpp_quote("#define D3D10_1_FLOAT32_TO_INTEGER_TOLERANCE_IN_ULP (0.6f)")
+
+import "d3d10.idl";
+cpp_quote("#include <d3d10_1shader.h>")
+
+
+typedef enum D3D10_FEATURE_LEVEL1
+{
+    D3D10_FEATURE_LEVEL_10_0  = 0xa000,
+    D3D10_FEATURE_LEVEL_10_1  = 0xa100,
+    D3D10_FEATURE_LEVEL_9_1   = 0x9100,
+    D3D10_FEATURE_LEVEL_9_2   = 0x9200,
+    D3D10_FEATURE_LEVEL_9_3   = 0x9300
+} D3D10_FEATURE_LEVEL1;
+
+typedef struct D3D10_RENDER_TARGET_BLEND_DESC1
+{
+    BOOL BlendEnable;
+    D3D10_BLEND SrcBlend;
+    D3D10_BLEND DestBlend;
+    D3D10_BLEND_OP BlendOp;
+    D3D10_BLEND SrcBlendAlpha;
+    D3D10_BLEND DestBlendAlpha;
+    D3D10_BLEND_OP BlendOpAlpha;
+    UINT8 RenderTargetWriteMask;
+} D3D10_RENDER_TARGET_BLEND_DESC1;
+
+typedef struct D3D10_BLEND_DESC1
+{
+    BOOL AlphaToCoverageEnable;
+    BOOL IndependentBlendEnable;
+    D3D10_RENDER_TARGET_BLEND_DESC1 RenderTarget[D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT];
+} D3D10_BLEND_DESC1;
+
+[
+    uuid(edad8d99-8a35-4d6d-8566-2ea276cde161),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D10BlendState1 : ID3D10BlendState
+{
+    void GetDesc1([out] D3D10_BLEND_DESC1 *pDesc);
+}
+
+typedef struct D3D10_TEXCUBE_ARRAY_SRV1
+{
+    UINT MostDetailedMip;
+    UINT MipLevels;
+    UINT First2DArrayFace;
+    UINT NumCubes;
+} D3D10_TEXCUBE_ARRAY_SRV1;
+
+typedef D3D_SRV_DIMENSION D3D10_SRV_DIMENSION1;
+
+typedef struct D3D10_SHADER_RESOURCE_VIEW_DESC1
+{
+    DXGI_FORMAT Format;
+    D3D10_SRV_DIMENSION1  ViewDimension;
+    union {
+        D3D10_BUFFER_SRV Buffer;
+        D3D10_TEX1D_SRV Texture1D;
+        D3D10_TEX1D_ARRAY_SRV Texture1DArray;
+        D3D10_TEX2D_SRV Texture2D;
+        D3D10_TEX2D_ARRAY_SRV Texture2DArray;
+        D3D10_TEX2DMS_SRV Texture2DMS;
+        D3D10_TEX2DMS_ARRAY_SRV Texture2DMSArray;
+        D3D10_TEX3D_SRV Texture3D;
+        D3D10_TEXCUBE_SRV TextureCube;
+        D3D10_TEXCUBE_ARRAY_SRV1 TextureCubeArray;
+    };
+} D3D10_SHADER_RESOURCE_VIEW_DESC1;
+
+[
+    uuid(9b7e4c87-342c-4106-a19f-4f2704f689f0),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D10ShaderResourceView1 : ID3D10ShaderResourceView
+{
+    void GetDesc1([out] D3D10_SHADER_RESOURCE_VIEW_DESC1 *pDesc);
+}
+
+[
+    uuid(9b7e4c8f-342c-4106-a19f-4f2704f689f0),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D10Device1 : ID3D10Device
+{
+    HRESULT CreateShaderResourceView1(
+            [in] ID3D10Resource *pResource,
+            [in, out] const D3D10_SHADER_RESOURCE_VIEW_DESC1 *pDesc,
+            [out] ID3D10ShaderResourceView1 **ppSRView);
+
+    HRESULT CreateBlendState1(
+            [in] const D3D10_BLEND_DESC1 *pBlendStateDesc,
+            [out] ID3D10BlendState1 **ppBlendState);
+
+    D3D10_FEATURE_LEVEL1 GetFeatureLevel();
+}
+
+const UINT D3D10_1_SDK_VERSION = 0x20;
+
+cpp_quote("HRESULT WINAPI D3D10CreateDevice1(IDXGIAdapter*,D3D10_DRIVER_TYPE,")
+cpp_quote("    HMODULE,UINT,D3D10_FEATURE_LEVEL1,UINT,ID3D10Device1**);")
+
+[local] HRESULT __stdcall D3D10CreateDeviceAndSwapChain1(IDXGIAdapter *adapter, enum D3D10_DRIVER_TYPE driver_type,
+        HMODULE swrast, UINT flags, D3D10_FEATURE_LEVEL1 feature_level, UINT sdk_version,
+        DXGI_SWAP_CHAIN_DESC *swapchain_desc, IDXGISwapChain **swapchain, ID3D10Device1 **device);
