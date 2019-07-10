@@ -9698,10 +9698,14 @@ void codegen_build_and_link(CodeGen *g) {
         }
     }
 
+    codegen_release_caches(g);
+    codegen_add_time_event(g, "Done");
+}
+
+void codegen_release_caches(CodeGen *g) {
     while (g->caches_to_release.length != 0) {
         cache_release(g->caches_to_release.pop());
     }
-    codegen_add_time_event(g, "Done");
 }
 
 ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,

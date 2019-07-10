@@ -61,4 +61,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g);
 
 TargetSubsystem detect_subsystem(CodeGen *g);
 
+void codegen_release_caches(CodeGen *codegen);
+
 #endif

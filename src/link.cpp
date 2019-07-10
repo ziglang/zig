@@ -573,17 +573,18 @@ static const char *build_musl(CodeGen *parent) {
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
-        if (strcmp(file, "crt2u.obj") == 0) {
+        if (strcmp(file, "crt2.obj") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(buf_sprintf(
                 "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtexe.c", buf_ptr(parent->zig_lib_dir)));
             mingw_add_cc_args(parent, c_file);
             c_file->args.append("-U__CRTDLL__");
             c_file->args.append("-D__MSVCRT__");
-            c_file->args.append("-DUNICODE");
-            c_file->args.append("-D_UNICODE");
-            c_file->args.append("-DWPRFLAG=1");
-            return build_libc_object(parent, "crt2u", c_file);
+            // Uncomment these 3 things for crtu
+            //c_file->args.append("-DUNICODE");
+            //c_file->args.append("-D_UNICODE");
+            //c_file->args.append("-DWPRFLAG=1");
+            return build_libc_object(parent, "crt2", c_file);
         } else if (strcmp(file, "dllcrt2.obj") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(buf_sprintf(
@@ -592,6 +593,64 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-U__CRTDLL__");
             c_file->args.append("-D__MSVCRT__");
             return build_libc_object(parent, "dllcrt2", c_file);
+        } else if (strcmp(file, "mingw32.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("mingw32"));
+
+            static const char *deps[] = {
+                "mingw" OS_SEP "crt" OS_SEP "crt0_c.c",
+                "mingw" OS_SEP "crt" OS_SEP "dll_argv.c",
+                "mingw" OS_SEP "crt" OS_SEP "gccmain.c",
+                "mingw" OS_SEP "crt" OS_SEP "natstart.c",
+                "mingw" OS_SEP "crt" OS_SEP "pseudo-reloc-list.c",
+                "mingw" OS_SEP "crt" OS_SEP "wildcard.c",
+                "mingw" OS_SEP "crt" OS_SEP "charmax.c",
+                "mingw" OS_SEP "crt" OS_SEP "crt0_w.c",
+                "mingw" OS_SEP "crt" OS_SEP "dllargv.c",
+                "mingw" OS_SEP "crt" OS_SEP "gs_support.c",
+                "mingw" OS_SEP "crt" OS_SEP "_newmode.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlssup.c",
+                "mingw" OS_SEP "crt" OS_SEP "xncommod.c",
+                "mingw" OS_SEP "crt" OS_SEP "cinitexe.c",
+                "mingw" OS_SEP "crt" OS_SEP "merr.c",
+                "mingw" OS_SEP "crt" OS_SEP "pesect.c",
+                "mingw" OS_SEP "crt" OS_SEP "udllargc.c",
+                "mingw" OS_SEP "crt" OS_SEP "xthdloc.c",
+                "mingw" OS_SEP "crt" OS_SEP "CRT_fp10.c",
+                "mingw" OS_SEP "crt" OS_SEP "mingw_helpers.c",
+                "mingw" OS_SEP "crt" OS_SEP "pseudo-reloc.c",
+                "mingw" OS_SEP "crt" OS_SEP "udll_argv.c",
+                "mingw" OS_SEP "crt" OS_SEP "xtxtmode.c",
+                "mingw" OS_SEP "crt" OS_SEP "crt_handler.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsthrd.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsmthread.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsmcrt.c",
+                "mingw" OS_SEP "crt" OS_SEP "cxa_atexit.c",
+            };
+            for (size_t i = 0; i < array_length(deps); i += 1) {
+                CFile *c_file = allocate<CFile>(1);
+                c_file->source_path = path_from_libc(parent, deps[i]);
+                c_file->args.append("-DHAVE_CONFIG_H");
+                c_file->args.append("-D_SYSCRT=1");
+                c_file->args.append("-DCRTDLL=1");
+
+                c_file->args.append("-isystem");
+                c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+                c_file->args.append("-I");
+                c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include" OS_SEP));
+
+                c_file->args.append("-std=gnu99");
+                c_file->args.append("-D_CRTBLD");
+                c_file->args.append("-D_WIN32_WINNT=0x0f00");
+                c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+                c_file->args.append("-g");
+                c_file->args.append("-O2");
+
+                child_gen->c_source_files.append(c_file);
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
         } else {
             zig_unreachable();
         }
@@ -1154,8 +1213,12 @@ static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
         list->append("-MACHINE:X86");
     } else if (g->zig_target->arch == ZigLLVM_x86_64) {
         list->append("-MACHINE:X64");
-    } else if (g->zig_target->arch == ZigLLVM_arm) {
-        list->append("-MACHINE:ARM");
+    } else if (target_is_arm(g->zig_target)) {
+        if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+            list->append("-MACHINE:ARM");
+        } else {
+            list->append("-MACHINE:ARM64");
+        }
     }
 }
 
@@ -1223,8 +1286,149 @@ static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *fi
     return buf_ptr(out_buf);
 }
 
+static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
+    fprintf(stderr, "%s", zig_exe);
+    for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
+        fprintf(stderr, " %s", args->at(arg_i));
+    }
+    fprintf(stderr, "\n");
+}
+
+static const char *get_def_lib(CodeGen *parent, const char *name, const char *def_in_rel_path) {
+    Error err;
+
+    Buf *self_exe_path = buf_alloc();
+    if ((err = os_self_exe_path(self_exe_path))) {
+        fprintf(stderr, "Unable to get self exe path: %s\n", err_str(err));
+        exit(1);
+    }
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id))) {
+        fprintf(stderr, "Unable to get compiler id: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *cache_dir = get_stage1_cache_path();
+    Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
+    Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
+
+    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s", buf_ptr(parent->zig_lib_dir), def_in_rel_path);
+    Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
+            buf_ptr(parent->zig_lib_dir));
+
+    CacheHash *cache_hash = allocate<CacheHash>(1);
+    cache_init(cache_hash, manifest_dir);
+
+    cache_buf(cache_hash, compiler_id);
+    cache_file(cache_hash, def_in_file);
+    cache_buf(cache_hash, def_include_dir);
+    cache_int(cache_hash, parent->zig_target->arch);
+
+    Buf digest = BUF_INIT;
+    buf_resize(&digest, 0);
+    if ((err = cache_hit(cache_hash, &digest))) {
+        if (err != ErrorInvalidFormat) {
+            if (err == ErrorCacheUnavailable) {
+                // already printed error
+            } else {
+                fprintf(stderr, "unable to check cache when processing .def.in file: %s\n", err_str(err));
+            }
+            exit(1);
+        }
+    }
+
+    Buf *artifact_dir;
+    Buf *lib_final_path;
+    Buf *final_lib_basename = buf_sprintf("%s.lib", name);
+
+    bool is_cache_miss = (buf_len(&digest) == 0);
+    if (is_cache_miss) {
+        if ((err = cache_final(cache_hash, &digest))) {
+            fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+            exit(1);
+        }
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        if ((err = os_make_path(artifact_dir))) {
+            fprintf(stderr, "Unable to create output directory '%s': %s",
+                    buf_ptr(artifact_dir), err_str(err));
+            exit(1);
+        }
+        Buf *final_def_basename = buf_sprintf("%s.def", name);
+        Buf *def_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_def_basename, def_final_path);
+
+        ZigList<const char *> args = {};
+        args.append(buf_ptr(self_exe_path));
+        args.append("cc");
+        args.append("-x");
+        args.append("c");
+        args.append(buf_ptr(def_in_file));
+        args.append("-Wp,-w");
+        args.append("-undef");
+        args.append("-P");
+        args.append("-I");
+        args.append(buf_ptr(def_include_dir));
+        if (target_is_arm(parent->zig_target)) {
+            if (target_arch_pointer_bit_width(parent->zig_target->arch) == 32) {
+                args.append("-DDEF_ARM32");
+            } else {
+                args.append("-DDEF_ARM64");
+            }
+        } else if (parent->zig_target->arch == ZigLLVM_x86) {
+            args.append("-DDEF_I386");
+        } else if (parent->zig_target->arch == ZigLLVM_x86_64) {
+            args.append("-DDEF_X64");
+        } else {
+            zig_unreachable();
+        }
+        args.append("-E");
+        args.append("-o");
+        args.append(buf_ptr(def_final_path));
+
+        if (parent->verbose_cc) {
+            print_zig_cc_cmd("zig", &args);
+        }
+        Termination term;
+        os_spawn_process(args, &term);
+        if (term.how != TerminationIdClean || term.code != 0) {
+            fprintf(stderr, "\nThe following command failed:\n");
+            print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+            exit(1);
+        }
+
+        lib_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_lib_basename, lib_final_path);
+
+        args.resize(0);
+        args.append("link");
+        coff_append_machine_arg(parent, &args);
+
+        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_final_path))));
+        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(lib_final_path))));
+
+        Buf diag = BUF_INIT;
+        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(parent->zig_target);
+        if (!zig_lld_link(target_ofmt, args.items, args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+    } else {
+        // cache hit
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        lib_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_lib_basename, lib_final_path);
+    }
+    parent->caches_to_release.append(cache_hash);
+
+    return buf_ptr(lib_final_path);
+}
+
 static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
+
+    lj->args.append("-lldmingw");
 
     bool is_dll = g->out_type == OutTypeLib && g->is_dynamic;
 
@@ -1238,8 +1442,11 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         if (is_dll) {
             lj->args.append(get_libc_crt_file(g, "dllcrt2.obj"));
         } else {
-            lj->args.append(get_libc_crt_file(g, "crt2u.obj"));
+            lj->args.append(get_libc_crt_file(g, "crt2.obj"));
         }
+
+        lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
+        lj->args.append(get_def_lib(g, "msvcrt", "mingw" OS_SEP "lib-common" OS_SEP "msvcrt.def.in"));
     } else {
         if (is_dll) {
             lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
@@ -1388,7 +1595,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     }
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
-        if (!g->is_dummy_so) {
+        if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
             Buf *libc_a_path = build_c(g, OutTypeLib);
             lj->args.append(buf_ptr(libc_a_path));
         }
@@ -1762,10 +1969,12 @@ void codegen_link(CodeGen *g) {
         }
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
+            codegen_release_caches(g);
             exit(1);
         }
     } else if (!zig_lld_link(target_object_format(g->zig_target), lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
+        codegen_release_caches(g);
         exit(1);
     }
 }
