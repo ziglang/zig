@@ -1139,8 +1139,7 @@ static void add_uefi_link_args(LinkJob *lj) {
 static void add_msvc_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
-    // TODO: https://github.com/ziglang/zig/issues/2064
-    bool is_dynamic = true; // g->is_dynamic;
+    bool is_dynamic = g->is_dynamic;
     const char *lib_str = is_dynamic ? "" : "lib";
     const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
@@ -1360,9 +1359,15 @@ static void construct_linker_job_coff(LinkJob *lj) {
                 Buf *lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(lib_name));
             } else {
-                lj->args.append(buf_ptr(link_lib->name));
+				Buf* lib_name = buf_sprintf("%s.lib", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
             }
         } else {
+			//note(dimenus): If we're linking in the CRT we need to link in existing system librarys not generate def/libs 
+			if (lj->link_in_crt) {
+				continue;
+			}
+
             buf_resize(def_contents, 0);
             buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
             for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
@@ -1395,7 +1400,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
             lj->args.append(buf_ptr(generated_lib_path));
         }
     }
-
 }
 
 
