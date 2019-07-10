@@ -2079,6 +2079,29 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
         lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
         lj->args.append(get_def_lib(g, "msvcrt", "mingw" OS_SEP "lib-common" OS_SEP "msvcrt.def.in"));
+
+        if (target_is_arm(g->zig_target)) {
+            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+                lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "libarm32" OS_SEP "setupapi.def"));
+            } else {
+                lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "libarm64" OS_SEP "setupapi.def"));
+            }
+        } else if (g->zig_target->arch == ZigLLVM_x86) {
+            lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "lib32" OS_SEP "setupapi.def"));
+        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+            lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "lib64" OS_SEP "setupapi.def"));
+        } else {
+            zig_unreachable();
+        }
+        lj->args.append(get_def_lib(g, "winmm", "mingw" OS_SEP "lib-common" OS_SEP "winmm.def"));
+        lj->args.append(get_def_lib(g, "gdi32", "mingw" OS_SEP "lib-common" OS_SEP "gdi32.def"));
+        lj->args.append(get_def_lib(g, "imm32", "mingw" OS_SEP "lib-common" OS_SEP "imm32.def"));
+        lj->args.append(get_def_lib(g, "version", "mingw" OS_SEP "lib-common" OS_SEP "version.def"));
+        lj->args.append(get_def_lib(g, "advapi32", "mingw" OS_SEP "lib-common" OS_SEP "advapi32.def.in"));
+        lj->args.append(get_def_lib(g, "oleaut32", "mingw" OS_SEP "lib-common" OS_SEP "oleaut32.def.in"));
+        lj->args.append(get_def_lib(g, "ole32", "mingw" OS_SEP "lib-common" OS_SEP "ole32.def.in"));
+        lj->args.append(get_def_lib(g, "shell32", "mingw" OS_SEP "lib-common" OS_SEP "shell32.def"));
+        lj->args.append(get_def_lib(g, "user32", "mingw" OS_SEP "lib-common" OS_SEP "user32.def.in"));
         lj->args.append(get_def_lib(g, "kernel32", "mingw" OS_SEP "lib-common" OS_SEP "kernel32.def.in"));
     } else {
         if (is_dll) {
@@ -2110,7 +2133,6 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         }
 
         lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
-        lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
         lj->args.append(get_libc_file(g->libc, "libshell32.a"));
         lj->args.append(get_libc_file(g->libc, "libuser32.a"));
         lj->args.append(get_libc_file(g->libc, "libkernel32.a"));
@@ -2119,9 +2141,10 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     }
 }
 
-static void add_win_link_args(LinkJob *lj, bool is_library) {
+static void add_win_link_args(LinkJob *lj, bool is_library, bool *have_windows_dll_import_libs) {
     if (lj->link_in_crt) {
         if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
+            *have_windows_dll_import_libs = true;
             add_mingw_link_args(lj, is_library);
         } else {
             add_msvc_link_args(lj, is_library);
@@ -2185,17 +2208,18 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
+    bool have_windows_dll_import_libs = false;
     switch (detect_subsystem(g)) {
         case TargetSubsystemAuto:
             if (g->zig_target->os == OsUefi) {
                 add_uefi_link_args(lj);
             } else {
-                add_win_link_args(lj, is_library);
+                add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             }
             break;
         case TargetSubsystemConsole:
             lj->args.append("-SUBSYSTEM:console");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemEfiApplication:
             lj->args.append("-SUBSYSTEM:efi_application");
@@ -2215,15 +2239,15 @@ static void construct_linker_job_coff(LinkJob *lj) {
             break;
         case TargetSubsystemNative:
             lj->args.append("-SUBSYSTEM:native");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemPosix:
             lj->args.append("-SUBSYSTEM:posix");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemWindows:
             lj->args.append("-SUBSYSTEM:windows");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
     }
 
@@ -2244,6 +2268,28 @@ static void construct_linker_job_coff(LinkJob *lj) {
         LinkLib *link_lib = g->link_libs_list.at(lib_i);
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
+        }
+        if (have_windows_dll_import_libs) {
+            if (buf_eql_str(link_lib->name, "kernel32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "user32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "shell32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "ole32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "oleaut32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "advapi32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "winmm"))
+                continue;
+            if (buf_eql_str(link_lib->name, "imm32"))
+                continue;
+            if (buf_eql_str(link_lib->name, "version"))
+                continue;
+            if (buf_eql_str(link_lib->name, "setupapi"))
+                continue;
         }
         if (link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
@@ -2602,12 +2648,10 @@ void codegen_link(CodeGen *g) {
         }
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
-            codegen_release_caches(g);
             exit(1);
         }
     } else if (!zig_lld_link(target_object_format(g->zig_target), lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
-        codegen_release_caches(g);
         exit(1);
     }
 }

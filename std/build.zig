@@ -1440,6 +1440,12 @@ pub const LibExeObjStep = struct {
         return self.kind == Kind.Lib and self.is_dynamic;
     }
 
+    pub fn producesPdbFile(self: *LibExeObjStep) bool {
+        if (!self.target.isWindows()) return false;
+        if (self.strip) return false;
+        return self.isDynamicLibrary() or self.kind == .Exe;
+    }
+
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
         self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
         if (!isLibCLibrary(name)) {
@@ -2021,7 +2027,7 @@ const InstallArtifactStep = struct {
                 .Exe => InstallDir.Bin,
                 .Lib => InstallDir.Lib,
             },
-            .pdb_dir = if (artifact.target.isWindows() and !artifact.strip) blk: {
+            .pdb_dir = if (artifact.producesPdbFile()) blk: {
                 if (artifact.kind == .Exe) {
                     break :blk InstallDir.Bin;
                 } else {
