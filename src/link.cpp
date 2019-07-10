@@ -1073,7 +1073,7 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     lj->args.append("-error-limit=0");
 
     if (g->out_type != OutTypeExe) {
-	    lj->args.append("--no-entry"); // So lld doesn't look for _start.
+        lj->args.append("--no-entry"); // So lld doesn't look for _start.
 
         // If there are any C source files we cannot rely on individual exports.
         if (g->c_source_files.length != 0) {
@@ -1354,51 +1354,50 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        if (link_lib->provided_explicitly) {
+
+        //note(dimenus): If we're linking in the CRT or the libs are provided explictly we don't want to generate def/libs
+        if (lj->link_in_crt || link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-                Buf *lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
-                lj->args.append(buf_ptr(lib_name));
-            } else {
-				Buf* lib_name = buf_sprintf("%s.lib", buf_ptr(link_lib->name));
+                Buf* lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(lib_name));
             }
-        } else {
-			//note(dimenus): If we're linking in the CRT we need to link in existing system librarys not generate def/libs 
-			if (lj->link_in_crt) {
-				continue;
-			}
-
-            buf_resize(def_contents, 0);
-            buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-            for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-                Buf *symbol_name = link_lib->symbols.at(exp_i);
-                buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+            else {
+                Buf* lib_name = buf_sprintf("%s.lib", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
             }
-            buf_appendf(def_contents, "\n");
-
-            Buf *def_path = buf_alloc();
-            os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-            if ((err = os_write_file(def_path, def_contents))) {
-                zig_panic("error writing def file: %s", err_str(err));
-            }
-
-            Buf *generated_lib_path = buf_alloc();
-            os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-            gen_lib_args.resize(0);
-            gen_lib_args.append("link");
-
-            coff_append_machine_arg(g, &gen_lib_args);
-            gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-            gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-            Buf diag = BUF_INIT;
-            ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
-            if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
-                fprintf(stderr, "%s\n", buf_ptr(&diag));
-                exit(1);
-            }
-            lj->args.append(buf_ptr(generated_lib_path));
+            continue;
         }
+
+        buf_resize(def_contents, 0);
+        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
+        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
+            Buf *symbol_name = link_lib->symbols.at(exp_i);
+            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+        }
+        buf_appendf(def_contents, "\n");
+
+        Buf *def_path = buf_alloc();
+        os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
+        if ((err = os_write_file(def_path, def_contents))) {
+            zig_panic("error writing def file: %s", err_str(err));
+        }
+
+        Buf *generated_lib_path = buf_alloc();
+        os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
+
+        gen_lib_args.resize(0);
+        gen_lib_args.append("link");
+
+        coff_append_machine_arg(g, &gen_lib_args);
+        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
+        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
+        Buf diag = BUF_INIT;
+        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
+        if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+        lj->args.append(buf_ptr(generated_lib_path));
     }
 }
 
