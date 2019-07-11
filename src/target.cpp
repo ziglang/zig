@@ -1459,8 +1459,8 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsKFreeBSD:
         case OsNetBSD:
         case OsHurd:
-            return ZigLLVM_GNU;
         case OsWindows:
+            return ZigLLVM_GNU;
         case OsUefi:
             return ZigLLVM_MSVC;
         case OsLinux:
@@ -1505,26 +1505,21 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_aarch64, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABIHF},
     {ZigLLVM_armeb, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_armeb, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
     {ZigLLVM_arm, OsWindows, ZigLLVM_GNU},
-    {ZigLLVM_arm, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_x86, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_x86, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABI64},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABIN32},
@@ -1553,7 +1548,6 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_x86_64, OsWindows, ZigLLVM_MSVC},
     {ZigLLVM_x86_64, OsWindows, ZigLLVM_GNU},
 };
 
