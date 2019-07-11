@@ -982,3 +982,17 @@ test "enum literal casting to tagged union" {
         else => @panic("fail"),
     }
 }
+
+test "enum literal casting to optional" {
+    var bar: ?Bar = undefined;
+    bar = .B;
+
+    expect(bar.? == Bar.B);
+}
+
+test "enum literal casting to error union with payload enum" {
+    var bar: error{B}!Bar = undefined;
+    bar = .B; // should never cast to the error set
+
+    expect((try bar) == Bar.B);
+}
