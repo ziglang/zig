@@ -1222,8 +1222,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-isystem");
                 c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
 
-                c_file->args.append("-I");
-                c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include" OS_SEP));
+                c_file->args.append("-isystem");
+                c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include"));
 
                 c_file->args.append("-std=gnu99");
                 c_file->args.append("-D_CRTBLD");
