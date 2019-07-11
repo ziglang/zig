@@ -993,3 +993,17 @@ test "enum with one member and custom tag type" {
     };
     expect(@enumToInt(E2.One) == 2);
 }
+
+test "enum literal casting to optional" {
+    var bar: ?Bar = undefined;
+    bar = .B;
+
+    expect(bar.? == Bar.B);
+}
+
+test "enum literal casting to error union with payload enum" {
+    var bar: error{B}!Bar = undefined;
+    bar = .B; // should never cast to the error set
+
+    expect((try bar) == Bar.B);
+}

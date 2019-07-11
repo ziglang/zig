@@ -12081,6 +12081,29 @@ static bool is_pointery_and_elem_is_not_pointery(ZigType *ty) {
     return false;
 }
 
+static IrInstruction *ir_analyze_enum_literal(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
+        ZigType *enum_type)
+{
+    assert(enum_type->id == ZigTypeIdEnum);
+
+    Error err;
+    if ((err = type_resolve(ira->codegen, enum_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    TypeEnumField *field = find_enum_type_field(enum_type, value->value.data.x_enum_literal);
+    if (field == nullptr) {
+        ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("enum '%s' has no field named '%s'",
+                buf_ptr(&enum_type->name), buf_ptr(value->value.data.x_enum_literal)));
+        add_error_note(ira->codegen, msg, enum_type->data.enumeration.decl_node,
+                buf_sprintf("'%s' declared here", buf_ptr(&enum_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    IrInstruction *result = ir_const(ira, source_instr, enum_type);
+    bigint_init_bigint(&result->value.data.x_enum_tag, &field->value);
+
+    return result;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     ZigType *wanted_type, IrInstruction *value, ResultLoc *result_loc)
 {
@@ -12439,21 +12462,31 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // cast from enum literal to enum with matching field name
-    if (actual_type->id == ZigTypeIdEnumLiteral && wanted_type->id == ZigTypeIdEnum) {
-        if ((err = type_resolve(ira->codegen, wanted_type, ResolveStatusZeroBitsKnown)))
-            return ira->codegen->invalid_instruction;
+    if (actual_type->id == ZigTypeIdEnumLiteral && wanted_type->id == ZigTypeIdEnum)
+    {
+        return ir_analyze_enum_literal(ira, source_instr, value, wanted_type);
+    }
 
-        TypeEnumField *field = find_enum_type_field(wanted_type, value->value.data.x_enum_literal);
-        if (field == nullptr) {
-            ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("enum '%s' has no field named '%s'",
-                    buf_ptr(&wanted_type->name), buf_ptr(value->value.data.x_enum_literal)));
-            add_error_note(ira->codegen, msg, wanted_type->data.enumeration.decl_node,
-                    buf_sprintf("'%s' declared here", buf_ptr(&wanted_type->name)));
-            return ira->codegen->invalid_instruction;
-        }
-        IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        bigint_init_bigint(&result->value.data.x_enum_tag, &field->value);
-        return result;
+    // cast from enum literal to optional enum
+    if (actual_type->id == ZigTypeIdEnumLiteral &&
+        (wanted_type->id == ZigTypeIdOptional && wanted_type->data.maybe.child_type->id == ZigTypeIdEnum))
+    {
+        IrInstruction *result = ir_analyze_enum_literal(ira, source_instr, value, wanted_type->data.maybe.child_type);
+        if (result == ira->codegen->invalid_instruction) 
+            return result;
+
+        return ir_analyze_optional_wrap(ira, result, value, wanted_type, result_loc);
+    }
+
+    // cast from enum literal to error union when payload is an enum
+    if (actual_type->id == ZigTypeIdEnumLiteral &&
+        (wanted_type->id == ZigTypeIdErrorUnion && wanted_type->data.error_union.payload_type->id == ZigTypeIdEnum))
+    {
+        IrInstruction *result = ir_analyze_enum_literal(ira, source_instr, value, wanted_type->data.error_union.payload_type);
+        if (result == ira->codegen->invalid_instruction) 
+            return result;
+        
+        return ir_analyze_err_wrap_payload(ira, result, value, wanted_type, result_loc);
     }
 
     // cast from union to the enum type of the union
