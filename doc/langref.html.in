@@ -2132,8 +2132,8 @@ test "slice widening" {
       {#header_open|struct#}
       {#code_begin|test|structs#}
 // Declare a struct.
-// Zig gives no guarantees about the order of fields and whether or
-// not there will be padding.
+// Zig gives no guarantees about the order of fields and the size of
+// the struct but the fields are guaranteed to be ABI-aligned.
 const Point = struct {
     x: f32,
     y: f32,
