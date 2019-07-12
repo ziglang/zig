@@ -8840,7 +8840,7 @@ set_target_properties(zig0 PROPERTIES
 )
 target_link_libraries(zig0 compiler)
 
-if(WIN32)
+if(MSVC)
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
 else()
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
@@ -8865,9 +8865,7 @@ add_custom_command(
 )
 add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")
-if(MINGW)
-    set(EXE_LDFLAGS "${EXE_LDFLAGS} -fstack-protector")
-endif()
+
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
