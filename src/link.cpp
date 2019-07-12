@@ -1929,18 +1929,6 @@ static void add_msvc_link_args(LinkJob *lj, bool is_library) {
     lj->args.append("ntdll.lib");
 }
 
-static const char *get_libc_file(ZigLibCInstallation *lib, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(&lib->crt_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
-}
-
-static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(&lib->static_crt_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
-}
-
 static void print_zig_cc_cmd(ZigList<const char *> *args) {
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
         const char *space_str = (arg_i == 0) ? "" : " ";
@@ -2104,75 +2092,37 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         lj->args.append("-ALTERNATENAME:__image_base__=__ImageBase");
     }
 
-    if (g->libc == nullptr) {
-        if (is_dll) {
-            lj->args.append(get_libc_crt_file(g, "dllcrt2.o"));
-        } else {
-            lj->args.append(get_libc_crt_file(g, "crt2.o"));
-        }
-
-        lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
-        lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
-        lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
-
-        for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
-            const char *name = mingw_def_list[def_i].name;
-            Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
-            bool always_link = mingw_def_list[def_i].always_link;
-            bool is_this_arch = false;
-            if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
-                is_this_arch = true;
-            } else if (target_is_arm(g->zig_target)) {
-                if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
-                    is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
-                } else {
-                    is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
-                }
-            } else if (g->zig_target->arch == ZigLLVM_x86) {
-                is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
-            } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-                is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
-            }
-            if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
-                lj->args.append(get_def_lib(g, name, path));
-            }
-        }
-
+    if (is_dll) {
+        lj->args.append(get_libc_crt_file(g, "dllcrt2.o"));
     } else {
-        if (is_dll) {
-            lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
-        } else {
-            lj->args.append(get_libc_file(g->libc, "crt2.o"));
+        lj->args.append(get_libc_crt_file(g, "crt2.o"));
+    }
+
+    lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
+    lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
+    lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
+
+    for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
+        const char *name = mingw_def_list[def_i].name;
+        Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
+        bool always_link = mingw_def_list[def_i].always_link;
+        bool is_this_arch = false;
+        if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
+            is_this_arch = true;
+        } else if (target_is_arm(g->zig_target)) {
+            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+                is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
+            } else {
+                is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
+            }
+        } else if (g->zig_target->arch == ZigLLVM_x86) {
+            is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
+        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+            is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
         }
-
-        lj->args.append(get_libc_static_file(g->libc, "crtbegin.o"));
-
-        lj->args.append(get_libc_file(g->libc, "libmingw32.a"));
-
-        if (is_dll) {
-            lj->args.append(get_libc_static_file(g->libc, "libgcc_s.a"));
-            lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-        } else {
-            lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-            lj->args.append(get_libc_static_file(g->libc, "libgcc_eh.a"));
+        if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
+            lj->args.append(get_def_lib(g, name, path));
         }
-
-        lj->args.append(get_libc_static_file(g->libc, "libssp.a"));
-        lj->args.append(get_libc_file(g->libc, "libmoldname.a"));
-        lj->args.append(get_libc_file(g->libc, "libmingwex.a"));
-        lj->args.append(get_libc_file(g->libc, "libmsvcrt.a"));
-
-        if (detect_subsystem(g) == TargetSubsystemWindows) {
-            lj->args.append(get_libc_file(g->libc, "libgdi32.a"));
-            lj->args.append(get_libc_file(g->libc, "libcomdlg32.a"));
-        }
-
-        lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
-        lj->args.append(get_libc_file(g->libc, "libshell32.a"));
-        lj->args.append(get_libc_file(g->libc, "libuser32.a"));
-        lj->args.append(get_libc_file(g->libc, "libkernel32.a"));
-
-        lj->args.append(get_libc_static_file(g->libc, "crtend.o"));
     }
 }
 
