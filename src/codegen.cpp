@@ -199,7 +199,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
         g->link_libs_list.append(g->libc_link_lib);
     }
 
-    get_target_triple(&g->triple_str, g->zig_target);
+    target_triple_llvm(&g->llvm_triple_str, g->zig_target);
     g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
 
     if (!target_has_debug_info(g->zig_target)) {
@@ -8103,7 +8103,7 @@ static void init(CodeGen *g) {
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
 
-    LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
+    LLVMSetTarget(g->module, buf_ptr(&g->llvm_triple_str));
 
     if (target_object_format(g->zig_target) == ZigLLVM_COFF) {
         ZigLLVMAddModuleCodeViewFlag(g->module);
@@ -8113,13 +8113,13 @@ static void init(CodeGen *g) {
 
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;
-    if (LLVMGetTargetFromTriple(buf_ptr(&g->triple_str), &target_ref, &err_msg)) {
+    if (LLVMGetTargetFromTriple(buf_ptr(&g->llvm_triple_str), &target_ref, &err_msg)) {
         fprintf(stderr,
             "Zig is expecting LLVM to understand this target: '%s'\n"
             "However LLVM responded with: \"%s\"\n"
             "Zig is unable to continue. This is a bug in Zig:\n"
             "https://github.com/ziglang/zig/issues/438\n"
-        , buf_ptr(&g->triple_str), err_msg);
+        , buf_ptr(&g->llvm_triple_str), err_msg);
         exit(1);
     }
 
@@ -8153,7 +8153,7 @@ static void init(CodeGen *g) {
         target_specific_features = "";
     }
 
-    g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
+    g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
             LLVMCodeModelDefault, g->function_sections);
 
@@ -8333,12 +8333,12 @@ static void detect_libc(CodeGen *g) {
         !target_os_is_darwin(g->zig_target->os))
     {
         Buf triple_buf = BUF_INIT;
-        get_target_triple(&triple_buf, g->zig_target);
+        target_triple_zig(&triple_buf, g->zig_target);
         fprintf(stderr,
             "Zig is unable to provide a libc for the chosen target '%s'.\n"
             "The target is non-native, so Zig also cannot use the native libc installation.\n"
-            "Choose a target which has a libc available, or provide a libc installation text file.\n"
-            "See `zig libc --help` for more details.\n", buf_ptr(&triple_buf));
+            "Choose a target which has a libc available (see `zig targets`), or\n"
+            "provide a libc installation text file (see `zig libc --help`).\n", buf_ptr(&triple_buf));
         exit(1);
     }
 }
@@ -8397,10 +8397,16 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-march=native");
     } else {
         args.append("-target");
-        args.append(buf_ptr(&g->triple_str));
+        args.append(buf_ptr(&g->llvm_triple_str));
     }
     if (g->zig_target->os == OsFreestanding) {
         args.append("-ffreestanding");
+    }
+
+    // windows.h has files such as pshpack1.h which do #pragma packing, triggering a clang warning.
+    // So for this target, we disable this warning.
+    if (g->zig_target->os == OsWindows && target_abi_is_gnu(g->zig_target->abi)) {
+        args.append("-Wno-pragma-pack");
     }
 
     if (!g->strip_debug_symbols) {
@@ -8735,10 +8741,10 @@ static void gen_root_source(CodeGen *g) {
 
 }
 
-static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
-    fprintf(stderr, "%s", zig_exe);
+static void print_zig_cc_cmd(ZigList<const char *> *args) {
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
-        fprintf(stderr, " %s", args->at(arg_i));
+        const char *space_str = (arg_i == 0) ? "" : " ";
+        fprintf(stderr, "%s%s", space_str, args->at(arg_i));
     }
     fprintf(stderr, "\n");
 }
@@ -8876,12 +8882,12 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         }
 
         if (g->verbose_cc) {
-            print_zig_cc_cmd("zig", &args);
+            print_zig_cc_cmd(&args);
         }
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nThe following command failed:\n");
-            print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+            print_zig_cc_cmd(&args);
             exit(1);
         }
 
@@ -9698,10 +9704,14 @@ void codegen_build_and_link(CodeGen *g) {
         }
     }
 
+    codegen_release_caches(g);
+    codegen_add_time_event(g, "Done");
+}
+
+void codegen_release_caches(CodeGen *g) {
     while (g->caches_to_release.length != 0) {
         cache_release(g->caches_to_release.pop());
     }
-    codegen_add_time_event(g, "Done");
 }
 
 ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path,

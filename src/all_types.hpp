@@ -1804,7 +1804,7 @@ struct CodeGen {
     ZigType *err_tag_type;
     ZigType *test_fn_type;
 
-    Buf triple_str;
+    Buf llvm_triple_str;
     Buf global_asm;
     Buf output_file_path;
     Buf o_file_output_path;

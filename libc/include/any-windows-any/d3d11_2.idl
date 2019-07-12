@@ -1,0 +1,173 @@
+/*
+ * Copyright 2017 Ihsan Akmal
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "oaidl.idl";
+import "ocidl.idl";
+import "dxgi1_3.idl";
+import "d3dcommon.idl";
+import "d3d11_1.idl";
+
+const UINT D3D11_PACKED_TILE = 0xffffffff;
+
+typedef enum D3D11_TILE_MAPPING_FLAG
+{
+    D3D11_TILE_MAPPING_NO_OVERWRITE = 0x1,
+} D3D11_TILE_MAPPING_FLAG;
+
+typedef enum D3D11_TILE_RANGE_FLAG
+{
+    D3D11_TILE_RANGE_NULL = 0x1,
+    D3D11_TILE_RANGE_SKIP = 0x2,
+    D3D11_TILE_RANGE_REUSE_SINGLE_TILE = 0x4,
+} D3D11_TILE_RANGE_FLAG;
+
+typedef enum D3D11_CHECK_MULTISAMPLE_QUALITY_LEVELS_FLAG
+{
+    D3D11_CHECK_MULTISAMPLE_QUALITY_LEVELS_TILED_RESOURCE = 0x1,
+} D3D11_CHECK_MULTISAMPLE_QUALITY_LEVELS_FLAG;
+
+typedef enum D3D11_TILE_COPY_FLAG
+{
+    D3D11_TILE_COPY_NO_OVERWRITE = 0x1,
+    D3D11_TILE_COPY_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE = 0x2,
+    D3D11_TILE_COPY_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER = 0x4,
+} D3D11_TILE_COPY_FLAG;
+
+typedef struct D3D11_TILED_RESOURCE_COORDINATE
+{
+    UINT X;
+    UINT Y;
+    UINT Z;
+    UINT Subresource;
+} D3D11_TILED_RESOURCE_COORDINATE;
+
+typedef struct D3D11_TILE_REGION_SIZE
+{
+    UINT NumTiles;
+    BOOL bUseBox;
+    UINT Width;
+    UINT16 Height;
+    UINT16 Depth;
+} D3D11_TILE_REGION_SIZE;
+
+typedef struct D3D11_SUBRESOURCE_TILING
+{
+    UINT WidthInTiles;
+    UINT16 HeightInTiles;
+    UINT16 DepthInTiles;
+    UINT StartTileIndexInOverallResource;
+} D3D11_SUBRESOURCE_TILING;
+
+typedef struct D3D11_TILE_SHAPE
+{
+    UINT WidthInTexels;
+    UINT HeightInTexels;
+    UINT DepthInTexels;
+} D3D11_TILE_SHAPE;
+
+typedef struct D3D11_PACKED_MIP_DESC
+{
+    UINT8 NumStandardMips;
+    UINT8 NumPackedMips;
+    UINT NumTilesForPackedMips;
+    UINT StartTileIndexInOverallResource;
+} D3D11_PACKED_MIP_DESC;
+
+[
+    uuid(420d5b32-b90c-4da4-bef0-359f6a24a83a),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D11DeviceContext2 : ID3D11DeviceContext1
+{
+    HRESULT UpdateTileMappings(
+        ID3D11Resource *resource,
+        UINT region_count,
+        const D3D11_TILED_RESOURCE_COORDINATE *region_start_coordinates,
+        const D3D11_TILE_REGION_SIZE *region_sizes,
+        ID3D11Buffer *pool,
+        UINT range_count,
+        const UINT *range_flags,
+        const UINT *pool_start_offsets,
+        const UINT *range_tile_counts,
+        UINT flags
+    );
+    HRESULT CopyTileMappings(
+        ID3D11Resource *dst_resource,
+        const D3D11_TILED_RESOURCE_COORDINATE *dst_start_coordinate,
+        ID3D11Resource *src_resource,
+        const D3D11_TILED_RESOURCE_COORDINATE *src_start_coordinate,
+        const D3D11_TILE_REGION_SIZE *region_size,
+        UINT flags
+    );
+    void CopyTiles(
+        ID3D11Resource *resource,
+        const D3D11_TILED_RESOURCE_COORDINATE *start_coordinate,
+        const D3D11_TILE_REGION_SIZE *size,
+        ID3D11Buffer *buffer,
+        UINT64 start_offset,
+        UINT flags
+    );
+    void UpdateTiles(
+        ID3D11Resource *dst_resource,
+        const D3D11_TILED_RESOURCE_COORDINATE *dst_start_coordinate,
+        const D3D11_TILE_REGION_SIZE *dst_region_size,
+        const void *src_data,
+        UINT flags
+    );
+    HRESULT ResizeTilePool(
+        ID3D11Buffer *pool,
+        UINT64 size
+    );
+    void TiledResourceBarrier(
+        ID3D11DeviceChild *before_barrier,
+        ID3D11DeviceChild *after_barrier
+    );
+    BOOL IsAnnotationEnabled();
+    void SetMarkerInt(const WCHAR *label, int data);
+    void BeginEventInt(const WCHAR *label, int data);
+    void EndEvent();
+}
+
+[
+    uuid(9d06dffa-d1e5-4d07-83a8-1bb123f2f841),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D11Device2 : ID3D11Device1
+{
+    void GetImmediateContext2(ID3D11DeviceContext2 **context);
+    HRESULT CreateDeferredContext2(UINT flags, ID3D11DeviceContext2 **context);
+    void GetResourceTiling(
+        ID3D11Resource *resource,
+        UINT *tile_count,
+        D3D11_PACKED_MIP_DESC *mip_desc,
+        D3D11_TILE_SHAPE *tile_shape,
+        UINT *subresource_tiling_count,
+        UINT first_subresource_tiling,
+        D3D11_SUBRESOURCE_TILING *subresource_tiling
+    );
+    HRESULT CheckMultisampleQualityLevels1(
+        DXGI_FORMAT format,
+        UINT sample_count,
+        UINT flags,
+        UINT *quality_level_count
+    );
+}

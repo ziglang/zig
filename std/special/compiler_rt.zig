@@ -1,6 +1,12 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
+const is_gnu = switch (builtin.abi) {
+    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+    else => false,
+};
+const is_mingw = builtin.os == .windows and is_gnu;
+
 comptime {
     const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
     const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
@@ -231,6 +237,10 @@ comptime {
             @export("___chkstk", @import("compiler_rt/stack_probe.zig").___chkstk, strong_linkage);
             @export("__chkstk_ms", @import("compiler_rt/stack_probe.zig").__chkstk_ms, strong_linkage);
             @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        } else if (is_mingw) {
+            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+            @export("__stack_chk_fail", __stack_chk_fail, strong_linkage);
+            @export("__stack_chk_guard", __stack_chk_guard, strong_linkage);
         }
 
         switch (builtin.arch) {
@@ -278,6 +288,17 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         unreachable;
     }
 }
+
+extern fn __stack_chk_fail() noreturn {
+    @panic("stack smashing detected");
+}
+
+extern var __stack_chk_guard: usize = blk: {
+    var buf = [1]u8{0} ** @sizeOf(usize);
+    buf[@sizeOf(usize) - 1] = 255;
+    buf[@sizeOf(usize) - 2] = '\n';
+    break :blk @bitCast(usize, buf);
+};
 
 extern fn __aeabi_unwind_cpp_pr0() void {
     unreachable;

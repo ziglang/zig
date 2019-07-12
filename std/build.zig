@@ -827,6 +827,10 @@ pub const Builder = struct {
     pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
         assert(argv.len != 0);
 
+        if (self.verbose) {
+            printCmd(null, argv);
+        }
+
         const max_output_size = 100 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
         defer child.deinit();
@@ -1064,11 +1068,7 @@ pub const Target = union(enum) {
     }
 
     pub fn oFileExt(self: Target) []const u8 {
-        const abi = switch (self) {
-            .Native => builtin.abi,
-            .Cross => |t| t.abi,
-        };
-        return switch (abi) {
+        return switch (self.getAbi()) {
             builtin.Abi.msvc => ".obj",
             else => ".o",
         };
@@ -1081,11 +1081,31 @@ pub const Target = union(enum) {
         };
     }
 
-    pub fn libFileExt(self: Target) []const u8 {
-        return switch (self.getOs()) {
-            .windows => ".lib",
-            else => ".a",
-        };
+    pub fn staticLibSuffix(self: Target) []const u8 {
+        if (self.isWasm()) {
+            return ".wasm";
+        }
+        switch (self.getAbi()) {
+            .msvc => return ".lib",
+            else => return ".a",
+        }
+    }
+
+    pub fn dynamicLibSuffix(self: Target) []const u8 {
+        if (self.isDarwin()) {
+            return ".dylib";
+        }
+        switch (self.getOs()) {
+            .windows => return ".dll",
+            else => return ".so",
+        }
+    }
+
+    pub fn libPrefix(self: Target) []const u8 {
+        switch (self.getAbi()) {
+            .msvc => return "",
+            else => return "lib",
+        }
     }
 
     pub fn getOs(self: Target) builtin.Os {
@@ -1107,6 +1127,17 @@ pub const Target = union(enum) {
             .Native => return builtin.abi,
             .Cross => |t| return t.abi,
         }
+    }
+
+    pub fn isMinGW(self: Target) bool {
+        return self.isWindows() and self.isGnu();
+    }
+
+    pub fn isGnu(self: Target) bool {
+        return switch (self.getAbi()) {
+            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+            else => false,
+        };
     }
 
     pub fn isDarwin(self: Target) bool {
@@ -1324,37 +1355,27 @@ pub const LibExeObjStep = struct {
             },
             .Lib => {
                 if (!self.is_dynamic) {
-                    switch (self.target.getOs()) {
-                        .windows => {
-                            self.out_filename = self.builder.fmt("{}.lib", self.name);
-                        },
-                        else => {
-                            if (self.target.isWasm()) {
-                                self.out_filename = self.builder.fmt("{}.wasm", self.name);
-                            } else {
-                                self.out_filename = self.builder.fmt("lib{}.a", self.name);
-                            }
-                        },
-                    }
+                    self.out_filename = self.builder.fmt(
+                        "{}{}{}",
+                        self.target.libPrefix(),
+                        self.name,
+                        self.target.staticLibSuffix(),
+                    );
                     self.out_lib_filename = self.out_filename;
                 } else {
-                    switch (self.target.getOs()) {
-                        .ios, .macosx => {
-                            self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
-                            self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
-                            self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
-                            self.out_lib_filename = self.out_filename;
-                        },
-                        .windows => {
-                            self.out_filename = self.builder.fmt("{}.dll", self.name);
-                            self.out_lib_filename = self.builder.fmt("{}.lib", self.name);
-                        },
-                        else => {
-                            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
-                            self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-                            self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
-                            self.out_lib_filename = self.out_filename;
-                        },
+                    if (self.target.isDarwin()) {
+                        self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
+                        self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
+                        self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
+                        self.out_lib_filename = self.out_filename;
+                    } else if (self.target.isWindows()) {
+                        self.out_filename = self.builder.fmt("{}.dll", self.name);
+                        self.out_lib_filename = self.builder.fmt("{}.lib", self.name);
+                    } else {
+                        self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
+                        self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                        self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                        self.out_lib_filename = self.out_filename;
                     }
                 }
             },
@@ -1438,6 +1459,12 @@ pub const LibExeObjStep = struct {
 
     pub fn isDynamicLibrary(self: *LibExeObjStep) bool {
         return self.kind == Kind.Lib and self.is_dynamic;
+    }
+
+    pub fn producesPdbFile(self: *LibExeObjStep) bool {
+        if (!self.target.isWindows()) return false;
+        if (self.strip) return false;
+        return self.isDynamicLibrary() or self.kind == .Exe;
     }
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
@@ -1586,9 +1613,12 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{ .OtherStep = other }) catch unreachable;
         self.include_dirs.append(IncludeDir{ .OtherStep = other }) catch unreachable;
 
-        // Inherit dependency on libc
-        if (other.dependsOnSystemLibrary("c")) {
-            self.linkSystemLibrary("c");
+        // Inherit dependency on system libraries
+        for (other.link_objects.toSliceConst()) |link_object| {
+            switch (link_object) {
+                .SystemLib => |name| self.linkSystemLibrary(name),
+                else => continue,
+            }
         }
 
         // Inherit dependencies on darwin frameworks
@@ -2021,7 +2051,7 @@ const InstallArtifactStep = struct {
                 .Exe => InstallDir.Bin,
                 .Lib => InstallDir.Lib,
             },
-            .pdb_dir = if (artifact.target.isWindows() and !artifact.strip) blk: {
+            .pdb_dir = if (artifact.producesPdbFile()) blk: {
                 if (artifact.kind == .Exe) {
                     break :blk InstallDir.Bin;
                 } else {

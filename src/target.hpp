@@ -148,7 +148,8 @@ const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat);
 ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target);
 
 void get_native_target(ZigTarget *target);
-void get_target_triple(Buf *triple, const ZigTarget *target);
+void target_triple_llvm(Buf *triple, const ZigTarget *target);
+void target_triple_zig(Buf *triple, const ZigTarget *target);
 
 void init_all_targets(void);
 

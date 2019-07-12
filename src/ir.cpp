@@ -15027,9 +15027,10 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                     break;
             }
         } break;
+        case ZigTypeIdInt:
+            break;
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
-        case ZigTypeIdInt:
         case ZigTypeIdFloat:
         case ZigTypeIdPointer:
         case ZigTypeIdComptimeFloat:

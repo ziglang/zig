@@ -78,10 +78,8 @@ pub fn build(b: *Builder) !void {
         // TODO re-enable this after https://github.com/ziglang/zig/issues/2377
         //test_step.dependOn(&exe.step);
     }
-    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") orelse false;
-    exe.setVerboseLink(verbose_link_exe);
 
-    b.installArtifact(exe);
+    exe.install();
     installStdLib(b, ctx.std_files);
     installCHeaders(b, ctx.c_header_files);
 
@@ -176,11 +174,10 @@ fn fileExists(filename: []const u8) !bool {
 }
 
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
-    const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, [_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
-        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt()),
+        b.fmt("{}{}{}", lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix()),
     }) catch unreachable);
 }
 

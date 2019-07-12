@@ -1,0 +1,241 @@
+/*
+ * Copyright (C) 2003 Robert Shearman
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "objidl.idl";
+
+/* trick widl into thinking that it knows the DirectDraw types 
+ * as there is no IDL file for them (yet) */
+cpp_quote("#if 0")
+interface IDirectDraw;
+typedef void DDSURFACEDESC,DDCAPS;
+typedef DWORD RGBQUAD;
+typedef LONGLONG REFERENCE_TIME;
+typedef struct
+{
+    DWORD 	biSize;
+    LONG  	biWidth;
+    LONG  	biHeight;
+    WORD 	biPlanes;
+    WORD 	biBitCount;
+    DWORD 	biCompression;
+    DWORD 	biSizeImage;
+    LONG  	biXPelsPerMeter;
+    LONG  	biYPelsPerMeter;
+    DWORD 	biClrUsed;
+    DWORD 	biClrImportant;
+} BITMAPINFOHEADER, *PBITMAPINFOHEADER, *LPBITMAPINFOHEADER;
+cpp_quote("#endif")
+
+cpp_quote("#include <ddraw.h>")
+
+cpp_quote("#define AMDDS_NONE 0x00")
+cpp_quote("#define AMDDS_DCIPS 0x01")
+cpp_quote("#define AMDDS_PS 0x02")
+cpp_quote("#define AMDDS_RGBOVR 0x04")
+cpp_quote("#define AMDDS_YUVOVR 0x08")
+cpp_quote("#define AMDDS_RGBOFF 0x10")
+cpp_quote("#define AMDDS_YUVOFF 0x20")
+cpp_quote("#define AMDDS_RGBFLP 0x40")
+cpp_quote("#define AMDDS_YUVFLP 0x80")
+cpp_quote("#define AMDDS_ALL 0xFF")
+cpp_quote("#define AMDDS_DEFAULT AMDDS_ALL")
+
+cpp_quote("#define AMDDS_YUV (AMDDS_YUVOFF | AMDDS_YUVOVR | AMDDS_YUVFLP)")
+cpp_quote("#define AMDDS_RGB (AMDDS_RGBOFF | AMDDS_RGBOVR | AMDDS_RGBFLP)")
+cpp_quote("#define AMDSS_PRIMARY (AMDDS_DCIPS | AMDDS_PS)")
+
+[
+    object,
+    /* uuid(36d39eb0-dd75-11ce-bf0e-00aa0055595a)  conflicts with uuids.h */
+    pointer_default(unique),
+    local
+]
+interface IDirectDrawVideo : IUnknown
+{
+    HRESULT GetSwitches([out] DWORD * pSwitches);
+    HRESULT SetSwitches([in] DWORD Switches);
+    HRESULT GetCaps([out] DDCAPS * pCaps);
+    HRESULT GetEmulatedCaps([out] DDCAPS *pCaps);
+    HRESULT GetSurfaceDesc([out] DDSURFACEDESC * pSurfaceDesc);
+    HRESULT GetFourCCCodes([out] DWORD * pCount, [out] DWORD * pCodes);
+    HRESULT SetDirectDraw([in] IDirectDraw *ddraw);
+    HRESULT GetDirectDraw([out] IDirectDraw **ddraw);
+    HRESULT GetSurfaceType([out] DWORD * pSurfaceType);
+    HRESULT SetDefault();
+    HRESULT UseScanLine([in] long UseScanLine);
+    HRESULT CanUseScanLine([out] long * UseScanLine);
+    HRESULT UseOverlayStretch([in] long UseOverlayStretch);
+    HRESULT CanUseOverlayStretch([out] long * UseOverlayStretch);
+    HRESULT UseWhenFullScreen([in] long UseWhenFullScreen);
+    HRESULT WillUseFullScreen([out] long * UseWhenFullScreen);
+}
+
+[
+    object,
+    /* uuid(1bd0ecb0-f8e2-11ce-aac6-0020af0b99a3)  conflicts with uuids.h */
+    pointer_default(unique),
+    local
+]
+interface IQualProp : IUnknown
+{
+    [propget] HRESULT FramesDroppedInRenderer([out] int * pcFrames);
+    [propget] HRESULT FramesDrawn([out] int * pcFramesDrawn);
+    [propget] HRESULT AvgFrameRate([out] int * piAvgFrameRate);
+    [propget] HRESULT Jitter([out] int * iJitter);
+    [propget] HRESULT AvgSyncOffset([out] int * piAvg);
+    [propget] HRESULT DevSyncOffset([out] int * piDev);
+}
+
+[
+    object,
+    /* uuid(dd1d7110-7836-11cf-bf47-00aa0055595a)  conflicts with uuids.h */
+    pointer_default(unique)
+]
+interface IFullScreenVideo : IUnknown
+{
+    HRESULT CountModes([out] long * pModes);
+    HRESULT GetModeInfo([in] long Mode, [out] long * pWidth, [out] long * pHeight, [out] long * pDepth);
+    HRESULT GetCurrentMode([out] long * pMode);
+    HRESULT IsModeAvailable([in] long Mode);
+    HRESULT IsModeEnabled([in] long Mode);
+    HRESULT SetEnabled([in] long Mode, [in] long bEnabled);
+    HRESULT GetClipFactor([out] long * pClipFactor);
+    HRESULT SetClipFactor([in] long ClipFactor);
+    HRESULT SetMessageDrain([in] HWND hwnd);
+    HRESULT GetMessageDrain([out] HWND * hwnd);
+    HRESULT SetMonitor([in] long Monitor);
+    HRESULT GetMonitor([out] long * Monitor);
+    HRESULT HideOnDeactivate([in] long Hide);
+    HRESULT IsHideOnDeactivate();
+    HRESULT SetCaption([in] BSTR strCaption);
+    HRESULT GetCaption([out] BSTR * pstrCaption);
+    HRESULT SetDefault();
+}
+
+[
+    object,
+    /* uuid(53479470-f1dd-11cf-bc42-00aa00ac74f6)  conflicts with uuids.h */
+    pointer_default(unique),
+    local
+]
+interface IFullScreenVideoEx : IFullScreenVideo
+{
+    HRESULT SetAcceleratorTable([in] HWND hwnd, [in] HACCEL hAccel);
+    HRESULT GetAcceleratorTable([out] HWND * phwnd, [out] HACCEL * phAccel);
+    HRESULT KeepPixelAspectRatio([in] long KeepAspect);
+    /* FIXME: not sure is this next method is an [out] */
+    HRESULT IsKeepPixelAspectRatio([out] long * pKeepAspect);
+}
+
+[
+    object,
+    /* uuid(61ded640-e912-11ce-a099-00aa00479a58)  conflicts with uuids.h */
+    pointer_default(unique),
+    local
+]
+interface IBaseVideoMixer : IUnknown
+{
+    HRESULT SetLeadPin([in] int iPin);
+    HRESULT GetLeadPin([out] int * piPin);
+    HRESULT GetInputPinCount([out] int * piPinCount);
+    HRESULT IsUsingClock([out] int * pbValue);
+    HRESULT SetUsingClock([in] int bValue);
+    HRESULT GetClockPeriod([out] int * pbValue);
+    HRESULT SetClockPeriod([in] int bValue);
+}
+
+#define iPALETTE_COLORS 256
+#define iMASK_COLORS 3
+
+cpp_quote("#define iPALETTE_COLORS 256")
+cpp_quote("#define iEGA_COLORS 16")
+cpp_quote("#define iMASK_COLORS 3")
+cpp_quote("#define iTRUECOLOR 16")
+cpp_quote("#define iRED 0")
+cpp_quote("#define iGREEN 1")
+cpp_quote("#define iBLUE 2")
+cpp_quote("#define iPALETTE 8")
+cpp_quote("#define iMAXBITS 8")
+
+typedef struct tag_TRUECOLORINFO
+{
+    DWORD dwBitMasks[iMASK_COLORS];
+    RGBQUAD bmiColors[iPALETTE_COLORS];
+} TRUECOLORINFO;
+
+typedef struct tagVIDEOINFOHEADER
+{
+    RECT rcSource;
+    RECT rcTarget;
+    DWORD dwBitRate;
+    DWORD dwBitErrorRate;
+    REFERENCE_TIME AvgTimePerFrame;
+
+    BITMAPINFOHEADER bmiHeader;
+} VIDEOINFOHEADER;
+
+typedef struct tagVIDEOINFO
+{
+    RECT rcSource;
+    RECT rcTarget;
+    DWORD dwBitRate;
+    DWORD dwBitErrorRate;
+    REFERENCE_TIME AvgTimePerFrame;
+
+    BITMAPINFOHEADER bmiHeader;
+
+    union
+    {
+        RGBQUAD bmiColors[iPALETTE_COLORS];
+        DWORD dwBitMasks[iMASK_COLORS];
+        TRUECOLORINFO TrueColorInfo;
+    };
+} VIDEOINFO;
+
+typedef struct tagMPEG1VIDEOINFO
+{
+    VIDEOINFOHEADER hdr;
+    DWORD dwStartTimeCode;
+    DWORD cbSequenceHeader;
+    BYTE bSequenceHeader[1];
+} MPEG1VIDEOINFO;
+
+cpp_quote("#define MAX_SIZE_MPEG1_SEQUENCE_INFO 140")
+cpp_quote("#define MPEG1_SEQUENCE_INFO(pv) ((const BYTE *)(pv)->bSequenceHeader)")
+
+typedef struct tagAnalogVideoInfo
+{
+    RECT rcSource;
+    RECT rcTarget;
+    DWORD dwActiveWidth;
+    DWORD dwActiveHeight;
+    REFERENCE_TIME AvgTimePerFrame;
+} ANALOGVIDEOINFO;
+
+typedef enum
+{
+    AM_PROPERTY_FRAMESTEP_STEP = 0x01,
+    AM_PROPERTY_FRAMESTEP_CANCEL = 0x02,
+    AM_PROPERTY_FRAMESTEP_CANSTEP = 0x03,
+    AM_PROPERTY_FRAMESTEP_CANSTEPMULTIPLE = 0x04
+} AM_PROPERTY_FRAMESTEP;
+
+typedef struct _AM_FRAMESTEP_STEP
+{
+    DWORD dwFramesToStep;
+} AM_FRAMESTEP_STEP;
