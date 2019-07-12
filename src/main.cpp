@@ -91,7 +91,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -ffunction-sections          places each function in a seperate section\n"
         "\n"
         "Link Options:\n"
-        "  --bundle-compiler-rt [path]  for static libraries, include compiler-rt symbols\n"
+        "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
         "  --library [lib]              link against lib\n"
