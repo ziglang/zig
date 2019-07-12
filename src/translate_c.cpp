@@ -840,8 +840,23 @@ static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             return ZigClangBuiltinType_getKind(builtin_ty) == ZigClangBuiltinTypeVoid;
         }
         case ZigClangType_Record: {
-            const clang::RecordType *record_ty = reinterpret_cast<const clang::RecordType*>(ty);
-            return record_ty->getDecl()->getDefinition() == nullptr;
+            const ZigClangRecordType *record_ty = reinterpret_cast<const ZigClangRecordType*>(ty);
+            const ZigClangRecordDecl *record_decl = ZigClangRecordType_getDecl(record_ty);
+            const ZigClangRecordDecl *record_def = ZigClangRecordDecl_getDefinition(record_decl);
+            if (record_def == nullptr) {
+                return true;
+            }
+            for (auto it = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_begin(),
+                    it_end = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_end();
+                    it != it_end; ++it)
+            {
+                const clang::FieldDecl *field_decl = *it;
+
+                if (field_decl->isBitField()) {
+                    return true;
+                }
+            }
+            return false;
         }
         case ZigClangType_Elaborated: {
             const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);

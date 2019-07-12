@@ -40,6 +40,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     );
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
+    cases.add("pointer to struct demoted to opaque due to bit fields",
+        \\struct Foo {
+        \\    unsigned int: 1;
+        \\};
+        \\struct Bar {
+        \\    struct Foo *foo;
+        \\};
+    ,
+        \\pub const struct_Foo = @OpaqueType();
+        \\pub const struct_Bar = extern struct {
+        \\    foo: ?*struct_Foo,
+        \\};
+    );
 
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
