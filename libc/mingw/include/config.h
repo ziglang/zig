@@ -2,7 +2,7 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
 /* Whether the linker provides __CTOR_LIST__ */
-/* #undef HAVE_CTOR_LIST */
+#define HAVE_CTOR_LIST 1
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #define HAVE_INTTYPES_H 1

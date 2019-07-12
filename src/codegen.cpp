@@ -8741,10 +8741,10 @@ static void gen_root_source(CodeGen *g) {
 
 }
 
-static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
-    fprintf(stderr, "%s", zig_exe);
+static void print_zig_cc_cmd(ZigList<const char *> *args) {
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
-        fprintf(stderr, " %s", args->at(arg_i));
+        const char *space_str = (arg_i == 0) ? "" : " ";
+        fprintf(stderr, "%s%s", space_str, args->at(arg_i));
     }
     fprintf(stderr, "\n");
 }
@@ -8882,12 +8882,12 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
         }
 
         if (g->verbose_cc) {
-            print_zig_cc_cmd("zig", &args);
+            print_zig_cc_cmd(&args);
         }
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nThe following command failed:\n");
-            print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+            print_zig_cc_cmd(&args);
             exit(1);
         }
 

@@ -646,6 +646,8 @@ static const char *build_libunwind(CodeGen *parent) {
 }
 
 static void mingw_add_cc_args(CodeGen *parent, CFile *c_file) {
+    c_file->args.append("-DHAVE_CONFIG_H");
+
     c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "include",
                     buf_ptr(parent->zig_lib_dir))));
@@ -1158,7 +1160,7 @@ static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
-        if (strcmp(file, "crt2.obj") == 0) {
+        if (strcmp(file, "crt2.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(buf_sprintf(
                 "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtexe.c", buf_ptr(parent->zig_lib_dir)));
@@ -1170,7 +1172,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             //c_file->args.append("-D_UNICODE");
             //c_file->args.append("-DWPRFLAG=1");
             return build_libc_object(parent, "crt2", c_file);
-        } else if (strcmp(file, "dllcrt2.obj") == 0) {
+        } else if (strcmp(file, "dllcrt2.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(buf_sprintf(
                 "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtdll.c", buf_ptr(parent->zig_lib_dir)));
@@ -1916,10 +1918,10 @@ static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *fi
     return buf_ptr(out_buf);
 }
 
-static void print_zig_cc_cmd(const char *zig_exe, ZigList<const char *> *args) {
-    fprintf(stderr, "%s", zig_exe);
+static void print_zig_cc_cmd(ZigList<const char *> *args) {
     for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
-        fprintf(stderr, " %s", args->at(arg_i));
+        const char *space_str = (arg_i == 0) ? "" : " ";
+        fprintf(stderr, "%s%s", space_str, args->at(arg_i));
     }
     fprintf(stderr, "\n");
 }
@@ -2017,13 +2019,13 @@ static const char *get_def_lib(CodeGen *parent, const char *name, const char *de
         args.append(buf_ptr(def_final_path));
 
         if (parent->verbose_cc) {
-            print_zig_cc_cmd("zig", &args);
+            print_zig_cc_cmd(&args);
         }
         Termination term;
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nThe following command failed:\n");
-            print_zig_cc_cmd(buf_ptr(self_exe_path), &args);
+            print_zig_cc_cmd(&args);
             exit(1);
         }
 
@@ -2070,9 +2072,9 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
 
     if (g->libc == nullptr) {
         if (is_dll) {
-            lj->args.append(get_libc_crt_file(g, "dllcrt2.obj"));
+            lj->args.append(get_libc_crt_file(g, "dllcrt2.o"));
         } else {
-            lj->args.append(get_libc_crt_file(g, "crt2.obj"));
+            lj->args.append(get_libc_crt_file(g, "crt2.o"));
         }
 
         lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
