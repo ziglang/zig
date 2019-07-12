@@ -753,7 +753,16 @@ void init_all_targets(void) {
     LLVMInitializeAllAsmParsers();
 }
 
-void get_target_triple(Buf *triple, const ZigTarget *target) {
+void target_triple_zig(Buf *triple, const ZigTarget *target) {
+    buf_resize(triple, 0);
+    buf_appendf(triple, "%s%s-%s-%s",
+            ZigLLVMGetArchTypeName(target->arch),
+            ZigLLVMGetSubArchTypeName(target->sub_arch),
+            ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
+            ZigLLVMGetEnvironmentTypeName(target->abi));
+}
+
+void target_triple_llvm(Buf *triple, const ZigTarget *target) {
     buf_resize(triple, 0);
     buf_appendf(triple, "%s%s-%s-%s-%s",
             ZigLLVMGetArchTypeName(target->arch),

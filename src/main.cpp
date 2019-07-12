@@ -982,7 +982,7 @@ int main(int argc, char **argv) {
 
     if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
         Buf triple_buf = BUF_INIT;
-        get_target_triple(&triple_buf, &target);
+        target_triple_zig(&triple_buf, &target);
         fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
         return print_error_usage(arg0);
     }
