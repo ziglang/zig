@@ -827,6 +827,10 @@ pub const Builder = struct {
     pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
         assert(argv.len != 0);
 
+        if (self.verbose) {
+            printCmd(null, argv);
+        }
+
         const max_output_size = 100 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
         defer child.deinit();
@@ -1609,9 +1613,12 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{ .OtherStep = other }) catch unreachable;
         self.include_dirs.append(IncludeDir{ .OtherStep = other }) catch unreachable;
 
-        // Inherit dependency on libc
-        if (other.dependsOnSystemLibrary("c")) {
-            self.linkSystemLibrary("c");
+        // Inherit dependency on system libraries
+        for (other.link_objects.toSliceConst()) |link_object| {
+            switch (link_object) {
+                .SystemLib => |name| self.linkSystemLibrary(name),
+                else => continue,
+            }
         }
 
         // Inherit dependencies on darwin frameworks

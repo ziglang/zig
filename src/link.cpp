@@ -550,6 +550,29 @@ static const char *mingwex_arm64_src[] = {
     "math" OS_SEP "arm64" OS_SEP "trunc.S",
 };
 
+struct MinGWDef {
+    const char *name;
+    const char *path;
+    bool always_link;
+};
+static const MinGWDef mingw_def_list[] = {
+    {"msvcrt", "lib-common" OS_SEP "msvcrt.def.in", true},
+    {"setupapi", "libarm32" OS_SEP "setupapi.def", false},
+    {"setupapi", "libarm64" OS_SEP "setupapi.def", false},
+    {"setupapi", "lib32" OS_SEP "setupapi.def", false},
+    {"setupapi", "lib64" OS_SEP "setupapi.def", false},
+    {"winmm", "lib-common" OS_SEP "winmm.def", false},
+    {"gdi32", "lib-common" OS_SEP "gdi32.def", false},
+    {"imm32", "lib-common" OS_SEP "imm32.def", false},
+    {"version", "lib-common" OS_SEP "version.def", false},
+    {"advapi32", "lib-common" OS_SEP "advapi32.def.in", true},
+    {"oleaut32", "lib-common" OS_SEP "oleaut32.def.in", false},
+    {"ole32", "lib-common" OS_SEP "ole32.def.in", false},
+    {"shell32", "lib-common" OS_SEP "shell32.def", true},
+    {"user32", "lib-common" OS_SEP "user32.def.in", true},
+    {"kernel32", "lib-common" OS_SEP "kernel32.def.in", true},
+};
+
 struct LinkJob {
     CodeGen *codegen;
     ZigList<const char *> args;
@@ -1926,7 +1949,7 @@ static void print_zig_cc_cmd(ZigList<const char *> *args) {
     fprintf(stderr, "\n");
 }
 
-static const char *get_def_lib(CodeGen *parent, const char *name, const char *def_in_rel_path) {
+static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_rel_path) {
     Error err;
 
     Buf *self_exe_path = buf_alloc();
@@ -1944,7 +1967,8 @@ static const char *get_def_lib(CodeGen *parent, const char *name, const char *de
     Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
 
-    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s", buf_ptr(parent->zig_lib_dir), def_in_rel_path);
+    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), buf_ptr(def_in_rel_path));
     Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
             buf_ptr(parent->zig_lib_dir));
 
@@ -2057,6 +2081,16 @@ static const char *get_def_lib(CodeGen *parent, const char *name, const char *de
     return buf_ptr(lib_final_path);
 }
 
+static bool is_linking_system_lib(CodeGen *g, const char *name) {
+    for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(lib_i);
+        if (buf_eql_str(link_lib->name, name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
@@ -2080,31 +2114,30 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
         lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
         lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
-        lj->args.append(get_def_lib(g, "msvcrt", "mingw" OS_SEP "lib-common" OS_SEP "msvcrt.def.in"));
 
-        if (target_is_arm(g->zig_target)) {
-            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
-                lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "libarm32" OS_SEP "setupapi.def"));
-            } else {
-                lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "libarm64" OS_SEP "setupapi.def"));
+        for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
+            const char *name = mingw_def_list[def_i].name;
+            Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
+            bool always_link = mingw_def_list[def_i].always_link;
+            bool is_this_arch = false;
+            if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
+                is_this_arch = true;
+            } else if (target_is_arm(g->zig_target)) {
+                if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+                    is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
+                } else {
+                    is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
+                }
+            } else if (g->zig_target->arch == ZigLLVM_x86) {
+                is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
+            } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+                is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
             }
-        } else if (g->zig_target->arch == ZigLLVM_x86) {
-            lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "lib32" OS_SEP "setupapi.def"));
-        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-            lj->args.append(get_def_lib(g, "setupapi", "mingw" OS_SEP "lib64" OS_SEP "setupapi.def"));
-        } else {
-            zig_unreachable();
+            if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
+                lj->args.append(get_def_lib(g, name, path));
+            }
         }
-        lj->args.append(get_def_lib(g, "winmm", "mingw" OS_SEP "lib-common" OS_SEP "winmm.def"));
-        lj->args.append(get_def_lib(g, "gdi32", "mingw" OS_SEP "lib-common" OS_SEP "gdi32.def"));
-        lj->args.append(get_def_lib(g, "imm32", "mingw" OS_SEP "lib-common" OS_SEP "imm32.def"));
-        lj->args.append(get_def_lib(g, "version", "mingw" OS_SEP "lib-common" OS_SEP "version.def"));
-        lj->args.append(get_def_lib(g, "advapi32", "mingw" OS_SEP "lib-common" OS_SEP "advapi32.def.in"));
-        lj->args.append(get_def_lib(g, "oleaut32", "mingw" OS_SEP "lib-common" OS_SEP "oleaut32.def.in"));
-        lj->args.append(get_def_lib(g, "ole32", "mingw" OS_SEP "lib-common" OS_SEP "ole32.def.in"));
-        lj->args.append(get_def_lib(g, "shell32", "mingw" OS_SEP "lib-common" OS_SEP "shell32.def"));
-        lj->args.append(get_def_lib(g, "user32", "mingw" OS_SEP "lib-common" OS_SEP "user32.def.in"));
-        lj->args.append(get_def_lib(g, "kernel32", "mingw" OS_SEP "lib-common" OS_SEP "kernel32.def.in"));
+
     } else {
         if (is_dll) {
             lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
@@ -2163,6 +2196,14 @@ static void add_win_link_args(LinkJob *lj, bool is_library, bool *have_windows_d
     }
 }
 
+static bool is_mingw_link_lib(Buf *name) {
+    for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
+        if (buf_eql_str(name, mingw_def_list[def_i].name)) {
+            return true;
+        }
+    }
+    return false;
+}
 static void construct_linker_job_coff(LinkJob *lj) {
     Error err;
     CodeGen *g = lj->codegen;
@@ -2271,27 +2312,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        if (have_windows_dll_import_libs) {
-            if (buf_eql_str(link_lib->name, "kernel32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "user32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "shell32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "ole32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "oleaut32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "advapi32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "winmm"))
-                continue;
-            if (buf_eql_str(link_lib->name, "imm32"))
-                continue;
-            if (buf_eql_str(link_lib->name, "version"))
-                continue;
-            if (buf_eql_str(link_lib->name, "setupapi"))
-                continue;
+        if (have_windows_dll_import_libs && is_mingw_link_lib(link_lib->name)) {
+            continue;
         }
         if (link_lib->provided_explicitly) {
             if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
