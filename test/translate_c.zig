@@ -40,6 +40,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     );
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
+    cases.add("typedef of function in struct field",
+        \\typedef void lws_callback_function(void);
+        \\struct Foo {
+        \\    void (*func)(void);
+        \\    lws_callback_function *callback_http;
+        \\};
+    ,
+        \\pub const lws_callback_function = extern fn() void;
+        \\pub const struct_Foo = extern struct {
+        \\    func: ?extern fn() void,
+        \\    callback_http: ?lws_callback_function,
+        \\};
+    );
+
     cases.add("pointer to struct demoted to opaque due to bit fields",
         \\struct Foo {
         \\    unsigned int: 1;

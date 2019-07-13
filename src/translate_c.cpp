@@ -833,6 +833,27 @@ static bool qual_type_has_wrapping_overflow(Context *c, ZigClangQualType qt) {
     }
 }
 
+static bool type_is_function(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc) {
+    switch (ZigClangType_getTypeClass(ty)) {
+        case ZigClangType_FunctionProto:
+        case ZigClangType_FunctionNoProto:
+            return true;
+        case ZigClangType_Elaborated: {
+            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
+            ZigClangQualType qt = bitcast(elaborated_ty->getNamedType());
+            return type_is_function(c, ZigClangQualType_getTypePtr(qt), source_loc);
+        }
+        case ZigClangType_Typedef: {
+            const ZigClangTypedefType *typedef_ty = reinterpret_cast<const ZigClangTypedefType*>(ty);
+            const ZigClangTypedefNameDecl *typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            ZigClangQualType underlying_type = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+            return type_is_function(c, ZigClangQualType_getTypePtr(underlying_type), source_loc);
+        }
+        default:
+            return false;
+    }
+}
+
 static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLocation source_loc) {
     switch (ZigClangType_getTypeClass(ty)) {
         case ZigClangType_Builtin: {
@@ -1034,7 +1055,9 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
                     return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
                 }
 
-                if (type_is_opaque(c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
+                if (type_is_function(c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
+                    return trans_create_node_prefix_op(c, PrefixOpOptional, child_node);
+                } else if (type_is_opaque(c, ZigClangQualType_getTypePtr(child_qt), source_loc)) {
                     AstNode *pointer_node = trans_create_node_ptr_type(c,
                             ZigClangQualType_isConstQualified(child_qt),
                             ZigClangQualType_isVolatileQualified(child_qt),
