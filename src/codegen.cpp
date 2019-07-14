@@ -4172,7 +4172,13 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     }
 }
 
-static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnId fn_id) {
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFnId fn_id) {
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *int_type = is_vector ? expr_type->data.vector.elem_type : expr_type;
+    assert(int_type->id == ZigTypeIdInt);
+    uint32_t vector_len = 0;
+    if (is_vector)
+        vector_len = expr_type->data.vector.len;
     ZigLLVMFnKey key = {};
     const char *fn_name;
     uint32_t n_args;
@@ -4196,6 +4202,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 1;
         key.id = ZigLLVMFnIdBswap;
         key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.bswap.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdBitReverse) {
         fn_name = "bitreverse";
         n_args = 1;
@@ -4210,12 +4217,15 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         return existing_entry->value;
 
     char llvm_name[64];
-    sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
+    if (is_vector)
+        sprintf(llvm_name, "llvm.%s.v%" PRIu32 "i%" PRIu32, fn_name, vector_len, int_type->data.integral.bit_count);
+    else
+        sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
     LLVMTypeRef param_types[] = {
-        get_llvm_type(g, int_type),
+        get_llvm_type(g, expr_type),
         LLVMInt1Type(),
     };
-    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, n_args, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, expr_type), param_types, n_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 
@@ -5498,15 +5508,19 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrIn
 
 static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
-    ZigType *int_type = instruction->base.value.type;
+    ZigType *expr_type = instruction->base.value.type;
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *int_type = is_vector ? expr_type->data.vector.elem_type : expr_type;
     assert(int_type->id == ZigTypeIdInt);
     if (int_type->data.integral.bit_count % 16 == 0) {
-        LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value.type, BuiltinFnIdBswap);
+        LLVMValueRef fn_val = get_int_builtin_fn(g, expr_type, BuiltinFnIdBswap);
         return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
     }
     // Not an even number of bytes, so we zext 1 byte, then bswap, shift right 1 byte, truncate
     ZigType *extended_type = get_int_type(g, int_type->data.integral.is_signed,
             int_type->data.integral.bit_count + 8);
+    if (is_vector)
+        extended_type = get_vector_type(g, expr_type->data.vector.len, extended_type);
     // aabbcc
     LLVMValueRef extended = LLVMBuildZExt(g->builder, op, get_llvm_type(g, extended_type), "");
     // 00aabbcc
@@ -5516,7 +5530,7 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInst
     LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped,
             LLVMConstInt(get_llvm_type(g, extended_type), 8, false), "");
     // 00ccbbaa
-    return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, int_type), "");
+    return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, expr_type), "");
 }
 
 static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, IrInstructionBitReverse *instruction) {

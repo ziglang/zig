@@ -1626,6 +1626,7 @@ struct ZigLLVMFnKey {
         } overflow_arithmetic;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } bswap;
         struct {
             uint32_t bit_count;
