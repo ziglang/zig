@@ -523,6 +523,8 @@ set(ZIG_STD_FILES
     "hash/crc.zig"
     "hash/fnv.zig"
     "hash/siphash.zig"
+    "hash/murmur.zig"
+    "hash/cityhash.zig"
     "hash_map.zig"
     "heap.zig"
     "heap/logging_allocator.zig"
