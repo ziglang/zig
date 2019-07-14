@@ -25253,16 +25253,42 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
-    ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
-    if (type_is_invalid(int_type))
+    IrInstruction *op = instruction->op->child;
+    ZigType *type_expr = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(type_expr))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    if (type_expr->id != ZigTypeIdInt) {
+        ir_add_error(ira, instruction->type,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&type_expr->name)));
+        if (type_expr->id == ZigTypeIdVector &&
+            type_expr->data.vector.elem_type->id == ZigTypeIdInt)
+            ir_add_error(ira, instruction->type,
+                buf_sprintf("represent vectors with their scalar types, i.e. '%s'",
+                    buf_ptr(&type_expr->data.vector.elem_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    ZigType *int_type = type_expr;
+
+    ZigType *expr_type = op->value.type;
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *ret_type = int_type;
+    if (is_vector)
+        ret_type = get_vector_type(ira->codegen, expr_type->data.vector.len, int_type);
+
+    op = ir_implicit_cast(ira, instruction->op->child, ret_type);
     if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
     if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, ret_type);
+        if (is_vector) {
+            expand_undef_array(ira->codegen, &result->value);
+            result->value.data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(expr_type->data.vector.len);
+            for (unsigned i = 0; i < expr_type->data.vector.len; i++)
+                bigint_init_unsigned(&result->value.data.x_array.data.s_none.elements[i].data.x_bigint, 0);
+        }
         bigint_init_unsigned(&result->value.data.x_bigint, 0);
         return result;
     }
@@ -25282,20 +25308,36 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
         if (val == nullptr)
             return ira->codegen->invalid_instruction;
         if (val->special == ConstValSpecialUndef)
-            return ir_const_undef(ira, &instruction->base, int_type);
+            return ir_const_undef(ira, &instruction->base, ret_type);
 
-        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, ret_type);
         size_t buf_size = int_type->data.integral.bit_count / 8;
         uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
-        bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
-        bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
-                int_type->data.integral.is_signed);
+        if (is_vector) {
+            expand_undef_array(ira->codegen, &result->value);
+            result->value.data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(expr_type->data.vector.len);
+            for (unsigned i = 0; i < expr_type->data.vector.len; i++) {
+                ConstExprValue *cur = &val->data.x_array.data.s_none.elements[i];
+                result->value.data.x_array.data.s_none.elements[i].special = cur->special;
+                if (cur->special == ConstValSpecialUndef)
+                    continue;
+                bigint_write_twos_complement(&cur->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+                bigint_read_twos_complement(&result->value.data.x_array.data.s_none.elements[i].data.x_bigint,
+                        buf, int_type->data.integral.bit_count, false,
+                        int_type->data.integral.is_signed);
+            }
+        } else {
+            bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+            bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
+                    int_type->data.integral.is_signed);
+        }
         return result;
     }
 
     IrInstruction *result = ir_build_bswap(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, op);
-    result->value.type = int_type;
+    result->value.type = ret_type;
     return result;
 }
 
