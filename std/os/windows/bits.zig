@@ -104,6 +104,19 @@ pub const FileIdInfo = 18;
 pub const FileIdExtdDirectoryInfo = 19;
 pub const FileIdExtdDirectoryRestartInfo = 20;
 
+pub const BY_HANDLE_FILE_INFORMATION = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    dwVolumeSerialNumber: DWORD,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
+    nNumberOfLinks: DWORD,
+    nFileIndexHigh: DWORD,
+    nFileIndexLow: DWORD,
+};
+
 pub const FILE_NAME_INFO = extern struct {
     FileNameLength: DWORD,
     FileName: [1]WCHAR,

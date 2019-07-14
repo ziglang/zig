@@ -207,8 +207,7 @@ pub const File = struct {
         if (windows.is_the_target) {
             return windows.GetFileSizeEx(self.handle);
         }
-        const stat = try os.fstat(self.handle);
-        return @bitCast(u64, stat.size);
+        return (try self.stat()).size;
     }
 
     pub const ModeError = os.FStatError;
@@ -217,10 +216,63 @@ pub const File = struct {
         if (windows.is_the_target) {
             return {};
         }
-        const stat = try os.fstat(self.handle);
-        // TODO: we should be able to cast u16 to ModeError!u32, making this
-        // explicit cast not necessary
-        return Mode(stat.mode);
+        return (try self.stat()).mode;
+    }
+
+    pub const Stat = struct {
+        size: u64,
+        mode: Mode,
+
+        /// access time in nanoseconds
+        atime: u64,
+
+        /// last modification time in nanoseconds
+        mtime: u64,
+
+        /// creation time in nanoseconds
+        ctime: u64,
+    };
+
+    pub const StatError = os.FStatError;
+
+    pub fn stat(self: File) StatError!Stat {
+        if (windows.is_the_target) {
+            const info = try windows.GetFileInformationByHandle(self.handle);
+            return Stat{
+                .size = (u64(info.nFileSizeHigh) << 32) | u64(info.nFileSizeLow),
+                .mode = {},
+                .atime = windows.fileTimeToNanoSeconds(info.ftLastAccessTime),
+                .mtime = windows.fileTimeToNanoSeconds(info.ftLastWriteTime),
+                .ctime = windows.fileTimeToNanoSeconds(info.ftCreationTime),
+            };
+        }
+
+        const st = try os.fstat(self.handle);
+        return Stat{
+            .size = @bitCast(u64, st.size),
+            .mode = st.mode,
+            .atime = @bitCast(usize, st.atim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.atim.tv_nsec),
+            .mtime = @bitCast(usize, st.mtim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.mtim.tv_nsec),
+            .ctime = @bitCast(usize, st.ctim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.ctim.tv_nsec),
+        };
+    }
+
+    pub const UpdateTimesError = os.FutimensError;
+
+    /// `atime`: access timestamp in nanoseconds
+    /// `mtime`: last modification timestamp in nanoseconds
+    pub fn updateTimes(self: File, atime: u64, mtime: u64) UpdateTimesError!void {
+        const times = [2]os.timespec{
+            os.timespec{
+                .tv_sec = @bitCast(isize, atime / std.time.ns_per_s),
+                .tv_nsec = @bitCast(isize, atime % std.time.ns_per_s),
+            },
+            os.timespec{
+                .tv_sec = @bitCast(isize, mtime / std.time.ns_per_s),
+                .tv_nsec = @bitCast(isize, mtime % std.time.ns_per_s),
+            },
+        };
+        try os.futimens(self.handle, &times);
     }
 
     pub const ReadError = os.ReadError;

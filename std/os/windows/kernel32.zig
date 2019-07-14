@@ -83,6 +83,11 @@ pub extern "kernel32" stdcallcc fn GetModuleHandleW(lpModuleName: ?[*]const WCHA
 
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
 
+pub extern "kernel32" stdcallcc fn GetFileInformationByHandle(
+    hFile: HANDLE,
+    lpFileInformation: *BY_HANDLE_FILE_INFORMATION,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(
     in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,

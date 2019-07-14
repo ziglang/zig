@@ -752,6 +752,26 @@ pub fn HeapDestroy(hHeap: HANDLE) void {
     assert(kernel32.HeapDestroy(hHeap) != 0);
 }
 
+pub const GetFileInformationByHandleError = error{Unexpected};
+
+pub fn GetFileInformationByHandle(
+    hFile: HANDLE,
+) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
+    var info: BY_HANDLE_FILE_INFORMATION = undefined;
+    const rc = kernel32.GetFileInformationByHandle(hFile, &info);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return info;
+}
+
+pub fn fileTimeToNanoSeconds(ft: FILETIME) u64 {
+    const sec = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    return sec * std.time.ns_per_s;
+}
+
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
