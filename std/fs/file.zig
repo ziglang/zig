@@ -237,13 +237,20 @@ pub const File = struct {
 
     pub fn stat(self: File) StatError!Stat {
         if (windows.is_the_target) {
-            const info = try windows.GetFileInformationByHandle(self.handle);
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            var info: windows.FILE_ALL_INFORMATION = undefined;
+            const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
+            switch (rc) {
+                windows.STATUS.SUCCESS => {},
+                windows.STATUS.BUFFER_OVERFLOW => {},
+                else => return windows.unexpectedStatus(rc),
+            }
             return Stat{
-                .size = (u64(info.nFileSizeHigh) << 32) | u64(info.nFileSizeLow),
+                .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = {},
-                .atime = windows.fileTimeToNanoSeconds(info.ftLastAccessTime),
-                .mtime = windows.fileTimeToNanoSeconds(info.ftLastWriteTime),
-                .ctime = windows.fileTimeToNanoSeconds(info.ftCreationTime),
+                .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
+                .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
+                .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
             };
         }
 

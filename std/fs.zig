@@ -642,8 +642,7 @@ pub const Dir = struct {
                 const attrs = self.handle.find_file_data.dwFileAttributes;
                 if (attrs & os.windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
                 if (attrs & os.windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                if (attrs & os.windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
-                break :blk Entry.Kind.Unknown;
+                break :blk Entry.Kind.File;
             };
             return Entry{
                 .name = name_utf8,

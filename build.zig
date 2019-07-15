@@ -83,24 +83,9 @@ pub fn build(b: *Builder) !void {
     }
 
     b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "c_headers",
+        .source_dir = "lib",
         .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "include",
-    });
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "libc",
-        .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "libc",
-    });
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "libcxx",
-        .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "libcxx",
-    });
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "libunwind",
-        .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "libunwind",
+        .install_subdir = "zig",
     });
     b.installDirectory(InstallDirectoryOptions{
         .source_dir = "std",
