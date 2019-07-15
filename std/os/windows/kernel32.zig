@@ -170,6 +170,13 @@ pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_dwMoveMethod: DWORD,
 ) BOOL;
 
+pub extern "kernel32" stdcallcc fn SetFileTime(
+    hFile: HANDLE,
+    lpCreationTime: ?*const FILETIME,
+    lpLastAccessTime: ?*const FILETIME,
+    lpLastWriteTime: ?*const FILETIME,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;

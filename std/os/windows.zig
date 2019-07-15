@@ -767,9 +767,33 @@ pub fn GetFileInformationByHandle(
     return info;
 }
 
+pub const SetFileTimeError = error{Unexpected};
+
+pub fn SetFileTime(
+    hFile: HANDLE,
+    lpCreationTime: ?*const FILETIME,
+    lpLastAccessTime: ?*const FILETIME,
+    lpLastWriteTime: ?*const FILETIME,
+) SetFileTimeError!void {
+    const rc = kernel32.SetFileTime(hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
 pub fn fileTimeToNanoSeconds(ft: FILETIME) u64 {
     const sec = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return sec * std.time.ns_per_s;
+}
+
+pub fn nanoSecondsToFileTime(ns: u64) FILETIME {
+    const sec = ns / std.time.ns_per_s;
+    return FILETIME{
+        .dwHighDateTime = @truncate(u32, sec >> 32),
+        .dwLowDateTime = @truncate(u32, sec),
+    };
 }
 
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {

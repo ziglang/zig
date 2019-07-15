@@ -257,11 +257,16 @@ pub const File = struct {
         };
     }
 
-    pub const UpdateTimesError = os.FutimensError;
+    pub const UpdateTimesError = os.FutimensError || windows.SetFileTimeError;
 
     /// `atime`: access timestamp in nanoseconds
     /// `mtime`: last modification timestamp in nanoseconds
     pub fn updateTimes(self: File, atime: u64, mtime: u64) UpdateTimesError!void {
+        if (windows.is_the_target) {
+            const atime_ft = windows.nanoSecondsToFileTime(atime);
+            const mtime_ft = windows.nanoSecondsToFileTime(mtime);
+            return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
+        }
         const times = [2]os.timespec{
             os.timespec{
                 .tv_sec = @bitCast(isize, atime / std.time.ns_per_s),
