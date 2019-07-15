@@ -1731,6 +1731,27 @@ test "array initialization with function calls" {
     assert(more_points[4].y == 6);
     assert(more_points.len == 10);
 }
+
+// A simple identity matrix
+var mat4x4 = [4][4]f32{
+    [_]f32{1.0, 0.0, 0.0, 0.0},
+    [_]f32{0.0, 1.0, 0.0, 1.0},
+    [_]f32{0.0, 0.0, 1.0, 0.0},
+    [_]f32{0.0, 0.0, 0.0, 1.0}
+};
+test "multidimensional arrays" {
+    // Multidimensional arrays can be accessed as expected from other languages...
+    assert(mat4x4[1][1] == 1.0);
+
+    // Or iterated over like any other array
+    for (mat4x4) |row, rowNum| {
+        for (row) |column, colNum| {
+            if (rowNum == colNum) {
+                assert(column == 1.0);
+            }
+        }
+    }
+}
       {#code_end#}
       {#see_also|for|Slices#}
       {#header_close#}
