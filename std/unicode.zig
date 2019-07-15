@@ -577,7 +577,7 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
             },
             2, 3, 4 => {
                 const next_src_i = src_i + n;
-                const codepoint = try utf8Decode(utf8[src_i..next_src_i]);
+                const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
                 const short = @intCast(u16, codepoint); // TODO surrogate pairs
                 utf16le[dest_i] = switch (builtin.endian) {
                     .Little => short,
@@ -586,7 +586,7 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
                 dest_i += 1;
                 src_i = next_src_i;
             },
-            else => return error.Utf8InvalidStartByte,
+            else => return error.InvalidUtf8,
         }
     }
     return dest_i;

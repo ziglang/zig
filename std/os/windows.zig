@@ -267,7 +267,7 @@ pub fn GetQueuedCompletionStatus(
 }
 
 pub fn CloseHandle(hObject: HANDLE) void {
-    assert(ntdll.NtClose(hObject) == STATUS.SUCCESS);
+    assert(kernel32.CloseHandle(hObject) != 0);
 }
 
 pub fn FindClose(hFindFile: HANDLE) void {
@@ -820,24 +820,9 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
 }
 
-/// TODO once https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761 are both solved,
-/// this can be removed. Callsites that do not have performance bottlenecks
-/// in this function should call `sliceToPrefixedFileW` to be future-proof.
-pub fn sliceToPrefixedFileW_elidecopy(s: []const u8, result: *[PATH_MAX_WIDE + 1]u16) !void {
-    return sliceToPrefixedSuffixedFileW_elidecopy(s, [_]u16{0}, result);
-}
-
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
-    try sliceToPrefixedSuffixedFileW_elidecopy(s, suffix, &result);
-    return result;
-}
-
-/// TODO once https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761 are both solved,
-/// this can be removed. Callsites that do not have performance bottlenecks
-/// in this function should call `sliceToPrefixedSuffixedFileW` to be future-proof.
-pub fn sliceToPrefixedSuffixedFileW_elidecopy(s: []const u8, comptime suffix: []const u16, result: *[PATH_MAX_WIDE + suffix.len]u16) !void {
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -859,6 +844,7 @@ pub fn sliceToPrefixedSuffixedFileW_elidecopy(s: []const u8, comptime suffix: []
     assert(end_index <= result.len);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
+    return result;
 }
 
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
