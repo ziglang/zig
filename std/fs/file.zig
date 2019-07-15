@@ -224,13 +224,13 @@ pub const File = struct {
         mode: Mode,
 
         /// access time in nanoseconds
-        atime: u64,
+        atime: i64,
 
         /// last modification time in nanoseconds
-        mtime: u64,
+        mtime: i64,
 
         /// creation time in nanoseconds
-        ctime: u64,
+        ctime: i64,
     };
 
     pub const StatError = os.FStatError;
@@ -251,9 +251,9 @@ pub const File = struct {
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = @bitCast(usize, st.atim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.atim.tv_nsec),
-            .mtime = @bitCast(usize, st.mtim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.mtim.tv_nsec),
-            .ctime = @bitCast(usize, st.ctim.tv_sec) * std.time.ns_per_s + @bitCast(usize, st.ctim.tv_nsec),
+            .atime = st.atim.tv_sec * std.time.ns_per_s + st.atim.tv_nsec,
+            .mtime = st.mtim.tv_sec * std.time.ns_per_s + st.mtim.tv_nsec,
+            .ctime = st.ctim.tv_sec * std.time.ns_per_s + st.ctim.tv_nsec,
         };
     }
 
@@ -261,7 +261,7 @@ pub const File = struct {
 
     /// `atime`: access timestamp in nanoseconds
     /// `mtime`: last modification timestamp in nanoseconds
-    pub fn updateTimes(self: File, atime: u64, mtime: u64) UpdateTimesError!void {
+    pub fn updateTimes(self: File, atime: i64, mtime: i64) UpdateTimesError!void {
         if (windows.is_the_target) {
             const atime_ft = windows.nanoSecondsToFileTime(atime);
             const mtime_ft = windows.nanoSecondsToFileTime(mtime);
@@ -269,12 +269,12 @@ pub const File = struct {
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = @bitCast(isize, atime / std.time.ns_per_s),
-                .tv_nsec = @bitCast(isize, atime % std.time.ns_per_s),
+                .tv_sec = atime / std.time.ns_per_s,
+                .tv_nsec = atime % std.time.ns_per_s,
             },
             os.timespec{
-                .tv_sec = @bitCast(isize, mtime / std.time.ns_per_s),
-                .tv_nsec = @bitCast(isize, mtime % std.time.ns_per_s),
+                .tv_sec = mtime / std.time.ns_per_s,
+                .tv_nsec = mtime % std.time.ns_per_s,
             },
         };
         try os.futimens(self.handle, &times);

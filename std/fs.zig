@@ -110,7 +110,6 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
         }
     }
     const actual_mode = mode orelse src_stat.mode;
-    const in_stream = &src_file.inStream().stream;
 
     // TODO this logic could be made more efficient by calling makePath, once
     // that API does not require an allocator
@@ -136,6 +135,8 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
         break af;
     } else unreachable;
     defer atomic_file.deinit();
+
+    const in_stream = &src_file.inStream().stream;
 
     var buf: [mem.page_size * 6]u8 = undefined;
     while (true) {

@@ -216,6 +216,17 @@ pub const Builder = struct {
         return mem.dupe(self.allocator, u8, bytes) catch unreachable;
     }
 
+    fn dupePath(self: *Builder, bytes: []const u8) []u8 {
+        const the_copy = self.dupe(bytes);
+        for (the_copy) |*byte| {
+            switch (byte.*) {
+                '/', '\\' => byte.* = fs.path.sep,
+                else => {},
+            }
+        }
+        return the_copy;
+    }
+
     pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
         const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
         write_file_step.* = WriteFileStep.init(self, file_path, data);
@@ -1412,7 +1423,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
-        self.output_dir = self.builder.dupe(dir);
+        self.output_dir = self.builder.dupePath(dir);
     }
 
     pub fn install(self: *LibExeObjStep) void {

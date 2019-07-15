@@ -783,16 +783,24 @@ pub fn SetFileTime(
     }
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) u64 {
-    const sec = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return sec * std.time.ns_per_s;
+/// A file time is a 64-bit value that represents the number of 100-nanosecond
+/// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
+/// Universal Time (UTC).
+/// This function returns the number of nanoseconds since the canonical epoch,
+/// which is the POSIX one (Jan 01, 1970 AD).
+pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
+    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    const adjusted_epoch = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
+    return adjusted_epoch * 100;
 }
 
-pub fn nanoSecondsToFileTime(ns: u64) FILETIME {
-    const sec = ns / std.time.ns_per_s;
+/// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
+pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
+    const hns = @divFloor(ns, 100);
+    const adjusted_epoch = hns - std.time.epoch.windows * (std.time.ns_per_s / 100);
     return FILETIME{
-        .dwHighDateTime = @truncate(u32, sec >> 32),
-        .dwLowDateTime = @truncate(u32, sec),
+        .dwHighDateTime = @truncate(u32, @bitCast(u64, adjusted_epoch) >> 32),
+        .dwLowDateTime = @truncate(u32, @bitCast(u64, adjusted_epoch)),
     };
 }
 

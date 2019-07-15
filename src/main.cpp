@@ -1229,6 +1229,9 @@ int main(int argc, char **argv) {
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
+#if defined(ZIG_OS_WINDOWS)
+                        buf_replace(&g->output_file_path, '/', '\\');
+#endif
                         if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
                             return EXIT_FAILURE;
                     }
