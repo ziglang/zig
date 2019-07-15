@@ -80,11 +80,12 @@ pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
     return updateFileMode(source_path, dest_path, null);
 }
 
-/// Check the file size and mtime of `source_path` and `dest_path`. If they are equal, does nothing.
-/// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime
-/// and atime of the source file so that the next call to `updateFile` will not need a copy.
-/// TODO https://github.com/ziglang/zig/issues/2885
+/// Check the file size, mtime, and mode of `source_path` and `dest_path`. If they are equal, does nothing.
+/// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime,
+/// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
+/// If any of the directories do not exist for dest_path, they are created.
+/// TODO https://github.com/ziglang/zig/issues/2885
 pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
     var src_file = try File.openRead(source_path);
     defer src_file.close();
@@ -108,9 +109,32 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
             return PrevStatus.fresh;
         }
     }
+    const actual_mode = mode orelse src_stat.mode;
     const in_stream = &src_file.inStream().stream;
 
-    var atomic_file = try AtomicFile.init(dest_path, mode orelse src_stat.mode);
+    // TODO this logic could be made more efficient by calling makePath, once
+    // that API does not require an allocator
+    var atomic_file = make_atomic_file: while (true) {
+        const af = AtomicFile.init(dest_path, actual_mode) catch |err| switch (err) {
+            error.FileNotFound => {
+                var p = dest_path;
+                while (path.dirname(p)) |dirname| {
+                    makeDir(dirname) catch |e| switch (e) {
+                        error.FileNotFound => {
+                            p = dirname;
+                            continue;
+                        },
+                        else => return e,
+                    };
+                    continue :make_atomic_file;
+                } else {
+                    return err;
+                }
+            },
+            else => |e| return e,
+        };
+        break af;
+    } else unreachable;
     defer atomic_file.deinit();
 
     var buf: [mem.page_size * 6]u8 = undefined;
