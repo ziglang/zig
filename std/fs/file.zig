@@ -269,12 +269,12 @@ pub const File = struct {
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = atime / std.time.ns_per_s,
-                .tv_nsec = atime % std.time.ns_per_s,
+                .tv_sec = @divFloor(atime, std.time.ns_per_s),
+                .tv_nsec = @mod(atime, std.time.ns_per_s),
             },
             os.timespec{
-                .tv_sec = mtime / std.time.ns_per_s,
-                .tv_nsec = mtime % std.time.ns_per_s,
+                .tv_sec = @divFloor(mtime, std.time.ns_per_s),
+                .tv_nsec = @mod(mtime, std.time.ns_per_s),
             },
         };
         try os.futimens(self.handle, &times);
