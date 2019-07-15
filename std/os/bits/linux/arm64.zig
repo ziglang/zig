@@ -396,6 +396,11 @@ pub const msghdr_const = extern struct {
 };
 
 /// Renamed to Stat to not conflict with the stat function.
+/// atime, mtime, and ctime have functions to return `timespec`,
+/// because although this is a POSIX API, the layout and names of
+/// the structs are inconsistent across operating systems, and
+/// in C, macros are used to hide the differences. Here we use
+/// methods to accomplish this.
 pub const Stat = extern struct {
     dev: u64,
     ino: u64,
@@ -414,6 +419,18 @@ pub const Stat = extern struct {
     mtim: timespec,
     ctim: timespec,
     __unused: [3]isize,
+
+    pub fn atime(self: Stat) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return self.ctim;
+    }
 };
 
 pub const timespec = extern struct {

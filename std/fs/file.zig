@@ -248,12 +248,15 @@ pub const File = struct {
         }
 
         const st = try os.fstat(self.handle);
+        const atime = st.atime();
+        const mtime = st.mtime();
+        const ctime = st.ctime();
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = st.atim.tv_sec * std.time.ns_per_s + st.atim.tv_nsec,
-            .mtime = st.mtim.tv_sec * std.time.ns_per_s + st.mtim.tv_nsec,
-            .ctime = st.ctim.tv_sec * std.time.ns_per_s + st.ctim.tv_nsec,
+            .atime = atime.tv_sec * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = mtime.tv_sec * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = ctime.tv_sec * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 
