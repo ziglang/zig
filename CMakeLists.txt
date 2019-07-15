@@ -2402,7 +2402,6 @@ add_custom_target(zig_build_libuserland ALL
     BYPRODUCTS "${LIBUSERLAND}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
-add_custom_target(userland_target DEPENDS "${LIBUSERLAND}")
 add_executable(zig "${ZIG_MAIN_SRC}")
 
 set_target_properties(zig PROPERTIES
@@ -2410,5 +2409,5 @@ set_target_properties(zig PROPERTIES
     LINK_FLAGS ${EXE_LDFLAGS}
 )
 target_link_libraries(zig compiler "${LIBUSERLAND}")
-add_dependencies(zig userland_target)
+add_dependencies(zig zig_build_libuserland)
 install(TARGETS zig DESTINATION bin)
