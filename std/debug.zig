@@ -199,7 +199,7 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
 /// in its heuristics.
 /// Inside a test block, it is best to use the `std.testing` module rather
 /// than this function, because this function may not detect a test failure
-/// in ReleaseFast and ReleaseSafe mode. Outside of a test block, this assert
+/// in ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
 /// function is the correct function to use.
 pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
