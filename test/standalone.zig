@@ -2,16 +2,16 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 const is_windows = builtin.os == builtin.Os.windows;
 
-pub fn addCases(cases: *tests.BuildExamplesContext) void {
-    cases.add("example/hello_world/hello.zig");
-    cases.addC("example/hello_world/hello_libc.zig");
-    cases.add("example/cat/main.zig");
-    cases.add("example/guess_number/main.zig");
+pub fn addCases(cases: *tests.StandaloneContext) void {
+    cases.add("test/standalone/hello_world/hello.zig");
+    cases.addC("test/standalone/hello_world/hello_libc.zig");
+    cases.add("test/standalone/cat/main.zig");
+    cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig");
-    cases.addBuildFile("example/shared_library/build.zig");
-    cases.addBuildFile("example/mix_o_files/build.zig");
+    cases.addBuildFile("test/standalone/shared_library/build.zig");
+    cases.addBuildFile("test/standalone/mix_o_files/build.zig");
     cases.addBuildFile("test/standalone/static_c_lib/build.zig");
     cases.addBuildFile("test/standalone/issue_339/build.zig");
     cases.addBuildFile("test/standalone/issue_794/build.zig");
