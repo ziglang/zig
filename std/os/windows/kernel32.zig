@@ -83,6 +83,11 @@ pub extern "kernel32" stdcallcc fn GetModuleHandleW(lpModuleName: ?[*]const WCHA
 
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
 
+pub extern "kernel32" stdcallcc fn GetFileInformationByHandle(
+    hFile: HANDLE,
+    lpFileInformation: *BY_HANDLE_FILE_INFORMATION,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(
     in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,
@@ -163,6 +168,13 @@ pub extern "kernel32" stdcallcc fn SetFilePointerEx(
     in_liDistanceToMove: LARGE_INTEGER,
     out_opt_ldNewFilePointer: ?*LARGE_INTEGER,
     in_dwMoveMethod: DWORD,
+) BOOL;
+
+pub extern "kernel32" stdcallcc fn SetFileTime(
+    hFile: HANDLE,
+    lpCreationTime: ?*const FILETIME,
+    lpLastAccessTime: ?*const FILETIME,
+    lpLastWriteTime: ?*const FILETIME,
 ) BOOL;
 
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;

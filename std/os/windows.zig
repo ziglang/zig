@@ -752,6 +752,66 @@ pub fn HeapDestroy(hHeap: HANDLE) void {
     assert(kernel32.HeapDestroy(hHeap) != 0);
 }
 
+pub const GetFileInformationByHandleError = error{Unexpected};
+
+pub fn GetFileInformationByHandle(
+    hFile: HANDLE,
+) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
+    var info: BY_HANDLE_FILE_INFORMATION = undefined;
+    const rc = ntdll.GetFileInformationByHandle(hFile, &info);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return info;
+}
+
+pub const SetFileTimeError = error{Unexpected};
+
+pub fn SetFileTime(
+    hFile: HANDLE,
+    lpCreationTime: ?*const FILETIME,
+    lpLastAccessTime: ?*const FILETIME,
+    lpLastWriteTime: ?*const FILETIME,
+) SetFileTimeError!void {
+    const rc = kernel32.SetFileTime(hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+/// A file time is a 64-bit value that represents the number of 100-nanosecond
+/// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
+/// Universal Time (UTC).
+/// This function returns the number of nanoseconds since the canonical epoch,
+/// which is the POSIX one (Jan 01, 1970 AD).
+pub fn fromSysTime(hns: i64) i64 {
+    const adjusted_epoch = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
+    return adjusted_epoch * 100;
+}
+
+pub fn toSysTime(ns: i64) i64 {
+    const hns = @divFloor(ns, 100);
+    return hns - std.time.epoch.windows * (std.time.ns_per_s / 100);
+}
+
+pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
+    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    return fromSysTime(hns);
+}
+
+/// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
+pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
+    const adjusted = @bitCast(u64, toSysTime(ns));
+    return FILETIME{
+        .dwHighDateTime = @truncate(u32, adjusted >> 32),
+        .dwLowDateTime = @truncate(u32, adjusted),
+    };
+}
+
 pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
@@ -761,9 +821,8 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
 }
 
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
-    // TODO well defined copy elision
+    // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
-
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -802,6 +861,17 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
         std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
+
+
+/// Call this when you made a windows NtDll call
+/// and you get an unexpected status.
+pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
+    if (std.os.unexpected_error_tracing) {
+        std.debug.warn("error.Unexpected NTSTATUS={}\n", status);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

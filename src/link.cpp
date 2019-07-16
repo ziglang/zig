@@ -571,6 +571,9 @@ static const MinGWDef mingw_def_list[] = {
     {"shell32", "lib-common" OS_SEP "shell32.def", true},
     {"user32", "lib-common" OS_SEP "user32.def.in", true},
     {"kernel32", "lib-common" OS_SEP "kernel32.def.in", true},
+    {"ntdll", "libarm32" OS_SEP "ntdll.def", true},
+    {"ntdll", "lib32" OS_SEP "ntdll.def", true},
+    {"ntdll", "lib64" OS_SEP "ntdll.def", true},
 };
 
 struct LinkJob {

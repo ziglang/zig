@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
 pub const ERROR = @import("error.zig");
+pub const STATUS = @import("status.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -59,6 +60,7 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
+pub const NTSTATUS = ULONG;
 
 pub const va_list = *@OpaqueType();
 
@@ -68,6 +70,147 @@ pub const FALSE = 0;
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
 pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
+
+pub const FILE_ALL_INFORMATION = extern struct {
+    BasicInformation: FILE_BASIC_INFORMATION,
+    StandardInformation: FILE_STANDARD_INFORMATION,
+    InternalInformation: FILE_INTERNAL_INFORMATION,
+    EaInformation: FILE_EA_INFORMATION,
+    AccessInformation: FILE_ACCESS_INFORMATION,
+    PositionInformation: FILE_POSITION_INFORMATION,
+    ModeInformation: FILE_MODE_INFORMATION,
+    AlignmentInformation: FILE_ALIGNMENT_INFORMATION,
+    NameInformation: FILE_NAME_INFORMATION,
+};
+
+pub const FILE_BASIC_INFORMATION = extern struct {
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    FileAttributes: ULONG,
+};
+
+pub const FILE_STANDARD_INFORMATION = extern struct {
+    AllocationSize: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    NumberOfLinks: ULONG,
+    DeletePending: BOOLEAN,
+    Directory: BOOLEAN,
+};
+
+pub const FILE_INTERNAL_INFORMATION = extern struct {
+    IndexNumber: LARGE_INTEGER,
+};
+
+pub const FILE_EA_INFORMATION = extern struct {
+    EaSize: ULONG,
+};
+
+pub const FILE_ACCESS_INFORMATION = extern struct {
+    AccessFlags: ACCESS_MASK,
+};
+
+pub const FILE_POSITION_INFORMATION = extern struct {
+    CurrentByteOffset: LARGE_INTEGER,
+};
+
+pub const FILE_MODE_INFORMATION = extern struct {
+    Mode: ULONG,
+};
+
+pub const FILE_ALIGNMENT_INFORMATION = extern struct {
+    AlignmentRequirement: ULONG,
+};
+
+pub const FILE_NAME_INFORMATION = extern struct {
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
+
+pub const IO_STATUS_BLOCK = extern struct {
+    Status: usize,
+    Information: ULONG_PTR,
+};
+
+pub const FILE_INFORMATION_CLASS = extern enum {
+    FileDirectoryInformation = 1,
+    FileFullDirectoryInformation,
+    FileBothDirectoryInformation,
+    FileBasicInformation,
+    FileStandardInformation,
+    FileInternalInformation,
+    FileEaInformation,
+    FileAccessInformation,
+    FileNameInformation,
+    FileRenameInformation,
+    FileLinkInformation,
+    FileNamesInformation,
+    FileDispositionInformation,
+    FilePositionInformation,
+    FileFullEaInformation,
+    FileModeInformation,
+    FileAlignmentInformation,
+    FileAllInformation,
+    FileAllocationInformation,
+    FileEndOfFileInformation,
+    FileAlternateNameInformation,
+    FileStreamInformation,
+    FilePipeInformation,
+    FilePipeLocalInformation,
+    FilePipeRemoteInformation,
+    FileMailslotQueryInformation,
+    FileMailslotSetInformation,
+    FileCompressionInformation,
+    FileObjectIdInformation,
+    FileCompletionInformation,
+    FileMoveClusterInformation,
+    FileQuotaInformation,
+    FileReparsePointInformation,
+    FileNetworkOpenInformation,
+    FileAttributeTagInformation,
+    FileTrackingInformation,
+    FileIdBothDirectoryInformation,
+    FileIdFullDirectoryInformation,
+    FileValidDataLengthInformation,
+    FileShortNameInformation,
+    FileIoCompletionNotificationInformation,
+    FileIoStatusBlockRangeInformation,
+    FileIoPriorityHintInformation,
+    FileSfioReserveInformation,
+    FileSfioVolumeInformation,
+    FileHardLinkInformation,
+    FileProcessIdsUsingFileInformation,
+    FileNormalizedNameInformation,
+    FileNetworkPhysicalNameInformation,
+    FileIdGlobalTxDirectoryInformation,
+    FileIsRemoteDeviceInformation,
+    FileUnusedInformation,
+    FileNumaNodeInformation,
+    FileStandardLinkInformation,
+    FileRemoteProtocolInformation,
+    FileRenameInformationBypassAccessCheck,
+    FileLinkInformationBypassAccessCheck,
+    FileVolumeNameInformation,
+    FileIdInformation,
+    FileIdExtdDirectoryInformation,
+    FileReplaceCompletionInformation,
+    FileHardLinkFullIdInformation,
+    FileIdExtdBothDirectoryInformation,
+    FileDispositionInformationEx,
+    FileRenameInformationEx,
+    FileRenameInformationExBypassAccessCheck,
+    FileDesiredStorageClassInformation,
+    FileStatInformation,
+    FileMemoryPartitionInformation,
+    FileStatLxInformation,
+    FileCaseSensitiveInformation,
+    FileLinkInformationEx,
+    FileLinkInformationExBypassAccessCheck,
+    FileStorageReserveIdInformation,
+    FileCaseSensitiveInformationForceAccessCheck,
+    FileMaximumInformation
+};
 
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
@@ -103,6 +246,19 @@ pub const FileAlignmentInfo = 17;
 pub const FileIdInfo = 18;
 pub const FileIdExtdDirectoryInfo = 19;
 pub const FileIdExtdDirectoryRestartInfo = 20;
+
+pub const BY_HANDLE_FILE_INFORMATION = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    dwVolumeSerialNumber: DWORD,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
+    nNumberOfLinks: DWORD,
+    nFileIndexHigh: DWORD,
+    nFileIndexLow: DWORD,
+};
 
 pub const FILE_NAME_INFO = extern struct {
     FileNameLength: DWORD,
@@ -561,3 +717,18 @@ pub const EXCEPTION_POINTERS = extern struct {
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;
+
+pub const OBJECT_ATTRIBUTES = extern struct {
+    Length: ULONG,
+    RootDirectory: HANDLE,
+    ObjectName: *UNICODE_STRING,
+    Attributes: ULONG,
+    SecurityDescriptor: ?*c_void,
+    SecurityQualityOfService: ?*c_void,
+};
+
+pub const UNICODE_STRING = extern struct {
+    Length: USHORT,
+    MaximumLength: USHORT,
+    Buffer: [*]WCHAR,
+};

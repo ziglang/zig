@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <ctype.h>
 
 #if defined(_MSC_VER)
 
@@ -160,6 +161,15 @@ static inline bool mem_eql_mem(const char *a_ptr, size_t a_len, const char *b_pt
     if (a_len != b_len)
         return false;
     return memcmp(a_ptr, b_ptr, a_len) == 0;
+}
+static inline bool mem_eql_mem_ignore_case(const char *a_ptr, size_t a_len, const char *b_ptr, size_t b_len) {
+    if (a_len != b_len)
+        return false;
+    for (size_t i = 0; i < a_len; i += 1) {
+        if (tolower(a_ptr[i]) != tolower(b_ptr[i]))
+            return false;
+    }
+    return true;
 }
 
 static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str) {

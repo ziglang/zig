@@ -2546,6 +2546,45 @@ pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
     }
 }
 
+pub const FutimensError = error{
+    /// times is NULL, or both tv_nsec values are UTIME_NOW, and either:
+    /// *  the effective user ID of the caller does not match the  owner
+    ///    of  the  file,  the  caller does not have write access to the
+    ///    file, and the caller is not privileged (Linux: does not  have
+    ///    either  the  CAP_FOWNER  or the CAP_DAC_OVERRIDE capability);
+    ///    or,
+    /// *  the file is marked immutable (see chattr(1)).
+    AccessDenied,
+
+    /// The caller attempted to change one or both timestamps to a value
+    /// other than the current time, or to change one of the  timestamps
+    /// to the current time while leaving the other timestamp unchanged,
+    /// (i.e., times is not NULL, neither tv_nsec  field  is  UTIME_NOW,
+    /// and neither tv_nsec field is UTIME_OMIT) and either:
+    /// *  the  caller's  effective  user ID does not match the owner of
+    ///    file, and the caller is not privileged (Linux: does not  have
+    ///    the CAP_FOWNER capability); or,
+    /// *  the file is marked append-only or immutable (see chattr(1)).
+    PermissionDenied,
+
+    ReadOnlyFileSystem,
+
+    Unexpected,
+};
+
+pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
+    switch (errno(system.futimens(fd, times))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.PermissionDenied,
+        EBADF => unreachable, // always a race condition
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        EROFS => return error.ReadOnlyFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 test "" {
     _ = @import("os/darwin.zig");
     _ = @import("os/freebsd.zig");

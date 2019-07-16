@@ -94,6 +94,15 @@ pub inline fn vfork() usize {
     return @inlineCall(syscall0, SYS_vfork);
 }
 
+pub fn futimens(fd: i32, times: *const [2]timespec) usize {
+    return utimensat(fd, null, times, 0);
+}
+
+// TODO https://github.com/ziglang/zig/issues/265
+pub fn utimensat(dirfd: i32, path: ?[*]const u8, times: *const [2]timespec, flags: u32) usize {
+    return syscall4(SYS_utimensat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(times), flags);
+}
+
 pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*timespec) usize {
     return syscall4(SYS_futex, @ptrToInt(uaddr), futex_op, @bitCast(u32, val), @ptrToInt(timeout));
 }

@@ -216,6 +216,17 @@ pub const Builder = struct {
         return mem.dupe(self.allocator, u8, bytes) catch unreachable;
     }
 
+    fn dupePath(self: *Builder, bytes: []const u8) []u8 {
+        const the_copy = self.dupe(bytes);
+        for (the_copy) |*byte| {
+            switch (byte.*) {
+                '/', '\\' => byte.* = fs.path.sep,
+                else => {},
+            }
+        }
+        return the_copy;
+    }
+
     pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
         const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
         write_file_step.* = WriteFileStep.init(self, file_path, data);
@@ -296,7 +307,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", full_path);
             }
-            fs.deleteFile(full_path) catch {};
+            fs.deleteTree(self.allocator, full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -704,6 +715,10 @@ pub const Builder = struct {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Prefix, dest_rel_path).step);
     }
 
+    pub fn installDirectory(self: *Builder, options: InstallDirectoryOptions) void {
+        self.getInstallStep().dependOn(&self.addInstallDirectory(options).step);
+    }
+
     ///`dest_rel_path` is relative to bin path
     pub fn installBinFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) void {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Bin, dest_rel_path).step);
@@ -740,6 +755,12 @@ pub const Builder = struct {
         return install_step;
     }
 
+    pub fn addInstallDirectory(self: *Builder, options: InstallDirectoryOptions) *InstallDirStep {
+        const install_step = self.allocator.create(InstallDirStep) catch unreachable;
+        install_step.* = InstallDirStep.init(self, options);
+        return install_step;
+    }
+
     pub fn pushInstalledFile(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) void {
         self.installed_files.append(InstalledFile{
             .dir = dir,
@@ -747,24 +768,14 @@ pub const Builder = struct {
         }) catch unreachable;
     }
 
-    fn copyFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, File.default_mode);
-    }
-
-    fn copyFileMode(self: *Builder, source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
+    fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         if (self.verbose) {
-            warn("cp {} {}\n", source_path, dest_path);
+            warn("cp {} {} ", source_path, dest_path);
         }
-
-        const dirname = fs.path.dirname(dest_path) orelse ".";
-        const abs_source_path = self.pathFromRoot(source_path);
-        fs.makePath(self.allocator, dirname) catch |err| {
-            warn("Unable to create path {}: {}\n", dirname, @errorName(err));
-            return err;
-        };
-        fs.copyFileMode(abs_source_path, dest_path, mode) catch |err| {
-            warn("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
-            return err;
+        const prev_status = try fs.updateFile(source_path, dest_path);
+        if (self.verbose) switch (prev_status) {
+            .stale => warn("# installed\n"),
+            .fresh => warn("# up-to-date\n"),
         };
     }
 
@@ -1412,7 +1423,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
-        self.output_dir = self.builder.dupe(dir);
+        self.output_dir = self.builder.dupePath(dir);
     }
 
     pub fn install(self: *LibExeObjStep) void {
@@ -1892,12 +1903,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append(builder.pathFromRoot(dir));
         }
 
-        if (self.output_dir) |output_dir| {
-            try zig_args.append("--output-dir");
-            try zig_args.append(output_dir);
-
-            try builder.spawnChild(zig_args.toSliceConst());
-        } else if (self.kind == Kind.Test) {
+        if (self.kind == Kind.Test) {
             try builder.spawnChild(zig_args.toSliceConst());
         } else {
             try zig_args.append("--cache");
@@ -1905,7 +1911,16 @@ pub const LibExeObjStep = struct {
 
             const output_path_nl = try builder.exec(zig_args.toSliceConst());
             const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
-            self.output_dir = fs.path.dirname(output_path).?;
+
+            if (self.output_dir) |output_dir| {
+                const full_dest = try fs.path.join(builder.allocator, [_][]const u8{
+                    output_dir,
+                    fs.path.basename(output_path),
+                });
+                try builder.updateFile(output_path, full_dest);
+            } else {
+                self.output_dir = fs.path.dirname(output_path).?;
+            }
         }
 
         if (self.kind == Kind.Lib and self.is_dynamic and self.target.wantSharedLibSymLinks()) {
@@ -2077,23 +2092,14 @@ const InstallArtifactStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
-        const mode = switch (builtin.os) {
-            .windows => {},
-            else => switch (self.artifact.kind) {
-                .Obj => unreachable,
-                .Test => unreachable,
-                .Exe => u32(0o755),
-                .Lib => if (!self.artifact.is_dynamic) u32(0o666) else u32(0o755),
-            },
-        };
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
-        try builder.copyFileMode(self.artifact.getOutputPath(), full_dest_path, mode);
+        try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
         if (self.artifact.isDynamicLibrary()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
-            try builder.copyFile(self.artifact.getOutputPdbPath(), full_pdb_path);
+            try builder.updateFile(self.artifact.getOutputPdbPath(), full_pdb_path);
         }
         self.artifact.installed_path = full_dest_path;
     }
@@ -2125,7 +2131,55 @@ pub const InstallFileStep = struct {
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
         const full_dest_path = self.builder.getInstallPath(self.dir, self.dest_rel_path);
-        try self.builder.copyFile(self.src_path, full_dest_path);
+        const full_src_path = self.builder.pathFromRoot(self.src_path);
+        try self.builder.updateFile(full_src_path, full_dest_path);
+    }
+};
+
+pub const InstallDirectoryOptions = struct {
+    source_dir: []const u8,
+    install_dir: InstallDir,
+    install_subdir: []const u8,
+    exclude_extensions: ?[]const []const u8 = null,
+};
+
+pub const InstallDirStep = struct {
+    step: Step,
+    builder: *Builder,
+    options: InstallDirectoryOptions,
+
+    pub fn init(
+        builder: *Builder,
+        options: InstallDirectoryOptions,
+    ) InstallDirStep {
+        builder.pushInstalledFile(options.install_dir, options.install_subdir);
+        return InstallDirStep{
+            .builder = builder,
+            .step = Step.init(builder.fmt("install {}/", options.source_dir), builder.allocator, make),
+            .options = options,
+        };
+    }
+
+    fn make(step: *Step) !void {
+        const self = @fieldParentPtr(InstallDirStep, "step", step);
+        const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
+        const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
+        var it = try fs.walkPath(self.builder.allocator, full_src_dir);
+        next_entry: while (try it.next()) |entry| {
+            if (self.options.exclude_extensions) |ext_list| for (ext_list) |ext| {
+                if (mem.endsWith(u8, entry.path, ext)) {
+                    continue :next_entry;
+                }
+            };
+
+            const rel_path = entry.path[full_src_dir.len + 1 ..];
+            const dest_path = try fs.path.join(self.builder.allocator, [_][]const u8{ dest_prefix, rel_path });
+            switch (entry.kind) {
+                .Directory => try fs.makePath(self.builder.allocator, dest_path),
+                .File => try self.builder.updateFile(entry.path, dest_path),
+                else => continue,
+            }
+        }
     }
 };
 

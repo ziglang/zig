@@ -305,14 +305,12 @@ int main(int argc, char **argv) {
     Error err;
 
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
-        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+        printf("%s\n%s\n%s\n%s\n%s\n%s\n",
                 ZIG_CMAKE_BINARY_DIR,
                 ZIG_CXX_COMPILER,
                 ZIG_LLVM_CONFIG_EXE,
                 ZIG_LLD_INCLUDE_PATH,
                 ZIG_LLD_LIBRARIES,
-                ZIG_STD_FILES,
-                ZIG_C_HEADER_FILES,
                 ZIG_DIA_GUIDS_LIB);
         return 0;
     }
@@ -1231,6 +1229,9 @@ int main(int argc, char **argv) {
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
+#if defined(ZIG_OS_WINDOWS)
+                        buf_replace(&g->output_file_path, '/', '\\');
+#endif
                         if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
                             return EXIT_FAILURE;
                     }

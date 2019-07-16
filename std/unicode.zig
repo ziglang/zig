@@ -560,18 +560,34 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.
-/// If ran out of room, returned index equals output slice length + 1.
+/// Assumes there is enough space for the output.
 /// TODO support codepoints bigger than 16 bits
 pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
-    const utf16le_as_bytes = @sliceToBytes(utf16le[0..]);
-    var end_index: usize = 0;
-
-    var it = (try Utf8View.init(utf8)).iterator();
-    while (it.nextCodepoint()) |codepoint| {
-        if (end_index == utf16le_as_bytes.len) return (end_index / 2) + 1;
-        // TODO surrogate pairs
-        mem.writeIntSliceLittle(u16, utf16le_as_bytes[end_index..], @intCast(u16, codepoint));
-        end_index += 2;
+    var dest_i: usize = 0;
+    var src_i: usize = 0;
+    while (src_i < utf8.len) {
+        const byte = utf8[src_i];
+        const n = @clz(u8, ~byte);
+        switch (n) {
+            0 => {
+                utf16le[dest_i] = byte;
+                dest_i += 1;
+                src_i += 1;
+                continue;
+            },
+            2, 3, 4 => {
+                const next_src_i = src_i + n;
+                const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
+                const short = @intCast(u16, codepoint); // TODO surrogate pairs
+                utf16le[dest_i] = switch (builtin.endian) {
+                    .Little => short,
+                    .Big => @byteSwap(u16, short),
+                };
+                dest_i += 1;
+                src_i = next_src_i;
+            },
+            else => return error.InvalidUtf8,
+        }
     }
-    return end_index / 2;
+    return dest_i;
 }

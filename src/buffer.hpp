@@ -136,9 +136,19 @@ static inline bool buf_eql_mem(Buf *buf, const char *mem, size_t mem_len) {
     return mem_eql_mem(buf_ptr(buf), buf_len(buf), mem, mem_len);
 }
 
+static inline bool buf_eql_mem_ignore_case(Buf *buf, const char *mem, size_t mem_len) {
+    assert(buf->list.length);
+    return mem_eql_mem_ignore_case(buf_ptr(buf), buf_len(buf), mem, mem_len);
+}
+
 static inline bool buf_eql_str(Buf *buf, const char *str) {
     assert(buf->list.length);
     return buf_eql_mem(buf, str, strlen(str));
+}
+
+static inline bool buf_eql_str_ignore_case(Buf *buf, const char *str) {
+    assert(buf->list.length);
+    return buf_eql_mem_ignore_case(buf, str, strlen(str));
 }
 
 static inline bool buf_starts_with_mem(Buf *buf, const char *mem, size_t mem_len) {

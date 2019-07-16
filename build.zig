@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
+const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
@@ -46,8 +47,6 @@ pub fn build(b: *Builder) !void {
         .llvm_config_exe = nextValue(&index, build_info),
         .lld_include_dir = nextValue(&index, build_info),
         .lld_libraries = nextValue(&index, build_info),
-        .std_files = nextValue(&index, build_info),
-        .c_header_files = nextValue(&index, build_info),
         .dia_guids_lib = nextValue(&index, build_info),
         .llvm = undefined,
     };
@@ -64,8 +63,6 @@ pub fn build(b: *Builder) !void {
     try configureStage2(b, test_stage2, ctx);
     try configureStage2(b, exe, ctx);
 
-    b.default_step.dependOn(&exe.step);
-
     addLibUserlandStep(b);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -79,9 +76,23 @@ pub fn build(b: *Builder) !void {
         //test_step.dependOn(&exe.step);
     }
 
-    exe.install();
-    installStdLib(b, ctx.std_files);
-    installCHeaders(b, ctx.c_header_files);
+    const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
+    if (!only_install_lib_files) {
+        b.default_step.dependOn(&exe.step);
+        exe.install();
+    }
+
+    b.installDirectory(InstallDirectoryOptions{
+        .source_dir = "lib",
+        .install_dir = .Lib,
+        .install_subdir = "zig",
+    });
+    b.installDirectory(InstallDirectoryOptions{
+        .source_dir = "std",
+        .install_dir = .Lib,
+        .install_subdir = "zig" ++ fs.path.sep_str ++ "std",
+        .exclude_extensions = [_][]const u8{ "test.zig", "README.md" },
+    });
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
@@ -251,30 +262,6 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
     return result;
 }
 
-pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
-    var it = mem.tokenize(stdlib_files, ";");
-    while (it.next()) |stdlib_file| {
-        const src_path = fs.path.join(b.allocator, [_][]const u8{ "std", stdlib_file }) catch unreachable;
-        const dest_path = fs.path.join(
-            b.allocator,
-            [_][]const u8{ "lib", "zig", "std", stdlib_file },
-        ) catch unreachable;
-        b.installFile(src_path, dest_path);
-    }
-}
-
-pub fn installCHeaders(b: *Builder, c_header_files: []const u8) void {
-    var it = mem.tokenize(c_header_files, ";");
-    while (it.next()) |c_header_file| {
-        const src_path = fs.path.join(b.allocator, [_][]const u8{ "c_headers", c_header_file }) catch unreachable;
-        const dest_path = fs.path.join(
-            b.allocator,
-            [_][]const u8{ "lib", "zig", "include", c_header_file },
-        ) catch unreachable;
-        b.installFile(src_path, dest_path);
-    }
-}
-
 fn nextValue(index: *usize, build_info: []const u8) []const u8 {
     const start = index.*;
     while (true) : (index.* += 1) {
@@ -375,8 +362,6 @@ const Context = struct {
     llvm_config_exe: []const u8,
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
-    std_files: []const u8,
-    c_header_files: []const u8,
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
@@ -387,6 +372,7 @@ fn addLibUserlandStep(b: *Builder) void {
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
+    artifact.linkSystemLibrary("ntdll");
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
     libuserland_step.dependOn(&artifact.step);
 
