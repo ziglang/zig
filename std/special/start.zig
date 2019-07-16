@@ -125,13 +125,13 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 
+// General error message for a malformed return type
+const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
+
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMain() u8 {
-    // General error message for a malformed return type
-    const compile_err_prefix = "expected return type of main to be 'u8', 'noreturn', 'void', '!void', or '!u8', found '";
-    const compile_err = compile_err_prefix ++ @typeName(@typeOf(root.main).ReturnType) ++ "'";
-    switch (@typeId(@typeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -139,32 +139,32 @@ inline fn callMain() u8 {
             root.main();
             return 0;
         },
-        .Int => {
-            if (@typeOf(root.main).ReturnType.bit_count != 8) {
-                @compileError(compile_err);
+        .Int => |info| {
+            if (info.bits != 8) {
+                @compileError(bad_main_ret);
             }
             return root.main();
         },
-        builtin.TypeId.ErrorUnion => {
-            const PayloadType = @typeOf(root.main).ReturnType.Payload;
-            // In this case the error should include the payload type
-            const payload_err = compile_err_prefix ++ "!" ++ @typeName(PayloadType) ++ "'";
-            // If the payload is void or a u8
-            if (@typeId(PayloadType) == builtin.TypeId.Void or (@typeId(PayloadType) == builtin.TypeId.Int and PayloadType.bit_count == 8)) {
-                const tmp = root.main() catch |err| {
-                    std.debug.warn("error: {}\n", @errorName(err));
-                    if (builtin.os != builtin.Os.zen) {
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
+        .ErrorUnion => {
+            const result = root.main() catch |err| {
+                std.debug.warn("error: {}\n", @errorName(err));
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+            switch (@typeInfo(@typeOf(result))) {
+                .Void => return 0,
+                .Int => |info| {
+                    if (info.bits != 8) {
+                        @compileError(bad_main_ret);
                     }
-                    return 1;
-                };
-                // If main didn't error, return 0 or the exit code
-                return if (PayloadType == void) 0 else tmp;
-            } else @compileError(payload_err);
+                    return result;
+                },
+                else => @compileError(bad_main_ret),
+            }
         },
-        else => @compileError(compile_err),
+        else => @compileError(bad_main_ret),
     }
 }
 

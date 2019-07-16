@@ -2247,7 +2247,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "wrong return type for main",
         \\pub fn main() f32 { }
     ,
-        "error: expected return type of main to be 'u8', 'noreturn', 'void', '!void', or '!u8'",
+        "error: expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'",
     );
 
     cases.add(
@@ -2255,7 +2255,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn main() ??void {
         \\}
     ,
-        "error: expected return type of main to be 'u8', 'noreturn', 'void', '!void', or '!u8'",
+        "error: expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'",
     );
 
     cases.add(
