@@ -21,6 +21,7 @@
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
+#include <clang/AST/APValue.h>
 #include <clang/AST/Expr.h>
 
 #if __GNUC__ >= 8
@@ -1287,6 +1288,20 @@ static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF16 == clang::StringLiteral::UTF16, "");
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF32 == clang::StringLiteral::UTF32, "");
 
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Uninitialized == clang::APValue::ValueKind::Uninitialized, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Int == clang::APValue::ValueKind::Int, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Float == clang::APValue::ValueKind::Float, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexInt == clang::APValue::ValueKind::ComplexInt, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexFloat == clang::APValue::ValueKind::ComplexFloat, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_LValue == clang::APValue::ValueKind::LValue, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Vector == clang::APValue::ValueKind::Vector, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Array == clang::APValue::ValueKind::Array, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Struct == clang::APValue::ValueKind::Struct, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Union == clang::APValue::ValueKind::Union, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_MemberPointer == clang::APValue::ValueKind::MemberPointer, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_AddrLabelDiff == clang::APValue::ValueKind::AddrLabelDiff, "");
+
+static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
 
 static_assert(sizeof(ZigClangSourceLocation) == sizeof(clang::SourceLocation), "");
 static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
@@ -1312,6 +1327,13 @@ static clang::QualType bitcast(ZigClangQualType src) {
     return dest;
 }
 
+static_assert(sizeof(ZigClangExprEvalResult) == sizeof(clang::Expr::EvalResult), "");
+static ZigClangExprEvalResult bitcast(clang::Expr::EvalResult src) {
+    ZigClangExprEvalResult dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangExprEvalResult));
+    return dest;
+}
+
 static_assert(sizeof(ZigClangAPValueLValueBase) == sizeof(clang::APValue::LValueBase), "");
 static ZigClangAPValueLValueBase bitcast(clang::APValue::LValueBase src) {
     ZigClangAPValueLValueBase dest;
@@ -1331,6 +1353,12 @@ static ZigClangCompoundStmt_const_body_iterator bitcast(clang::CompoundStmt::con
     return dest;
 }
 
+static_assert(sizeof(ZigClangDeclStmt_const_decl_iterator) == sizeof(clang::DeclStmt::const_decl_iterator), "");
+static ZigClangDeclStmt_const_decl_iterator bitcast(clang::DeclStmt::const_decl_iterator src) {
+    ZigClangDeclStmt_const_decl_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangDeclStmt_const_decl_iterator));
+    return dest;
+}
 
 ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
@@ -1381,7 +1409,7 @@ ZigClangSourceManager *ZigClangASTUnit_getSourceManager(ZigClangASTUnit *self) {
     return reinterpret_cast<ZigClangSourceManager *>(result);
 }
 
-bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *context, 
+bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *context,
     bool (*Fn)(void *context, const ZigClangDecl *decl))
 {
     return reinterpret_cast<clang::ASTUnit *>(self)->visitLocalTopLevelDecls(context,
@@ -1538,6 +1566,11 @@ const ZigClangType *ZigClangQualType_getTypePtr(ZigClangQualType self) {
     clang::QualType qt = bitcast(self);
     const clang::Type *ty = qt.getTypePtr();
     return reinterpret_cast<const ZigClangType *>(ty);
+}
+
+ZigClangTypeClass ZigClangQualType_getTypeClass(ZigClangQualType self) {
+    clang::QualType ty = bitcast(self);
+    return (ZigClangTypeClass)(ty->getTypeClass());
 }
 
 void ZigClangQualType_addConst(ZigClangQualType *self) {
@@ -1815,6 +1848,21 @@ void ZigClangASTUnit_delete(struct ZigClangASTUnit *self) {
     delete reinterpret_cast<clang::ASTUnit *>(self);
 }
 
+struct ZigClangQualType ZigClangVarDecl_getType(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return bitcast(casted->getType());
+}
+
+const struct ZigClangExpr *ZigClangVarDecl_getInit(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return reinterpret_cast<const ZigClangExpr *>(casted->getInit());
+}
+
+enum ZigClangVarDecl_TLSKind ZigClangVarDecl_getTLSKind(const ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return (ZigClangVarDecl_TLSKind)casted->getTLSKind();
+}
+
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
     auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
     return (ZigClangBuiltinTypeKind)casted->getKind();
@@ -1862,6 +1910,16 @@ ZigClangCompoundStmt_const_body_iterator ZigClangCompoundStmt_body_end(const str
     return bitcast(casted->body_end());
 }
 
+ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_begin(const struct ZigClangDeclStmt *self) {
+    auto casted = reinterpret_cast<const clang::DeclStmt *>(self);
+    return bitcast(casted->decl_begin());
+}
+
+ZigClangDeclStmt_const_decl_iterator ZigClangDeclStmt_decl_end(const struct ZigClangDeclStmt *self) {
+    auto casted = reinterpret_cast<const clang::DeclStmt *>(self);
+    return bitcast(casted->decl_end());
+}
+
 unsigned ZigClangAPFloat_convertToHexString(const ZigClangAPFloat *self, char *DST,
         unsigned HexDigits, bool UpperCase, enum ZigClangAPFloat_roundingMode RM)
 {
@@ -1887,4 +1945,105 @@ const struct ZigClangStringLiteral *ZigClangPredefinedExpr_getFunctionName(
     auto casted = reinterpret_cast<const clang::PredefinedExpr *>(self);
     const clang::StringLiteral *result = casted->getFunctionName();
     return reinterpret_cast<const struct ZigClangStringLiteral *>(result);
+}
+
+ZigClangSourceLocation ZigClangImplicitCastExpr_getBeginLoc(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+enum ZigClangCK ZigClangImplicitCastExpr_getCastKind(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
+    return (ZigClangCK)casted->getCastKind();
+}
+
+const struct ZigClangExpr *ZigClangImplicitCastExpr_getSubExpr(const struct ZigClangImplicitCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::ImplicitCastExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getSubExpr());
+}
+
+struct ZigClangQualType ZigClangArrayType_getElementType(const struct ZigClangArrayType *self) {
+    auto casted = reinterpret_cast<const clang::ArrayType *>(self);
+    return bitcast(casted->getElementType());
+}
+
+const struct ZigClangValueDecl *ZigClangDeclRefExpr_getDecl(const struct ZigClangDeclRefExpr *self) {
+    auto casted = reinterpret_cast<const clang::DeclRefExpr *>(self);
+    return reinterpret_cast<const struct ZigClangValueDecl *>(casted->getDecl());
+}
+
+struct ZigClangQualType ZigClangParenType_getInnerType(const struct ZigClangParenType *self) {
+    auto casted = reinterpret_cast<const clang::ParenType *>(self);
+    return bitcast(casted->getInnerType());
+}
+
+struct ZigClangQualType ZigClangAttributedType_getEquivalentType(const struct ZigClangAttributedType *self) {
+    auto casted = reinterpret_cast<const clang::AttributedType *>(self);
+    return bitcast(casted->getEquivalentType());
+}
+
+struct ZigClangQualType ZigClangElaboratedType_getNamedType(const struct ZigClangElaboratedType *self) {
+    auto casted = reinterpret_cast<const clang::ElaboratedType *>(self);
+    return bitcast(casted->getNamedType());
+}
+
+struct ZigClangSourceLocation ZigClangCStyleCastExpr_getBeginLoc(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+const struct ZigClangExpr *ZigClangCStyleCastExpr_getSubExpr(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getSubExpr());
+}
+
+struct ZigClangQualType ZigClangCStyleCastExpr_getType(const struct ZigClangCStyleCastExpr *self) {
+    auto casted = reinterpret_cast<const clang::CStyleCastExpr *>(self);
+    return bitcast(casted->getType());
+}
+
+bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *self, struct ZigClangExprEvalResult *result, const struct ZigClangASTContext *ctx) {
+    auto casted_self = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    clang::Expr::EvalResult eval_result;
+    if (!casted_self->EvaluateAsInt(eval_result, *casted_ctx)) {
+        return false;
+    }
+    *result = bitcast(eval_result);
+    return true;
+}
+
+struct ZigClangSourceLocation ZigClangIntegerLiteral_getBeginLoc(const struct ZigClangIntegerLiteral *self) {
+    auto casted = reinterpret_cast<const clang::IntegerLiteral *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+const struct ZigClangExpr *ZigClangReturnStmt_getRetValue(const struct ZigClangReturnStmt *self) {
+    auto casted = reinterpret_cast<const clang::ReturnStmt *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getRetValue());
+}
+
+enum ZigClangBO ZigClangBinaryOperator_getOpcode(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return (ZigClangBO)casted->getOpcode();
+}
+
+struct ZigClangSourceLocation ZigClangBinaryOperator_getBeginLoc(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return bitcast(casted->getBeginLoc());
+}
+
+const struct ZigClangExpr *ZigClangBinaryOperator_getLHS(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getLHS());
+}
+
+const struct ZigClangExpr *ZigClangBinaryOperator_getRHS(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return reinterpret_cast<const struct ZigClangExpr *>(casted->getRHS());
+}
+
+struct ZigClangQualType ZigClangBinaryOperator_getType(const struct ZigClangBinaryOperator *self) {
+    auto casted = reinterpret_cast<const clang::BinaryOperator *>(self);
+    return bitcast(casted->getType());
 }
