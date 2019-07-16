@@ -15,7 +15,7 @@ extern "C" {
 struct __ucontext;
 
 int  getcontext(struct __ucontext *);
-void makecontext(struct __ucontext *, void (*)(void), int, ...);
+void makecontext(struct __ucontext *, void (*)(), int, ...);
 int  setcontext(const struct __ucontext *);
 int  swapcontext(struct __ucontext *, const struct __ucontext *);
 

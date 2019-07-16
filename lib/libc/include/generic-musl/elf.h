@@ -314,7 +314,8 @@ typedef struct {
 #define EM_AMDGPU	224
 #define EM_RISCV	243
 #define EM_BPF		247
-#define EM_NUM		248
+#define EM_CSKY		252
+#define EM_NUM		253
 
 #define EM_ALPHA	0x9026
 
@@ -681,11 +682,17 @@ typedef struct {
 #define NT_ARM_HW_WATCH	0x403
 #define NT_ARM_SYSTEM_CALL	0x404
 #define NT_ARM_SVE	0x405
+#define NT_ARM_PAC_MASK	0x406
+#define NT_ARM_PACA_KEYS	0x407
+#define NT_ARM_PACG_KEYS	0x408
 #define NT_METAG_CBUF	0x500
 #define NT_METAG_RPIPE	0x501
 #define NT_METAG_TLS	0x502
 #define NT_ARC_V2	0x600
 #define NT_VMCOREDD	0x700
+#define NT_MIPS_DSP	0x800
+#define NT_MIPS_FP_MODE	0x801
+#define NT_MIPS_MSA	0x802
 #define NT_VERSION	1
 
 
@@ -2619,6 +2626,61 @@ enum
 #define R_ARM_NUM		256
 
 
+#define R_CKCORE_NONE               0
+#define R_CKCORE_ADDR32             1
+#define R_CKCORE_PCRELIMM8BY4       2
+#define R_CKCORE_PCRELIMM11BY2      3
+#define R_CKCORE_PCREL32            5
+#define R_CKCORE_PCRELJSR_IMM11BY2  6
+#define R_CKCORE_RELATIVE           9
+#define R_CKCORE_COPY               10
+#define R_CKCORE_GLOB_DAT           11
+#define R_CKCORE_JUMP_SLOT          12
+#define R_CKCORE_GOTOFF             13
+#define R_CKCORE_GOTPC              14
+#define R_CKCORE_GOT32              15
+#define R_CKCORE_PLT32              16
+#define R_CKCORE_ADDRGOT            17
+#define R_CKCORE_ADDRPLT            18
+#define R_CKCORE_PCREL_IMM26BY2     19
+#define R_CKCORE_PCREL_IMM16BY2     20
+#define R_CKCORE_PCREL_IMM16BY4     21
+#define R_CKCORE_PCREL_IMM10BY2     22
+#define R_CKCORE_PCREL_IMM10BY4     23
+#define R_CKCORE_ADDR_HI16          24
+#define R_CKCORE_ADDR_LO16          25
+#define R_CKCORE_GOTPC_HI16         26
+#define R_CKCORE_GOTPC_LO16         27
+#define R_CKCORE_GOTOFF_HI16        28
+#define R_CKCORE_GOTOFF_LO16        29
+#define R_CKCORE_GOT12              30
+#define R_CKCORE_GOT_HI16           31
+#define R_CKCORE_GOT_LO16           32
+#define R_CKCORE_PLT12              33
+#define R_CKCORE_PLT_HI16           34
+#define R_CKCORE_PLT_LO16           35
+#define R_CKCORE_ADDRGOT_HI16       36
+#define R_CKCORE_ADDRGOT_LO16       37
+#define R_CKCORE_ADDRPLT_HI16       38
+#define R_CKCORE_ADDRPLT_LO16       39
+#define R_CKCORE_PCREL_JSR_IMM26BY2 40
+#define R_CKCORE_TOFFSET_LO16       41
+#define R_CKCORE_DOFFSET_LO16       42
+#define R_CKCORE_PCREL_IMM18BY2     43
+#define R_CKCORE_DOFFSET_IMM18      44
+#define R_CKCORE_DOFFSET_IMM18BY2   45
+#define R_CKCORE_DOFFSET_IMM18BY4   46
+#define R_CKCORE_GOT_IMM18BY4       48
+#define R_CKCORE_PLT_IMM18BY4       49
+#define R_CKCORE_PCREL_IMM7BY4      50
+#define R_CKCORE_TLS_LE32           51
+#define R_CKCORE_TLS_IE32           52
+#define R_CKCORE_TLS_GD32           53
+#define R_CKCORE_TLS_LDM32          54
+#define R_CKCORE_TLS_LDO32          55
+#define R_CKCORE_TLS_DTPMOD32       56
+#define R_CKCORE_TLS_DTPOFF32       57
+#define R_CKCORE_TLS_TPOFF32        58
 
 
 #define EF_IA_64_MASKOS		0x0000000f
@@ -3165,6 +3227,62 @@ enum
 
 #define R_BPF_NONE		0
 #define R_BPF_MAP_FD		1
+
+#define R_RISCV_NONE            0
+#define R_RISCV_32              1
+#define R_RISCV_64              2
+#define R_RISCV_RELATIVE        3
+#define R_RISCV_COPY            4
+#define R_RISCV_JUMP_SLOT       5
+#define R_RISCV_TLS_DTPMOD32    6
+#define R_RISCV_TLS_DTPMOD64    7
+#define R_RISCV_TLS_DTPREL32    8
+#define R_RISCV_TLS_DTPREL64    9
+#define R_RISCV_TLS_TPREL32     10
+#define R_RISCV_TLS_TPREL64     11
+
+#define R_RISCV_BRANCH          16
+#define R_RISCV_JAL             17
+#define R_RISCV_CALL            18
+#define R_RISCV_CALL_PLT        19
+#define R_RISCV_GOT_HI20        20
+#define R_RISCV_TLS_GOT_HI20    21
+#define R_RISCV_TLS_GD_HI20     22
+#define R_RISCV_PCREL_HI20      23
+#define R_RISCV_PCREL_LO12_I    24
+#define R_RISCV_PCREL_LO12_S    25
+#define R_RISCV_HI20            26
+#define R_RISCV_LO12_I          27
+#define R_RISCV_LO12_S          28
+#define R_RISCV_TPREL_HI20      29
+#define R_RISCV_TPREL_LO12_I    30
+#define R_RISCV_TPREL_LO12_S    31
+#define R_RISCV_TPREL_ADD       32
+#define R_RISCV_ADD8            33
+#define R_RISCV_ADD16           34
+#define R_RISCV_ADD32           35
+#define R_RISCV_ADD64           36
+#define R_RISCV_SUB8            37
+#define R_RISCV_SUB16           38
+#define R_RISCV_SUB32           39
+#define R_RISCV_SUB64           40
+#define R_RISCV_GNU_VTINHERIT   41
+#define R_RISCV_GNU_VTENTRY     42
+#define R_RISCV_ALIGN           43
+#define R_RISCV_RVC_BRANCH      44
+#define R_RISCV_RVC_JUMP        45
+#define R_RISCV_RVC_LUI         46
+#define R_RISCV_GPREL_I         47
+#define R_RISCV_GPREL_S         48
+#define R_RISCV_TPREL_I         49
+#define R_RISCV_TPREL_S         50
+#define R_RISCV_RELAX           51
+#define R_RISCV_SUB6            52
+#define R_RISCV_SET6            53
+#define R_RISCV_SET8            54
+#define R_RISCV_SET16           55
+#define R_RISCV_SET32           56
+#define R_RISCV_32_PCREL        57
 
 #ifdef __cplusplus
 }

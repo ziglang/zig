@@ -19,11 +19,27 @@ const assert = std.debug.assert;
 
 const LibCTarget = struct {
     name: []const u8,
-    zig_arch: ?@TagType(Arch),
-    zig_abi: ?Abi,
+    arch: MultiArch,
 };
 
-const glibc_targets = []LibCTarget{
+const MultiArch = union(enum) {
+    aarch64,
+    arm,
+    mips,
+    mips64,
+    powerpc64,
+    specific: @TagType(Arch),
+
+    fn eql(a: MultiArch, b: MultiArch) bool {
+        if (@enumToInt(a) != @enumToInt(b))
+            return false;
+        if (@TagType(MultiArch)(a) != .specific)
+            return true;
+        return a.specific == b.specific;
+    }
+};
+
+const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "aarch64_be-linux-gnu",
         .zig_arch = Arch.aarch64_be,
@@ -275,11 +291,6 @@ const glibc_targets = []LibCTarget{
         .zig_abi = null,
     },
     LibCTarget{
-        .name = "nios2-linux-gnu",
-        .zig_arch = Arch.nios2,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
         .name = "powerpc64le-linux-gnu",
         .zig_arch = Arch.powerpc64le,
         .zig_abi = Abi.gnu,
@@ -420,261 +431,52 @@ const glibc_targets = []LibCTarget{
         .zig_abi = null,
     },
 };
-const musl_targets = []LibCTarget{
+
+const musl_targets = [_]LibCTarget{
     LibCTarget{
-        .name = "aarch64_be-linux-musl-native",
-        .zig_arch = Arch.aarch64_be,
-        .zig_abi = Abi.musl,
+        .name = "aarch64",
+        .arch = MultiArch.aarch64,
     },
     LibCTarget{
-        .name = "aarch64-linux-musleabi-native",
-        .zig_arch = Arch.aarch64,
-        .zig_abi = Abi.musleabi,
+        .name = "arm",
+        .arch = MultiArch.arm,
     },
     LibCTarget{
-        .name = "armeb-linux-musleabihf-native",
-        .zig_arch = Arch.armeb,
-        .zig_abi = Abi.musleabihf,
+        .name = "i386",
+        .arch = MultiArch{ .specific = .i386 },
     },
     LibCTarget{
-        .name = "armeb-linux-musleabi-native",
-        .zig_arch = Arch.armeb,
-        .zig_abi = Abi.musleabi,
+        .name = "mips",
+        .arch = MultiArch.mips,
     },
     LibCTarget{
-        .name = "armel-linux-musleabihf-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabihf,
+        .name = "mips64",
+        .arch = MultiArch.mips64,
     },
     LibCTarget{
-        .name = "armel-linux-musleabi-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabi,
+        .name = "powerpc",
+        .arch = MultiArch{ .specific = .powerpc },
     },
     LibCTarget{
-        .name = "arm-linux-musleabihf-native",
-        .zig_arch = Arch.arm,
-        .zig_abi = Abi.musleabihf,
+        .name = "powerpc64",
+        .arch = MultiArch.powerpc64,
     },
     LibCTarget{
-        .name = "arm-linux-musleabi-native",
-        .zig_arch = Arch.arm,
-        .zig_abi = Abi.musleabi,
+        .name = "riscv64",
+        .arch = MultiArch{ .specific = .riscv64 },
     },
     LibCTarget{
-        .name = "armv5l-linux-musleabihf-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabihf,
+        .name = "s390x",
+        .arch = MultiArch{ .specific = .s390x },
     },
     LibCTarget{
-        .name = "armv7l-linux-musleabihf-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabihf,
-    },
-    LibCTarget{
-        .name = "armv7m-linux-musleabi-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabi,
-    },
-    LibCTarget{
-        .name = "armv7r-linux-musleabihf-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musleabihf,
-    },
-    LibCTarget{
-        .name = "i486-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "i686-linux-musl-native",
-        .zig_arch = Arch.i386,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "i686-w64-mingw32-native",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "m68k-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "microblazeel-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "microblaze-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-musln32-native",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-musln32sf-native",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-musl-native",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mips64-linux-musln32-native",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-musln32sf-native",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-musl-native",
-        .zig_arch = Arch.mips64,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-musln32-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-musln32sf-native",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-musl-native",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-muslsf-native",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips-linux-musln32sf-native",
-        .zig_arch = Arch.mips,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips-linux-musl-native",
-        .zig_arch = Arch.mips,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "mips-linux-muslsf-native",
-        .zig_arch = Arch.mips,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "or1k-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "powerpc64le-linux-musl-native",
-        .zig_arch = Arch.powerpc64le,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "powerpc64-linux-musl-native",
-        .zig_arch = Arch.powerpc64,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "powerpcle-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "powerpcle-linux-muslsf-native",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-musl-native",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-muslsf-native",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "riscv32-linux-musl-native",
-        .zig_arch = Arch.riscv32,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "riscv64-linux-musl-native",
-        .zig_arch = Arch.riscv64,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "s390x-linux-musl-native",
-        .zig_arch = Arch.s390x,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "sh2eb-linux-muslfdpic-native",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "sh2eb-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "sh2-linux-muslfdpic-native",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "sh2-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "sh4eb-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "sh4-linux-musl-native",
-        .zig_arch = null,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-musl-native",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = Abi.musl,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-muslx32-native",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "x86_64-w64-mingw32-native",
-        .zig_arch = null,
-        .zig_abi = null,
+        .name = "x86_64",
+        .arch = MultiArch{ .specific = .x86_64 },
     },
 };
 
 const DestTarget = struct {
-    arch: @TagType(Arch),
+    arch: MultiArch,
     os: Os,
     abi: Abi,
 
@@ -685,7 +487,7 @@ const DestTarget = struct {
     }
 
     fn eql(a: DestTarget, b: DestTarget) bool {
-        return a.arch == b.arch and
+        return a.arch.eql(b.arch) and
             a.os == b.os and
             a.abi == b.abi;
     }
@@ -706,10 +508,15 @@ const HashToContents = std.AutoHashMap([]const u8, Contents);
 const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql);
 const PathTable = std.AutoHashMap([]const u8, *TargetToHash);
 
+const LibCVendor = enum {
+    musl,
+    glibc,
+};
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     const allocator = &arena.allocator;
-    const args = try std.os.argsAlloc(allocator);
+    const args = try std.process.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);
     var opt_out_dir: ?[]const u8 = null;
     var opt_abi: ?[]const u8 = null;
@@ -741,14 +548,22 @@ pub fn main() !void {
 
     const out_dir = opt_out_dir orelse usageAndExit(args[0]);
     const abi_name = opt_abi orelse usageAndExit(args[0]);
-    const libc_targets = if (std.mem.eql(u8, abi_name, "musl"))
-        musl_targets
+    const vendor = if (std.mem.eql(u8, abi_name, "musl"))
+        LibCVendor.musl
     else if (std.mem.eql(u8, abi_name, "glibc"))
-        glibc_targets
+        LibCVendor.glibc
     else {
         std.debug.warn("unrecognized C ABI: {}\n", abi_name);
         usageAndExit(args[0]);
     };
+    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", abi_name);
+
+    // TODO compiler crashed when I wrote this the canonical way
+    var libc_targets: []const LibCTarget = undefined;
+    switch (vendor) {
+        .musl => libc_targets = musl_targets,
+        .glibc => @panic("TODO this regressed"), // glibc_targets,
+    }
 
     var path_table = PathTable.init(allocator);
     var hash_to_contents = HashToContents.init(allocator);
@@ -759,20 +574,29 @@ pub fn main() !void {
 
     for (libc_targets) |libc_target| {
         const dest_target = DestTarget{
-            .arch = libc_target.zig_arch orelse continue,
-            .abi = libc_target.zig_abi orelse continue,
-            .os = builtin.Os.linux,
+            .arch = libc_target.arch,
+            .abi = switch (vendor) {
+                .musl => .musl,
+                else => @panic("TODO this regressed"),
+            },
+            .os = .linux,
         };
         search: for (search_paths.toSliceConst()) |search_path| {
-            const target_include_dir = try std.os.path.join(
-                allocator,
-                [][]const u8{ search_path, libc_target.name, "usr", "include" },
-            );
+            var sub_path: []const []const u8 = undefined;
+            switch (vendor) {
+                .musl => {
+                    sub_path = [_][]const u8{ search_path, libc_target.name, "usr", "local", "musl", "include" };
+                },
+                .glibc => {
+                    sub_path = [_][]const u8{ search_path, libc_target.name, "usr", "include" };
+                },
+            }
+            const target_include_dir = try std.fs.path.join(allocator, sub_path);
             var dir_stack = std.ArrayList([]const u8).init(allocator);
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.os.Dir.open(allocator, full_dir_name) catch |err| switch (err) {
+                var dir = std.fs.Dir.open(allocator, full_dir_name) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
@@ -780,11 +604,11 @@ pub fn main() !void {
                 defer dir.close();
 
                 while (try dir.next()) |entry| {
-                    const full_path = try std.os.path.join(allocator, [][]const u8{ full_dir_name, entry.name });
+                    const full_path = try std.fs.path.join(allocator, [_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
-                        std.os.Dir.Entry.Kind.Directory => try dir_stack.append(full_path),
-                        std.os.Dir.Entry.Kind.File => {
-                            const rel_path = try std.os.path.relative(allocator, target_include_dir, full_path);
+                        .Directory => try dir_stack.append(full_path),
+                        .File => {
+                            const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
                             const raw_bytes = try std.io.readFileAlloc(allocator, full_path);
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
@@ -798,7 +622,7 @@ pub fn main() !void {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.kv.value.hit_count += 1;
                                 std.debug.warn(
-                                    "duplicate: {} {} ({Bi2})\n",
+                                    "duplicate: {} {} ({Bi:2})\n",
                                     libc_target.name,
                                     rel_path,
                                     raw_bytes.len,
@@ -829,8 +653,8 @@ pub fn main() !void {
             std.debug.warn("warning: libc target not found: {}\n", libc_target.name);
         }
     }
-    std.debug.warn("summary: {Bi2} could be reduced to {Bi2}\n", total_bytes, total_bytes - max_bytes_saved);
-    try std.os.makePath(allocator, out_dir);
+    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", total_bytes, total_bytes - max_bytes_saved);
+    try std.fs.makePath(allocator, out_dir);
 
     var missed_opportunity_bytes: usize = 0;
     // iterate path_table. for each path, put all the hashes into a list. sort by hit_count.
@@ -850,15 +674,15 @@ pub fn main() !void {
         var best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
-            const full_path = try std.os.path.join(allocator, [][]const u8{ out_dir, "generic", path_kv.key });
-            try std.os.makePath(allocator, std.os.path.dirname(full_path).?);
+            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, generic_name, path_kv.key });
+            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
             try std.io.writeFile(full_path, best_contents.bytes);
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.warn("Missed opportunity ({Bi2}): {}\n", this_missed_bytes, path_kv.key);
+                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", this_missed_bytes, path_kv.key);
                 } else break;
             }
         }
@@ -868,15 +692,19 @@ pub fn main() !void {
             if (contents.is_generic) continue;
 
             const dest_target = hash_kv.key;
+            const arch_name = switch (dest_target.arch) {
+                .specific => |a| @tagName(a),
+                else => @tagName(dest_target.arch),
+            };
             const out_subpath = try std.fmt.allocPrint(
                 allocator,
                 "{}-{}-{}",
-                @tagName(dest_target.arch),
+                arch_name,
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
             );
-            const full_path = try std.os.path.join(allocator, [][]const u8{ out_dir, out_subpath, path_kv.key });
-            try std.os.makePath(allocator, std.os.path.dirname(full_path).?);
+            const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, out_subpath, path_kv.key });
+            try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
             try std.io.writeFile(full_path, contents.bytes);
         }
     }
@@ -888,5 +716,5 @@ fn usageAndExit(arg0: []const u8) noreturn {
     std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n");
     std.debug.warn("--out is a dir that will be created, and populated with the results\n");
     std.debug.warn("--abi is either musl or glibc\n");
-    std.os.exit(1);
+    std.process.exit(1);
 }

@@ -69,7 +69,6 @@ typedef long long quad_t;
 typedef unsigned long long u_quad_t;
 #include <endian.h>
 #include <sys/select.h>
-#include <sys/sysmacros.h>
 #endif
 
 #if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)

@@ -16,11 +16,18 @@ typedef struct {
 } fpregset_t;
 
 typedef struct {
-	unsigned __int128 vrregs[32];
-	unsigned _pad[3];
-	unsigned vrsave;
-	unsigned vscr;
-	unsigned _pad2[3];
+#ifdef __GNUC__
+	__attribute__((__aligned__(16)))
+#endif
+	unsigned vrregs[32][4];
+	struct {
+#if __BIG_ENDIAN__
+		unsigned _pad[3], vscr_word;
+#else
+		unsigned vscr_word, _pad[3];
+#endif
+	} vscr;
+	unsigned vrsave, _pad[3];
 } vrregset_t;
 
 typedef struct sigcontext {
