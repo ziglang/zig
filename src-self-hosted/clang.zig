@@ -940,7 +940,7 @@ pub const struct_ZigClangExprEvalResult = extern struct {
 
 pub const struct_ZigClangAPValue = extern struct {
     Kind: ZigClangAPValue_ValueKind,
-    Data: if (builtin.os == .windows) [52]u8 else [68]u8,
+    Data: if (builtin.os == .windows and builtin.abi == .msvc) [52]u8 else [68]u8,
 };
 
 pub const ZigClangAPValue_ValueKind = extern enum {
