@@ -33,16 +33,11 @@ fn mix1(a: u64, b: u64, seed: u64) u64 {
 
 pub const Wyhash = struct {
     seed: u64,
-
-    buf: [32]u8,
-    buf_len: usize,
     msg_len: usize,
 
     pub fn init(seed: u64) Wyhash {
         return Wyhash{
             .seed = seed,
-            .buf = undefined,
-            .buf_len = 0,
             .msg_len = 0,
         };
     }
@@ -61,34 +56,12 @@ pub const Wyhash = struct {
         );
     }
 
-    pub fn update(self: *Wyhash, b: []const u8) void {
-        var off: usize = 0;
+    fn partial(self: *Wyhash, b: []const u8) void {
+        const rem_key = b;
+        const rem_len = b.len;
 
-        // Partial from previous.
-        if (self.buf_len != 0 and self.buf_len + b.len > 32) {
-            off += 32 - self.buf_len;
-            mem.copy(u8, self.buf[self.buf_len..], b[0..off]);
-            self.round(self.buf[0..]);
-            self.buf_len = 0;
-        }
-
-        // Full middle blocks.
-        while (off + 32 <= b.len) : (off += 32) {
-            @inlineCall(self.round, b[off .. off + 32]);
-        }
-
-        // Remainder for next pass.
-        mem.copy(u8, self.buf[self.buf_len..], b[off..]);
-        self.buf_len += @intCast(u8, b[off..].len);
-        self.msg_len += b.len;
-    }
-
-    pub fn final(self: *Wyhash) u64 {
-        const seed = self.seed;
-        const rem_len = @intCast(u5, self.buf_len);
-        const rem_key = self.buf[0..self.buf_len];
-
-        self.seed = switch (rem_len) {
+        var seed = self.seed;
+        seed = switch (@intCast(u5, rem_len)) {
             0 => seed,
             1 => mix0(read_bytes(1, rem_key), primes[4], seed),
             2 => mix0(read_bytes(2, rem_key), primes[4], seed),
@@ -122,7 +95,22 @@ pub const Wyhash = struct {
             30 => mix0(read_8bytes_swapped(rem_key), read_8bytes_swapped(rem_key[8..]), seed) ^ mix1(read_8bytes_swapped(rem_key[16..]), (read_bytes(4, rem_key[24..]) << 16) | read_bytes(2, rem_key[28..]), seed),
             31 => mix0(read_8bytes_swapped(rem_key), read_8bytes_swapped(rem_key[8..]), seed) ^ mix1(read_8bytes_swapped(rem_key[16..]), (read_bytes(4, rem_key[24..]) << 24) | (read_bytes(2, rem_key[28..]) << 8) | read_bytes(1, rem_key[30..]), seed),
         };
+        self.seed = seed;
+    }
 
+    pub fn update(self: *Wyhash, b: []const u8) void {
+        var off: usize = 0;
+
+        // Full middle blocks.
+        while (off + 32 <= b.len) : (off += 32) {
+            @inlineCall(self.round, b[off .. off + 32]);
+        }
+
+        self.partial(b[off..]);
+        self.msg_len += b.len;
+    }
+
+    pub fn final(self: *Wyhash) u64 {
         return mum(self.seed ^ self.msg_len, primes[4]);
     }
 
