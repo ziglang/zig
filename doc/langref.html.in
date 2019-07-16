@@ -1733,6 +1733,36 @@ test "array initialization with function calls" {
 }
       {#code_end#}
       {#see_also|for|Slices#}
+
+      {#header_open|Multidimensional Arrays#}
+      <p>
+      Mutlidimensional arrays can be created by nesting arrays:
+      </p>
+      {#code_begin|test|multidimensional#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const mat4x4 = [4][4]f32{
+    [_]f32{ 1.0, 0.0, 0.0, 0.0 },
+    [_]f32{ 0.0, 1.0, 0.0, 1.0 },
+    [_]f32{ 0.0, 0.0, 1.0, 0.0 },
+    [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+};
+test "multidimensional arrays" {
+    // Access the 2D array by indexing the outer array, and then the inner array.
+    assert(mat4x4[1][1] == 1.0);
+
+    // Here we iterate with for loops.
+    for (mat4x4) |row, row_index| {
+        for (row) |cell, column_index| {
+            if (row_index == column_index) {
+                assert(cell == 1.0);
+            }
+        }
+    }
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Vectors#}
