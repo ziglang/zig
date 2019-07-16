@@ -671,14 +671,14 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
         return res;
     }
 
-    Token *use = eat_token_if(pc, TokenIdKeywordUsingNamespace);
-    if (use != nullptr) {
+    Token *usingnamespace = eat_token_if(pc, TokenIdKeywordUsingNamespace);
+    if (usingnamespace != nullptr) {
         AstNode *expr = ast_expect(pc, ast_parse_expr);
         expect_token(pc, TokenIdSemicolon);
 
-        AstNode *res = ast_create_node(pc, NodeTypeUse, use);
-        res->data.use.visib_mod = visib_mod;
-        res->data.use.expr = expr;
+        AstNode *res = ast_create_node(pc, NodeTypeUse, usingnamespace);
+        res->data.using_namespace.visib_mod = visib_mod;
+        res->data.using_namespace.expr = expr;
         return res;
     }
 
@@ -2939,7 +2939,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.unwrap_optional.expr, visit, context);
             break;
         case NodeTypeUse:
-            visit_field(&node->data.use.expr, visit, context);
+            visit_field(&node->data.using_namespace.expr, visit, context);
             break;
         case NodeTypeBoolLiteral:
             // none

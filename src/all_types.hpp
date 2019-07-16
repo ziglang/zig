@@ -712,7 +712,7 @@ struct AstNodeArrayType {
     bool is_volatile;
 };
 
-struct AstNodeUse {
+struct AstNodeUsingNamespace {
     VisibMod visib_mod;
     AstNode *expr;
 
@@ -977,7 +977,7 @@ struct AstNode {
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
-        AstNodeUse use;
+        AstNodeUsingNamespace using_namespace;
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeTryExpr if_err_expr;
         AstNodeTestExpr test_expr;
