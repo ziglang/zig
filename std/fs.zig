@@ -70,6 +70,86 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     }
 }
 
+// TODO fix enum literal not casting to error union
+const PrevStatus = enum {
+    stale,
+    fresh,
+};
+
+pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
+    return updateFileMode(source_path, dest_path, null);
+}
+
+/// Check the file size, mtime, and mode of `source_path` and `dest_path`. If they are equal, does nothing.
+/// Otherwise, atomically copies `source_path` to `dest_path`. The destination file gains the mtime,
+/// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
+/// Returns the previous status of the file before updating.
+/// If any of the directories do not exist for dest_path, they are created.
+/// TODO https://github.com/ziglang/zig/issues/2885
+pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
+    var src_file = try File.openRead(source_path);
+    defer src_file.close();
+
+    const src_stat = try src_file.stat();
+    check_dest_stat: {
+        const dest_stat = blk: {
+            var dest_file = File.openRead(dest_path) catch |err| switch (err) {
+                error.FileNotFound => break :check_dest_stat,
+                else => |e| return e,
+            };
+            defer dest_file.close();
+
+            break :blk try dest_file.stat();
+        };
+
+        if (src_stat.size == dest_stat.size and
+            src_stat.mtime == dest_stat.mtime and
+            src_stat.mode == dest_stat.mode)
+        {
+            return PrevStatus.fresh;
+        }
+    }
+    const actual_mode = mode orelse src_stat.mode;
+
+    // TODO this logic could be made more efficient by calling makePath, once
+    // that API does not require an allocator
+    var atomic_file = make_atomic_file: while (true) {
+        const af = AtomicFile.init(dest_path, actual_mode) catch |err| switch (err) {
+            error.FileNotFound => {
+                var p = dest_path;
+                while (path.dirname(p)) |dirname| {
+                    makeDir(dirname) catch |e| switch (e) {
+                        error.FileNotFound => {
+                            p = dirname;
+                            continue;
+                        },
+                        else => return e,
+                    };
+                    continue :make_atomic_file;
+                } else {
+                    return err;
+                }
+            },
+            else => |e| return e,
+        };
+        break af;
+    } else unreachable;
+    defer atomic_file.deinit();
+
+    const in_stream = &src_file.inStream().stream;
+
+    var buf: [mem.page_size * 6]u8 = undefined;
+    while (true) {
+        const amt = try in_stream.readFull(buf[0..]);
+        try atomic_file.file.write(buf[0..amt]);
+        if (amt != buf.len) {
+            try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
+            try atomic_file.finish();
+            return PrevStatus.stale;
+        }
+    }
+}
+
 /// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
@@ -105,7 +185,7 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size]u8 = undefined;
+    var buf: [mem.page_size * 6]u8 = undefined;
     while (true) {
         const amt = try in_file.read(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);
@@ -256,9 +336,6 @@ pub fn deleteDirW(dir_path: [*]const u16) !void {
     return os.rmdirW(dir_path);
 }
 
-/// Whether ::full_path describes a symlink, file, or directory, this function
-/// removes it. If it cannot be removed because it is a non-empty directory,
-/// this function recursively removes its entries and then tries again.
 const DeleteTreeError = error{
     OutOfMemory,
     AccessDenied,
@@ -290,7 +367,11 @@ const DeleteTreeError = error{
     Unexpected,
 };
 
+/// Whether `full_path` describes a symlink, file, or directory, this function
+/// removes it. If it cannot be removed because it is a non-empty directory,
+/// this function recursively removes its entries and then tries again.
 /// TODO determine if we can remove the allocator requirement
+/// https://github.com/ziglang/zig/issues/2886
 pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
@@ -427,7 +508,9 @@ pub const Dir = struct {
         Unexpected,
     };
 
+    /// Call close when done.
     /// TODO remove the allocator requirement from this API
+    /// https://github.com/ziglang/zig/issues/2885
     pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
         return Dir{
             .allocator = allocator,
@@ -559,8 +642,7 @@ pub const Dir = struct {
                 const attrs = self.handle.find_file_data.dwFileAttributes;
                 if (attrs & os.windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
                 if (attrs & os.windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                if (attrs & os.windows.FILE_ATTRIBUTE_NORMAL != 0) break :blk Entry.Kind.File;
-                break :blk Entry.Kind.Unknown;
+                break :blk Entry.Kind.File;
             };
             return Entry{
                 .name = name_utf8,
@@ -683,13 +765,98 @@ pub const Dir = struct {
     }
 };
 
+pub const Walker = struct {
+    stack: std.ArrayList(StackItem),
+    name_buffer: std.Buffer,
+
+    pub const Entry = struct {
+        path: []const u8,
+        basename: []const u8,
+        kind: Dir.Entry.Kind,
+    };
+
+    const StackItem = struct {
+        dir_it: Dir,
+        dirname_len: usize,
+    };
+
+    /// After each call to this function, and on deinit(), the memory returned
+    /// from this function becomes invalid. A copy must be made in order to keep
+    /// a reference to the path.
+    pub fn next(self: *Walker) !?Entry {
+        while (true) {
+            if (self.stack.len == 0) return null;
+            // `top` becomes invalid after appending to `self.stack`.
+            const top = &self.stack.toSlice()[self.stack.len - 1];
+            const dirname_len = top.dirname_len;
+            if (try top.dir_it.next()) |base| {
+                self.name_buffer.shrink(dirname_len);
+                try self.name_buffer.appendByte(path.sep);
+                try self.name_buffer.append(base.name);
+                if (base.kind == .Directory) {
+                    // TODO https://github.com/ziglang/zig/issues/2888
+                    var new_dir = try Dir.open(self.stack.allocator, self.name_buffer.toSliceConst());
+                    {
+                        errdefer new_dir.close();
+                        try self.stack.append(StackItem{
+                            .dir_it = new_dir,
+                            .dirname_len = self.name_buffer.len(),
+                        });
+                    }
+                }
+                return Entry{
+                    .basename = self.name_buffer.toSliceConst()[dirname_len + 1 ..],
+                    .path = self.name_buffer.toSliceConst(),
+                    .kind = base.kind,
+                };
+            } else {
+                self.stack.pop().dir_it.close();
+            }
+        }
+    }
+
+    pub fn deinit(self: *Walker) void {
+        while (self.stack.popOrNull()) |*item| item.dir_it.close();
+        self.stack.deinit();
+        self.name_buffer.deinit();
+    }
+};
+
+/// Recursively iterates over a directory.
+/// Must call `Walker.deinit` when done.
+/// `dir_path` must not end in a path separator.
+/// TODO: https://github.com/ziglang/zig/issues/2888
+pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
+    assert(!mem.endsWith(u8, dir_path, path.sep_str));
+
+    var dir_it = try Dir.open(allocator, dir_path);
+    errdefer dir_it.close();
+
+    var name_buffer = try std.Buffer.init(allocator, dir_path);
+    errdefer name_buffer.deinit();
+
+    var walker = Walker{
+        .stack = std.ArrayList(Walker.StackItem).init(allocator),
+        .name_buffer = name_buffer,
+    };
+
+    try walker.stack.append(Walker.StackItem{
+        .dir_it = dir_it,
+        .dirname_len = dir_path.len,
+    });
+
+    return walker;
+}
+
 /// Read value of a symbolic link.
 /// The return value is a slice of buffer, from index `0`.
+/// TODO https://github.com/ziglang/zig/issues/2888
 pub fn readLink(pathname: []const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
     return os.readlink(pathname, buffer);
 }
 
 /// Same as `readLink`, except the `pathname` parameter is null-terminated.
+/// TODO https://github.com/ziglang/zig/issues/2888
 pub fn readLinkC(pathname: [*]const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
     return os.readlinkC(pathname, buffer);
 }

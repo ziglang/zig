@@ -1,0 +1,37 @@
+const builtin = @import("builtin");
+const std = @import("std");
+
+pub fn main() !void {
+    var stdout_file = try std.io.getStdOut();
+    var stdout_out_stream = stdout_file.outStream();
+    const stdout = &stdout_out_stream.stream;
+
+    const args = try std.process.argsAlloc(std.heap.direct_allocator);
+
+    @fence(.SeqCst);
+    var timer = try std.time.Timer.start();
+    @fence(.SeqCst);
+
+    var buffer1: [32767]u16 = undefined;
+    _ = try std.unicode.utf8ToUtf16Le(&buffer1, args[1]);
+
+    @fence(.SeqCst);
+    const elapsed_ns_orig = timer.lap();
+    @fence(.SeqCst);
+
+    var buffer2: [32767]u16 = undefined;
+    _ = try std.unicode.utf8ToUtf16Le_better(&buffer2, args[1]);
+
+    @fence(.SeqCst);
+    const elapsed_ns_better = timer.lap();
+    @fence(.SeqCst);
+
+    std.debug.warn("original utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", elapsed_ns_orig, elapsed_ns_orig / 1000000);
+    std.debug.warn("new utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", elapsed_ns_better, elapsed_ns_better / 1000000);
+    asm volatile ("nop"
+        :
+        : [a] "r" (&buffer1),
+          [b] "r" (&buffer2)
+        : "memory"
+    );
+}

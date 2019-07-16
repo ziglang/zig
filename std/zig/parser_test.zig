@@ -8,6 +8,18 @@ test "zig fmt: change use to usingnamespace" {
     );
 }
 
+test "zig fmt: whitespace fixes" {
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
+        \\test "" {
+        \\    const hi = x;
+        \\}
+        \\// zig fmt: off
+        \\test ""{
+        \\    const a  = b;}
+        \\
+    );
+}
+
 test "zig fmt: while else err prong with no block" {
     try testCanonical(
         \\test "" {
@@ -68,7 +80,7 @@ test "zig fmt: enum literal inside array literal" {
 
 test "zig fmt: character literal larger than u8" {
     try testCanonical(
-        \\const x = '\U01f4a9';
+        \\const x = '\u{01f4a9}';
         \\
     );
 }
@@ -2242,6 +2254,14 @@ test "zig fmt: if type expr" {
         \\        return 42;
         \\    }
         \\}
+        \\
+    );
+}
+test "zig fmt: file ends with struct field" {
+    try testTransform(
+        \\a: bool
+    ,
+        \\a: bool,
         \\
     );
 }

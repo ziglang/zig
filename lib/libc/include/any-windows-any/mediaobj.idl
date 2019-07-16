@@ -1,0 +1,254 @@
+/*
+ * Copyright (C) 2002 Alexandre Julliard
+ * Copyright (C) 2004 Vincent Béron
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "unknwn.idl";
+import "objidl.idl";
+import "strmif.idl";
+
+interface IDMOQualityControl;
+interface IDMOVideoOutputOptimizations;
+
+typedef struct _DMOMediaType
+{
+    GUID majortype;
+    GUID subtype;
+    BOOL bFixedSizeSamples;
+    BOOL bTemporalCompression;
+    ULONG lSampleSize;
+    GUID formattype;
+    IUnknown *pUnk;
+    ULONG cbFormat;
+    BYTE *pbFormat;
+} DMO_MEDIA_TYPE;
+
+/*****************************************************************************
+ * IEnumDMO interface
+ */
+[
+    object,
+    uuid(2C3CD98A-2BFA-4A53-9C27-5249BA64BA0F),
+    pointer_default(unique)
+]
+interface IEnumDMO : IUnknown
+{
+    [local]
+    HRESULT Next(
+        [in] DWORD cItemsToFetch,
+        [out] CLSID *pCLSID,
+        [out] WCHAR **Names,
+        [out] DWORD *pcItemsFetched
+    );
+
+    HRESULT Skip(
+        [in] DWORD cItemsToSkip
+    );
+
+    HRESULT Reset();
+
+    HRESULT Clone(
+        [out] IEnumDMO **ppEnum
+    );
+}
+
+/*****************************************************************************
+ * IMediaBuffer interface
+ */
+[
+    object,
+    uuid(59eff8b9-938c-4a26-82f2-95cb84cdc837),
+    local
+]
+interface IMediaBuffer : IUnknown
+{
+    HRESULT SetLength(
+       DWORD cbLength
+    );
+
+    HRESULT GetMaxLength(
+       [out] DWORD *pcbMaxLength
+    );
+
+    HRESULT GetBufferAndLength(
+       [out] BYTE **ppBuffer,
+       [out] DWORD *pcbLength
+    );
+}
+
+typedef struct _DMO_OUTPUT_DATA_BUFFER {
+    IMediaBuffer *pBuffer;
+    DWORD dwStatus;
+    REFERENCE_TIME rtTimestamp;
+    REFERENCE_TIME rtTimelength;
+} DMO_OUTPUT_DATA_BUFFER, *PDMO_OUTPUT_DATA_BUFFER;
+
+enum _DMO_INPLACE_PROCESS_FLAGS {
+    DMO_INPLACE_NORMAL = 0x00000000,
+    DMO_INPLACE_ZERO   = 0x00000001
+};
+
+enum _DMO_SET_TYPE_FLAGS {
+    DMO_SET_TYPEF_TEST_ONLY = 0x00000001,
+    DMO_SET_TYPEF_CLEAR     = 0x00000002,
+};
+
+enum _DMO_OUTPUT_DATA_BUFFERF_FLAGS {
+    DMO_OUTPUT_DATA_BUFFERF_SYNCPOINT   = 0x00000001,
+    DMO_OUTPUT_DATA_BUFFERF_TIME        = 0x00000002,
+    DMO_OUTPUT_DATA_BUFFERF_TIMELENGTH  = 0x00000004,
+    DMO_OUTPUT_DATA_BUFFERF_INCOMPLETE  = 0x01000000,
+};
+
+/*****************************************************************************
+ * IMediaObject interface
+ */
+[
+    object,
+    uuid(d8ad0f58-5494-4102-97c5-ec798e59bcf4),
+    local
+]
+interface IMediaObject : IUnknown
+{
+    HRESULT GetStreamCount(
+        [out] DWORD *pcInputStreams,
+        [out] DWORD *pcOutputStreams
+    );
+
+    HRESULT GetInputStreamInfo(
+        DWORD dwInputStreamIndex,
+        [out] DWORD *pdwFlags
+    );
+
+    HRESULT GetOutputStreamInfo(
+        DWORD dwOutputStreamIndex,
+        [out] DWORD *pdwFlags
+    );
+
+    HRESULT GetInputType(
+        DWORD dwInputStreamIndex,
+        DWORD dwTypeIndex,
+        [out] DMO_MEDIA_TYPE *pmt
+    );
+
+    HRESULT GetOutputType(
+        DWORD dwOutputStreamIndex,
+        DWORD dwTypeIndex,
+        [out] DMO_MEDIA_TYPE *pmt
+    );
+
+    HRESULT SetInputType(
+        DWORD dwInputStreamIndex,
+        [in] const DMO_MEDIA_TYPE *pmt,
+        DWORD dwFlags
+    );
+
+    HRESULT SetOutputType(
+        DWORD dwOutputStreamIndex,
+        [in] const DMO_MEDIA_TYPE *pmt,
+        DWORD dwFlags
+    );
+
+    HRESULT GetInputCurrentType(
+        DWORD dwInputStreamIndex,
+        [out] DMO_MEDIA_TYPE *pmt
+    );
+
+    HRESULT GetOutputCurrentType(
+        DWORD dwOutputStreamIndex,
+        [out] DMO_MEDIA_TYPE *pmt
+    );
+
+    HRESULT GetInputSizeInfo(
+        DWORD dwInputStreamIndex,
+        [out] DWORD *pcbSize,
+        [out] DWORD *pcbMaxLookahead,
+        [out] DWORD *pcbAlignment
+    );
+
+    HRESULT GetOutputSizeInfo(
+        DWORD dwOutputStreamIndex,
+        [out] DWORD *pcbSize,
+        [out] DWORD *pcbAlignment
+    );
+
+    HRESULT GetInputMaxLatency(
+        DWORD dwInputStreamIndex,
+        [out] REFERENCE_TIME *prtMaxLatency
+    );
+
+    HRESULT SetInputMaxLatency(
+        DWORD dwInputStreamIndex,
+        REFERENCE_TIME rtMaxLatency
+    );
+
+    HRESULT Flush();
+
+    HRESULT Discontinuity(DWORD dwInputStreamIndex);
+
+    HRESULT AllocateStreamingResources();
+
+    HRESULT FreeStreamingResources();
+
+    HRESULT GetInputStatus(
+        DWORD dwInputStreamIndex,
+        [out] DWORD *dwFlags
+    );
+
+    HRESULT ProcessInput(
+        DWORD dwInputStreamIndex,
+        IMediaBuffer *pBuffer,
+        DWORD dwFlags,
+        REFERENCE_TIME rtTimestamp,
+        REFERENCE_TIME rtTimelength
+    );
+
+    HRESULT ProcessOutput(
+        DWORD dwFlags,
+        DWORD cOutputBufferCount,
+        [in,out] DMO_OUTPUT_DATA_BUFFER *pOutputBuffers,
+        [out] DWORD *pdwStatus
+    );
+
+    HRESULT Lock(LONG bLock);
+}
+
+/*****************************************************************************
+ * IMediaObjectInPlace interface
+ */
+
+[
+    object,
+    uuid(651b9ad0-0fc7-4aa9-9538-d89931010741),
+    local
+]
+interface IMediaObjectInPlace : IUnknown {
+    HRESULT Process(
+        [in] ULONG ulSize,
+        [in,out] BYTE* pData,
+        [in] REFERENCE_TIME refTimeStart,
+        [in] DWORD dwFlags
+    );
+
+    HRESULT Clone(
+        [out] IMediaObjectInPlace **ppMediaObject
+    );
+
+    HRESULT GetLatency(
+        [out] REFERENCE_TIME *pLatencyTime
+    );
+}

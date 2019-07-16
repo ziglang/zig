@@ -12,6 +12,8 @@ pub usingnamespace switch (builtin.arch) {
 
 pub const pid_t = i32;
 pub const fd_t = i32;
+pub const uid_t = i32;
+pub const clock_t = isize;
 
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
@@ -19,6 +21,39 @@ pub const IOV_MAX = 1024;
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
+
+/// Special value used to indicate openat should use the current working directory
+pub const AT_FDCWD = 100;
+
+/// Do not follow symbolic links
+pub const AT_SYMLINK_NOFOLLOW = 0x100;
+
+/// Remove directory instead of unlinking file
+pub const AT_REMOVEDIR = 0x200;
+
+/// Follow symbolic links.
+pub const AT_SYMLINK_FOLLOW = 0x400;
+
+/// Suppress terminal automount traversal
+pub const AT_NO_AUTOMOUNT = 0x800;
+
+/// Allow empty relative pathname
+pub const AT_EMPTY_PATH = 0x1000;
+
+/// Type of synchronisation required from statx()
+pub const AT_STATX_SYNC_TYPE = 0x6000;
+
+/// - Do whatever stat() does
+pub const AT_STATX_SYNC_AS_STAT = 0x0000;
+
+/// - Force the attributes to be sync'd with the server
+pub const AT_STATX_FORCE_SYNC = 0x2000;
+
+/// - Don't sync attributes with the server
+pub const AT_STATX_DONT_SYNC = 0x4000;
+
+/// Apply to the entire subtree
+pub const AT_RECURSIVE = 0x8000;
 
 pub const FUTEX_WAIT = 0;
 pub const FUTEX_WAKE = 1;
@@ -42,22 +77,31 @@ pub const PROT_EXEC = 4;
 pub const PROT_GROWSDOWN = 0x01000000;
 pub const PROT_GROWSUP = 0x02000000;
 
-pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
+/// Share changes
 pub const MAP_SHARED = 0x01;
+
+/// Changes are private
 pub const MAP_PRIVATE = 0x02;
+
+/// share + validate extension flags
+pub const MAP_SHARED_VALIDATE = 0x03;
+
+/// Mask for type of mapping
 pub const MAP_TYPE = 0x0f;
+
+/// Interpret addr exactly
 pub const MAP_FIXED = 0x10;
+
+/// don't use a file
 pub const MAP_ANONYMOUS = 0x20;
-pub const MAP_NORESERVE = 0x4000;
-pub const MAP_GROWSDOWN = 0x0100;
-pub const MAP_DENYWRITE = 0x0800;
-pub const MAP_EXECUTABLE = 0x1000;
-pub const MAP_LOCKED = 0x2000;
-pub const MAP_POPULATE = 0x8000;
-pub const MAP_NONBLOCK = 0x10000;
-pub const MAP_STACK = 0x20000;
-pub const MAP_HUGETLB = 0x40000;
-pub const MAP_FILE = 0;
+
+/// For anonymous mmap, memory could be uninitialized
+pub const MAP_UNINITIALIZED = 0x4000000;
+
+// MAP_ 0x0100 - 0x80000 flags are per architecture
+
+/// MAP_FIXED which doesn't unmap underlying mapping
+pub const MAP_FIXED_NOREPLACE = 0x100000;
 
 pub const F_OK = 0;
 pub const X_OK = 1;
@@ -712,22 +756,23 @@ pub const all_mask = [_]u32{ 0xffffffff, 0xffffffff };
 pub const app_mask = [_]u32{ 0xfffffffc, 0x7fffffff };
 
 pub const k_sigaction = extern struct {
-    handler: extern fn (i32) void,
+    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
     flags: usize,
     restorer: extern fn () void,
     mask: [2]u32,
 };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = struct {
-    handler: extern fn (i32) void,
+pub const Sigaction = extern struct {
+    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
     mask: sigset_t,
     flags: u32,
+    restorer: ?extern fn () void = null,
 };
 
-pub const SIG_ERR = @intToPtr(extern fn (i32) void, maxInt(usize));
-pub const SIG_DFL = @intToPtr(extern fn (i32) void, 0);
-pub const SIG_IGN = @intToPtr(extern fn (i32) void, 1);
+pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
+pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
+pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
 pub const empty_sigset = [_]usize{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
@@ -1042,7 +1087,8 @@ pub const io_uring_sqe = extern struct {
     pub const union1 = extern union {
         rw_flags: kernel_rwf,
         fsync_flags: u32,
-        poll_event: u16,
+        poll_events: u16,
+        sync_range_flags: u32,
     };
     union1: union1,
     user_data: u64,
@@ -1058,6 +1104,9 @@ pub const io_uring_sqe = extern struct {
 /// use fixed fileset
 pub const IOSQE_FIXED_FILE = (1 << 0);
 
+/// issue after inflight IO
+pub const IOSQE_IO_DRAIN = (1 << 1);
+
 pub const IORING_OP_NOP = 0;
 pub const IORING_OP_READV = 1;
 pub const IORING_OP_WRITEV = 2;
@@ -1066,6 +1115,7 @@ pub const IORING_OP_READ_FIXED = 4;
 pub const IORING_OP_WRITE_FIXED = 5;
 pub const IORING_OP_POLL_ADD = 6;
 pub const IORING_OP_POLL_REMOVE = 7;
+pub const IORING_OP_SYNC_FILE_RANGE = 8;
 
 // io_uring_sqe.fsync_flags
 pub const IORING_FSYNC_DATASYNC = (1 << 0);
@@ -1093,3 +1143,5 @@ pub const IORING_REGISTER_BUFFERS = 0;
 pub const IORING_UNREGISTER_BUFFERS = 1;
 pub const IORING_REGISTER_FILES = 2;
 pub const IORING_UNREGISTER_FILES = 3;
+pub const IORING_REGISTER_EVENTFD = 4;
+pub const IORING_UNREGISTER_EVENTFD = 5;

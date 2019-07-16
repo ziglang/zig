@@ -105,14 +105,18 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
     }
     if (linux.is_the_target) {
         while (true) {
-            // Bypass libc because it's missing on even relatively new versions.
-            switch (linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0))) {
+            const err = if (std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok) blk: {
+                break :blk errno(std.c.getrandom(buf.ptr, buf.len, 0));
+            } else blk: {
+                break :blk linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0));
+            };
+            switch (err) {
                 0 => return,
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 EINTR => continue,
                 ENOSYS => return getRandomBytesDevURandom(buf),
-                else => |err| return unexpectedErrno(err),
+                else => return unexpectedErrno(err),
             }
         }
     }
@@ -138,14 +142,17 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// it raises SIGABRT followed by SIGKILL and finally lo
 pub fn abort() noreturn {
     @setCold(true);
-    if (builtin.link_libc) {
-        system.abort();
-    }
+    // MSVCRT abort() sometimes opens a popup window which is undesirable, so
+    // even when linking libc on Windows we use our own abort implementation.
+    // See https://github.com/ziglang/zig/issues/2071 for more details.
     if (windows.is_the_target) {
         if (builtin.mode == .Debug) {
             @breakpoint();
         }
         windows.kernel32.ExitProcess(3);
+    }
+    if (builtin.link_libc) {
+        system.abort();
     }
     if (builtin.os == .uefi) {
         // TODO there must be a better thing to do here than loop forever
@@ -1958,7 +1965,7 @@ pub fn mmap(
 ) MMapError![]align(mem.page_size) u8 {
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
-        if (rc != MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
+        if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
         break :blk @intCast(usize, system._errno().*);
     } else blk: {
         const rc = system.mmap(ptr, length, prot, flags, fd, offset);
@@ -2525,6 +2532,55 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
         EINVAL => unreachable,
         ENOMEM => return error.SizeTooSmall,
         EPERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Examine and change a signal action.
+pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
+    switch (errno(system.sigaction(sig, act, oact))) {
+        0 => return,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        else => unreachable,
+    }
+}
+
+pub const FutimensError = error{
+    /// times is NULL, or both tv_nsec values are UTIME_NOW, and either:
+    /// *  the effective user ID of the caller does not match the  owner
+    ///    of  the  file,  the  caller does not have write access to the
+    ///    file, and the caller is not privileged (Linux: does not  have
+    ///    either  the  CAP_FOWNER  or the CAP_DAC_OVERRIDE capability);
+    ///    or,
+    /// *  the file is marked immutable (see chattr(1)).
+    AccessDenied,
+
+    /// The caller attempted to change one or both timestamps to a value
+    /// other than the current time, or to change one of the  timestamps
+    /// to the current time while leaving the other timestamp unchanged,
+    /// (i.e., times is not NULL, neither tv_nsec  field  is  UTIME_NOW,
+    /// and neither tv_nsec field is UTIME_OMIT) and either:
+    /// *  the  caller's  effective  user ID does not match the owner of
+    ///    file, and the caller is not privileged (Linux: does not  have
+    ///    the CAP_FOWNER capability); or,
+    /// *  the file is marked append-only or immutable (see chattr(1)).
+    PermissionDenied,
+
+    ReadOnlyFileSystem,
+
+    Unexpected,
+};
+
+pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
+    switch (errno(system.futimens(fd, times))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.PermissionDenied,
+        EBADF => unreachable, // always a race condition
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }

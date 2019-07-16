@@ -1,0 +1,145 @@
+#define ADD_UNDERSCORE(symbol) symbol == _ ## symbol
+#define ADD_DOUBLE_UNDERSCORE(symbol) symbol == __ ## symbol
+
+ADD_DOUBLE_UNDERSCORE(iscsymf)
+ADD_DOUBLE_UNDERSCORE(iscsym)
+ADD_DOUBLE_UNDERSCORE(isascii)
+ADD_DOUBLE_UNDERSCORE(toascii)
+
+wcscmpi == _wcsicmp
+strcasecmp == _stricmp
+strncasecmp == _strnicmp
+
+ADD_UNDERSCORE(access)
+ADD_UNDERSCORE(chdir)
+ADD_UNDERSCORE(chmod)
+ADD_UNDERSCORE(chsize)
+ADD_UNDERSCORE(close)
+ADD_UNDERSCORE(creat)
+ADD_UNDERSCORE(cwait)
+ADD_UNDERSCORE(dup)
+ADD_UNDERSCORE(dup2)
+ADD_UNDERSCORE(ecvt)
+ADD_UNDERSCORE(eof)
+ADD_UNDERSCORE(execl)
+ADD_UNDERSCORE(execle)
+ADD_UNDERSCORE(execlp)
+ADD_UNDERSCORE(execlpe)
+ADD_UNDERSCORE(execv)
+ADD_UNDERSCORE(execve)
+ADD_UNDERSCORE(execvp)
+ADD_UNDERSCORE(execvpe)
+ADD_UNDERSCORE(fcvt)
+ADD_UNDERSCORE(fdopen)
+ADD_UNDERSCORE(fgetchar)
+ADD_UNDERSCORE(fgetwchar)
+ADD_UNDERSCORE(filelength)
+ADD_UNDERSCORE(fileno)
+; fpreset)
+ADD_UNDERSCORE(fputchar)
+ADD_UNDERSCORE(fputwchar)
+;fstat)
+;ftime)
+ADD_UNDERSCORE(gcvt)
+ADD_UNDERSCORE(getch)
+ADD_UNDERSCORE(getche)
+ADD_UNDERSCORE(getcwd)
+ADD_UNDERSCORE(getpid)
+ADD_UNDERSCORE(getw)
+ADD_UNDERSCORE(heapwalk)
+ADD_UNDERSCORE(isatty)
+ADD_UNDERSCORE(itoa)
+ADD_UNDERSCORE(kbhit)
+ADD_UNDERSCORE(lfind)
+ADD_UNDERSCORE(lsearch)
+ADD_UNDERSCORE(lseek)
+ADD_UNDERSCORE(ltoa)
+ADD_UNDERSCORE(memccpy)
+ADD_UNDERSCORE(memicmp)
+ADD_UNDERSCORE(mkdir)
+ADD_UNDERSCORE(mktemp)
+ADD_UNDERSCORE(open)
+ADD_UNDERSCORE(pclose)
+ADD_UNDERSCORE(popen)
+ADD_UNDERSCORE(putch)
+ADD_UNDERSCORE(putenv)
+ADD_UNDERSCORE(putw)
+ADD_UNDERSCORE(read)
+ADD_UNDERSCORE(rmdir)
+ADD_UNDERSCORE(rmtmp)
+ADD_UNDERSCORE(searchenv)
+ADD_UNDERSCORE(setmode)
+ADD_UNDERSCORE(sopen)
+ADD_UNDERSCORE(spawnl)
+ADD_UNDERSCORE(spawnle)
+ADD_UNDERSCORE(spawnlp)
+ADD_UNDERSCORE(spawnlpe)
+ADD_UNDERSCORE(spawnv)
+ADD_UNDERSCORE(spawnve)
+ADD_UNDERSCORE(spawnvp)
+ADD_UNDERSCORE(spawnvpe)
+;stat)
+#ifndef UCRTBASE
+ADD_UNDERSCORE(strcmpi)
+#endif
+ADD_UNDERSCORE(strdup)
+ADD_UNDERSCORE(stricmp)
+ADD_UNDERSCORE(stricoll)
+ADD_UNDERSCORE(strlwr)
+ADD_UNDERSCORE(strnicmp)
+ADD_UNDERSCORE(strnset)
+ADD_UNDERSCORE(strrev)
+ADD_UNDERSCORE(strset)
+ADD_UNDERSCORE(strupr)
+ADD_UNDERSCORE(swab)
+ADD_UNDERSCORE(tell)
+ADD_UNDERSCORE(tempnam)
+#ifndef UCRTBASE
+ADD_UNDERSCORE(tzset)
+#endif
+ADD_UNDERSCORE(umask)
+ADD_UNDERSCORE(ungetch)
+ADD_UNDERSCORE(unlink)
+#ifndef UCRTBASE
+ADD_UNDERSCORE(utime)
+#endif
+ADD_UNDERSCORE(wcsdup)
+ADD_UNDERSCORE(wcsicmp)
+ADD_UNDERSCORE(wcsicoll)
+ADD_UNDERSCORE(wcslwr)
+ADD_UNDERSCORE(wcsnicmp)
+ADD_UNDERSCORE(wcsnset)
+ADD_UNDERSCORE(wcsrev)
+ADD_UNDERSCORE(wcsset)
+ADD_UNDERSCORE(wcsupr)
+ADD_UNDERSCORE(wpopen)
+ADD_UNDERSCORE(write)
+; non-ANSI functions declared in math.h
+ADD_UNDERSCORE(j0)
+ADD_UNDERSCORE(j1)
+ADD_UNDERSCORE(jn)
+ADD_UNDERSCORE(y0)
+ADD_UNDERSCORE(y1)
+ADD_UNDERSCORE(yn)
+ADD_UNDERSCORE(chgsign)
+;scalb
+ADD_UNDERSCORE(finite)
+ADD_UNDERSCORE(fpclass)
+; C99 functions
+;cabs
+ADD_UNDERSCORE(hypot)
+;logb
+ADD_UNDERSCORE(nextafter)
+
+#ifndef UCRTBASE
+_daylight DATA
+_timezone DATA
+_tzname DATA
+ADD_UNDERSCORE(daylight)
+ADD_UNDERSCORE(timezone)
+ADD_UNDERSCORE(tzname)
+
+ADD_UNDERSCORE(vsnprintf_s)
+
+longjmp DATA
+#endif

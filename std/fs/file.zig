@@ -207,8 +207,7 @@ pub const File = struct {
         if (windows.is_the_target) {
             return windows.GetFileSizeEx(self.handle);
         }
-        const stat = try os.fstat(self.handle);
-        return @bitCast(u64, stat.size);
+        return (try self.stat()).size;
     }
 
     pub const ModeError = os.FStatError;
@@ -217,10 +216,78 @@ pub const File = struct {
         if (windows.is_the_target) {
             return {};
         }
-        const stat = try os.fstat(self.handle);
-        // TODO: we should be able to cast u16 to ModeError!u32, making this
-        // explicit cast not necessary
-        return Mode(stat.mode);
+        return (try self.stat()).mode;
+    }
+
+    pub const Stat = struct {
+        size: u64,
+        mode: Mode,
+
+        /// access time in nanoseconds
+        atime: i64,
+
+        /// last modification time in nanoseconds
+        mtime: i64,
+
+        /// creation time in nanoseconds
+        ctime: i64,
+    };
+
+    pub const StatError = os.FStatError;
+
+    pub fn stat(self: File) StatError!Stat {
+        if (windows.is_the_target) {
+            var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+            var info: windows.FILE_ALL_INFORMATION = undefined;
+            const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
+            switch (rc) {
+                windows.STATUS.SUCCESS => {},
+                windows.STATUS.BUFFER_OVERFLOW => {},
+                else => return windows.unexpectedStatus(rc),
+            }
+            return Stat{
+                .size = @bitCast(u64, info.StandardInformation.EndOfFile),
+                .mode = {},
+                .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
+                .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
+                .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
+            };
+        }
+
+        const st = try os.fstat(self.handle);
+        const atime = st.atime();
+        const mtime = st.mtime();
+        const ctime = st.ctime();
+        return Stat{
+            .size = @bitCast(u64, st.size),
+            .mode = st.mode,
+            .atime = atime.tv_sec * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = mtime.tv_sec * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = ctime.tv_sec * std.time.ns_per_s + ctime.tv_nsec,
+        };
+    }
+
+    pub const UpdateTimesError = os.FutimensError || windows.SetFileTimeError;
+
+    /// `atime`: access timestamp in nanoseconds
+    /// `mtime`: last modification timestamp in nanoseconds
+    pub fn updateTimes(self: File, atime: i64, mtime: i64) UpdateTimesError!void {
+        if (windows.is_the_target) {
+            const atime_ft = windows.nanoSecondsToFileTime(atime);
+            const mtime_ft = windows.nanoSecondsToFileTime(mtime);
+            return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
+        }
+        const times = [2]os.timespec{
+            os.timespec{
+                .tv_sec = @divFloor(atime, std.time.ns_per_s),
+                .tv_nsec = @mod(atime, std.time.ns_per_s),
+            },
+            os.timespec{
+                .tv_sec = @divFloor(mtime, std.time.ns_per_s),
+                .tv_nsec = @mod(mtime, std.time.ns_per_s),
+            },
+        };
+        try os.futimens(self.handle, &times);
     }
 
     pub const ReadError = os.ReadError;

@@ -86,6 +86,32 @@ Optional<Slice<uint8_t>> SplitIterator_next(SplitIterator *self) {
     return Optional<Slice<uint8_t>>::some(self->buffer.slice(start, end));
 }
 
+// Ported from std/mem.zig.
+// This one won't collapse multiple separators into one, so you could use it, for example,
+// to parse Comma Separated Value format.
+Optional<Slice<uint8_t>> SplitIterator_next_separate(SplitIterator *self) {
+    // move to beginning of token
+    if (self->index < self->buffer.len &&
+        SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t start = self->index;
+    if (start == self->buffer.len) {
+        return {};
+    }
+
+    // move to end of token
+    while (self->index < self->buffer.len &&
+        !SplitIterator_isSplitByte(self, self->buffer.ptr[self->index]))
+    {
+        self->index += 1;
+    }
+    size_t end = self->index;
+
+    return Optional<Slice<uint8_t>>::some(self->buffer.slice(start, end));
+}
+
 // Ported from std/mem.zig
 Slice<uint8_t> SplitIterator_rest(SplitIterator *self) {
     // move to beginning of token

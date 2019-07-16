@@ -1,0 +1,57 @@
+// F32         - function available on all 32 bit architectures
+// F64         - function available on all 64 bit architectures
+// F_X86_ANY   - function available on i386 and x86_64
+// F_I386      - function available only on i386
+// F_X64       - function available only on x86_64
+// F_ARM32     - function available only on arm32
+// F_ARM64     - function available only on arm64
+// F_ARM_ANY   - function available on 32 and 64 bit arm
+// F_NON_I386  - function available on everything but i386
+#if defined(DEF_X64)
+#define F64(x) x
+#define F_X64(x) x
+#define F_X86_ANY(x) x
+#define F_NON_I386(x) x
+#elif defined(DEF_I386)
+#define F32(x) x
+#define F_I386(x) x
+#define F_X86_ANY(x) x
+#elif defined(DEF_ARM32)
+#define F32(x) x
+#define F_ARM32(x) x
+#define F_ARM_ANY(x) x
+#define F_NON_I386(x) x
+#elif defined(DEF_ARM64)
+#define F64(x) x
+#define F_ARM64(x) x
+#define F_ARM_ANY(x) x
+#define F_NON_I386(x) x
+#endif
+
+#ifndef F32
+#define F32(x)
+#endif
+#ifndef F64
+#define F64(x)
+#endif
+#ifndef F_X86_ANY
+#define F_X86_ANY(x)
+#endif
+#ifndef F_I386
+#define F_I386(x)
+#endif
+#ifndef F_X64
+#define F_X64(x)
+#endif
+#ifndef F_ARM_ANY
+#define F_ARM_ANY(x)
+#endif
+#ifndef F_ARM32
+#define F_ARM32(x)
+#endif
+#ifndef F_ARM64
+#define F_ARM64(x)
+#endif
+#ifndef F_NON_I386
+#define F_NON_I386(x)
+#endif

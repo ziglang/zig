@@ -1,0 +1,61 @@
+/*
+ * Copyright 2017 Ihsan Akmal
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+cpp_quote("#if 0")
+typedef unsigned int UINT;
+cpp_quote("#endif")
+
+const UINT DXGI_STANDARD_MULTISAMPLE_QUALITY_PATTERN = 0xffffffff;
+const UINT DXGI_CENTER_MULTISAMPLE_QUALITY_PATTERN = 0xfffffffe;
+
+typedef enum DXGI_COLOR_SPACE_TYPE
+{
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709             = 0x00,
+    DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709             = 0x01,
+    DXGI_COLOR_SPACE_RGB_STUDIO_G22_NONE_P709           = 0x02,
+    DXGI_COLOR_SPACE_RGB_STUDIO_G22_NONE_P2020          = 0x03,
+    DXGI_COLOR_SPACE_RESERVED                           = 0x04,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_NONE_P709_X601      = 0x05,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601         = 0x06,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P601           = 0x07,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709         = 0x08,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709           = 0x09,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020        = 0x0a,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P2020          = 0x0b,
+    DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020          = 0x0c,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_LEFT_P2020      = 0x0d,
+    DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020        = 0x0e,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_TOPLEFT_P2020     = 0x0f,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_G2084_TOPLEFT_P2020   = 0x10,
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020            = 0x11,
+    DXGI_COLOR_SPACE_YCBCR_STUDIO_GHLG_TOPLEFT_P2020    = 0x12,
+    DXGI_COLOR_SPACE_YCBCR_FULL_GHLG_TOPLEFT_P2020      = 0x13,
+    DXGI_COLOR_SPACE_CUSTOM                             = 0xffffffff,
+} DXGI_COLOR_SPACE_TYPE;
+
+typedef struct DXGI_SAMPLE_DESC
+{
+    UINT Count;
+    UINT Quality;
+} DXGI_SAMPLE_DESC;
+
+typedef struct DXGI_RATIONAL
+{
+    UINT Numerator;
+    UINT Denominator;
+} DXGI_RATIONAL;

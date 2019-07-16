@@ -3896,22 +3896,21 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf *pkg_root_src_dir = &package->root_src_dir;
     Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
 
-    Buf namespace_name = BUF_INIT;
-    buf_init_from_buf(&namespace_name, &package->pkg_path);
+    Buf *namespace_name = buf_create_from_buf(&package->pkg_path);
     if (source_kind == SourceKindNonRoot) {
         assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
-        if (buf_len(&namespace_name) != 0) {
-            buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
+        if (buf_len(namespace_name) != 0) {
+            buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         }
         // The namespace components are obtained from the relative path to the
         // source directory
         if (buf_len(&noextname) > buf_len(&resolved_root_src_dir)) {
             // Skip the trailing separator
-            buf_append_mem(&namespace_name,
+            buf_append_mem(namespace_name,
                 buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
                 buf_len(&noextname) - buf_len(&resolved_root_src_dir) - 1);
         }
-        buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
+        buf_replace(namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
     }
     Buf *bare_name = buf_alloc();
     os_path_extname(src_basename, bare_name, nullptr);
@@ -3922,7 +3921,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     root_struct->line_offsets = tokenization.line_offsets;
     root_struct->path = resolved_path;
     root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-    ZigType *import_entry = get_root_container_type(g, buf_ptr(&namespace_name), bare_name, root_struct);
+    ZigType *import_entry = get_root_container_type(g, buf_ptr(namespace_name), bare_name, root_struct);
     if (source_kind == SourceKindRoot) {
         assert(g->root_import == nullptr);
         g->root_import = import_entry;
@@ -3966,7 +3965,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     }
 
     TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, &namespace_name, VisibModPub, root_node, nullptr);
+    init_tld(&tld_container->base, TldIdContainer, namespace_name, VisibModPub, root_node, nullptr);
     tld_container->type_entry = import_entry;
     tld_container->decls_scope = import_entry->data.structure.decls_scope;
     g->resolve_queue.append(&tld_container->base);

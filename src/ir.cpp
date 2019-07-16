@@ -198,6 +198,9 @@ static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *
         IrInstruction *base_ptr, bool initializing);
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *ptr, IrInstruction *uncasted_value);
+static IrInstruction *ir_gen_union_init_expr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *union_type, IrInstruction *field_name, AstNode *expr_node,
+    LVal lval, ResultLoc *parent_result_loc);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -897,6 +900,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeInfo *) {
     return IrInstructionIdTypeInfo;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionHasField *) {
+    return IrInstructionIdHasField;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeId *) {
     return IrInstructionIdTypeId;
 }
@@ -1083,6 +1090,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAllocaGen *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionEndExpr *) {
     return IrInstructionIdEndExpr;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInitNamedField *) {
+    return IrInstructionIdUnionInitNamedField;
 }
 
 template<typename T>
@@ -1348,12 +1359,13 @@ static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *s
 }
 
 static IrInstruction *ir_build_field_ptr_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *container_ptr, IrInstruction *field_name_expr)
+    IrInstruction *container_ptr, IrInstruction *field_name_expr, bool initializing)
 {
     IrInstructionFieldPtr *instruction = ir_build_instruction<IrInstructionFieldPtr>(irb, scope, source_node);
     instruction->container_ptr = container_ptr;
     instruction->field_name_buffer = nullptr;
     instruction->field_name_expr = field_name_expr;
+    instruction->initializing = initializing;
 
     ir_ref_instruction(container_ptr, irb->current_basic_block);
     ir_ref_instruction(field_name_expr, irb->current_basic_block);
@@ -1371,6 +1383,19 @@ static IrInstruction *ir_build_field_ptr(IrBuilder *irb, Scope *scope, AstNode *
     instruction->initializing = initializing;
 
     ir_ref_instruction(container_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_has_field(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *container_type, IrInstruction *field_name)
+{
+    IrInstructionHasField *instruction = ir_build_instruction<IrInstructionHasField>(irb, scope, source_node);
+    instruction->container_type = container_type;
+    instruction->field_name = field_name;
+
+    ir_ref_instruction(container_type, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3307,6 +3332,24 @@ static IrInstruction *ir_build_check_runtime_scope(IrBuilder *irb, Scope *scope,
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_union_init_named_field(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *union_type, IrInstruction *field_name, IrInstruction *field_result_loc, IrInstruction *result_loc)
+{
+    IrInstructionUnionInitNamedField *instruction = ir_build_instruction<IrInstructionUnionInitNamedField>(irb, scope, source_node);
+    instruction->union_type = union_type;
+    instruction->field_name = field_name;
+    instruction->field_result_loc = field_result_loc;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(union_type, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
+    ir_ref_instruction(field_result_loc, irb->current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+
 static IrInstruction *ir_build_vector_to_array(IrAnalyze *ira, IrInstruction *source_instruction,
         ZigType *result_type, IrInstruction *vector, IrInstruction *result_loc)
 {
@@ -5093,13 +5136,29 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *ptr_instruction = ir_build_field_ptr_instruction(irb, scope, node, arg0_value, arg1_value);
+                IrInstruction *ptr_instruction = ir_build_field_ptr_instruction(irb, scope, node,
+                        arg0_value, arg1_value, false);
 
                 if (lval == LValPtr)
                     return ptr_instruction;
 
                 IrInstruction *load_ptr = ir_build_load_ptr(irb, scope, node, ptr_instruction);
                 return ir_expr_wrap(irb, scope, load_ptr, result_loc);
+            }
+        case BuiltinFnIdHasField:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *type_info = ir_build_has_field(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, type_info, lval, result_loc);
             }
         case BuiltinFnIdTypeInfo:
             {
@@ -5619,6 +5678,23 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *has_decl = ir_build_has_decl(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, has_decl, lval, result_loc);
             }
+        case BuiltinFnIdUnionInit:
+            {
+                AstNode *union_type_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *union_type_inst = ir_gen_node(irb, union_type_node, scope);
+                if (union_type_inst == irb->codegen->invalid_instruction)
+                    return union_type_inst;
+
+                AstNode *name_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *name_inst = ir_gen_node(irb, name_node, scope);
+                if (name_inst == irb->codegen->invalid_instruction)
+                    return name_inst;
+
+                AstNode *init_node = node->data.fn_call_expr.params.at(2);
+
+                return ir_gen_union_init_expr(irb, scope, node, union_type_inst, name_inst, init_node,
+                        lval, result_loc);
+            }
     }
     zig_unreachable();
 }
@@ -5895,6 +5971,31 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
         }
     }
     zig_unreachable();
+}
+
+static IrInstruction *ir_gen_union_init_expr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *union_type, IrInstruction *field_name, AstNode *expr_node,
+    LVal lval, ResultLoc *parent_result_loc)
+{
+    IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, source_node, parent_result_loc, union_type);
+    IrInstruction *field_ptr = ir_build_field_ptr_instruction(irb, scope, source_node, container_ptr,
+            field_name, true);
+
+    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+    result_loc_inst->base.id = ResultLocIdInstruction;
+    result_loc_inst->base.source_instruction = field_ptr;
+    ir_ref_instruction(field_ptr, irb->current_basic_block);
+    ir_build_reset_result(irb, scope, expr_node, &result_loc_inst->base);
+
+    IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, scope, LValNone,
+            &result_loc_inst->base);
+    if (expr_value == irb->codegen->invalid_instruction)
+        return expr_value;
+
+    IrInstruction *init_union = ir_build_union_init_named_field(irb, scope, source_node, union_type,
+            field_name, field_ptr, container_ptr);
+
+    return ir_lval_wrap(irb, scope, init_union, lval, parent_result_loc);
 }
 
 static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
@@ -6521,7 +6622,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     loop_scope->is_comptime = is_comptime;
     loop_scope->incoming_blocks = &incoming_blocks;
     loop_scope->incoming_values = &incoming_values;
-    loop_scope->lval = lval;
+    loop_scope->lval = LValNone;
     loop_scope->peer_parent = peer_parent;
 
     // Note the body block of the loop is not the place that lval and result_loc are used -
@@ -6548,7 +6649,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
         }
         ResultLocPeer *peer_result = create_peer_result(peer_parent);
         peer_parent->peers.append(peer_result);
-        else_result = ir_gen_node_extra(irb, else_node, parent_scope, lval, &peer_result->base);
+        else_result = ir_gen_node_extra(irb, else_node, parent_scope, LValNone, &peer_result->base);
         if (else_result == irb->codegen->invalid_instruction)
             return else_result;
         if (!instr_is_unreachable(else_result))
@@ -6570,7 +6671,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *phi = ir_build_phi(irb, parent_scope, node, incoming_blocks.length,
             incoming_blocks.items, incoming_values.items, peer_parent);
-    return ir_expr_wrap(irb, parent_scope, phi, result_loc);
+    return ir_lval_wrap(irb, parent_scope, phi, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -7156,7 +7257,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
-                &switch_else_var, lval, &this_peer_result_loc->base))
+                &switch_else_var, LValNone, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -7233,7 +7334,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
                 is_comptime, var_is_comptime, target_value_ptr, nullptr, 0,
-                &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
+                &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -7283,7 +7384,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
             is_comptime, var_is_comptime, target_value_ptr, items, prong_item_count,
-            &incoming_blocks, &incoming_values, nullptr, lval, &this_peer_result_loc->base))
+            &incoming_blocks, &incoming_values, nullptr, LValNone, &this_peer_result_loc->base))
         {
             return irb->codegen->invalid_instruction;
         }
@@ -7334,7 +7435,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         result_instruction = ir_build_phi(irb, scope, node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, peer_parent);
     }
-    return ir_expr_wrap(irb, scope, result_instruction, result_loc);
+    return ir_lval_wrap(irb, scope, result_instruction, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {
@@ -7592,26 +7693,27 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
             is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, err_block);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, parent_scope, is_comptime);
     Scope *err_scope;
     if (var_node) {
         assert(var_node->type == NodeTypeSymbol);
         Buf *var_name = var_node->data.symbol_expr.symbol;
         bool is_const = true;
         bool is_shadowable = false;
-        ZigVar *var = ir_create_var(irb, node, parent_scope, var_name,
+        ZigVar *var = ir_create_var(irb, node, subexpr_scope, var_name,
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
         IrInstruction *err_ptr = ir_build_unwrap_err_code(irb, err_scope, node, err_union_ptr);
         ir_build_var_decl_src(irb, err_scope, var_node, var, nullptr, err_ptr);
     } else {
-        err_scope = parent_scope;
+        err_scope = subexpr_scope;
     }
     IrInstruction *err_result = ir_gen_node_extra(irb, op2_node, err_scope, LValNone, &peer_parent->peers.at(0)->base);
     if (err_result == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
     IrBasicBlock *after_err_block = irb->current_basic_block;
     if (!instr_is_unreachable(err_result))
-        ir_mark_gen(ir_build_br(irb, err_scope, node, end_block, is_comptime));
+        ir_mark_gen(ir_build_br(irb, parent_scope, node, end_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
     IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, parent_scope, node, err_union_ptr, false, false);
@@ -11089,7 +11191,7 @@ static IrBasicBlock *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlock *old_bb,
 }
 
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
-    assert(!old_bb->suspended);
+    ir_assert(!old_bb->suspended, old_bb->instruction_list.at(0));
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
@@ -12671,9 +12773,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // *[N]T to [*]T
+    // *[N]T to [*]T and [*c]T
     if (wanted_type->id == ZigTypeIdPointer &&
-        wanted_type->data.pointer.ptr_len == PtrLenUnknown &&
+        (wanted_type->data.pointer.ptr_len == PtrLenUnknown || wanted_type->data.pointer.ptr_len == PtrLenC) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == ZigTypeIdArray)
@@ -14925,9 +15027,10 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                     break;
             }
         } break;
+        case ZigTypeIdInt:
+            break;
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
-        case ZigTypeIdInt:
         case ZigTypeIdFloat:
         case ZigTypeIdPointer:
         case ZigTypeIdComptimeFloat:
@@ -17026,6 +17129,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     for (size_t i = 0; i < new_incoming_values.length; i += 1) {
         IrInstruction *new_value = new_incoming_values.at(i);
         IrBasicBlock *predecessor = new_incoming_blocks.at(i);
+        ir_assert(predecessor->instruction_list.length != 0, &phi_instruction->base);
         IrInstruction *branch_instruction = predecessor->instruction_list.pop();
         ir_set_cursor_at_end(&ira->new_irb, predecessor);
         IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
@@ -17280,7 +17384,11 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     ZigType *actual_array_type = ir_resolve_type(ira, elem_ptr_instruction->init_array_type->child);
                     if (type_is_invalid(actual_array_type))
                         return ira->codegen->invalid_instruction;
-                    assert(actual_array_type->id == ZigTypeIdArray);
+                    if (actual_array_type->id != ZigTypeIdArray) {
+                        ir_add_error(ira, elem_ptr_instruction->init_array_type,
+                            buf_sprintf("expected array type or [_], found slice"));
+                        return ira->codegen->invalid_instruction;
+                    }
 
                     ConstExprValue *array_init_val = create_const_vals(1);
                     array_init_val->special = ConstValSpecialStatic;
@@ -19123,24 +19231,53 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
         ZigType *enum_type = target_type->data.unionation.tag_type;
         assert(enum_type != nullptr);
         assert(enum_type->id == ZigTypeIdEnum);
+        assert(instruction->prongs_len > 0);
 
-        if (instruction->prongs_len != 1) {
-            return target_value_ptr;
+        IrInstruction *first_prong_value = instruction->prongs_ptr[0]->child;
+        if (type_is_invalid(first_prong_value->value.type))
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *first_casted_prong_value = ir_implicit_cast(ira, first_prong_value, enum_type);
+        if (type_is_invalid(first_casted_prong_value->value.type))
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *first_prong_val = ir_resolve_const(ira, first_casted_prong_value, UndefBad);
+        if (first_prong_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        TypeUnionField *first_field = find_union_field_by_tag(target_type, &first_prong_val->data.x_enum_tag);
+
+        ErrorMsg *invalid_payload_msg = nullptr;
+        for (size_t prong_i = 1; prong_i < instruction->prongs_len; prong_i += 1) {
+            IrInstruction *this_prong_inst = instruction->prongs_ptr[prong_i]->child;
+            if (type_is_invalid(this_prong_inst->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *this_casted_prong_value = ir_implicit_cast(ira, this_prong_inst, enum_type);
+            if (type_is_invalid(this_casted_prong_value->value.type))
+                return ira->codegen->invalid_instruction;
+
+            ConstExprValue *this_prong = ir_resolve_const(ira, this_casted_prong_value, UndefBad);
+            if (this_prong == nullptr)
+                return ira->codegen->invalid_instruction;
+
+            TypeUnionField *payload_field = find_union_field_by_tag(target_type, &this_prong->data.x_enum_tag);
+            ZigType *payload_type = payload_field->type_entry;
+            if (first_field->type_entry != payload_type) {
+                if (invalid_payload_msg == nullptr) {
+                    invalid_payload_msg = ir_add_error(ira, &instruction->base,
+                        buf_sprintf("capture group with incompatible types"));
+                    add_error_note(ira->codegen, invalid_payload_msg, first_prong_value->source_node,
+                            buf_sprintf("type '%s' here", buf_ptr(&first_field->type_entry->name)));
+                }
+                add_error_note(ira->codegen, invalid_payload_msg, this_prong_inst->source_node,
+                        buf_sprintf("type '%s' here", buf_ptr(&payload_field->type_entry->name)));
+            }
         }
 
-        IrInstruction *prong_value = instruction->prongs_ptr[0]->child;
-        if (type_is_invalid(prong_value->value.type))
+        if (invalid_payload_msg != nullptr) {
             return ira->codegen->invalid_instruction;
-
-        IrInstruction *casted_prong_value = ir_implicit_cast(ira, prong_value, enum_type);
-        if (type_is_invalid(casted_prong_value->value.type))
-            return ira->codegen->invalid_instruction;
-
-        ConstExprValue *prong_val = ir_resolve_const(ira, casted_prong_value, UndefBad);
-        if (!prong_val)
-            return ira->codegen->invalid_instruction;
-
-        TypeUnionField *field = find_union_field_by_tag(target_type, &prong_val->data.x_enum_tag);
+        }
 
         if (instr_is_comptime(target_value_ptr)) {
             ConstExprValue *target_val_ptr = ir_resolve_const(ira, target_value_ptr, UndefBad);
@@ -19152,7 +19289,7 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
                 return ira->codegen->invalid_instruction;
 
             IrInstruction *result = ir_const(ira, &instruction->base,
-                    get_pointer_to_type(ira->codegen, field->type_entry,
+                    get_pointer_to_type(ira->codegen, first_field->type_entry,
                     target_val_ptr->type->data.pointer.is_const));
             ConstExprValue *out_val = &result->value;
             out_val->data.x_ptr.special = ConstPtrSpecialRef;
@@ -19162,8 +19299,8 @@ static IrInstruction *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstru
         }
 
         IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, target_value_ptr, field, false, false);
-        result->value.type = get_pointer_to_type(ira->codegen, field->type_entry,
+            instruction->base.scope, instruction->base.source_node, target_value_ptr, first_field, false, false);
+        result->value.type = get_pointer_to_type(ira->codegen, first_field->type_entry,
                 target_value_ptr->value.type->data.pointer.is_const);
         return result;
     } else if (target_type->id == ZigTypeIdErrorSet) {
@@ -19371,32 +19508,21 @@ static IrInstruction *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRe
     return ir_get_ref(ira, &ref_instruction->base, value, ref_instruction->is_const, ref_instruction->is_volatile);
 }
 
-static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrInstruction *instruction,
-    ZigType *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
-    IrInstruction *result_loc)
+static IrInstruction *ir_analyze_union_init(IrAnalyze *ira, IrInstruction *source_instruction,
+        AstNode *field_source_node, ZigType *union_type, Buf *field_name, IrInstruction *field_result_loc,
+        IrInstruction *result_loc)
 {
     Error err;
-    assert(container_type->id == ZigTypeIdUnion);
+    assert(union_type->id == ZigTypeIdUnion);
 
-    if ((err = type_resolve(ira->codegen, container_type, ResolveStatusSizeKnown)))
+    if ((err = type_resolve(ira->codegen, union_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
-    if (instr_field_count != 1) {
-        ir_add_error(ira, instruction,
-            buf_sprintf("union initialization expects exactly one field"));
-        return ira->codegen->invalid_instruction;
-    }
-
-    IrInstructionContainerInitFieldsField *field = &fields[0];
-    IrInstruction *field_result_loc = field->result_loc->child;
-    if (type_is_invalid(field_result_loc->value.type))
-        return ira->codegen->invalid_instruction;
-
-    TypeUnionField *type_field = find_union_type_field(container_type, field->name);
+    TypeUnionField *type_field = find_union_type_field(union_type, field_name);
     if (type_field == nullptr) {
-        ir_add_error_node(ira, field->source_node,
+        ir_add_error_node(ira, field_source_node,
             buf_sprintf("no member named '%s' in union '%s'",
-                buf_ptr(field->name), buf_ptr(&container_type->name)));
+                buf_ptr(field_name), buf_ptr(&union_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -19413,12 +19539,12 @@ static IrInstruction *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrI
         }
     }
 
-    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope)
-        || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, source_instruction->scope)
+        || type_requires_comptime(ira->codegen, union_type) == ReqCompTimeYes;
 
-    IrInstruction *result = ir_get_deref(ira, instruction, result_loc, nullptr);
+    IrInstruction *result = ir_get_deref(ira, source_instruction, result_loc, nullptr);
     if (is_comptime && !instr_is_comptime(result)) {
-        ir_add_error(ira, field->result_loc,
+        ir_add_error(ira, field_result_loc,
             buf_sprintf("unable to evaluate constant expression"));
         return ira->codegen->invalid_instruction;
     }
@@ -19431,8 +19557,18 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 {
     Error err;
     if (container_type->id == ZigTypeIdUnion) {
-        return ir_analyze_container_init_fields_union(ira, instruction, container_type, instr_field_count,
-                fields, result_loc);
+        if (instr_field_count != 1) {
+            ir_add_error(ira, instruction,
+                buf_sprintf("union initialization expects exactly one field"));
+            return ira->codegen->invalid_instruction;
+        }
+        IrInstructionContainerInitFieldsField *field = &fields[0];
+        IrInstruction *field_result_loc = field->result_loc->child;
+        if (type_is_invalid(field_result_loc->value.type))
+            return ira->codegen->invalid_instruction;
+
+        return ir_analyze_union_init(ira, instruction, field->source_node, container_type, field->name,
+                field_result_loc, result_loc);
     }
     if (container_type->id != ZigTypeIdStruct || is_slice(container_type)) {
         ir_add_error(ira, instruction,
@@ -19575,7 +19711,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
-        ir_add_error(ira, &instruction->base,
+        ir_add_error(ira, instruction->container_type,
             buf_sprintf("expected array type or [_], found slice"));
         return ira->codegen->invalid_instruction;
     }
@@ -22616,6 +22752,34 @@ static IrInstruction *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInstr
     }
 }
 
+static IrInstruction *ir_analyze_instruction_has_field(IrAnalyze *ira, IrInstructionHasField *instruction) {
+    Error err;
+    ZigType *container_type = ir_resolve_type(ira, instruction->container_type->child);
+    if (type_is_invalid(container_type))
+        return ira->codegen->invalid_instruction;
+
+    if ((err = type_resolve(ira->codegen, container_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    Buf *field_name = ir_resolve_str(ira, instruction->field_name->child);
+    if (field_name == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    bool result;
+    if (container_type->id == ZigTypeIdStruct) {
+        result = find_struct_type_field(container_type, field_name) != nullptr;
+    } else if (container_type->id == ZigTypeIdEnum) {
+        result = find_enum_type_field(container_type, field_name) != nullptr;
+    } else if (container_type->id == ZigTypeIdUnion) {
+        result = find_union_type_field(container_type, field_name) != nullptr;
+    } else {
+        ir_add_error(ira, instruction->container_type,
+            buf_sprintf("type '%s' does not support @hasField", buf_ptr(&container_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    return ir_const_bool(ira, &instruction->base, result);
+}
+
 static IrInstruction *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstructionBreakpoint *instruction) {
     IrInstruction *result = ir_build_breakpoint(&ira->new_irb,
         instruction->base.scope, instruction->base.source_node);
@@ -22844,11 +23008,11 @@ static IrInstruction *ir_analyze_instruction_mul_add(IrAnalyze *ira, IrInstructi
     IrInstruction *type_value = instruction->type_value->child;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->invalid_instruction;
-    
+
     ZigType *expr_type = ir_resolve_type(ira, type_value);
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_instruction;
-    
+
     // Only allow float types, and vectors of floats.
     ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
     if (float_type->id != ZigTypeIdFloat) {
@@ -24949,7 +25113,7 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
     IrInstruction *type = instruction->type->child;
     if (type_is_invalid(type->value.type))
         return ira->codegen->invalid_instruction;
-    
+
     ZigType *expr_type = ir_resolve_type(ira, type);
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_instruction;
@@ -25261,6 +25425,35 @@ static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInst
     return instruction->result_loc_bit_cast->parent->gen_instruction;
 }
 
+static IrInstruction *ir_analyze_instruction_union_init_named_field(IrAnalyze *ira,
+        IrInstructionUnionInitNamedField *instruction)
+{
+    ZigType *union_type = ir_resolve_type(ira, instruction->union_type->child);
+    if (type_is_invalid(union_type))
+        return ira->codegen->invalid_instruction;
+
+    if (union_type->id != ZigTypeIdUnion) {
+        ir_add_error(ira, instruction->union_type,
+            buf_sprintf("non-union type '%s' passed to @unionInit", buf_ptr(&union_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    Buf *field_name = ir_resolve_str(ira, instruction->field_name->child);
+    if (field_name == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *field_result_loc = instruction->field_result_loc->child;
+    if (type_is_invalid(field_result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_analyze_union_init(ira, &instruction->base, instruction->base.source_node,
+            union_type, field_name, field_result_loc, result_loc);
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -25476,6 +25669,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_bit_offset_of(ira, (IrInstructionBitOffsetOf *)instruction);
         case IrInstructionIdTypeInfo:
             return ir_analyze_instruction_type_info(ira, (IrInstructionTypeInfo *) instruction);
+        case IrInstructionIdHasField:
+            return ir_analyze_instruction_has_field(ira, (IrInstructionHasField *) instruction);
         case IrInstructionIdTypeId:
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
         case IrInstructionIdSetEvalBranchQuota:
@@ -25574,6 +25769,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_end_expr(ira, (IrInstructionEndExpr *)instruction);
         case IrInstructionIdBitCastSrc:
             return ir_analyze_instruction_bit_cast_src(ira, (IrInstructionBitCastSrc *)instruction);
+        case IrInstructionIdUnionInitNamedField:
+            return ir_analyze_instruction_union_init_named_field(ira, (IrInstructionUnionInitNamedField *)instruction);
     }
     zig_unreachable();
 }
@@ -25727,6 +25924,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
+        case IrInstructionIdUnionInitNamedField:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdElemPtr:
         case IrInstructionIdVarPtr:
@@ -25784,6 +25982,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
+        case IrInstructionIdHasField:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
         case IrInstructionIdImplicitCast:

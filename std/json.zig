@@ -1023,7 +1023,7 @@ pub const Value = union(enum) {
                 debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                debug.warn("{.5}", inner);
+                debug.warn("{:.5}", inner);
             },
             Value.String => |inner| {
                 debug.warn("\"{}\"", inner);
@@ -1078,7 +1078,7 @@ pub const Value = union(enum) {
                 debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                debug.warn("{.5}", inner);
+                debug.warn("{:.5}", inner);
             },
             Value.String => |inner| {
                 debug.warn("\"{}\"", inner);

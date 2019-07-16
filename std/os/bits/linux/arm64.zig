@@ -289,6 +289,12 @@ pub const SYS_pidfd_send_signal = 424;
 pub const SYS_io_uring_setup = 425;
 pub const SYS_io_uring_enter = 426;
 pub const SYS_io_uring_register = 427;
+pub const SYS_open_tree = 428;
+pub const SYS_move_mount = 429;
+pub const SYS_fsopen = 430;
+pub const SYS_fsconfig = 431;
+pub const SYS_fsmount = 432;
+pub const SYS_fspick = 433;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;
@@ -331,12 +337,35 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub const AT_FDCWD = -100;
-pub const AT_SYMLINK_NOFOLLOW = 0x100;
-pub const AT_REMOVEDIR = 0x200;
-pub const AT_SYMLINK_FOLLOW = 0x400;
-pub const AT_NO_AUTOMOUNT = 0x800;
-pub const AT_EMPTY_PATH = 0x1000;
+/// stack-like segment
+pub const MAP_GROWSDOWN = 0x0100;
+
+/// ETXTBSY
+pub const MAP_DENYWRITE = 0x0800;
+
+/// mark it as an executable
+pub const MAP_EXECUTABLE = 0x1000;
+
+/// pages are locked
+pub const MAP_LOCKED = 0x2000;
+
+/// don't check for reservations
+pub const MAP_NORESERVE = 0x4000;
+
+/// populate (prefault) pagetables
+pub const MAP_POPULATE = 0x8000;
+
+/// do not block on IO
+pub const MAP_NONBLOCK = 0x10000;
+
+/// give out an address that is best suited for process/thread stacks
+pub const MAP_STACK = 0x20000;
+
+/// create a huge page mapping
+pub const MAP_HUGETLB = 0x40000;
+
+/// perform synchronous page faults for the mapping
+pub const MAP_SYNC = 0x80000;
 
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
@@ -367,6 +396,11 @@ pub const msghdr_const = extern struct {
 };
 
 /// Renamed to Stat to not conflict with the stat function.
+/// atime, mtime, and ctime have functions to return `timespec`,
+/// because although this is a POSIX API, the layout and names of
+/// the structs are inconsistent across operating systems, and
+/// in C, macros are used to hide the differences. Here we use
+/// methods to accomplish this.
 pub const Stat = extern struct {
     dev: u64,
     ino: u64,
@@ -385,6 +419,18 @@ pub const Stat = extern struct {
     mtim: timespec,
     ctim: timespec,
     __unused: [3]isize,
+
+    pub fn atime(self: Stat) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return self.ctim;
+    }
 };
 
 pub const timespec = extern struct {

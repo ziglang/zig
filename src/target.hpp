@@ -77,12 +77,19 @@ enum TargetSubsystem {
     TargetSubsystemAuto
 };
 
+struct ZigGLibCVersion {
+    uint32_t major; // always 2
+    uint32_t minor;
+    uint32_t patch;
+};
+
 struct ZigTarget {
     ZigLLVM_ArchType arch;
     ZigLLVM_SubArchType sub_arch;
     ZigLLVM_VendorType vendor;
     Os os;
     ZigLLVM_EnvironmentType abi;
+    ZigGLibCVersion *glibc_version; // null means default
     bool is_native;
 };
 
@@ -104,6 +111,8 @@ Error target_parse_archsub(ZigLLVM_ArchType *arch, ZigLLVM_SubArchType *sub,
         const char *archsub_ptr, size_t archsub_len);
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
 Error target_parse_abi(ZigLLVM_EnvironmentType *abi, const char *abi_ptr, size_t abi_len);
+
+Error target_parse_glibc_version(ZigGLibCVersion *out, const char *text);
 
 size_t target_arch_count(void);
 ZigLLVM_ArchType target_arch_enum(size_t index);
@@ -139,7 +148,8 @@ const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat);
 ZigLLVM_ObjectFormatType target_object_format(const ZigTarget *target);
 
 void get_native_target(ZigTarget *target);
-void get_target_triple(Buf *triple, const ZigTarget *target);
+void target_triple_llvm(Buf *triple, const ZigTarget *target);
+void target_triple_zig(Buf *triple, const ZigTarget *target);
 
 void init_all_targets(void);
 

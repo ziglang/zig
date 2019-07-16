@@ -8,6 +8,8 @@ const builtin = @import("builtin");
 const c = std.c;
 const maxInt = std.math.maxInt;
 
+pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
+
 const Allocator = mem.Allocator;
 
 pub const c_allocator = &c_allocator_state;

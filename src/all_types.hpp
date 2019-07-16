@@ -1110,6 +1110,8 @@ struct ZigPackage {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigPackage *, buf_hash, buf_eql_buf> package_table;
+
+    bool added_to_cache;
 };
 
 // Stuff that only applies to a struct which is the implicit root struct of a file
@@ -1414,6 +1416,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberName,
     BuiltinFnIdField,
     BuiltinFnIdTypeInfo,
+    BuiltinFnIdHasField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1506,6 +1509,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdHasDecl,
+    BuiltinFnIdUnionInit,
 };
 
 struct BuiltinFnEntry {
@@ -1757,7 +1761,7 @@ struct CodeGen {
     ZigPackage *compile_var_package;
     ZigType *compile_var_import;
     ZigType *root_import;
-    ZigType *bootstrap_import;
+    ZigType *start_import;
     ZigType *test_runner_import;
 
     struct {
@@ -1800,7 +1804,7 @@ struct CodeGen {
     ZigType *err_tag_type;
     ZigType *test_fn_type;
 
-    Buf triple_str;
+    Buf llvm_triple_str;
     Buf global_asm;
     Buf output_file_path;
     Buf o_file_output_path;
@@ -1906,6 +1910,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool function_sections;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -1916,6 +1921,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
+    Buf *version_script_path; 
 
     const char **llvm_argv;
     size_t llvm_argv_len;
@@ -2305,6 +2311,7 @@ enum IrInstructionId {
     IrInstructionIdByteOffsetOf,
     IrInstructionIdBitOffsetOf,
     IrInstructionIdTypeInfo,
+    IrInstructionIdHasField,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrType,
@@ -2355,6 +2362,7 @@ enum IrInstructionId {
     IrInstructionIdAllocaGen,
     IrInstructionIdEndExpr,
     IrInstructionIdPtrOfArrayToSlice,
+    IrInstructionIdUnionInitNamedField,
 };
 
 struct IrInstruction {
@@ -3331,6 +3339,13 @@ struct IrInstructionTypeInfo {
     IrInstruction *type_value;
 };
 
+struct IrInstructionHasField {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    IrInstruction *field_name;
+};
+
 struct IrInstructionTypeId {
     IrInstruction base;
 
@@ -3592,6 +3607,15 @@ struct IrInstructionAssertNonNull {
     IrInstruction *target;
 };
 
+struct IrInstructionUnionInitNamedField {
+    IrInstruction base;
+
+    IrInstruction *union_type;
+    IrInstruction *field_name;
+    IrInstruction *field_result_loc;
+    IrInstruction *result_loc;
+};
+
 struct IrInstructionHasDecl {
     IrInstruction base;
 
@@ -3764,6 +3788,9 @@ static const size_t stack_trace_ptr_count = 32;
 
 #define NAMESPACE_SEP_CHAR '.'
 #define NAMESPACE_SEP_STR "."
+
+#define CACHE_OUT_SUBDIR "o"
+#define CACHE_HASH_SUBDIR "h"
 
 enum FloatMode {
     FloatModeStrict,

@@ -15,6 +15,7 @@
 #include "target.hpp"
 #include "libc_installation.hpp"
 #include "userland.h"
+#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -74,6 +75,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
         "  -target [name]               <arch><sub>-<os>-<abi> see the targets command\n"
+        "  -target-glibc [version]      target a specific glibc version (default: 2.17)\n"
         "  --verbose-tokenize           enable compiler debug output for tokenization\n"
         "  --verbose-ast                enable compiler debug output for AST parsing\n"
         "  --verbose-link               enable compiler debug output for linking\n"
@@ -84,16 +86,19 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
-        "  --override-std-dir [arg]     use an alternate Zig standard library\n"
+        "  --override-std-dir [arg]     override path to Zig standard library\n"
+        "  --override-lib-dir [arg]     override path to Zig lib library\n"
+        "  -ffunction-sections          places each function in a seperate section\n"
         "\n"
         "Link Options:\n"
-        "  --bundle-compiler-rt [path]  for static libraries, include compiler-rt symbols\n"
+        "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
         "  --library [lib]              link against lib\n"
         "  --forbid-library [lib]       make it an error to link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
+        "  --version-script [path]      provide a version .map file\n"
         "  --object [obj]               add object file to build\n"
         "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
@@ -187,10 +192,33 @@ static int print_target_list(FILE *f) {
     for (size_t i = 0; i < libc_count; i += 1) {
         ZigTarget libc_target;
         target_libc_enum(i, &libc_target);
-        fprintf(f, "  %s-%s-%s\n", target_arch_name(libc_target.arch),
-                target_os_name(libc_target.os), target_abi_name(libc_target.abi));
+        bool is_native = native.arch == libc_target.arch &&
+            native.os == libc_target.os &&
+            native.abi == libc_target.abi;
+        const char *native_str = is_native ? " (native)" : "";
+        fprintf(f, "  %s-%s-%s%s\n", target_arch_name(libc_target.arch),
+                target_os_name(libc_target.os), target_abi_name(libc_target.abi), native_str);
     }
 
+    fprintf(f, "\nAvailable glibc versions:\n");
+    ZigGLibCAbi *glibc_abi;
+    Error err;
+    if ((err = glibc_load_metadata(&glibc_abi, get_zig_lib_dir(), true))) {
+        return EXIT_FAILURE;
+    }
+    for (size_t i = 0; i < glibc_abi->all_versions.length; i += 1) {
+        ZigGLibCVersion *this_ver = &glibc_abi->all_versions.at(i);
+        bool is_native = native.glibc_version != nullptr &&
+            native.glibc_version->major == this_ver->major &&
+            native.glibc_version->minor == this_ver->minor &&
+            native.glibc_version->patch == this_ver->patch;
+        const char *native_str = is_native ? " (native)" : "";
+        if (this_ver->patch == 0) {
+            fprintf(f, "  %d.%d%s\n", this_ver->major, this_ver->minor, native_str);
+        } else {
+            fprintf(f, "  %d.%d.%d%s\n", this_ver->major, this_ver->minor, this_ver->patch, native_str);
+        }
+    }
     return EXIT_SUCCESS;
 }
 
@@ -259,21 +287,30 @@ static bool get_cache_opt(CacheOpt opt, bool default_value) {
     zig_unreachable();
 }
 
+static int zig_error_no_build_file(void) {
+    fprintf(stderr,
+        "No 'build.zig' file found, in the current directory or any parent directories.\n"
+        "Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,\n"
+        "or see `zig --help` for more options.\n"
+    );
+    return EXIT_FAILURE;
+}
+
 extern "C" int ZigClang_main(int argc, char **argv);
 
 int main(int argc, char **argv) {
+    stage2_attach_segfault_handler();
+
     char *arg0 = argv[0];
     Error err;
 
     if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
-        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+        printf("%s\n%s\n%s\n%s\n%s\n%s\n",
                 ZIG_CMAKE_BINARY_DIR,
                 ZIG_CXX_COMPILER,
                 ZIG_LLVM_CONFIG_EXE,
                 ZIG_LLD_INCLUDE_PATH,
                 ZIG_LLD_LIBRARIES,
-                ZIG_STD_FILES,
-                ZIG_C_HEADER_FILES,
                 ZIG_DIA_GUIDS_LIB);
         return 0;
     }
@@ -424,6 +461,8 @@ int main(int argc, char **argv) {
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
     const char *linker_script = nullptr;
+    Buf *version_script = nullptr;
+    const char *target_glibc = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
@@ -450,6 +489,7 @@ int main(int argc, char **argv) {
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
     WantPIC want_pic = WantPICAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
+    bool function_sections = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -461,8 +501,7 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
         const char *zig_exe_path = buf_ptr(&zig_exe_path_buf);
-        const char *build_file = "build.zig";
-        bool asked_for_help = false;
+        const char *build_file = nullptr;
 
         init_all_targets();
 
@@ -473,7 +512,6 @@ int main(int argc, char **argv) {
         args.append(NULL); // placeholder
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--help") == 0) {
-                asked_for_help = true;
                 args.append(argv[i]);
             } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
                 build_file = argv[i + 1];
@@ -506,11 +544,35 @@ int main(int argc, char **argv) {
         ZigTarget target;
         get_native_target(&target);
 
-        Buf *build_file_buf = buf_create_from_str(build_file);
+        Buf *build_file_buf = buf_create_from_str((build_file != nullptr) ? build_file : "build.zig");
         Buf build_file_abs = os_path_resolve(&build_file_buf, 1);
         Buf build_file_basename = BUF_INIT;
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
+
+        for (;;) {
+            bool build_file_exists;
+            if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
+                fprintf(stderr, "unable to check existence of '%s': %s\n", buf_ptr(&build_file_abs), err_str(err));
+                return 1;
+            }
+            if (build_file_exists)
+                break;
+
+            if (build_file != nullptr) {
+                // they asked for a specific build file path. only look for that one
+                return zig_error_no_build_file();
+            }
+
+            Buf *next_dir = buf_alloc();
+            os_path_dirname(&build_file_dirname, next_dir);
+            if (buf_eql_buf(&build_file_dirname, next_dir)) {
+                // no more parent directories to search, give up
+                return zig_error_no_build_file();
+            }
+            os_path_join(next_dir, &build_file_basename, &build_file_abs);
+            buf_init_from_buf(&build_file_dirname, next_dir);
+        }
 
         Buf full_cache_dir = BUF_INIT;
         if (cache_dir == nullptr) {
@@ -528,51 +590,6 @@ int main(int argc, char **argv) {
 
         args.items[2] = buf_ptr(&build_file_dirname);
         args.items[3] = buf_ptr(&full_cache_dir);
-
-        bool build_file_exists;
-        if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
-            fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&build_file_abs), err_str(err));
-            return 1;
-        }
-        if (!build_file_exists) {
-            if (asked_for_help) {
-                // This usage text has to be synchronized with std/special/build_runner.zig
-                fprintf(stdout,
-                        "Usage: %s build [options]\n"
-                        "\n"
-                        "General Options:\n"
-                        "  --help                   Print this help and exit\n"
-                        "  --verbose                Print commands before executing them\n"
-                        "  --prefix [path]          Override default install prefix\n"
-                        "  --search-prefix [path]   Add a path to look for binaries, libraries, headers\n"
-                        "\n"
-                        "Project-specific options become available when the build file is found.\n"
-                        "\n"
-                        "Advanced Options:\n"
-                        "  --build-file [file]      Override path to build.zig\n"
-                        "  --cache-dir [path]       Override path to cache directory\n"
-                        "  --override-std-dir [arg] Override path to Zig standard library\n"
-                        "  --override-lib-dir [arg] Override path to Zig lib library\n"
-                        "  --verbose-tokenize       Enable compiler debug output for tokenization\n"
-                        "  --verbose-ast            Enable compiler debug output for parsing into an AST\n"
-                        "  --verbose-link           Enable compiler debug output for linking\n"
-                        "  --verbose-ir             Enable compiler debug output for Zig IR\n"
-                        "  --verbose-llvm-ir        Enable compiler debug output for LLVM IR\n"
-                        "  --verbose-cimport        Enable compiler debug output for C imports\n"
-                        "  --verbose-cc             Enable compiler debug output for C compilation\n"
-                        "\n"
-                , zig_exe_path);
-                return EXIT_SUCCESS;
-            }
-
-            fprintf(stderr,
-                    "No 'build.zig' file found.\n"
-                    "Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,\n"
-                    "or build an executable directly with `zig build-exe $FILENAME.zig`.\n"
-                    "See: `zig build --help` or `zig --help` for more options.\n"
-                   );
-            return EXIT_FAILURE;
-        }
 
         ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename), "std.special");
@@ -688,6 +705,8 @@ int main(int argc, char **argv) {
                     return EXIT_FAILURE;
                 }
                 cur_pkg = cur_pkg->parent;
+            } else if (strcmp(arg, "-ffunction-sections") == 0) {
+                function_sections = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -790,6 +809,10 @@ int main(int argc, char **argv) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
+                } else if (strcmp(arg, "--version-script") == 0) {
+                    version_script = buf_create_from_str(argv[i]); 
+                } else if (strcmp(arg, "-target-glibc") == 0) {
+                    target_glibc = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
                 } else if (strcmp(arg, "--test-filter") == 0) {
@@ -911,9 +934,41 @@ int main(int argc, char **argv) {
     ZigTarget target;
     if (target_string == nullptr) {
         get_native_target(&target);
+        if (target_glibc != nullptr) {
+            fprintf(stderr, "-target-glibc provided but no -target parameter\n");
+            return print_error_usage(arg0);
+        }
     } else {
         if ((err = target_parse_triple(&target, target_string))) {
-            fprintf(stderr, "invalid target: %s\n", err_str(err));
+            if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
+                fprintf(stderr, "'%s' requires a sub-architecture. Try one of these:\n",
+                        target_arch_name(target.arch));
+                SubArchList sub_arch_list = target_subarch_list(target.arch);
+                size_t subarch_count = target_subarch_count(sub_arch_list);
+                for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
+                    ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+                    fprintf(stderr, "  %s%s\n", target_arch_name(target.arch), target_subarch_name(sub));
+                }
+                return print_error_usage(arg0);
+            } else {
+                fprintf(stderr, "invalid target: %s\n", err_str(err));
+                return print_error_usage(arg0);
+            }
+        }
+        if (target_is_glibc(&target)) {
+            target.glibc_version = allocate<ZigGLibCVersion>(1);
+
+            if (target_glibc != nullptr) {
+                if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
+                    fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
+                    return print_error_usage(arg0);
+                }
+            } else {
+                // Default cross-compiling glibc version
+                *target.glibc_version = {2, 17, 0};
+            }
+        } else if (target_glibc != nullptr) {
+            fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
             return print_error_usage(arg0);
         }
     }
@@ -925,7 +980,7 @@ int main(int argc, char **argv) {
 
     if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
         Buf triple_buf = BUF_INIT;
-        get_target_triple(&triple_buf, &target);
+        target_triple_zig(&triple_buf, &target);
         fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
         return print_error_usage(arg0);
     }
@@ -958,6 +1013,10 @@ int main(int argc, char **argv) {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
                 out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
         codegen_set_strip(g, strip);
+        for (size_t i = 0; i < link_libs.length; i += 1) {
+            LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
+            link_lib->provided_explicitly = true;
+        }
         g->subsystem = subsystem;
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
@@ -1069,6 +1128,7 @@ int main(int argc, char **argv) {
             codegen_set_is_test(g, cmd == CmdTest);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
+            g->version_script_path = version_script; 
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
@@ -1089,6 +1149,7 @@ int main(int argc, char **argv) {
             g->bundle_compiler_rt = bundle_compiler_rt;
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
+            g->function_sections = function_sections;
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
@@ -1168,6 +1229,9 @@ int main(int argc, char **argv) {
                     return term.code;
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
+#if defined(ZIG_OS_WINDOWS)
+                        buf_replace(&g->output_file_path, '/', '\\');
+#endif
                         if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
                             return EXIT_FAILURE;
                     }

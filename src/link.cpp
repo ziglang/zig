@@ -11,6 +11,570 @@
 #include "analyze.hpp"
 #include "compiler.hpp"
 #include "install_files.h"
+#include "glibc.hpp"
+
+static const char *msvcrt_common_src[] = {
+    "misc" OS_SEP "onexit_table.c",
+    "misc" OS_SEP "register_tls_atexit.c",
+    "stdio" OS_SEP "acrt_iob_func.c",
+    "misc" OS_SEP "_configthreadlocale.c",
+    "misc" OS_SEP "_get_current_locale.c",
+    "misc" OS_SEP "invalid_parameter_handler.c",
+    "misc" OS_SEP "output_format.c",
+    "misc" OS_SEP "purecall.c",
+    "secapi" OS_SEP "_access_s.c",
+    "secapi" OS_SEP "_cgets_s.c",
+    "secapi" OS_SEP "_cgetws_s.c",
+    "secapi" OS_SEP "_chsize_s.c",
+    "secapi" OS_SEP "_controlfp_s.c",
+    "secapi" OS_SEP "_cprintf_s.c",
+    "secapi" OS_SEP "_cprintf_s_l.c",
+    "secapi" OS_SEP "_ctime32_s.c",
+    "secapi" OS_SEP "_ctime64_s.c",
+    "secapi" OS_SEP "_cwprintf_s.c",
+    "secapi" OS_SEP "_cwprintf_s_l.c",
+    "secapi" OS_SEP "_gmtime32_s.c",
+    "secapi" OS_SEP "_gmtime64_s.c",
+    "secapi" OS_SEP "_localtime32_s.c",
+    "secapi" OS_SEP "_localtime64_s.c",
+    "secapi" OS_SEP "_mktemp_s.c",
+    "secapi" OS_SEP "_sopen_s.c",
+    "secapi" OS_SEP "_strdate_s.c",
+    "secapi" OS_SEP "_strtime_s.c",
+    "secapi" OS_SEP "_umask_s.c",
+    "secapi" OS_SEP "_vcprintf_s.c",
+    "secapi" OS_SEP "_vcprintf_s_l.c",
+    "secapi" OS_SEP "_vcwprintf_s.c",
+    "secapi" OS_SEP "_vcwprintf_s_l.c",
+    "secapi" OS_SEP "_vscprintf_p.c",
+    "secapi" OS_SEP "_vscwprintf_p.c",
+    "secapi" OS_SEP "_vswprintf_p.c",
+    "secapi" OS_SEP "_waccess_s.c",
+    "secapi" OS_SEP "_wasctime_s.c",
+    "secapi" OS_SEP "_wctime32_s.c",
+    "secapi" OS_SEP "_wctime64_s.c",
+    "secapi" OS_SEP "_wstrtime_s.c",
+    "secapi" OS_SEP "_wmktemp_s.c",
+    "secapi" OS_SEP "_wstrdate_s.c",
+    "secapi" OS_SEP "asctime_s.c",
+    "secapi" OS_SEP "memcpy_s.c",
+    "secapi" OS_SEP "memmove_s.c",
+    "secapi" OS_SEP "rand_s.c",
+    "secapi" OS_SEP "sprintf_s.c",
+    "secapi" OS_SEP "strerror_s.c",
+    "secapi" OS_SEP "vsprintf_s.c",
+    "secapi" OS_SEP "wmemcpy_s.c",
+    "secapi" OS_SEP "wmemmove_s.c",
+    "stdio" OS_SEP "mingw_lock.c",
+};
+
+static const char *msvcrt_i386_src[] = {
+    "misc" OS_SEP "lc_locale_func.c",
+
+};
+
+static const char *msvcrt_other_src[] = {
+    "misc" OS_SEP "__p___argv.c",
+    "misc" OS_SEP "__p__acmdln.c",
+    "misc" OS_SEP "__p__fmode.c",
+    "misc" OS_SEP "__p__wcmdln.c",
+};
+
+static const char *mingwex_generic_src[] = {
+    "complex" OS_SEP "_cabs.c",
+    "complex" OS_SEP "cabs.c",
+    "complex" OS_SEP "cabsf.c",
+    "complex" OS_SEP "cabsl.c",
+    "complex" OS_SEP "cacos.c",
+    "complex" OS_SEP "cacosf.c",
+    "complex" OS_SEP "cacosl.c",
+    "complex" OS_SEP "carg.c",
+    "complex" OS_SEP "cargf.c",
+    "complex" OS_SEP "cargl.c",
+    "complex" OS_SEP "casin.c",
+    "complex" OS_SEP "casinf.c",
+    "complex" OS_SEP "casinl.c",
+    "complex" OS_SEP "catan.c",
+    "complex" OS_SEP "catanf.c",
+    "complex" OS_SEP "catanl.c",
+    "complex" OS_SEP "ccos.c",
+    "complex" OS_SEP "ccosf.c",
+    "complex" OS_SEP "ccosl.c",
+    "complex" OS_SEP "cexp.c",
+    "complex" OS_SEP "cexpf.c",
+    "complex" OS_SEP "cexpl.c",
+    "complex" OS_SEP "cimag.c",
+    "complex" OS_SEP "cimagf.c",
+    "complex" OS_SEP "cimagl.c",
+    "complex" OS_SEP "clog.c",
+    "complex" OS_SEP "clog10.c",
+    "complex" OS_SEP "clog10f.c",
+    "complex" OS_SEP "clog10l.c",
+    "complex" OS_SEP "clogf.c",
+    "complex" OS_SEP "clogl.c",
+    "complex" OS_SEP "conj.c",
+    "complex" OS_SEP "conjf.c",
+    "complex" OS_SEP "conjl.c",
+    "complex" OS_SEP "cpow.c",
+    "complex" OS_SEP "cpowf.c",
+    "complex" OS_SEP "cpowl.c",
+    "complex" OS_SEP "cproj.c",
+    "complex" OS_SEP "cprojf.c",
+    "complex" OS_SEP "cprojl.c",
+    "complex" OS_SEP "creal.c",
+    "complex" OS_SEP "crealf.c",
+    "complex" OS_SEP "creall.c",
+    "complex" OS_SEP "csin.c",
+    "complex" OS_SEP "csinf.c",
+    "complex" OS_SEP "csinl.c",
+    "complex" OS_SEP "csqrt.c",
+    "complex" OS_SEP "csqrtf.c",
+    "complex" OS_SEP "csqrtl.c",
+    "complex" OS_SEP "ctan.c",
+    "complex" OS_SEP "ctanf.c",
+    "complex" OS_SEP "ctanl.c",
+    "crt" OS_SEP "dllentry.c",
+    "crt" OS_SEP "dllmain.c",
+    "gdtoa" OS_SEP "arithchk.c",
+    "gdtoa" OS_SEP "dmisc.c",
+    "gdtoa" OS_SEP "dtoa.c",
+    "gdtoa" OS_SEP "g__fmt.c",
+    "gdtoa" OS_SEP "g_dfmt.c",
+    "gdtoa" OS_SEP "g_ffmt.c",
+    "gdtoa" OS_SEP "g_xfmt.c",
+    "gdtoa" OS_SEP "gdtoa.c",
+    "gdtoa" OS_SEP "gethex.c",
+    "gdtoa" OS_SEP "gmisc.c",
+    "gdtoa" OS_SEP "hd_init.c",
+    "gdtoa" OS_SEP "hexnan.c",
+    "gdtoa" OS_SEP "misc.c",
+    "gdtoa" OS_SEP "qnan.c",
+    "gdtoa" OS_SEP "smisc.c",
+    "gdtoa" OS_SEP "strtodg.c",
+    "gdtoa" OS_SEP "strtodnrp.c",
+    "gdtoa" OS_SEP "strtof.c",
+    "gdtoa" OS_SEP "strtopx.c",
+    "gdtoa" OS_SEP "sum.c",
+    "gdtoa" OS_SEP "ulp.c",
+    "math" OS_SEP "abs64.c",
+    "math" OS_SEP "cbrt.c",
+    "math" OS_SEP "cbrtf.c",
+    "math" OS_SEP "cbrtl.c",
+    "math" OS_SEP "cephes_emath.c",
+    "math" OS_SEP "copysign.c",
+    "math" OS_SEP "copysignf.c",
+    "math" OS_SEP "coshf.c",
+    "math" OS_SEP "coshl.c",
+    "math" OS_SEP "erfl.c",
+    "math" OS_SEP "expf.c",
+    "math" OS_SEP "fabs.c",
+    "math" OS_SEP "fabsf.c",
+    "math" OS_SEP "fabsl.c",
+    "math" OS_SEP "fdim.c",
+    "math" OS_SEP "fdimf.c",
+    "math" OS_SEP "fdiml.c",
+    "math" OS_SEP "fma.c",
+    "math" OS_SEP "fmaf.c",
+    "math" OS_SEP "fmal.c",
+    "math" OS_SEP "fmax.c",
+    "math" OS_SEP "fmaxf.c",
+    "math" OS_SEP "fmaxl.c",
+    "math" OS_SEP "fmin.c",
+    "math" OS_SEP "fminf.c",
+    "math" OS_SEP "fminl.c",
+    "math" OS_SEP "fp_consts.c",
+    "math" OS_SEP "fp_constsf.c",
+    "math" OS_SEP "fp_constsl.c",
+    "math" OS_SEP "fpclassify.c",
+    "math" OS_SEP "fpclassifyf.c",
+    "math" OS_SEP "fpclassifyl.c",
+    "math" OS_SEP "frexpf.c",
+    "math" OS_SEP "hypot.c",
+    "math" OS_SEP "hypotf.c",
+    "math" OS_SEP "hypotl.c",
+    "math" OS_SEP "isnan.c",
+    "math" OS_SEP "isnanf.c",
+    "math" OS_SEP "isnanl.c",
+    "math" OS_SEP "ldexpf.c",
+    "math" OS_SEP "lgamma.c",
+    "math" OS_SEP "lgammaf.c",
+    "math" OS_SEP "lgammal.c",
+    "math" OS_SEP "llrint.c",
+    "math" OS_SEP "llrintf.c",
+    "math" OS_SEP "llrintl.c",
+    "math" OS_SEP "llround.c",
+    "math" OS_SEP "llroundf.c",
+    "math" OS_SEP "llroundl.c",
+    "math" OS_SEP "log10f.c",
+    "math" OS_SEP "logf.c",
+    "math" OS_SEP "lrint.c",
+    "math" OS_SEP "lrintf.c",
+    "math" OS_SEP "lrintl.c",
+    "math" OS_SEP "lround.c",
+    "math" OS_SEP "lroundf.c",
+    "math" OS_SEP "lroundl.c",
+    "math" OS_SEP "modf.c",
+    "math" OS_SEP "modff.c",
+    "math" OS_SEP "modfl.c",
+    "math" OS_SEP "nextafterf.c",
+    "math" OS_SEP "nextafterl.c",
+    "math" OS_SEP "nexttoward.c",
+    "math" OS_SEP "nexttowardf.c",
+    "math" OS_SEP "powf.c",
+    "math" OS_SEP "powi.c",
+    "math" OS_SEP "powif.c",
+    "math" OS_SEP "powil.c",
+    "math" OS_SEP "rint.c",
+    "math" OS_SEP "rintf.c",
+    "math" OS_SEP "rintl.c",
+    "math" OS_SEP "round.c",
+    "math" OS_SEP "roundf.c",
+    "math" OS_SEP "roundl.c",
+    "math" OS_SEP "s_erf.c",
+    "math" OS_SEP "sf_erf.c",
+    "math" OS_SEP "signbit.c",
+    "math" OS_SEP "signbitf.c",
+    "math" OS_SEP "signbitl.c",
+    "math" OS_SEP "signgam.c",
+    "math" OS_SEP "sinhf.c",
+    "math" OS_SEP "sinhl.c",
+    "math" OS_SEP "sqrt.c",
+    "math" OS_SEP "sqrtf.c",
+    "math" OS_SEP "sqrtl.c",
+    "math" OS_SEP "tanhf.c",
+    "math" OS_SEP "tanhl.c",
+    "math" OS_SEP "tgamma.c",
+    "math" OS_SEP "tgammaf.c",
+    "math" OS_SEP "tgammal.c",
+    "math" OS_SEP "truncl.c",
+    "misc" OS_SEP "alarm.c",
+    "misc" OS_SEP "assert.c",
+    "misc" OS_SEP "basename.c",
+    "misc" OS_SEP "btowc.c",
+    "misc" OS_SEP "delay-f.c",
+    "misc" OS_SEP "delay-n.c",
+    "misc" OS_SEP "delayimp.c",
+    "misc" OS_SEP "difftime.c",
+    "misc" OS_SEP "difftime32.c",
+    "misc" OS_SEP "difftime64.c",
+    "misc" OS_SEP "dirent.c",
+    "misc" OS_SEP "dirname.c",
+    "misc" OS_SEP "execv.c",
+    "misc" OS_SEP "execve.c",
+    "misc" OS_SEP "execvp.c",
+    "misc" OS_SEP "execvpe.c",
+    "misc" OS_SEP "feclearexcept.c",
+    "misc" OS_SEP "fegetenv.c",
+    "misc" OS_SEP "fegetexceptflag.c",
+    "misc" OS_SEP "fegetround.c",
+    "misc" OS_SEP "feholdexcept.c",
+    "misc" OS_SEP "feraiseexcept.c",
+    "misc" OS_SEP "fesetenv.c",
+    "misc" OS_SEP "fesetexceptflag.c",
+    "misc" OS_SEP "fesetround.c",
+    "misc" OS_SEP "fetestexcept.c",
+    "misc" OS_SEP "feupdateenv.c",
+    "misc" OS_SEP "ftruncate.c",
+    "misc" OS_SEP "ftw.c",
+    "misc" OS_SEP "ftw64.c",
+    "misc" OS_SEP "fwide.c",
+    "misc" OS_SEP "getlogin.c",
+    "misc" OS_SEP "getopt.c",
+    "misc" OS_SEP "gettimeofday.c",
+    "misc" OS_SEP "imaxabs.c",
+    "misc" OS_SEP "imaxdiv.c",
+    "misc" OS_SEP "isblank.c",
+    "misc" OS_SEP "iswblank.c",
+    "misc" OS_SEP "mbrtowc.c",
+    "misc" OS_SEP "mbsinit.c",
+    "misc" OS_SEP "mempcpy.c",
+    "misc" OS_SEP "mingw-aligned-malloc.c",
+    "misc" OS_SEP "mingw-fseek.c",
+    "misc" OS_SEP "mingw_getsp.S",
+    "misc" OS_SEP "mingw_matherr.c",
+    "misc" OS_SEP "mingw_mbwc_convert.c",
+    "misc" OS_SEP "mingw_usleep.c",
+    "misc" OS_SEP "mingw_wcstod.c",
+    "misc" OS_SEP "mingw_wcstof.c",
+    "misc" OS_SEP "mingw_wcstold.c",
+    "misc" OS_SEP "mkstemp.c",
+    "misc" OS_SEP "seterrno.c",
+    "misc" OS_SEP "sleep.c",
+    "misc" OS_SEP "spawnv.c",
+    "misc" OS_SEP "spawnve.c",
+    "misc" OS_SEP "spawnvp.c",
+    "misc" OS_SEP "spawnvpe.c",
+    "misc" OS_SEP "strnlen.c",
+    "misc" OS_SEP "strsafe.c",
+    "misc" OS_SEP "strtoimax.c",
+    "misc" OS_SEP "strtold.c",
+    "misc" OS_SEP "strtoumax.c",
+    "misc" OS_SEP "tdelete.c",
+    "misc" OS_SEP "tfind.c",
+    "misc" OS_SEP "tsearch.c",
+    "misc" OS_SEP "twalk.c",
+    "misc" OS_SEP "uchar_c16rtomb.c",
+    "misc" OS_SEP "uchar_c32rtomb.c",
+    "misc" OS_SEP "uchar_mbrtoc16.c",
+    "misc" OS_SEP "uchar_mbrtoc32.c",
+    "misc" OS_SEP "wassert.c",
+    "misc" OS_SEP "wcrtomb.c",
+    "misc" OS_SEP "wcsnlen.c",
+    "misc" OS_SEP "wcstof.c",
+    "misc" OS_SEP "wcstoimax.c",
+    "misc" OS_SEP "wcstold.c",
+    "misc" OS_SEP "wcstoumax.c",
+    "misc" OS_SEP "wctob.c",
+    "misc" OS_SEP "wctrans.c",
+    "misc" OS_SEP "wctype.c",
+    "misc" OS_SEP "wdirent.c",
+    "misc" OS_SEP "winbs_uint64.c",
+    "misc" OS_SEP "winbs_ulong.c",
+    "misc" OS_SEP "winbs_ushort.c",
+    "misc" OS_SEP "wmemchr.c",
+    "misc" OS_SEP "wmemcmp.c",
+    "misc" OS_SEP "wmemcpy.c",
+    "misc" OS_SEP "wmemmove.c",
+    "misc" OS_SEP "wmempcpy.c",
+    "misc" OS_SEP "wmemset.c",
+    "stdio" OS_SEP "_Exit.c",
+    "stdio" OS_SEP "_findfirst64i32.c",
+    "stdio" OS_SEP "_findnext64i32.c",
+    "stdio" OS_SEP "_fstat.c",
+    "stdio" OS_SEP "_fstat64i32.c",
+    "stdio" OS_SEP "_ftime.c",
+    "stdio" OS_SEP "_getc_nolock.c",
+    "stdio" OS_SEP "_getwc_nolock.c",
+    "stdio" OS_SEP "_putc_nolock.c",
+    "stdio" OS_SEP "_putwc_nolock.c",
+    "stdio" OS_SEP "_stat.c",
+    "stdio" OS_SEP "_stat64i32.c",
+    "stdio" OS_SEP "_wfindfirst64i32.c",
+    "stdio" OS_SEP "_wfindnext64i32.c",
+    "stdio" OS_SEP "_wstat.c",
+    "stdio" OS_SEP "_wstat64i32.c",
+    "stdio" OS_SEP "asprintf.c",
+    "stdio" OS_SEP "atoll.c",
+    "stdio" OS_SEP "fgetpos64.c",
+    "stdio" OS_SEP "fopen64.c",
+    "stdio" OS_SEP "fseeko32.c",
+    "stdio" OS_SEP "fseeko64.c",
+    "stdio" OS_SEP "fsetpos64.c",
+    "stdio" OS_SEP "ftello.c",
+    "stdio" OS_SEP "ftello64.c",
+    "stdio" OS_SEP "ftruncate64.c",
+    "stdio" OS_SEP "lltoa.c",
+    "stdio" OS_SEP "lltow.c",
+    "stdio" OS_SEP "lseek64.c",
+    "stdio" OS_SEP "mingw_asprintf.c",
+    "stdio" OS_SEP "mingw_fprintf.c",
+    "stdio" OS_SEP "mingw_fprintfw.c",
+    "stdio" OS_SEP "mingw_fscanf.c",
+    "stdio" OS_SEP "mingw_fwscanf.c",
+    "stdio" OS_SEP "mingw_pformat.c",
+    "stdio" OS_SEP "mingw_pformatw.c",
+    "stdio" OS_SEP "mingw_printf.c",
+    "stdio" OS_SEP "mingw_printfw.c",
+    "stdio" OS_SEP "mingw_scanf.c",
+    "stdio" OS_SEP "mingw_snprintf.c",
+    "stdio" OS_SEP "mingw_snprintfw.c",
+    "stdio" OS_SEP "mingw_sprintf.c",
+    "stdio" OS_SEP "mingw_sprintfw.c",
+    "stdio" OS_SEP "mingw_sscanf.c",
+    "stdio" OS_SEP "mingw_swscanf.c",
+    "stdio" OS_SEP "mingw_vasprintf.c",
+    "stdio" OS_SEP "mingw_vfprintf.c",
+    "stdio" OS_SEP "mingw_vfprintfw.c",
+    "stdio" OS_SEP "mingw_vfscanf.c",
+    "stdio" OS_SEP "mingw_vprintf.c",
+    "stdio" OS_SEP "mingw_vprintfw.c",
+    "stdio" OS_SEP "mingw_vsnprintf.c",
+    "stdio" OS_SEP "mingw_vsnprintfw.c",
+    "stdio" OS_SEP "mingw_vsprintf.c",
+    "stdio" OS_SEP "mingw_vsprintfw.c",
+    "stdio" OS_SEP "mingw_wscanf.c",
+    "stdio" OS_SEP "mingw_wvfscanf.c",
+    "stdio" OS_SEP "scanf.S",
+    "stdio" OS_SEP "snprintf.c",
+    "stdio" OS_SEP "snwprintf.c",
+    "stdio" OS_SEP "strtof.c",
+    "stdio" OS_SEP "strtok_r.c",
+    "stdio" OS_SEP "truncate.c",
+    "stdio" OS_SEP "ulltoa.c",
+    "stdio" OS_SEP "ulltow.c",
+    "stdio" OS_SEP "vasprintf.c",
+    "stdio" OS_SEP "vfscanf.c",
+    "stdio" OS_SEP "vfscanf2.S",
+    "stdio" OS_SEP "vfwscanf.c",
+    "stdio" OS_SEP "vfwscanf2.S",
+    "stdio" OS_SEP "vscanf.c",
+    "stdio" OS_SEP "vscanf2.S",
+    "stdio" OS_SEP "vsnprintf.c",
+    "stdio" OS_SEP "vsnwprintf.c",
+    "stdio" OS_SEP "vsscanf.c",
+    "stdio" OS_SEP "vsscanf2.S",
+    "stdio" OS_SEP "vswscanf.c",
+    "stdio" OS_SEP "vswscanf2.S",
+    "stdio" OS_SEP "vwscanf.c",
+    "stdio" OS_SEP "vwscanf2.S",
+    "stdio" OS_SEP "wtoll.c",
+};
+
+static const char *mingwex_x86_src[] = {
+    "math" OS_SEP "x86" OS_SEP "acosf.c",
+    "math" OS_SEP "x86" OS_SEP "acosh.c",
+    "math" OS_SEP "x86" OS_SEP "acoshf.c",
+    "math" OS_SEP "x86" OS_SEP "acoshl.c",
+    "math" OS_SEP "x86" OS_SEP "acosl.c",
+    "math" OS_SEP "x86" OS_SEP "asinf.c",
+    "math" OS_SEP "x86" OS_SEP "asinh.c",
+    "math" OS_SEP "x86" OS_SEP "asinhf.c",
+    "math" OS_SEP "x86" OS_SEP "asinhl.c",
+    "math" OS_SEP "x86" OS_SEP "asinl.c",
+    "math" OS_SEP "x86" OS_SEP "atan2.c",
+    "math" OS_SEP "x86" OS_SEP "atan2f.c",
+    "math" OS_SEP "x86" OS_SEP "atan2l.c",
+    "math" OS_SEP "x86" OS_SEP "atanf.c",
+    "math" OS_SEP "x86" OS_SEP "atanh.c",
+    "math" OS_SEP "x86" OS_SEP "atanhf.c",
+    "math" OS_SEP "x86" OS_SEP "atanhl.c",
+    "math" OS_SEP "x86" OS_SEP "atanl.c",
+    "math" OS_SEP "x86" OS_SEP "ceilf.S",
+    "math" OS_SEP "x86" OS_SEP "ceill.S",
+    "math" OS_SEP "x86" OS_SEP "ceil.S",
+    "math" OS_SEP "x86" OS_SEP "_chgsignl.S",
+    "math" OS_SEP "x86" OS_SEP "copysignl.S",
+    "math" OS_SEP "x86" OS_SEP "cos.c",
+    "math" OS_SEP "x86" OS_SEP "cosf.c",
+    "math" OS_SEP "x86" OS_SEP "cosl.c",
+    "math" OS_SEP "x86" OS_SEP "cosl_internal.S",
+    "math" OS_SEP "x86" OS_SEP "cossin.c",
+    "math" OS_SEP "x86" OS_SEP "exp2f.S",
+    "math" OS_SEP "x86" OS_SEP "exp2l.S",
+    "math" OS_SEP "x86" OS_SEP "exp2.S",
+    "math" OS_SEP "x86" OS_SEP "exp.c",
+    "math" OS_SEP "x86" OS_SEP "expl.c",
+    "math" OS_SEP "x86" OS_SEP "expm1.c",
+    "math" OS_SEP "x86" OS_SEP "expm1f.c",
+    "math" OS_SEP "x86" OS_SEP "expm1l.c",
+    "math" OS_SEP "x86" OS_SEP "floorf.S",
+    "math" OS_SEP "x86" OS_SEP "floorl.S",
+    "math" OS_SEP "x86" OS_SEP "floor.S",
+    "math" OS_SEP "x86" OS_SEP "fmod.c",
+    "math" OS_SEP "x86" OS_SEP "fmodf.c",
+    "math" OS_SEP "x86" OS_SEP "fmodl.c",
+    "math" OS_SEP "x86" OS_SEP "frexpl.S",
+    "math" OS_SEP "x86" OS_SEP "fucom.c",
+    "math" OS_SEP "x86" OS_SEP "ilogbf.S",
+    "math" OS_SEP "x86" OS_SEP "ilogbl.S",
+    "math" OS_SEP "x86" OS_SEP "ilogb.S",
+    "math" OS_SEP "x86" OS_SEP "internal_logl.S",
+    "math" OS_SEP "x86" OS_SEP "ldexp.c",
+    "math" OS_SEP "x86" OS_SEP "ldexpl.c",
+    "math" OS_SEP "x86" OS_SEP "log10l.S",
+    "math" OS_SEP "x86" OS_SEP "log1pf.S",
+    "math" OS_SEP "x86" OS_SEP "log1pl.S",
+    "math" OS_SEP "x86" OS_SEP "log1p.S",
+    "math" OS_SEP "x86" OS_SEP "log2f.S",
+    "math" OS_SEP "x86" OS_SEP "log2l.S",
+    "math" OS_SEP "x86" OS_SEP "log2.S",
+    "math" OS_SEP "x86" OS_SEP "logb.c",
+    "math" OS_SEP "x86" OS_SEP "logbf.c",
+    "math" OS_SEP "x86" OS_SEP "logbl.c",
+    "math" OS_SEP "x86" OS_SEP "log.c",
+    "math" OS_SEP "x86" OS_SEP "logl.c",
+    "math" OS_SEP "x86" OS_SEP "nearbyintf.S",
+    "math" OS_SEP "x86" OS_SEP "nearbyintl.S",
+    "math" OS_SEP "x86" OS_SEP "nearbyint.S",
+    "math" OS_SEP "x86" OS_SEP "pow.c",
+    "math" OS_SEP "x86" OS_SEP "powl.c",
+    "math" OS_SEP "x86" OS_SEP "remainderf.S",
+    "math" OS_SEP "x86" OS_SEP "remainderl.S",
+    "math" OS_SEP "x86" OS_SEP "remainder.S",
+    "math" OS_SEP "x86" OS_SEP "remquof.S",
+    "math" OS_SEP "x86" OS_SEP "remquol.S",
+    "math" OS_SEP "x86" OS_SEP "remquo.S",
+    "math" OS_SEP "x86" OS_SEP "scalbnf.S",
+    "math" OS_SEP "x86" OS_SEP "scalbnl.S",
+    "math" OS_SEP "x86" OS_SEP "scalbn.S",
+    "math" OS_SEP "x86" OS_SEP "sin.c",
+    "math" OS_SEP "x86" OS_SEP "sinf.c",
+    "math" OS_SEP "x86" OS_SEP "sinl.c",
+    "math" OS_SEP "x86" OS_SEP "sinl_internal.S",
+    "math" OS_SEP "x86" OS_SEP "tanf.c",
+    "math" OS_SEP "x86" OS_SEP "tanl.S",
+    "math" OS_SEP "x86" OS_SEP "truncf.S",
+    "math" OS_SEP "x86" OS_SEP "trunc.S",
+};
+
+static const char *mingwex_arm32_src[] = {
+    "math" OS_SEP "arm" OS_SEP "_chgsignl.S",
+    "math" OS_SEP "arm" OS_SEP "ceil.S",
+    "math" OS_SEP "arm" OS_SEP "ceilf.S",
+    "math" OS_SEP "arm" OS_SEP "ceill.S",
+    "math" OS_SEP "arm" OS_SEP "copysignl.c",
+    "math" OS_SEP "arm" OS_SEP "exp2.c",
+    "math" OS_SEP "arm" OS_SEP "floor.S",
+    "math" OS_SEP "arm" OS_SEP "floorf.S",
+    "math" OS_SEP "arm" OS_SEP "floorl.S",
+    "math" OS_SEP "arm" OS_SEP "ldexpl.c",
+    "math" OS_SEP "arm" OS_SEP "log2.c",
+    "math" OS_SEP "arm" OS_SEP "nearbyint.S",
+    "math" OS_SEP "arm" OS_SEP "nearbyintf.S",
+    "math" OS_SEP "arm" OS_SEP "nearbyintl.S",
+    "math" OS_SEP "arm" OS_SEP "scalbn.c",
+    "math" OS_SEP "arm" OS_SEP "sincos.c",
+    "math" OS_SEP "arm" OS_SEP "trunc.S",
+    "math" OS_SEP "arm" OS_SEP "truncf.S",
+};
+
+static const char *mingwex_arm64_src[] = {
+    "math" OS_SEP "arm64" OS_SEP "ceilf.S",
+    "math" OS_SEP "arm64" OS_SEP "ceill.S",
+    "math" OS_SEP "arm64" OS_SEP "ceil.S",
+    "math" OS_SEP "arm64" OS_SEP "_chgsignl.S",
+    "math" OS_SEP "arm64" OS_SEP "copysignl.c",
+    "math" OS_SEP "arm64" OS_SEP "exp2f.S",
+    "math" OS_SEP "arm64" OS_SEP "exp2.S",
+    "math" OS_SEP "arm64" OS_SEP "floorf.S",
+    "math" OS_SEP "arm64" OS_SEP "floorl.S",
+    "math" OS_SEP "arm64" OS_SEP "floor.S",
+    "math" OS_SEP "arm64" OS_SEP "ldexpl.c",
+    "math" OS_SEP "arm64" OS_SEP "log2.c",
+    "math" OS_SEP "arm64" OS_SEP "nearbyintf.S",
+    "math" OS_SEP "arm64" OS_SEP "nearbyintl.S",
+    "math" OS_SEP "arm64" OS_SEP "nearbyint.S",
+    "math" OS_SEP "arm64" OS_SEP "scalbn.c",
+    "math" OS_SEP "arm64" OS_SEP "sincos.c",
+    "math" OS_SEP "arm64" OS_SEP "truncf.S",
+    "math" OS_SEP "arm64" OS_SEP "trunc.S",
+};
+
+struct MinGWDef {
+    const char *name;
+    const char *path;
+    bool always_link;
+};
+static const MinGWDef mingw_def_list[] = {
+    {"msvcrt", "lib-common" OS_SEP "msvcrt.def.in", true},
+    {"setupapi", "libarm32" OS_SEP "setupapi.def", false},
+    {"setupapi", "libarm64" OS_SEP "setupapi.def", false},
+    {"setupapi", "lib32" OS_SEP "setupapi.def", false},
+    {"setupapi", "lib64" OS_SEP "setupapi.def", false},
+    {"winmm", "lib-common" OS_SEP "winmm.def", false},
+    {"gdi32", "lib-common" OS_SEP "gdi32.def", false},
+    {"imm32", "lib-common" OS_SEP "imm32.def", false},
+    {"version", "lib-common" OS_SEP "version.def", false},
+    {"advapi32", "lib-common" OS_SEP "advapi32.def.in", true},
+    {"oleaut32", "lib-common" OS_SEP "oleaut32.def.in", false},
+    {"ole32", "lib-common" OS_SEP "ole32.def.in", false},
+    {"shell32", "lib-common" OS_SEP "shell32.def", true},
+    {"user32", "lib-common" OS_SEP "user32.def.in", true},
+    {"kernel32", "lib-common" OS_SEP "kernel32.def.in", true},
+    {"ntdll", "libarm32" OS_SEP "ntdll.def", true},
+    {"ntdll", "lib32" OS_SEP "ntdll.def", true},
+    {"ntdll", "lib64" OS_SEP "ntdll.def", true},
+};
 
 struct LinkJob {
     CodeGen *codegen;
@@ -18,37 +582,6 @@ struct LinkJob {
     bool link_in_crt;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
 };
-
-static CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
-        ZigLibCInstallation *libc)
-{
-    CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
-    child_gen->disable_gen_h = true;
-    child_gen->want_stack_check = WantStackCheckDisabled;
-    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
-    child_gen->verbose_ast = parent_gen->verbose_ast;
-    child_gen->verbose_link = parent_gen->verbose_link;
-    child_gen->verbose_ir = parent_gen->verbose_ir;
-    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
-    child_gen->verbose_cimport = parent_gen->verbose_cimport;
-    child_gen->verbose_cc = parent_gen->verbose_cc;
-    child_gen->llvm_argv = parent_gen->llvm_argv;
-    child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
-
-    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
-    child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
-    child_gen->valgrind_support = ValgrindSupportDisabled;
-
-    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
-
-    codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
-    codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
-
-    child_gen->enable_cache = true;
-
-    return child_gen;
-}
 
 static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
     CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
@@ -74,18 +607,6 @@ static const char *path_from_libc(CodeGen *g, const char *subpath) {
 
 static const char *path_from_libunwind(CodeGen *g, const char *subpath) {
     return path_from_zig_lib(g, "libunwind", subpath);
-}
-
-static const char *build_dummy_so(CodeGen *parent, const char *name, size_t major_version) {
-    Buf *glibc_dummy_root_src = buf_sprintf("%s" OS_SEP "libc" OS_SEP "dummy" OS_SEP "%s.zig",
-            buf_ptr(parent->zig_lib_dir), name);
-    CodeGen *child_gen = create_child_codegen(parent, glibc_dummy_root_src, OutTypeLib, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str(name));
-    codegen_set_lib_version(child_gen, major_version, 0, 0);
-    child_gen->is_dynamic = true;
-    child_gen->is_dummy_so = true;
-    codegen_build_and_link(child_gen);
-    return buf_ptr(&child_gen->output_file_path);
 }
 
 static const char *build_libunwind(CodeGen *parent) {
@@ -148,6 +669,29 @@ static const char *build_libunwind(CodeGen *parent) {
     child_gen->c_source_files = c_source_files;
     codegen_build_and_link(child_gen);
     return buf_ptr(&child_gen->output_file_path);
+}
+
+static void mingw_add_cc_args(CodeGen *parent, CFile *c_file) {
+    c_file->args.append("-DHAVE_CONFIG_H");
+
+    c_file->args.append("-I");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "include",
+                    buf_ptr(parent->zig_lib_dir))));
+
+    c_file->args.append("-isystem");
+    c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "any-windows-any",
+                    buf_ptr(parent->zig_lib_dir))));
+
+    if (target_is_arm(parent->zig_target) &&
+        target_arch_pointer_bit_width(parent->zig_target->arch) == 32)
+    {
+        c_file->args.append("-mfpu=vfp");
+    }
+
+    c_file->args.append("-std=gnu11");
+    c_file->args.append("-D_CRTBLD");
+    c_file->args.append("-D_WIN32_WINNT=0x0f00");
+    c_file->args.append("-D__MSVCRT_VERSION__=0x700");
 }
 
 static void glibc_add_include_dirs_arch(CFile *c_file, ZigLLVM_ArchType arch, const char *nptl, const char *dir) {
@@ -591,9 +1135,183 @@ static const char *build_musl(CodeGen *parent) {
     return buf_ptr(&child_gen->output_file_path);
 }
 
+static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
+    CFile *c_file = allocate<CFile>(1);
+    c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), src_path));
+    c_file->args.append("-DHAVE_CONFIG_H");
+    c_file->args.append("-D__LIBMSVCRT__");
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include"));
+
+    c_file->args.append("-std=gnu99");
+    c_file->args.append("-D_CRTBLD");
+    c_file->args.append("-D_WIN32_WINNT=0x0f00");
+    c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+
+    c_file->args.append("-isystem");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+    c_file->args.append("-g");
+    c_file->args.append("-O2");
+
+    child_gen->c_source_files.append(c_file);
+}
+
+static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
+    CFile *c_file = allocate<CFile>(1);
+    c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), src_path));
+    c_file->args.append("-DHAVE_CONFIG_H");
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw"));
+
+    c_file->args.append("-I");
+    c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include"));
+
+    c_file->args.append("-std=gnu99");
+    c_file->args.append("-D_CRTBLD");
+    c_file->args.append("-D_WIN32_WINNT=0x0f00");
+    c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+    c_file->args.append("-g");
+    c_file->args.append("-O2");
+
+    c_file->args.append("-isystem");
+    c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+    child_gen->c_source_files.append(c_file);
+}
 
 static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
-    if (parent->libc == nullptr && target_is_glibc(parent->zig_target)) {
+    if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
+        if (strcmp(file, "crt2.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = buf_ptr(buf_sprintf(
+                "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtexe.c", buf_ptr(parent->zig_lib_dir)));
+            mingw_add_cc_args(parent, c_file);
+            c_file->args.append("-U__CRTDLL__");
+            c_file->args.append("-D__MSVCRT__");
+            // Uncomment these 3 things for crtu
+            //c_file->args.append("-DUNICODE");
+            //c_file->args.append("-D_UNICODE");
+            //c_file->args.append("-DWPRFLAG=1");
+            return build_libc_object(parent, "crt2", c_file);
+        } else if (strcmp(file, "dllcrt2.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = buf_ptr(buf_sprintf(
+                "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtdll.c", buf_ptr(parent->zig_lib_dir)));
+            mingw_add_cc_args(parent, c_file);
+            c_file->args.append("-U__CRTDLL__");
+            c_file->args.append("-D__MSVCRT__");
+            return build_libc_object(parent, "dllcrt2", c_file);
+        } else if (strcmp(file, "mingw32.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("mingw32"));
+
+            static const char *deps[] = {
+                "mingw" OS_SEP "crt" OS_SEP "crt0_c.c",
+                "mingw" OS_SEP "crt" OS_SEP "dll_argv.c",
+                "mingw" OS_SEP "crt" OS_SEP "gccmain.c",
+                "mingw" OS_SEP "crt" OS_SEP "natstart.c",
+                "mingw" OS_SEP "crt" OS_SEP "pseudo-reloc-list.c",
+                "mingw" OS_SEP "crt" OS_SEP "wildcard.c",
+                "mingw" OS_SEP "crt" OS_SEP "charmax.c",
+                "mingw" OS_SEP "crt" OS_SEP "crt0_w.c",
+                "mingw" OS_SEP "crt" OS_SEP "dllargv.c",
+                "mingw" OS_SEP "crt" OS_SEP "gs_support.c",
+                "mingw" OS_SEP "crt" OS_SEP "_newmode.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlssup.c",
+                "mingw" OS_SEP "crt" OS_SEP "xncommod.c",
+                "mingw" OS_SEP "crt" OS_SEP "cinitexe.c",
+                "mingw" OS_SEP "crt" OS_SEP "merr.c",
+                "mingw" OS_SEP "crt" OS_SEP "pesect.c",
+                "mingw" OS_SEP "crt" OS_SEP "udllargc.c",
+                "mingw" OS_SEP "crt" OS_SEP "xthdloc.c",
+                "mingw" OS_SEP "crt" OS_SEP "CRT_fp10.c",
+                "mingw" OS_SEP "crt" OS_SEP "mingw_helpers.c",
+                "mingw" OS_SEP "crt" OS_SEP "pseudo-reloc.c",
+                "mingw" OS_SEP "crt" OS_SEP "udll_argv.c",
+                "mingw" OS_SEP "crt" OS_SEP "xtxtmode.c",
+                "mingw" OS_SEP "crt" OS_SEP "crt_handler.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsthrd.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsmthread.c",
+                "mingw" OS_SEP "crt" OS_SEP "tlsmcrt.c",
+                "mingw" OS_SEP "crt" OS_SEP "cxa_atexit.c",
+            };
+            for (size_t i = 0; i < array_length(deps); i += 1) {
+                CFile *c_file = allocate<CFile>(1);
+                c_file->source_path = path_from_libc(parent, deps[i]);
+                c_file->args.append("-DHAVE_CONFIG_H");
+                c_file->args.append("-D_SYSCRT=1");
+                c_file->args.append("-DCRTDLL=1");
+
+                c_file->args.append("-isystem");
+                c_file->args.append(path_from_libc(parent, "include" OS_SEP "any-windows-any"));
+
+                c_file->args.append("-isystem");
+                c_file->args.append(path_from_libc(parent, "mingw" OS_SEP "include"));
+
+                c_file->args.append("-std=gnu99");
+                c_file->args.append("-D_CRTBLD");
+                c_file->args.append("-D_WIN32_WINNT=0x0f00");
+                c_file->args.append("-D__MSVCRT_VERSION__=0x700");
+                c_file->args.append("-g");
+                c_file->args.append("-O2");
+
+                child_gen->c_source_files.append(c_file);
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else if (strcmp(file, "msvcrt-os.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("msvcrt-os"));
+
+            for (size_t i = 0; i < array_length(msvcrt_common_src); i += 1) {
+                add_msvcrt_os_dep(parent, child_gen, msvcrt_common_src[i]);
+            }
+            if (parent->zig_target->arch == ZigLLVM_x86) {
+                for (size_t i = 0; i < array_length(msvcrt_i386_src); i += 1) {
+                    add_msvcrt_os_dep(parent, child_gen, msvcrt_i386_src[i]);
+                }
+            } else {
+                for (size_t i = 0; i < array_length(msvcrt_other_src); i += 1) {
+                    add_msvcrt_os_dep(parent, child_gen, msvcrt_other_src[i]);
+                }
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else if (strcmp(file, "mingwex.lib") == 0) {
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
+            codegen_set_out_name(child_gen, buf_create_from_str("mingwex"));
+
+            for (size_t i = 0; i < array_length(mingwex_generic_src); i += 1) {
+                add_mingwex_os_dep(parent, child_gen, mingwex_generic_src[i]);
+            }
+            if (parent->zig_target->arch == ZigLLVM_x86 || parent->zig_target->arch == ZigLLVM_x86_64) {
+                for (size_t i = 0; i < array_length(mingwex_x86_src); i += 1) {
+                    add_mingwex_os_dep(parent, child_gen, mingwex_x86_src[i]);
+                }
+            } else if (target_is_arm(parent->zig_target)) {
+                if (target_arch_pointer_bit_width(parent->zig_target->arch) == 32) {
+                    for (size_t i = 0; i < array_length(mingwex_arm32_src); i += 1) {
+                        add_mingwex_os_dep(parent, child_gen, mingwex_arm32_src[i]);
+                    }
+                } else {
+                    for (size_t i = 0; i < array_length(mingwex_arm64_src); i += 1) {
+                        add_mingwex_os_dep(parent, child_gen, mingwex_arm64_src[i]);
+                    }
+                }
+            } else {
+                zig_unreachable();
+            }
+            codegen_build_and_link(child_gen);
+            return buf_ptr(&child_gen->output_file_path);
+        } else {
+            zig_unreachable();
+        }
+    } else if (parent->libc == nullptr && target_is_glibc(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = glibc_start_asm_path(parent, "crti.S");
@@ -791,6 +1509,9 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
         new_link_lib->provided_explicitly = parent_gen->libc_link_lib->provided_explicitly;
     }
 
+    child_gen->function_sections = true;
+    child_gen->want_stack_check = WantStackCheckDisabled;
+
     codegen_build_and_link(child_gen);
     return &child_gen->output_file_path;
 }
@@ -888,6 +1609,30 @@ static void add_rpath(LinkJob *lj, Buf *rpath) {
     lj->args.append(buf_ptr(rpath));
 
     lj->rpath_table.put(rpath, true);
+}
+
+static void add_glibc_libs(LinkJob *lj) {
+    Error err;
+    ZigGLibCAbi *glibc_abi;
+    if ((err = glibc_load_metadata(&glibc_abi, lj->codegen->zig_lib_dir, true))) {
+        fprintf(stderr, "%s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *artifact_dir;
+    if ((err = glibc_build_dummies_and_maps(lj->codegen, glibc_abi, lj->codegen->zig_target,
+                    &artifact_dir, true)))
+    {
+        fprintf(stderr, "%s\n", err_str(err));
+        exit(1);
+    }
+
+    size_t lib_count = glibc_lib_count();
+    for (size_t i = 0; i < lib_count; i += 1) {
+        const ZigGLibCLib *lib = glibc_lib_enum(i);
+        Buf *so_path = buf_sprintf("%s" OS_SEP "lib%s.so.%d.0.0", buf_ptr(artifact_dir), lib->name, lib->sover);
+        lj->args.append(buf_ptr(so_path));
+    }
 }
 
 static void construct_linker_job_elf(LinkJob *lj) {
@@ -988,6 +1733,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (is_dyn_lib) {
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
+
+        if (g->version_script_path != nullptr) {
+            lj->args.append("-version-script");
+            lj->args.append(buf_ptr(g->version_script_path));
+        }
     }
 
     // .o files
@@ -1051,11 +1801,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
             }
         } else if (target_is_glibc(g->zig_target)) {
             lj->args.append(build_libunwind(g));
-            lj->args.append(build_dummy_so(g, "c", 6));
-            lj->args.append(build_dummy_so(g, "m", 6));
-            lj->args.append(build_dummy_so(g, "pthread", 0));
-            lj->args.append(build_dummy_so(g, "dl", 2));
-            lj->args.append(build_dummy_so(g, "rt", 1));
+            add_glibc_libs(lj);
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else if (target_is_musl(g->zig_target)) {
             lj->args.append(build_libunwind(g));
@@ -1088,7 +1834,7 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     lj->args.append("-error-limit=0");
 
     if (g->out_type != OutTypeExe) {
-	    lj->args.append("--no-entry"); // So lld doesn't look for _start.
+        lj->args.append("--no-entry"); // So lld doesn't look for _start.
 
         // If there are any C source files we cannot rely on individual exports.
         if (g->c_source_files.length != 0) {
@@ -1125,8 +1871,12 @@ static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
         list->append("-MACHINE:X86");
     } else if (g->zig_target->arch == ZigLLVM_x86_64) {
         list->append("-MACHINE:X64");
-    } else if (g->zig_target->arch == ZigLLVM_arm) {
-        list->append("-MACHINE:ARM");
+    } else if (target_is_arm(g->zig_target)) {
+        if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+            list->append("-MACHINE:ARM");
+        } else {
+            list->append("-MACHINE:ARM64");
+        }
     }
 }
 
@@ -1154,8 +1904,7 @@ static void add_uefi_link_args(LinkJob *lj) {
 static void add_msvc_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
-    // TODO: https://github.com/ziglang/zig/issues/2064
-    bool is_dynamic = true; // g->is_dynamic;
+    bool is_dynamic = g->is_dynamic;
     const char *lib_str = is_dynamic ? "" : "lib";
     const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
@@ -1182,20 +1931,160 @@ static void add_msvc_link_args(LinkJob *lj, bool is_library) {
     lj->args.append("ntdll.lib");
 }
 
-static const char *get_libc_file(ZigLibCInstallation *lib, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(&lib->crt_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
+static void print_zig_cc_cmd(ZigList<const char *> *args) {
+    for (size_t arg_i = 0; arg_i < args->length; arg_i += 1) {
+        const char *space_str = (arg_i == 0) ? "" : " ";
+        fprintf(stderr, "%s%s", space_str, args->at(arg_i));
+    }
+    fprintf(stderr, "\n");
 }
 
-static const char *get_libc_static_file(ZigLibCInstallation *lib, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(&lib->static_crt_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
+static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_rel_path) {
+    Error err;
+
+    Buf *self_exe_path = buf_alloc();
+    if ((err = os_self_exe_path(self_exe_path))) {
+        fprintf(stderr, "Unable to get self exe path: %s\n", err_str(err));
+        exit(1);
+    }
+    Buf *compiler_id;
+    if ((err = get_compiler_id(&compiler_id))) {
+        fprintf(stderr, "Unable to get compiler id: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *cache_dir = get_stage1_cache_path();
+    Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
+    Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
+
+    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
+            buf_ptr(parent->zig_lib_dir), buf_ptr(def_in_rel_path));
+    Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
+            buf_ptr(parent->zig_lib_dir));
+
+    CacheHash *cache_hash = allocate<CacheHash>(1);
+    cache_init(cache_hash, manifest_dir);
+
+    cache_buf(cache_hash, compiler_id);
+    cache_file(cache_hash, def_in_file);
+    cache_buf(cache_hash, def_include_dir);
+    cache_int(cache_hash, parent->zig_target->arch);
+
+    Buf digest = BUF_INIT;
+    buf_resize(&digest, 0);
+    if ((err = cache_hit(cache_hash, &digest))) {
+        if (err != ErrorInvalidFormat) {
+            if (err == ErrorCacheUnavailable) {
+                // already printed error
+            } else {
+                fprintf(stderr, "unable to check cache when processing .def.in file: %s\n", err_str(err));
+            }
+            exit(1);
+        }
+    }
+
+    Buf *artifact_dir;
+    Buf *lib_final_path;
+    Buf *final_lib_basename = buf_sprintf("%s.lib", name);
+
+    bool is_cache_miss = (buf_len(&digest) == 0);
+    if (is_cache_miss) {
+        if ((err = cache_final(cache_hash, &digest))) {
+            fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+            exit(1);
+        }
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        if ((err = os_make_path(artifact_dir))) {
+            fprintf(stderr, "Unable to create output directory '%s': %s",
+                    buf_ptr(artifact_dir), err_str(err));
+            exit(1);
+        }
+        Buf *final_def_basename = buf_sprintf("%s.def", name);
+        Buf *def_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_def_basename, def_final_path);
+
+        ZigList<const char *> args = {};
+        args.append(buf_ptr(self_exe_path));
+        args.append("cc");
+        args.append("-x");
+        args.append("c");
+        args.append(buf_ptr(def_in_file));
+        args.append("-Wp,-w");
+        args.append("-undef");
+        args.append("-P");
+        args.append("-I");
+        args.append(buf_ptr(def_include_dir));
+        if (target_is_arm(parent->zig_target)) {
+            if (target_arch_pointer_bit_width(parent->zig_target->arch) == 32) {
+                args.append("-DDEF_ARM32");
+            } else {
+                args.append("-DDEF_ARM64");
+            }
+        } else if (parent->zig_target->arch == ZigLLVM_x86) {
+            args.append("-DDEF_I386");
+        } else if (parent->zig_target->arch == ZigLLVM_x86_64) {
+            args.append("-DDEF_X64");
+        } else {
+            zig_unreachable();
+        }
+        args.append("-E");
+        args.append("-o");
+        args.append(buf_ptr(def_final_path));
+
+        if (parent->verbose_cc) {
+            print_zig_cc_cmd(&args);
+        }
+        Termination term;
+        os_spawn_process(args, &term);
+        if (term.how != TerminationIdClean || term.code != 0) {
+            fprintf(stderr, "\nThe following command failed:\n");
+            print_zig_cc_cmd(&args);
+            exit(1);
+        }
+
+        lib_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_lib_basename, lib_final_path);
+
+        args.resize(0);
+        args.append("link");
+        coff_append_machine_arg(parent, &args);
+
+        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_final_path))));
+        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(lib_final_path))));
+
+        Buf diag = BUF_INIT;
+        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(parent->zig_target);
+        if (!zig_lld_link(target_ofmt, args.items, args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+    } else {
+        // cache hit
+        artifact_dir = buf_alloc();
+        os_path_join(o_dir, &digest, artifact_dir);
+        lib_final_path = buf_alloc();
+        os_path_join(artifact_dir, final_lib_basename, lib_final_path);
+    }
+    parent->caches_to_release.append(cache_hash);
+
+    return buf_ptr(lib_final_path);
+}
+
+static bool is_linking_system_lib(CodeGen *g, const char *name) {
+    for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(lib_i);
+        if (buf_eql_str(link_lib->name, name)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
+
+    lj->args.append("-lldmingw");
 
     bool is_dll = g->out_type == OutTypeLib && g->is_dynamic;
 
@@ -1206,45 +2095,43 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     }
 
     if (is_dll) {
-       lj->args.append(get_libc_file(g->libc, "dllcrt2.o"));
+        lj->args.append(get_libc_crt_file(g, "dllcrt2.o"));
     } else {
-       lj->args.append(get_libc_file(g->libc, "crt2.o"));
+        lj->args.append(get_libc_crt_file(g, "crt2.o"));
     }
 
-    lj->args.append(get_libc_static_file(g->libc, "crtbegin.o"));
+    lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
+    lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
+    lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
 
-    lj->args.append(get_libc_file(g->libc, "libmingw32.a"));
-
-    if (is_dll) {
-        lj->args.append(get_libc_static_file(g->libc, "libgcc_s.a"));
-        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-    } else {
-        lj->args.append(get_libc_static_file(g->libc, "libgcc.a"));
-        lj->args.append(get_libc_static_file(g->libc, "libgcc_eh.a"));
+    for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
+        const char *name = mingw_def_list[def_i].name;
+        Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
+        bool always_link = mingw_def_list[def_i].always_link;
+        bool is_this_arch = false;
+        if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
+            is_this_arch = true;
+        } else if (target_is_arm(g->zig_target)) {
+            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
+                is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
+            } else {
+                is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
+            }
+        } else if (g->zig_target->arch == ZigLLVM_x86) {
+            is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
+        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+            is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
+        }
+        if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
+            lj->args.append(get_def_lib(g, name, path));
+        }
     }
-
-    lj->args.append(get_libc_static_file(g->libc, "libssp.a"));
-    lj->args.append(get_libc_file(g->libc, "libmoldname.a"));
-    lj->args.append(get_libc_file(g->libc, "libmingwex.a"));
-    lj->args.append(get_libc_file(g->libc, "libmsvcrt.a"));
-
-    if (detect_subsystem(g) == TargetSubsystemWindows) {
-        lj->args.append(get_libc_file(g->libc, "libgdi32.a"));
-        lj->args.append(get_libc_file(g->libc, "libcomdlg32.a"));
-    }
-
-    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
-    lj->args.append(get_libc_file(g->libc, "libadvapi32.a"));
-    lj->args.append(get_libc_file(g->libc, "libshell32.a"));
-    lj->args.append(get_libc_file(g->libc, "libuser32.a"));
-    lj->args.append(get_libc_file(g->libc, "libkernel32.a"));
-
-    lj->args.append(get_libc_static_file(g->libc, "crtend.o"));
 }
 
-static void add_win_link_args(LinkJob *lj, bool is_library) {
+static void add_win_link_args(LinkJob *lj, bool is_library, bool *have_windows_dll_import_libs) {
     if (lj->link_in_crt) {
         if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
+            *have_windows_dll_import_libs = true;
             add_mingw_link_args(lj, is_library);
         } else {
             add_msvc_link_args(lj, is_library);
@@ -1261,6 +2148,14 @@ static void add_win_link_args(LinkJob *lj, bool is_library) {
     }
 }
 
+static bool is_mingw_link_lib(Buf *name) {
+    for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
+        if (buf_eql_str_ignore_case(name, mingw_def_list[def_i].name)) {
+            return true;
+        }
+    }
+    return false;
+}
 static void construct_linker_job_coff(LinkJob *lj) {
     Error err;
     CodeGen *g = lj->codegen;
@@ -1287,9 +2182,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
 
-    if (g->libc_link_lib != nullptr) {
-        assert(g->libc != nullptr);
-
+    if (g->libc_link_lib != nullptr && g->libc != nullptr) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->crt_dir))));
 
         if (target_abi_is_gnu(g->zig_target->abi)) {
@@ -1310,17 +2203,18 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
+    bool have_windows_dll_import_libs = false;
     switch (detect_subsystem(g)) {
         case TargetSubsystemAuto:
             if (g->zig_target->os == OsUefi) {
                 add_uefi_link_args(lj);
             } else {
-                add_win_link_args(lj, is_library);
+                add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             }
             break;
         case TargetSubsystemConsole:
             lj->args.append("-SUBSYSTEM:console");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemEfiApplication:
             lj->args.append("-SUBSYSTEM:efi_application");
@@ -1340,15 +2234,15 @@ static void construct_linker_job_coff(LinkJob *lj) {
             break;
         case TargetSubsystemNative:
             lj->args.append("-SUBSYSTEM:native");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemPosix:
             lj->args.append("-SUBSYSTEM:posix");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
         case TargetSubsystemWindows:
             lj->args.append("-SUBSYSTEM:windows");
-            add_win_link_args(lj, is_library);
+            add_win_link_args(lj, is_library, &have_windows_dll_import_libs);
             break;
     }
 
@@ -1370,47 +2264,54 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        if (link_lib->provided_explicitly) {
-            if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
-                Buf *lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
-                lj->args.append(buf_ptr(lib_name));
-            } else {
-                lj->args.append(buf_ptr(link_lib->name));
-            }
-        } else {
-            buf_resize(def_contents, 0);
-            buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-            for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-                Buf *symbol_name = link_lib->symbols.at(exp_i);
-                buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
-            }
-            buf_appendf(def_contents, "\n");
-
-            Buf *def_path = buf_alloc();
-            os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-            if ((err = os_write_file(def_path, def_contents))) {
-                zig_panic("error writing def file: %s", err_str(err));
-            }
-
-            Buf *generated_lib_path = buf_alloc();
-            os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-            gen_lib_args.resize(0);
-            gen_lib_args.append("link");
-
-            coff_append_machine_arg(g, &gen_lib_args);
-            gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-            gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-            Buf diag = BUF_INIT;
-            ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
-            if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
-                fprintf(stderr, "%s\n", buf_ptr(&diag));
-                exit(1);
-            }
-            lj->args.append(buf_ptr(generated_lib_path));
+        bool is_sys_lib = is_mingw_link_lib(link_lib->name);
+        if (have_windows_dll_import_libs && is_sys_lib) {
+            continue;
         }
-    }
+        // If we're linking in the CRT or the libs are provided explictly we don't want to generate def/libs
+        if ((lj->link_in_crt && is_sys_lib) || link_lib->provided_explicitly) {
+            if (target_abi_is_gnu(lj->codegen->zig_target->abi)) {
+                Buf* lib_name = buf_sprintf("lib%s.a", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
+            }
+            else {
+                Buf* lib_name = buf_sprintf("%s.lib", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(lib_name));
+            }
+            continue;
+        }
 
+        buf_resize(def_contents, 0);
+        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
+        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
+            Buf *symbol_name = link_lib->symbols.at(exp_i);
+            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+        }
+        buf_appendf(def_contents, "\n");
+
+        Buf *def_path = buf_alloc();
+        os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
+        if ((err = os_write_file(def_path, def_contents))) {
+            zig_panic("error writing def file: %s", err_str(err));
+        }
+
+        Buf *generated_lib_path = buf_alloc();
+        os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
+
+        gen_lib_args.resize(0);
+        gen_lib_args.append("link");
+
+        coff_append_machine_arg(g, &gen_lib_args);
+        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
+        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
+        Buf diag = BUF_INIT;
+        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
+        if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+        lj->args.append(buf_ptr(generated_lib_path));
+    }
 }
 
 
@@ -1734,3 +2635,4 @@ void codegen_link(CodeGen *g) {
         exit(1);
     }
 }
+
