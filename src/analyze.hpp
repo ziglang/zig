@@ -180,7 +180,6 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
 ConstExprValue *create_const_vals(size_t count);
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
-ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
 

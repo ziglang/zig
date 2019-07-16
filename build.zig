@@ -9,8 +9,10 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
+const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 
 pub fn build(b: *Builder) !void {
+    b.setPreferredReleaseMode(.ReleaseFast);
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -45,8 +47,6 @@ pub fn build(b: *Builder) !void {
         .llvm_config_exe = nextValue(&index, build_info),
         .lld_include_dir = nextValue(&index, build_info),
         .lld_libraries = nextValue(&index, build_info),
-        .std_files = nextValue(&index, build_info),
-        .c_header_files = nextValue(&index, build_info),
         .dia_guids_lib = nextValue(&index, build_info),
         .llvm = undefined,
     };
@@ -63,8 +63,6 @@ pub fn build(b: *Builder) !void {
     try configureStage2(b, test_stage2, ctx);
     try configureStage2(b, exe, ctx);
 
-    b.default_step.dependOn(&exe.step);
-
     addLibUserlandStep(b);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -74,14 +72,27 @@ pub fn build(b: *Builder) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
-        test_step.dependOn(&exe.step);
+        // TODO re-enable this after https://github.com/ziglang/zig/issues/2377
+        //test_step.dependOn(&exe.step);
     }
-    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") orelse false;
-    exe.setVerboseLink(verbose_link_exe);
 
-    b.installArtifact(exe);
-    installStdLib(b, ctx.std_files);
-    installCHeaders(b, ctx.c_header_files);
+    const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
+    if (!only_install_lib_files) {
+        b.default_step.dependOn(&exe.step);
+        exe.install();
+    }
+
+    b.installDirectory(InstallDirectoryOptions{
+        .source_dir = "lib",
+        .install_dir = .Lib,
+        .install_subdir = "zig",
+    });
+    b.installDirectory(InstallDirectoryOptions{
+        .source_dir = "std",
+        .install_dir = .Lib,
+        .install_subdir = "zig" ++ fs.path.sep_str ++ "std",
+        .exclude_extensions = [_][]const u8{ "test.zig", "README.md" },
+    });
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
@@ -123,7 +134,7 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, skip_non_native));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    test_step.dependOn(tests.addBuildExampleTests(b, test_filter, modes));
+    test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
@@ -174,11 +185,10 @@ fn fileExists(filename: []const u8) !bool {
 }
 
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
-    const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, [_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
-        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt()),
+        b.fmt("{}{}{}", lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix()),
     }) catch unreachable);
 }
 
@@ -250,30 +260,6 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
         }
     }
     return result;
-}
-
-pub fn installStdLib(b: *Builder, stdlib_files: []const u8) void {
-    var it = mem.tokenize(stdlib_files, ";");
-    while (it.next()) |stdlib_file| {
-        const src_path = fs.path.join(b.allocator, [_][]const u8{ "std", stdlib_file }) catch unreachable;
-        const dest_path = fs.path.join(
-            b.allocator,
-            [_][]const u8{ "lib", "zig", "std", stdlib_file },
-        ) catch unreachable;
-        b.installFile(src_path, dest_path);
-    }
-}
-
-pub fn installCHeaders(b: *Builder, c_header_files: []const u8) void {
-    var it = mem.tokenize(c_header_files, ";");
-    while (it.next()) |c_header_file| {
-        const src_path = fs.path.join(b.allocator, [_][]const u8{ "c_headers", c_header_file }) catch unreachable;
-        const dest_path = fs.path.join(
-            b.allocator,
-            [_][]const u8{ "lib", "zig", "include", c_header_file },
-        ) catch unreachable;
-        b.installFile(src_path, dest_path);
-    }
 }
 
 fn nextValue(index: *usize, build_info: []const u8) []const u8 {
@@ -376,8 +362,6 @@ const Context = struct {
     llvm_config_exe: []const u8,
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
-    std_files: []const u8,
-    c_header_files: []const u8,
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
@@ -388,6 +372,7 @@ fn addLibUserlandStep(b: *Builder) void {
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
+    artifact.linkSystemLibrary("ntdll");
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
     libuserland_step.dependOn(&artifact.step);
 

@@ -746,7 +746,6 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
 
             std.zig.Token.Id.Keyword_align,
             std.zig.Token.Id.Keyword_and,
-            std.zig.Token.Id.Keyword_anyerror,
             std.zig.Token.Id.Keyword_asm,
             std.zig.Token.Id.Keyword_async,
             std.zig.Token.Id.Keyword_await,

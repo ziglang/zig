@@ -1,0 +1,422 @@
+/*
+ * Copyright 2014 Jacek Caban for CodeWeavers
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "dxgi.idl";
+
+const UINT DXGI_ENUM_MODES_STEREO = 0x4;
+const UINT DXGI_ENUM_MODES_DISABLED_STEREO = 0x8;
+
+const DWORD DXGI_SHARED_RESOURCE_READ = 0x80000000;
+const DWORD DXGI_SHARED_RESOURCE_WRITE = 0x00000001;
+
+typedef enum _DXGI_OFFER_RESOURCE_PRIORITY {
+    DXGI_OFFER_RESOURCE_PRIORITY_LOW = 1,
+    DXGI_OFFER_RESOURCE_PRIORITY_NORMAL,
+    DXGI_OFFER_RESOURCE_PRIORITY_HIGH
+} DXGI_OFFER_RESOURCE_PRIORITY;
+
+typedef enum DXGI_ALPHA_MODE {
+    DXGI_ALPHA_MODE_UNSPECIFIED = 0,
+    DXGI_ALPHA_MODE_PREMULTIPLIED = 1,
+    DXGI_ALPHA_MODE_STRAIGHT = 2,
+    DXGI_ALPHA_MODE_IGNORE = 3,
+    DXGI_ALPHA_MODE_FORCE_DWORD = 0xffffffff
+} DXGI_ALPHA_MODE;
+
+typedef struct DXGI_OUTDUPL_MOVE_RECT
+{
+    POINT SourcePoint;
+    RECT DestinationRect;
+} DXGI_OUTDUPL_MOVE_RECT;
+
+typedef struct DXGI_OUTDUPL_DESC
+{
+    DXGI_MODE_DESC ModeDesc;
+    DXGI_MODE_ROTATION Rotation;
+    BOOL DesktopImageInSystemMemory;
+} DXGI_OUTDUPL_DESC;
+
+typedef struct DXGI_OUTDUPL_POINTER_POSITION
+{
+    POINT Position;
+    BOOL Visible;
+} DXGI_OUTDUPL_POINTER_POSITION;
+
+typedef enum DXGI_OUTDUPL_POINTER_SHAPE_TYPE
+{
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME = 0x00000001,
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR = 0x00000002,
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR = 0x00000004
+} DXGI_OUTDUPL_POINTER_SHAPE_TYPE;
+
+typedef struct DXGI_OUTDUPL_POINTER_SHAPE_INFO
+{
+    UINT Type;
+    UINT Width;
+    UINT Height;
+    UINT Pitch;
+    POINT HotSpot;
+} DXGI_OUTDUPL_POINTER_SHAPE_INFO;
+
+typedef struct DXGI_OUTDUPL_FRAME_INFO
+{
+    LARGE_INTEGER LastPresentTime;
+    LARGE_INTEGER LastMouseUpdateTime;
+    UINT AccumulatedFrames;
+    BOOL RectsCoalesced;
+    BOOL ProtectedContentMaskedOut;
+    DXGI_OUTDUPL_POINTER_POSITION PointerPosition;
+    UINT TotalMetadataBufferSize;
+    UINT PointerShapeBufferSize;
+} DXGI_OUTDUPL_FRAME_INFO;
+
+typedef struct DXGI_MODE_DESC1
+{
+    UINT Width;
+    UINT Height;
+    DXGI_RATIONAL RefreshRate;
+    DXGI_FORMAT Format;
+    DXGI_MODE_SCANLINE_ORDER ScanlineOrdering;
+    DXGI_MODE_SCALING Scaling;
+    BOOL Stereo;
+} DXGI_MODE_DESC1;
+
+[
+    object,
+    uuid(191cfac3-a341-470d-b26e-a864f428319c),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIOutputDuplication : IDXGIObject
+{
+    void GetDesc(
+        [out] DXGI_OUTDUPL_DESC *desc
+    );
+
+    HRESULT AcquireNextFrame(
+        [in] UINT timeout_in_milliseconds,
+        [out] DXGI_OUTDUPL_FRAME_INFO *frame_info,
+        [out] IDXGIResource **desktop_resource
+    );
+
+    HRESULT GetFrameDirtyRects(
+        [in] UINT dirty_rects_buffer_size,
+        [out] RECT *dirty_rects_buffer,
+        [out] UINT *dirty_rects_buffer_size_required
+    );
+
+    HRESULT GetFrameMoveRects(
+        [in] UINT move_rects_buffer_size,
+        [out] DXGI_OUTDUPL_MOVE_RECT *move_rect_buffer,
+        [out] UINT *move_rects_buffer_size_required
+    );
+
+    HRESULT GetFramePointerShape(
+        [in] UINT pointer_shape_buffer_size,
+        [out] void *pointer_shape_buffer,
+        [out] UINT *pointer_shape_buffer_size_required,
+        [out] DXGI_OUTDUPL_POINTER_SHAPE_INFO *pointer_shape_info
+    );
+
+    HRESULT MapDesktopSurface(
+        [out] DXGI_MAPPED_RECT *locked_rect
+    );
+
+    HRESULT UnMapDesktopSurface();
+
+    HRESULT ReleaseFrame();
+}
+
+[
+    object,
+    uuid(aba496dd-b617-4cb8-a866-bc44d7eb1fa2),
+    local,
+    pointer_default(unique)
+]
+interface IDXGISurface2 : IDXGISurface1
+{
+    HRESULT GetResource(
+        [in] REFIID iid,
+        [out] void **parent_resource,
+        [out] UINT *subresource_idx
+    );
+}
+
+[
+    object,
+    uuid(30961379-4609-4a41-998e-54fe567ee0c1),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIResource1 : IDXGIResource
+{
+    HRESULT CreateSubresourceSurface(
+        UINT index,
+        [out] IDXGISurface2 **surface
+    );
+    HRESULT CreateSharedHandle(
+        [in] const SECURITY_ATTRIBUTES *attributes,
+        [in] DWORD access,
+        [in] const WCHAR *name,
+        [out] HANDLE *handle
+    );
+}
+
+[
+    object,
+    uuid(ea9dbf1a-c88e-4486-854a-98aa0138f30c),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIDisplayControl : IUnknown
+{
+    BOOL IsStereoEnabled();
+    void SetStereoEnabled(BOOL enabled);
+}
+
+[
+    object,
+    uuid(05008617-fbfd-4051-a790-144884b4f6a9),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIDevice2 : IDXGIDevice1
+{
+    HRESULT OfferResources(
+            [in] UINT NumResources,
+            [in, size_is(NumResources)] IDXGIResource *const *ppResources,
+            [in] DXGI_OFFER_RESOURCE_PRIORITY Priority);
+
+    HRESULT ReclaimResources(
+            [in] UINT NumResources,
+            [in, size_is(NumResources)] IDXGIResource *const *ppResources,
+            [out, size_is(NumResources)] BOOL *pDiscarded);
+
+    HRESULT EnqueueSetEvent(
+            [in] HANDLE hEvent);
+}
+
+typedef enum DXGI_SCALING {
+    DXGI_SCALING_STRETCH = 0,
+    DXGI_SCALING_NONE = 1
+} DXGI_SCALING;
+
+typedef struct DXGI_SWAP_CHAIN_DESC1 {
+    UINT Width;
+    UINT Height;
+    DXGI_FORMAT Format;
+    BOOL Stereo;
+    DXGI_SAMPLE_DESC SampleDesc;
+    DXGI_USAGE BufferUsage;
+    UINT BufferCount;
+    DXGI_SCALING Scaling;
+    DXGI_SWAP_EFFECT SwapEffect;
+    DXGI_ALPHA_MODE AlphaMode;
+    UINT Flags;
+} DXGI_SWAP_CHAIN_DESC1;
+
+typedef struct DXGI_SWAP_CHAIN_FULLSCREEN_DESC {
+    DXGI_RATIONAL RefreshRate;
+    DXGI_MODE_SCANLINE_ORDER ScanlineOrdering;
+    DXGI_MODE_SCALING Scaling;
+    BOOL Windowed;
+} DXGI_SWAP_CHAIN_FULLSCREEN_DESC;
+
+typedef struct DXGI_PRESENT_PARAMETERS {
+    UINT DirtyRectsCount;
+    RECT *pDirtyRects;
+    RECT *pScrollRect;
+    POINT *pScrollOffset;
+} DXGI_PRESENT_PARAMETERS;
+
+[
+    object,
+    uuid(790a45f7-0d42-4876-983a-0a55cfe6f4aa),
+    local,
+    pointer_default(unique)
+]
+interface IDXGISwapChain1 : IDXGISwapChain
+{
+    HRESULT GetDesc1(
+            [out] DXGI_SWAP_CHAIN_DESC1 *pDesc);
+
+    HRESULT GetFullscreenDesc(
+            [out] DXGI_SWAP_CHAIN_FULLSCREEN_DESC *pDesc);
+
+    HRESULT GetHwnd(
+            [out] HWND *pHwnd);
+
+    HRESULT GetCoreWindow(
+            [in] REFIID refiid,
+            [out] void **ppUnk);
+
+    HRESULT Present1(
+            [in] UINT SyncInterval,
+            [in] UINT PresentFlags,
+            [in] const DXGI_PRESENT_PARAMETERS *pPresentParameters);
+
+    BOOL IsTemporaryMonoSupported();
+
+    HRESULT GetRestrictToOutput(
+            [out] IDXGIOutput **ppRestrictToOutput);
+
+    HRESULT SetBackgroundColor(
+            [in] const DXGI_RGBA *pColor);
+
+    HRESULT GetBackgroundColor(
+            [out] DXGI_RGBA *pColor);
+
+    HRESULT SetRotation(
+            [in] DXGI_MODE_ROTATION Rotation);
+
+    HRESULT GetRotation(
+            [out] DXGI_MODE_ROTATION *pRotation);
+}
+
+[
+    object,
+    uuid(50c83a1c-e072-4c48-87b0-3630fa36a6d0),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIFactory2 : IDXGIFactory1
+{
+    BOOL IsWindowedStereoEnabled();
+
+    HRESULT CreateSwapChainForHwnd(
+            [in]  IUnknown *pDevice,
+            [in]  HWND hWnd,
+            [in]  const DXGI_SWAP_CHAIN_DESC1 *pDesc,
+            [in]  const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *pFullscreenDesc,
+            [in]  IDXGIOutput *pRestrictToOutput,
+            [out] IDXGISwapChain1 **ppSwapChain);
+
+    HRESULT CreateSwapChainForCoreWindow(
+            [in]  IUnknown *pDevice,
+            [in]  IUnknown *pWindow,
+            [in]  const DXGI_SWAP_CHAIN_DESC1 *pDesc,
+            [in]  IDXGIOutput *pRestrictToOutput,
+            [out] IDXGISwapChain1 **ppSwapChain);
+
+    HRESULT GetSharedResourceAdapterLuid(
+            [in]  HANDLE hResource,
+            [out] LUID *pLuid);
+
+    HRESULT RegisterOcclusionStatusWindow(
+            [in]  HWND WindowHandle,
+            [in]  UINT wMsg,
+            [out] DWORD *pdwCookie);
+
+    HRESULT RegisterStereoStatusEvent(
+            [in]  HANDLE hEvent,
+            [out] DWORD *pdwCookie);
+
+    void UnregisterStereoStatus(
+            [in]  DWORD dwCookie);
+
+    HRESULT RegisterStereoStatusWindow(
+            [in]  HWND WindowHandle,
+            [in]  UINT wMsg,
+            [out] DWORD *pdwCookie);
+
+    HRESULT RegisterOcclusionStatusEvent(
+            [in]  HANDLE hEvent,
+            [out] DWORD *pdwCookie);
+
+    void UnregisterOcclusionStatus(
+            [in]  DWORD dwCookie);
+
+    HRESULT CreateSwapChainForComposition(
+            [in]  IUnknown *pDevice,
+            [in]  const DXGI_SWAP_CHAIN_DESC1 *pDesc,
+            [in]  IDXGIOutput *pRestrictToOutput,
+            [out] IDXGISwapChain1 **ppSwapChain);
+}
+
+typedef enum DXGI_GRAPHICS_PREEMPTION_GRANULARITY {
+    DXGI_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY,
+    DXGI_GRAPHICS_PREEMPTION_PRIMITIVE_BOUNDARY,
+    DXGI_GRAPHICS_PREEMPTION_TRIANGLE_BOUNDARY,
+    DXGI_GRAPHICS_PREEMPTION_PIXEL_BOUNDARY,
+    DXGI_GRAPHICS_PREEMPTION_INSTRUCTION_BOUNDARY
+} DXGI_GRAPHICS_PREEMPTION_GRANULARITY;
+
+typedef enum DXGI_COMPUTE_PREEMPTION_GRANULARITY {
+    DXGI_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY,
+    DXGI_COMPUTE_PREEMPTION_DISPATCH_BOUNDARY,
+    DXGI_COMPUTE_PREEMPTION_THREAD_GROUP_BOUNDARY,
+    DXGI_COMPUTE_PREEMPTION_THREAD_BOUNDARY,
+    DXGI_COMPUTE_PREEMPTION_INSTRUCTION_BOUNDARY
+} DXGI_COMPUTE_PREEMPTION_GRANULARITY;
+
+typedef struct DXGI_ADAPTER_DESC2 {
+    WCHAR Description[128];
+    UINT VendorId;
+    UINT DeviceId;
+    UINT SubSysId;
+    UINT Revision;
+    SIZE_T DedicatedVideoMemory;
+    SIZE_T DedicatedSystemMemory;
+    SIZE_T SharedSystemMemory;
+    LUID AdapterLuid;
+    UINT Flags;
+    DXGI_GRAPHICS_PREEMPTION_GRANULARITY GraphicsPreemptionGranularity;
+    DXGI_COMPUTE_PREEMPTION_GRANULARITY ComputePreemptionGranularity;
+} DXGI_ADAPTER_DESC2;
+
+[
+    object,
+    uuid(0aa1ae0a-fa0e-4b84-8644-e05ff8e5acb5),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIAdapter2 : IDXGIAdapter1
+{
+    HRESULT GetDesc2([out] DXGI_ADAPTER_DESC2 *pDesc);
+}
+
+[
+    object,
+    uuid(00cddea8-939b-4b83-a340-a685226666cc),
+    local,
+    pointer_default(unique)
+]
+interface IDXGIOutput1 : IDXGIOutput
+{
+    HRESULT GetDisplayModeList1(
+        [in] DXGI_FORMAT enum_format,
+        [in] UINT flags,
+        [in, out] UINT *num_modes,
+        [out] DXGI_MODE_DESC1 *desc
+    );
+
+    HRESULT FindClosestMatchingMode1(
+        [in] const DXGI_MODE_DESC1 *mode_to_match,
+        [out] DXGI_MODE_DESC1 *closest_match,
+        [in] IUnknown *concerned_device
+    );
+
+    HRESULT GetDisplaySurfaceData1(
+        [in] IDXGIResource *destination
+    );
+
+    HRESULT DuplicateOutput(
+        [in] IUnknown *device,
+        [out] IDXGIOutputDuplication **output_duplication
+    );
+}

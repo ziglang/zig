@@ -34,12 +34,17 @@ struct CodeGen;
 struct ConstExprValue;
 struct IrInstruction;
 struct IrInstructionCast;
+struct IrInstructionAllocaGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
 struct TldExport;
 struct IrAnalyze;
+struct ResultLoc;
+struct ResultLocPeer;
+struct ResultLocPeerParent;
+struct ResultLocBitCast;
 
 enum X64CABIClass {
     X64CABIClass_Unknown,
@@ -198,6 +203,9 @@ enum ConstPtrMut {
     // The pointer points to memory that is known only at runtime.
     // For example it may point to the initializer value of a variable.
     ConstPtrMutRuntimeVar,
+    // The pointer points to memory for which it must be inferred whether the
+    // value is comptime known or not.
+    ConstPtrMutInfer,
 };
 
 struct ConstPtrValue {
@@ -289,6 +297,7 @@ struct RuntimeHintSlice {
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
+    uint32_t align;
 };
 
 struct ConstExprValue {
@@ -325,6 +334,10 @@ struct ConstExprValue {
         RuntimeHintPtr rh_ptr;
         RuntimeHintSlice rh_slice;
     } data;
+
+    // uncomment these to find bugs. can't leave them uncommented because of a gcc-9 warning
+    //ConstExprValue(const ConstExprValue &other) = delete; // plz zero initialize with {}
+    //ConstExprValue& operator= (const ConstExprValue &other) = delete; // use copy_const_val
 };
 
 enum ReturnKnowledge {
@@ -426,7 +439,7 @@ enum NodeType {
     NodeTypeVariableDeclaration,
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
-    NodeTypeUnwrapErrorExpr,
+    NodeTypeCatchExpr,
     NodeTypeFloatLiteral,
     NodeTypeIntLiteral,
     NodeTypeStringLiteral,
@@ -1097,6 +1110,8 @@ struct ZigPackage {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigPackage *, buf_hash, buf_eql_buf> package_table;
+
+    bool added_to_cache;
 };
 
 // Stuff that only applies to a struct which is the implicit root struct of a file
@@ -1364,7 +1379,7 @@ struct ZigFn {
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<IrInstruction *> alloca_list;
+    ZigList<IrInstructionAllocaGen *> alloca_gen_list;
     ZigList<ZigVar *> variable_list;
 
     Buf *section_name;
@@ -1401,6 +1416,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberName,
     BuiltinFnIdField,
     BuiltinFnIdTypeInfo,
+    BuiltinFnIdHasField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1493,6 +1509,7 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdHasDecl,
+    BuiltinFnIdUnionInit,
 };
 
 struct BuiltinFnEntry {
@@ -1744,7 +1761,7 @@ struct CodeGen {
     ZigPackage *compile_var_package;
     ZigType *compile_var_import;
     ZigType *root_import;
-    ZigType *bootstrap_import;
+    ZigType *start_import;
     ZigType *test_runner_import;
 
     struct {
@@ -1787,7 +1804,7 @@ struct CodeGen {
     ZigType *err_tag_type;
     ZigType *test_fn_type;
 
-    Buf triple_str;
+    Buf llvm_triple_str;
     Buf global_asm;
     Buf output_file_path;
     Buf o_file_output_path;
@@ -1893,6 +1910,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool function_sections;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
@@ -1903,6 +1921,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
+    Buf *version_script_path; 
 
     const char **llvm_argv;
     size_t llvm_argv_len;
@@ -1999,6 +2018,11 @@ struct ScopeDecls {
     bool any_imports_failed;
 };
 
+enum LVal {
+    LValNone,
+    LValPtr,
+};
+
 // This scope comes from a block expression in user code.
 // NodeTypeBlock
 struct ScopeBlock {
@@ -2007,12 +2031,14 @@ struct ScopeBlock {
     Buf *name;
     IrBasicBlock *end_block;
     IrInstruction *is_comptime;
+    ResultLocPeerParent *peer_parent;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
 
     AstNode *safety_set_node;
     AstNode *fast_math_set_node;
 
+    LVal lval;
     bool safety_off;
     bool fast_math_on;
 };
@@ -2056,12 +2082,14 @@ struct ScopeCImport {
 struct ScopeLoop {
     Scope base;
 
+    LVal lval;
     Buf *name;
     IrBasicBlock *break_block;
     IrBasicBlock *continue_block;
     IrInstruction *is_comptime;
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
+    ResultLocPeerParent *peer_parent;
 };
 
 // This scope blocks certain things from working such as comptime continue
@@ -2138,6 +2166,8 @@ struct IrBasicBlock {
     const char *name_hint;
     size_t debug_id;
     size_t ref_count;
+    // index into the basic block list
+    size_t index;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -2148,11 +2178,10 @@ struct IrBasicBlock {
     // if the branch is comptime. The instruction points to the reason
     // the basic block must be comptime.
     IrInstruction *must_be_comptime_source_instr;
-};
-
-enum LVal {
-    LValNone,
-    LValPtr,
+    IrInstruction *suspend_instruction_ref;
+    bool already_appended;
+    bool suspended;
+    bool in_resume_stack;
 };
 
 // These instructions are in transition to having "pass 1" instructions
@@ -2185,19 +2214,17 @@ enum IrInstructionId {
     IrInstructionIdUnionFieldPtr,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
-    IrInstructionIdCall,
+    IrInstructionIdReturnPtr,
+    IrInstructionIdCallSrc,
+    IrInstructionIdCallGen,
     IrInstructionIdConst,
     IrInstructionIdReturn,
     IrInstructionIdCast,
     IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
-    IrInstructionIdStructInit,
-    IrInstructionIdUnionInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
-    IrInstructionIdToPtrType,
-    IrInstructionIdPtrTypeChild,
     IrInstructionIdSetCold,
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
@@ -2222,6 +2249,7 @@ enum IrInstructionId {
     IrInstructionIdCDefine,
     IrInstructionIdCUndef,
     IrInstructionIdRef,
+    IrInstructionIdRefGen,
     IrInstructionIdCompileErr,
     IrInstructionIdCompileLog,
     IrInstructionIdErrName,
@@ -2240,7 +2268,8 @@ enum IrInstructionId {
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
-    IrInstructionIdSlice,
+    IrInstructionIdSliceSrc,
+    IrInstructionIdSliceGen,
     IrInstructionIdMemberCount,
     IrInstructionIdMemberType,
     IrInstructionIdMemberName,
@@ -2250,9 +2279,10 @@ enum IrInstructionId {
     IrInstructionIdHandle,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
+    IrInstructionIdTestErrSrc,
+    IrInstructionIdTestErrGen,
     IrInstructionIdMulAdd,
     IrInstructionIdFloatOp,
-    IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
     IrInstructionIdErrWrapCode,
@@ -2261,7 +2291,7 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdPtrCastSrc,
     IrInstructionIdPtrCastGen,
-    IrInstructionIdBitCast,
+    IrInstructionIdBitCastSrc,
     IrInstructionIdBitCastGen,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
@@ -2281,10 +2311,15 @@ enum IrInstructionId {
     IrInstructionIdByteOffsetOf,
     IrInstructionIdBitOffsetOf,
     IrInstructionIdTypeInfo,
+    IrInstructionIdHasField,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrType,
     IrInstructionIdAlignCast,
+    IrInstructionIdImplicitCast,
+    IrInstructionIdResolveResult,
+    IrInstructionIdResetResult,
+    IrInstructionIdResultPtr,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
@@ -2323,10 +2358,14 @@ enum IrInstructionId {
     IrInstructionIdAssertNonNull,
     IrInstructionIdHasDecl,
     IrInstructionIdUndeclaredIdent,
+    IrInstructionIdAllocaSrc,
+    IrInstructionIdAllocaGen,
+    IrInstructionIdEndExpr,
+    IrInstructionIdPtrOfArrayToSlice,
+    IrInstructionIdUnionInitNamedField,
 };
 
 struct IrInstruction {
-    IrInstructionId id;
     Scope *scope;
     AstNode *source_node;
     ConstExprValue value;
@@ -2340,6 +2379,7 @@ struct IrInstruction {
     // with this child field.
     IrInstruction *child;
     IrBasicBlock *owner_bb;
+    IrInstructionId id;
     // true if this instruction was generated by zig and not from user code
     bool is_gen;
 };
@@ -2350,14 +2390,14 @@ struct IrInstructionDeclVarSrc {
     ZigVar *var;
     IrInstruction *var_type;
     IrInstruction *align_value;
-    IrInstruction *init_value;
+    IrInstruction *ptr;
 };
 
 struct IrInstructionDeclVarGen {
     IrInstruction base;
 
     ZigVar *var;
-    IrInstruction *init_value;
+    IrInstruction *var_ptr;
 };
 
 struct IrInstructionCondBr {
@@ -2367,6 +2407,7 @@ struct IrInstructionCondBr {
     IrBasicBlock *then_block;
     IrBasicBlock *else_block;
     IrInstruction *is_comptime;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionBr {
@@ -2419,6 +2460,7 @@ struct IrInstructionPhi {
     size_t incoming_count;
     IrBasicBlock **incoming_blocks;
     IrInstruction **incoming_values;
+    ResultLocPeerParent *peer_parent;
 };
 
 enum IrUnOp {
@@ -2434,8 +2476,9 @@ struct IrInstructionUnOp {
     IrInstruction base;
 
     IrUnOp op_id;
-    IrInstruction *value;
     LVal lval;
+    IrInstruction *value;
+    ResultLoc *result_loc;
 };
 
 enum IrBinOp {
@@ -2492,7 +2535,7 @@ struct IrInstructionLoadPtrGen {
     IrInstruction base;
 
     IrInstruction *ptr;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionStorePtr {
@@ -2505,6 +2548,7 @@ struct IrInstructionStorePtr {
 struct IrInstructionFieldPtr {
     IrInstruction base;
 
+    bool initializing;
     IrInstruction *container_ptr;
     Buf *field_name_buffer;
     IrInstruction *field_name_expr;
@@ -2521,9 +2565,10 @@ struct IrInstructionStructFieldPtr {
 struct IrInstructionUnionFieldPtr {
     IrInstruction base;
 
+    bool safety_check_on;
+    bool initializing;
     IrInstruction *union_ptr;
     TypeUnionField *field;
-    bool is_const;
 };
 
 struct IrInstructionElemPtr {
@@ -2531,8 +2576,8 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    IrInstruction *init_array_type;
     PtrLen ptr_len;
-    bool is_const;
     bool safety_check_on;
 };
 
@@ -2543,20 +2588,42 @@ struct IrInstructionVarPtr {
     ScopeFnDef *crossed_fndef_scope;
 };
 
-struct IrInstructionCall {
+// For functions that have a return type for which handle_is_ptr is true, a
+// result location pointer is the secret first parameter ("sret"). This
+// instruction returns that pointer.
+struct IrInstructionReturnPtr {
+    IrInstruction base;
+};
+
+struct IrInstructionCallSrc {
     IrInstruction base;
 
     IrInstruction *fn_ref;
     ZigFn *fn_entry;
     size_t arg_count;
     IrInstruction **args;
-    LLVMValueRef tmp_ptr;
+    ResultLoc *result_loc;
 
     IrInstruction *async_allocator;
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
     bool is_comptime;
+};
+
+struct IrInstructionCallGen {
+    IrInstruction base;
+
+    IrInstruction *fn_ref;
+    ZigFn *fn_entry;
+    size_t arg_count;
+    IrInstruction **args;
+    IrInstruction *result_loc;
+
+    IrInstruction *async_allocator;
+    IrInstruction *new_stack;
+    FnInline fn_inline;
+    bool is_async;
 };
 
 struct IrInstructionConst {
@@ -2581,7 +2648,6 @@ enum CastOp {
     CastOpNumLitToConcrete,
     CastOpErrSet,
     CastOpBitCast,
-    CastOpPtrOfArrayToSlice,
 };
 
 // TODO get rid of this instruction, replace with instructions for each op code
@@ -2591,14 +2657,13 @@ struct IrInstructionCast {
     IrInstruction *value;
     ZigType *dest_type;
     CastOp cast_op;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionResizeSlice {
     IrInstruction base;
 
     IrInstruction *operand;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitList {
@@ -2607,15 +2672,15 @@ struct IrInstructionContainerInitList {
     IrInstruction *container_type;
     IrInstruction *elem_type;
     size_t item_count;
-    IrInstruction **items;
-    LLVMValueRef tmp_ptr;
+    IrInstruction **elem_result_loc_list;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitFieldsField {
     Buf *name;
-    IrInstruction *value;
     AstNode *source_node;
     TypeStructField *type_struct_field;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionContainerInitFields {
@@ -2624,29 +2689,7 @@ struct IrInstructionContainerInitFields {
     IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
-};
-
-struct IrInstructionStructInitField {
-    IrInstruction *value;
-    TypeStructField *type_struct_field;
-};
-
-struct IrInstructionStructInit {
-    IrInstruction base;
-
-    ZigType *struct_type;
-    size_t field_count;
-    IrInstructionStructInitField *fields;
-    LLVMValueRef tmp_ptr;
-};
-
-struct IrInstructionUnionInit {
-    IrInstruction base;
-
-    ZigType *union_type;
-    TypeUnionField *field;
-    IrInstruction *init_value;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionUnreachable {
@@ -2654,18 +2697,6 @@ struct IrInstructionUnreachable {
 };
 
 struct IrInstructionTypeOf {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionToPtrType {
-    IrInstruction base;
-
-    IrInstruction *ptr;
-};
-
-struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2764,8 +2795,9 @@ struct IrInstructionTestNonNull {
 struct IrInstructionOptionalUnwrapPtr {
     IrInstruction base;
 
-    IrInstruction *base_ptr;
     bool safety_check_on;
+    bool initializing;
+    IrInstruction *base_ptr;
 };
 
 struct IrInstructionCtz {
@@ -2805,9 +2837,15 @@ struct IrInstructionRef {
     IrInstruction base;
 
     IrInstruction *value;
-    LLVMValueRef tmp_ptr;
     bool is_const;
     bool is_volatile;
+};
+
+struct IrInstructionRefGen {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionCompileErr {
@@ -2861,26 +2899,26 @@ struct IrInstructionEmbedFile {
 struct IrInstructionCmpxchgSrc {
     IrInstruction base;
 
+    bool is_weak;
     IrInstruction *type_value;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
     IrInstruction *success_order_value;
     IrInstruction *failure_order_value;
-
-    bool is_weak;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionCmpxchgGen {
     IrInstruction base;
 
+    bool is_weak;
+    AtomicOrder success_order;
+    AtomicOrder failure_order;
     IrInstruction *ptr;
     IrInstruction *cmp_value;
     IrInstruction *new_value;
-    LLVMValueRef tmp_ptr;
-    AtomicOrder success_order;
-    AtomicOrder failure_order;
-    bool is_weak;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionFence {
@@ -2924,6 +2962,7 @@ struct IrInstructionToBytes {
     IrInstruction base;
 
     IrInstruction *target;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionFromBytes {
@@ -2931,6 +2970,7 @@ struct IrInstructionFromBytes {
 
     IrInstruction *dest_child_type;
     IrInstruction *target;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionIntToFloat {
@@ -2989,14 +3029,24 @@ struct IrInstructionMemcpy {
     IrInstruction *count;
 };
 
-struct IrInstructionSlice {
+struct IrInstructionSliceSrc {
     IrInstruction base;
 
+    bool safety_check_on;
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionSliceGen {
+    IrInstruction base;
+
     bool safety_check_on;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *ptr;
+    IrInstruction *start;
+    IrInstruction *end;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionMemberCount {
@@ -3070,44 +3120,54 @@ struct IrInstructionAlignOf {
 };
 
 // returns true if error, returns false if not error
-struct IrInstructionTestErr {
+struct IrInstructionTestErrSrc {
     IrInstruction base;
 
-    IrInstruction *value;
+    bool resolve_err_set;
+    IrInstruction *base_ptr;
 };
 
-struct IrInstructionUnwrapErrCode {
+struct IrInstructionTestErrGen {
     IrInstruction base;
 
     IrInstruction *err_union;
 };
 
+// Takes an error union pointer, returns a pointer to the error code.
+struct IrInstructionUnwrapErrCode {
+    IrInstruction base;
+
+    bool initializing;
+    IrInstruction *err_union_ptr;
+};
+
 struct IrInstructionUnwrapErrPayload {
     IrInstruction base;
 
-    IrInstruction *value;
     bool safety_check_on;
+    bool initializing;
+    IrInstruction *value;
 };
 
 struct IrInstructionOptionalWrap {
     IrInstruction base;
 
-    IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionErrWrapPayload {
     IrInstruction base;
 
-    IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionErrWrapCode {
     IrInstruction base;
 
-    IrInstruction *value;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *operand;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionFnProto {
@@ -3142,18 +3202,17 @@ struct IrInstructionPtrCastGen {
     bool safety_check_on;
 };
 
-struct IrInstructionBitCast {
+struct IrInstructionBitCastSrc {
     IrInstruction base;
 
-    IrInstruction *dest_type;
-    IrInstruction *value;
+    IrInstruction *operand;
+    ResultLocBitCast *result_loc_bit_cast;
 };
 
 struct IrInstructionBitCastGen {
     IrInstruction base;
 
     IrInstruction *operand;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionWidenOrShorten {
@@ -3229,8 +3288,8 @@ struct IrInstructionTypeName {
 struct IrInstructionDeclRef {
     IrInstruction base;
 
-    Tld *tld;
     LVal lval;
+    Tld *tld;
 };
 
 struct IrInstructionPanic {
@@ -3278,6 +3337,13 @@ struct IrInstructionTypeInfo {
     IrInstruction base;
 
     IrInstruction *type_value;
+};
+
+struct IrInstructionHasField {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    IrInstruction *field_name;
 };
 
 struct IrInstructionTypeId {
@@ -3526,7 +3592,7 @@ struct IrInstructionVectorToArray {
     IrInstruction base;
 
     IrInstruction *vector;
-    LLVMValueRef tmp_ptr;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionAssertZero {
@@ -3541,6 +3607,15 @@ struct IrInstructionAssertNonNull {
     IrInstruction *target;
 };
 
+struct IrInstructionUnionInitNamedField {
+    IrInstruction base;
+
+    IrInstruction *union_type;
+    IrInstruction *field_name;
+    IrInstruction *field_result_loc;
+    IrInstruction *result_loc;
+};
+
 struct IrInstructionHasDecl {
     IrInstruction base;
 
@@ -3552,6 +3627,139 @@ struct IrInstructionUndeclaredIdent {
     IrInstruction base;
 
     Buf *name;
+};
+
+struct IrInstructionAllocaSrc {
+    IrInstruction base;
+
+    IrInstruction *align;
+    IrInstruction *is_comptime;
+    const char *name_hint;
+};
+
+struct IrInstructionAllocaGen {
+    IrInstruction base;
+
+    uint32_t align;
+    const char *name_hint;
+};
+
+struct IrInstructionEndExpr {
+    IrInstruction base;
+
+    IrInstruction *value;
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionImplicitCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
+    ResultLoc *result_loc;
+};
+
+// This one is for writing through the result pointer.
+struct IrInstructionResolveResult {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+    IrInstruction *ty;
+};
+
+// This one is when you want to read the value of the result.
+// You have to give the value in case it is comptime.
+struct IrInstructionResultPtr {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+    IrInstruction *result;
+};
+
+struct IrInstructionResetResult {
+    IrInstruction base;
+
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionPtrOfArrayToSlice {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    IrInstruction *result_loc;
+};
+
+enum ResultLocId {
+    ResultLocIdInvalid,
+    ResultLocIdNone,
+    ResultLocIdVar,
+    ResultLocIdReturn,
+    ResultLocIdPeer,
+    ResultLocIdPeerParent,
+    ResultLocIdInstruction,
+    ResultLocIdBitCast,
+};
+
+// Additions to this struct may need to be handled in 
+// ir_reset_result
+struct ResultLoc {
+    ResultLocId id;
+    bool written;
+    IrInstruction *resolved_loc; // result ptr 
+    IrInstruction *source_instruction;
+    IrInstruction *gen_instruction; // value to store to the result loc
+    ZigType *implicit_elem_type;
+};
+
+struct ResultLocNone {
+    ResultLoc base;
+};
+
+struct ResultLocVar {
+    ResultLoc base;
+
+    ZigVar *var;
+};
+
+struct ResultLocReturn {
+    ResultLoc base;
+};
+
+struct IrSuspendPosition {
+    size_t basic_block_index;
+    size_t instruction_index;
+};
+
+struct ResultLocPeerParent {
+    ResultLoc base;
+
+    bool skipped;
+    bool done_resuming;
+    IrBasicBlock *end_bb;
+    ResultLoc *parent;
+    ZigList<ResultLocPeer *> peers;
+    ZigType *resolved_type;
+    IrInstruction *is_comptime;
+};
+
+struct ResultLocPeer {
+    ResultLoc base;
+
+    ResultLocPeerParent *parent;
+    IrBasicBlock *next_bb;
+    IrSuspendPosition suspend_pos;
+};
+
+// The result location is the source instruction
+struct ResultLocInstruction {
+    ResultLoc base;
+};
+
+// The source_instruction is the destination type
+struct ResultLocBitCast {
+    ResultLoc base;
+
+    ResultLoc *parent;
 };
 
 static const size_t slice_ptr_index = 0;
@@ -3581,6 +3789,9 @@ static const size_t stack_trace_ptr_count = 32;
 #define NAMESPACE_SEP_CHAR '.'
 #define NAMESPACE_SEP_STR "."
 
+#define CACHE_OUT_SUBDIR "o"
+#define CACHE_HASH_SUBDIR "h"
+
 enum FloatMode {
     FloatModeStrict,
     FloatModeOptimized,
@@ -3601,7 +3812,7 @@ struct FnWalkAttrs {
 
 struct FnWalkCall {
     ZigList<LLVMValueRef> *gen_param_values;
-    IrInstructionCall *inst;
+    IrInstructionCallGen *inst;
     bool is_var_args;
 };
 

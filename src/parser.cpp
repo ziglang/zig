@@ -344,7 +344,7 @@ static AstNode *ast_parse_bin_op_expr(
                 op->data.bin_op_expr.op1 = left;
                 op->data.bin_op_expr.op2 = right;
                 break;
-            case NodeTypeUnwrapErrorExpr:
+            case NodeTypeCatchExpr:
                 op->data.unwrap_err_expr.op1 = left;
                 op->data.unwrap_err_expr.op2 = right;
                 break;
@@ -1519,7 +1519,6 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / IDENTIFIER
 //      / IfTypeExpr
 //      / INTEGER
-//      / KEYWORD_anyerror
 //      / KEYWORD_comptime TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
 //      / KEYWORD_false
@@ -1613,10 +1612,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         res->data.int_literal.bigint = &int_lit->data.int_lit.bigint;
         return res;
     }
-
-    Token *error_type = eat_token_if(pc, TokenIdKeywordAnyerror);
-    if (error_type != nullptr)
-        return ast_create_node(pc, NodeTypeErrorType, error_type);
 
     Token *comptime = eat_token_if(pc, TokenIdKeywordCompTime);
     if (comptime != nullptr) {
@@ -2404,7 +2399,7 @@ static AstNode *ast_parse_bitwise_op(ParseContext *pc) {
     Token *catch_token = eat_token_if(pc, TokenIdKeywordCatch);
     if (catch_token != nullptr) {
         Token *payload = ast_parse_payload(pc);
-        AstNode *res = ast_create_node(pc, NodeTypeUnwrapErrorExpr, catch_token);
+        AstNode *res = ast_create_node(pc, NodeTypeCatchExpr, catch_token);
         if (payload != nullptr)
             res->data.unwrap_err_expr.symbol = token_symbol(pc, payload);
 
@@ -2897,7 +2892,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.bin_op_expr.op1, visit, context);
             visit_field(&node->data.bin_op_expr.op2, visit, context);
             break;
-        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeCatchExpr:
             visit_field(&node->data.unwrap_err_expr.op1, visit, context);
             visit_field(&node->data.unwrap_err_expr.symbol, visit, context);
             visit_field(&node->data.unwrap_err_expr.op2, visit, context);

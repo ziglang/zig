@@ -404,6 +404,16 @@ test "implicit cast from *[N]T to ?[*]T" {
     expect(std.mem.eql(u16, x.?[0..4], y[0..4]));
 }
 
+test "implicit cast from *[N]T to [*c]T" {
+    var x: [4]u16 = [4]u16{ 0, 1, 2, 3 };
+    var y: [*c]u16 = &x;
+
+    expect(std.mem.eql(u16, x[0..4], y[0..4]));
+    x[0] = 8;
+    y[3] = 6;
+    expect(std.mem.eql(u16, x[0..4], y[0..4]));
+}
+
 test "implicit cast from *T to ?*c_void" {
     var a: u8 = 1;
     incrementVoidPtrValue(&a);
@@ -481,4 +491,41 @@ test "@intCast to u0 and use the result" {
     };
     S.doTheTest(0, 1, 0);
     comptime S.doTheTest(0, 1, 0);
+}
+
+test "peer type resolution: unreachable, null, slice" {
+    const S = struct {
+        fn doTheTest(num: usize, word: []const u8) void {
+            const result = switch (num) {
+                0 => null,
+                1 => word,
+                else => unreachable,
+            };
+            expect(mem.eql(u8, result.?, "hi"));
+        }
+    };
+    S.doTheTest(1, "hi");
+}
+
+test "peer type resolution: unreachable, error set, unreachable" {
+    const Error = error {
+        FileDescriptorAlreadyPresentInSet,
+        OperationCausesCircularLoop,
+        FileDescriptorNotRegistered,
+        SystemResources,
+        UserResourceLimitReached,
+        FileDescriptorIncompatibleWithEpoll,
+        Unexpected,
+    };
+    var err = Error.SystemResources;
+    const transformed_err = switch (err) {
+        error.FileDescriptorAlreadyPresentInSet => unreachable,
+        error.OperationCausesCircularLoop => unreachable,
+        error.FileDescriptorNotRegistered => unreachable,
+        error.SystemResources => error.SystemResources,
+        error.UserResourceLimitReached => error.UserResourceLimitReached,
+        error.FileDescriptorIncompatibleWithEpoll => unreachable,
+        error.Unexpected => unreachable,
+    };
+    expect(transformed_err == error.SystemResources);
 }

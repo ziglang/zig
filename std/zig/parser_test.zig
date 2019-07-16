@@ -1,9 +1,21 @@
-// TODO remove `use` keyword eventually
+// TODO remove `use` keyword eventually: https://github.com/ziglang/zig/issues/2591
 test "zig fmt: change use to usingnamespace" {
     try testTransform(
         \\use @import("std");
     ,
         \\usingnamespace @import("std");
+        \\
+    );
+}
+
+test "zig fmt: whitespace fixes" {
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
+        \\test "" {
+        \\    const hi = x;
+        \\}
+        \\// zig fmt: off
+        \\test ""{
+        \\    const a  = b;}
         \\
     );
 }
@@ -68,7 +80,7 @@ test "zig fmt: enum literal inside array literal" {
 
 test "zig fmt: character literal larger than u8" {
     try testCanonical(
-        \\const x = '\U01f4a9';
+        \\const x = '\u{01f4a9}';
         \\
     );
 }
@@ -1105,7 +1117,7 @@ test "zig fmt: first line comment in struct initializer" {
     try testCanonical(
         \\pub async fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
-        \\        // TODO guaranteed allocation elision
+        \\        // guaranteed allocation elision
         \\        .held = await (async self.lock.acquire() catch unreachable),
         \\        .value = &self.private_data,
         \\    };
@@ -2242,6 +2254,15 @@ test "zig fmt: if type expr" {
         \\        return 42;
         \\    }
         \\}
+        \\
+    );
+}
+
+test "zig fmt: file ends with struct field" {
+    try testTransform(
+        \\a: bool
+    ,
+        \\a: bool,
         \\
     );
 }

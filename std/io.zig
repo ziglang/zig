@@ -164,32 +164,32 @@ pub fn InStream(comptime ReadError: type) type {
 
         /// Reads a native-endian integer
         pub fn readIntNative(self: *Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
         pub fn readIntForeign(self: *Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntForeign(T, &bytes);
         }
 
         pub fn readIntLittle(self: *Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntLittle(T, &bytes);
         }
 
         pub fn readIntBig(self: *Self, comptime T: type) !T {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readIntBig(T, &bytes);
         }
 
         pub fn readInt(self: *Self, comptime T: type, endian: builtin.Endian) !T {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             try self.readNoEof(bytes[0..]);
             return mem.readInt(T, &bytes, endian);
         }
@@ -249,32 +249,32 @@ pub fn OutStream(comptime WriteError: type) type {
 
         /// Write a native-endian integer.
         pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntNative(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
         /// Write a foreign-endian integer.
         pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntForeign(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
         pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntLittle(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
         pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntBig(T, &bytes, value);
             return self.writeFn(self, bytes);
         }
 
         pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
-            var bytes: [(T.bit_count + 7 )/ 8]u8 = undefined;
+            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
             return self.writeFn(self, bytes);
         }

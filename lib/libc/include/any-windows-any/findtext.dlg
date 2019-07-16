@@ -1,0 +1,47 @@
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+FINDDLGORD DIALOG LOADONCALL MOVEABLE DISCARDABLE 30,73,236,62
+STYLE WS_BORDER | WS_CAPTION | DS_MODALFRAME | WS_POPUP | WS_SYSMENU |
+      DS_3DLOOK | DS_CONTEXTHELP
+CAPTION "Find"
+FONT 8,"MS Shell Dlg"
+BEGIN
+    LTEXT "Fi&nd what:",-1,4,8,42,8
+    EDITTEXT edt1,47,7,128,12,WS_GROUP | WS_TABSTOP | ES_AUTOHSCROLL
+
+    AUTOCHECKBOX "Match &whole word only",chx1,4,26,100,12,WS_GROUP
+    AUTOCHECKBOX "Match &case",chx2,4,42,64,12
+
+    GROUPBOX "Direction",grp1,107,26,68,28,WS_GROUP
+    AUTORADIOBUTTON "&Up",rad1,111,38,25,12,WS_GROUP
+    AUTORADIOBUTTON "&Down",rad2,138,38,35,12
+
+    DEFPUSHBUTTON "&Find Next",IDOK,182,5,50,14,WS_GROUP
+    PUSHBUTTON "Cancel",IDCANCEL,182,23,50,14
+    PUSHBUTTON "&Help",pshHelp,182,45,50,14
+END
+
+REPLACEDLGORD DIALOG LOADONCALL MOVEABLE DISCARDABLE 36,44,230,94
+STYLE WS_BORDER | WS_CAPTION | DS_MODALFRAME | WS_POPUP | WS_SYSMENU |
+      DS_3DLOOK | DS_CONTEXTHELP
+CAPTION "Replace"
+FONT 8,"MS Shell Dlg"
+BEGIN
+    LTEXT "Fi&nd what:",-1,4,9,48,8
+    EDITTEXT edt1,54,7,114,12,WS_GROUP | WS_TABSTOP | ES_AUTOHSCROLL
+
+    LTEXT "Re&place with:",-1,4,26,48,8
+    EDITTEXT edt2,54,24,114,12,WS_GROUP | WS_TABSTOP | ES_AUTOHSCROLL
+
+    AUTOCHECKBOX "Match &whole word only",chx1,5,46,104,12,WS_GROUP
+    AUTOCHECKBOX "Match &case",chx2,5,62,59,12
+
+    DEFPUSHBUTTON "&Find Next",IDOK,174,4,50,14,WS_GROUP
+    PUSHBUTTON "&Replace",psh1,174,21,50,14
+    PUSHBUTTON "Replace &All",psh2,174,38,50,14
+    PUSHBUTTON "Cancel",IDCANCEL,174,55,50,14
+    PUSHBUTTON "&Help",pshHelp,174,75,50,14
+END

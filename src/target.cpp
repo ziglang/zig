@@ -10,6 +10,8 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "os.hpp"
+#include "compiler.hpp"
+#include "glibc.hpp"
 
 #include <stdio.h>
 
@@ -466,7 +468,33 @@ const char *target_abi_name(ZigLLVM_EnvironmentType abi) {
     return ZigLLVMGetEnvironmentTypeName(abi);
 }
 
+Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
+    glibc_ver->major = 2;
+    glibc_ver->minor = 0;
+    glibc_ver->patch = 0;
+    SplitIterator it = memSplit(str(text), str("GLIBC_."));
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorUnknownABI;
+        glibc_ver->major = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->minor = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    {
+        Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
+        if (!opt_component.is_some) return ErrorNone;
+        glibc_ver->patch = strtoul(buf_ptr(buf_create_from_slice(opt_component.value)), nullptr, 10);
+    }
+    return ErrorNone;
+}
+
 void get_native_target(ZigTarget *target) {
+    // first zero initialize
+    *target = {};
+
     ZigLLVM_OSType os_type;
     ZigLLVM_ObjectFormatType oformat; // ignored; based on arch/os
     ZigLLVMGetNativeTarget(
@@ -481,22 +509,32 @@ void get_native_target(ZigTarget *target) {
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
+    if (target_is_glibc(target)) {
+        target->glibc_version = allocate<ZigGLibCVersion>(1);
+        *target->glibc_version = {2, 17, 0};
+#ifdef ZIG_OS_LINUX
+        Error err;
+        if ((err = glibc_detect_native_version(target->glibc_version))) {
+            // Fall back to the default version.
+        }
+#endif
+    }
 }
 
 Error target_parse_archsub(ZigLLVM_ArchType *out_arch, ZigLLVM_SubArchType *out_sub,
         const char *archsub_ptr, size_t archsub_len)
 {
+    *out_arch = ZigLLVM_UnknownArch;
+    *out_sub = ZigLLVM_NoSubArch;
     for (size_t arch_i = 0; arch_i < array_length(arch_list); arch_i += 1) {
         ZigLLVM_ArchType arch = arch_list[arch_i];
         SubArchList sub_arch_list = target_subarch_list(arch);
         size_t subarch_count = target_subarch_count(sub_arch_list);
-        if (subarch_count == 0) {
-            if (mem_eql_str(archsub_ptr, archsub_len, target_arch_name(arch))) {
-                *out_arch = arch;
-                *out_sub = ZigLLVM_NoSubArch;
+        if (mem_eql_str(archsub_ptr, archsub_len, target_arch_name(arch))) {
+            *out_arch = arch;
+            if (subarch_count == 0) {
                 return ErrorNone;
             }
-            continue;
         }
         for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
             ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
@@ -667,6 +705,10 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
 
 Error target_parse_triple(ZigTarget *target, const char *triple) {
     Error err;
+
+    // first initialize all to zero
+    *target = {};
+
     SplitIterator it = memSplit(str(triple), str("-"));
 
     Optional<Slice<uint8_t>> opt_archsub = SplitIterator_next(&it);
@@ -696,9 +738,6 @@ Error target_parse_triple(ZigTarget *target, const char *triple) {
     } else {
         target->abi = target_default_abi(target->arch, target->os);
     }
-
-    target->vendor = ZigLLVM_UnknownVendor;
-    target->is_native = false;
     return ErrorNone;
 }
 
@@ -714,7 +753,16 @@ void init_all_targets(void) {
     LLVMInitializeAllAsmParsers();
 }
 
-void get_target_triple(Buf *triple, const ZigTarget *target) {
+void target_triple_zig(Buf *triple, const ZigTarget *target) {
+    buf_resize(triple, 0);
+    buf_appendf(triple, "%s%s-%s-%s",
+            ZigLLVMGetArchTypeName(target->arch),
+            ZigLLVMGetSubArchTypeName(target->sub_arch),
+            ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
+            ZigLLVMGetEnvironmentTypeName(target->abi));
+}
+
+void target_triple_llvm(Buf *triple, const ZigTarget *target) {
     buf_resize(triple, 0);
     buf_appendf(triple, "%s%s-%s-%s-%s",
             ZigLLVMGetArchTypeName(target->arch),
@@ -945,7 +993,9 @@ bool target_allows_addr_zero(const ZigTarget *target) {
 }
 
 const char *target_o_file_ext(const ZigTarget *target) {
-    if (target->abi == ZigLLVM_MSVC || target->os == OsWindows || target->os == OsUefi) {
+    if (target->abi == ZigLLVM_MSVC ||
+        (target->os == OsWindows && !target_abi_is_gnu(target->abi)) ||
+        target->os == OsUefi) {
         return ".obj";
     } else {
         return ".o";
@@ -973,7 +1023,10 @@ const char *target_exe_file_ext(const ZigTarget *target) {
 }
 
 const char *target_lib_file_prefix(const ZigTarget *target) {
-    if (target->os == OsWindows || target->os == OsUefi || target_is_wasm(target)) {
+    if ((target->os == OsWindows && !target_abi_is_gnu(target->abi)) ||
+        target->os == OsUefi ||
+        target_is_wasm(target))
+    {
         return "";
     } else {
         return "lib";
@@ -988,7 +1041,11 @@ const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
     }
     if (target->os == OsWindows || target->os == OsUefi) {
         if (is_static) {
-            return ".lib";
+            if (target->os == OsWindows && target_abi_is_gnu(target->abi)) {
+                return ".a";
+            } else {
+                return ".lib";
+            }
         } else {
             return ".dll";
         }
@@ -1420,8 +1477,8 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsKFreeBSD:
         case OsNetBSD:
         case OsHurd:
-            return ZigLLVM_GNU;
         case OsWindows:
+            return ZigLLVM_GNU;
         case OsUefi:
             return ZigLLVM_MSVC;
         case OsLinux:
@@ -1465,18 +1522,23 @@ struct AvailableLibC {
 static const AvailableLibC libcs_available[] = {
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_armeb, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_GNUEABIHF},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABI},
     {ZigLLVM_arm, OsLinux, ZigLLVM_MuslEABIHF},
+    {ZigLLVM_arm, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_x86, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_x86, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABI64},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_GNUABIN32},
     {ZigLLVM_mips64el, OsLinux, ZigLLVM_Musl},
@@ -1504,6 +1566,7 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_GNUX32},
     {ZigLLVM_x86_64, OsLinux, ZigLLVM_Musl},
+    {ZigLLVM_x86_64, OsWindows, ZigLLVM_GNU},
 };
 
 bool target_can_build_libc(const ZigTarget *target) {
@@ -1519,6 +1582,9 @@ bool target_can_build_libc(const ZigTarget *target) {
 }
 
 const char *target_libc_generic_name(const ZigTarget *target) {
+    if (target->os == OsWindows) {
+        return "mingw";
+    }
     switch (target->abi) {
         case ZigLLVM_GNU:
         case ZigLLVM_GNUABIN32:

@@ -550,7 +550,7 @@ pub const ChildProcess = struct {
             retry: while (it.next()) |search_path| {
                 var ext_it = mem.tokenize(PATHEXT, ";");
                 while (ext_it.next()) |app_ext| {
-                    const app_basename = try mem.concat(self.allocator, u8, [_][]const u8{app_name[0..app_name.len - 1], app_ext});
+                    const app_basename = try mem.concat(self.allocator, u8, [_][]const u8{ app_name[0 .. app_name.len - 1], app_ext });
                     defer self.allocator.free(app_basename);
 
                     const joined_path = try fs.path.join(self.allocator, [_][]const u8{ search_path, app_basename });
@@ -562,9 +562,9 @@ pub const ChildProcess = struct {
                     if (windowsCreateProcess(joined_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) |_| {
                         break :retry;
                     } else |err| switch (err) {
-                        error.FileNotFound => { continue; },
-                        error.AccessDenied => { continue; },
-                        else => { return err; },
+                        error.FileNotFound => continue,
+                        error.AccessDenied => continue,
+                        else => return err,
                     }
                 }
             } else {

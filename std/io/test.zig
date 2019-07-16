@@ -597,7 +597,10 @@ test "c out stream" {
 
     const filename = c"tmp_io_test_file.txt";
     const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
-    defer fs.deleteFileC(filename) catch {};
+    defer {
+        _ = std.c.fclose(out_file);
+        fs.deleteFileC(filename) catch {};
+    }
 
     const out_stream = &io.COutStream.init(out_file).stream;
     try out_stream.print("hi: {}\n", i32(123));

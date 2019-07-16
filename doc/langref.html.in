@@ -156,6 +156,11 @@
     </style>
   </head>
   <body>
+    <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
+    <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
+    <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
+    <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
+    master
     <div id="contents">
       {#header_open|Introduction#}
       <p>
@@ -181,6 +186,9 @@
       <p>
       The code samples in this document are compiled and tested as part of the main test suite of Zig.
       This HTML document depends on no external files, so you can use it offline.
+      </p>
+      <p>
+      <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
       </p>
       {#header_close#}
 
@@ -558,7 +566,7 @@ test "string literals" {
     assert(normal_bytes.len == 5);
     assert(normal_bytes[1] == 'e');
     assert('e' == '\x65');
-    assert('\U01f4a9' == 128169);
+    assert('\u{1f4a9}' == 128169);
     assert(mem.eql(u8, "hello", "h\x65llo"));
 
     // A C string literal is a null terminated pointer.
@@ -608,12 +616,8 @@ test "string literals" {
           <td>hexadecimal 8-bit character code (2 digits)</td>
         </tr>
         <tr>
-            <td><code>\uNNNN</code></td>
-          <td>hexadecimal 16-bit Unicode character code UTF-8 encoded (4 digits)</td>
-        </tr>
-        <tr>
-            <td><code>\UNNNNNN</code></td>
-          <td>hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)</td>
+            <td><code>\u{NNNNNN}</code></td>
+          <td>hexadecimal Unicode character code UTF-8 encoded (1 or more digits)</td>
         </tr>
       </table>
       </div>
@@ -1729,6 +1733,36 @@ test "array initialization with function calls" {
 }
       {#code_end#}
       {#see_also|for|Slices#}
+
+      {#header_open|Multidimensional Arrays#}
+      <p>
+      Mutlidimensional arrays can be created by nesting arrays:
+      </p>
+      {#code_begin|test|multidimensional#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const mat4x4 = [4][4]f32{
+    [_]f32{ 1.0, 0.0, 0.0, 0.0 },
+    [_]f32{ 0.0, 1.0, 0.0, 1.0 },
+    [_]f32{ 0.0, 0.0, 1.0, 0.0 },
+    [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+};
+test "multidimensional arrays" {
+    // Access the 2D array by indexing the outer array, and then the inner array.
+    assert(mat4x4[1][1] == 1.0);
+
+    // Here we iterate with for loops.
+    for (mat4x4) |row, row_index| {
+        for (row) |cell, column_index| {
+            if (row_index == column_index) {
+                assert(cell == 1.0);
+            }
+        }
+    }
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Vectors#}
@@ -2128,8 +2162,8 @@ test "slice widening" {
       {#header_open|struct#}
       {#code_begin|test|structs#}
 // Declare a struct.
-// Zig gives no guarantees about the order of fields and whether or
-// not there will be padding.
+// Zig gives no guarantees about the order of fields and the size of
+// the struct but the fields are guaranteed to be ABI-aligned.
 const Point = struct {
     x: f32,
     y: f32,
@@ -2342,12 +2376,12 @@ fn doTheTest() void {
     var full = Full{ .number = 0x1234 };
     var divided = @bitCast(Divided, full);
     switch (builtin.endian) {
-        builtin.Endian.Big => {
+        .Big => {
             assert(divided.half1 == 0x12);
             assert(divided.quarter3 == 0x3);
             assert(divided.quarter4 == 0x4);
         },
-        builtin.Endian.Little => {
+        .Little => {
             assert(divided.half1 == 0x34);
             assert(divided.quarter3 == 0x2);
             assert(divided.quarter4 == 0x1);
@@ -2622,6 +2656,8 @@ test "@tagName" {
     assert(mem.eql(u8, @tagName(Small.Three), "Three"));
 }
       {#code_end#}
+      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+
       {#header_open|extern enum#}
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
@@ -2638,6 +2674,7 @@ const Foo = extern enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
+
       {#header_open|packed enum#}
       <p>By default, the size of enums is not guaranteed.</p>
       <p>{#syntax#}packed enum{#endsyntax#} causes the size of the enum to be the same as the size of the
@@ -2656,8 +2693,40 @@ test "packed enum" {
       {#code_end#}
       <p>This makes the enum eligible to be in a {#link|packed struct#}.</p>
       {#header_close#}
-      {#see_also|@memberName|@memberCount|@tagName|@sizeOf#}
+
+      {#header_open|Enum Literals#}
+      <p>
+      Enum literals allow specifying the name of an enum field without specifying the enum type:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "enum literals" {
+    const color1: Color = .Auto;
+    const color2 = Color.Auto;
+    assert(color1 == color2);
+}
+
+test "switch using enum literals" {
+    const color = Color.On;
+    const result = switch (color) {
+        .Auto => false,
+        .On => true,
+        .Off => false,
+    };
+    assert(result);
+}
+      {#code_end#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|union#}
       <p>
       A bare {#syntax#}union{#endsyntax#} defines a set of possible types that a value
@@ -2699,6 +2768,9 @@ test "simple union" {
       {#code_end#}
       <p>
       In order to use {#link|switch#} with a union, it must be a {#link|Tagged union#}.
+      </p>
+      <p>
+      To initialize a union when the tag is a {#link|comptime#}-known name, see {#link|@unionInit#}.
       </p>
 
       {#header_open|Tagged union#}
@@ -2973,6 +3045,7 @@ test "switch on tagged union" {
         A: u32,
         C: Point,
         D,
+        E: u32,
     };
 
     var a = Item{ .C = Point{ .x = 1, .y = 2 } };
@@ -2980,8 +3053,9 @@ test "switch on tagged union" {
     // Switching on more complex enums is allowed.
     const b = switch (a) {
         // A capture group is allowed on a match, and will return the enum
-        // value matched.
-        Item.A => |item| item,
+        // value matched. If the payload types of both cases are the same
+        // they can be put into the same switch prong.
+        Item.A, Item.E => |item| item,
 
         // A reference to the matched value can be obtained using `*` syntax.
         Item.C => |*item| blk: {
@@ -2998,7 +3072,57 @@ test "switch on tagged union" {
 }
       {#code_end#}
       {#see_also|comptime|enum|@compileError|Compile Variables#}
+
+      {#header_open|Exhaustive Switching#}
+      <p>
+      When a {#syntax#}switch{#endsyntax#} expression does not have an {#syntax#}else{#endsyntax#} clause,
+      it must exhaustively list all the possible values. Failure to do so is a compile error:
+      </p>
+      {#code_begin|test_err|not handled in switch#}
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "exhaustive switching" {
+    const color = Color.Off;
+    switch (color) {
+        Color.Auto => {},
+        Color.On => {},
+    }
+}
+      {#code_end#}
       {#header_close#}
+
+      {#header_open|Switching with Enum Literals#}
+      <p>
+      {#link|Enum Literals#} can be useful to use with {#syntax#}switch{#endsyntax#} to avoid
+      repetitively specifying {#link|enum#} or {#link|union#} types:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Color = enum {
+    Auto,
+    Off,
+    On,
+};
+
+test "enum literals with switch" {
+    const color = Color.Off;
+    const result = switch (color) {
+        .Auto => false,
+        .On => false,
+        .Off => true,
+    };
+    assert(result);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|while#}
       <p>
       A while loop is used to repeatedly execute an expression until
@@ -5057,6 +5181,12 @@ test "@intToPtr for pointer to zero bit type" {
       {#header_close#}
       {#header_close#}
 
+      {#header_open|Result Location Semantics#}
+      <p>
+      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
+      </p>
+      {#header_close#}
+
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
@@ -5096,7 +5226,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|values of type 'type' must be comptime known#}
+      {#code_begin|test_err|cannot store runtime value in type 'type'#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -6793,6 +6923,19 @@ test "@hasDecl" {
     assert(!@hasDecl(Foo, "nope1234"));
 }
       {#code_end#}
+      {#see_also|@hasField#}
+      {#header_close#}
+
+      {#header_open|@hasField#}
+      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <p>Returns whether the field name of a struct, union, or enum exists.</p>
+      <p>
+      The result is a compile time constant.
+      </p>
+      <p>
+      It does not include functions, variables, or constants.
+      </p>
+      {#see_also|@hasDecl#}
       {#header_close#}
 
       {#header_open|@import#}
@@ -7354,91 +7497,91 @@ test "@setRuntimeSafety" {
       <pre>{#syntax#}@sqrt(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Performs the square root of a floating point number. Uses a dedicated hardware instruction
-      when available. Supports f16, f32, f64, and f128, as well as vectors.
+      when available. Supports {#syntax#}f16{#endsyntax#}, {#syntax#}f32{#endsyntax#}, {#syntax#}f64{#endsyntax#}, and {#syntax#}f128{#endsyntax#}, as well as vectors.
       </p>
       {#header_close#}
       {#header_open|@sin#}
       <pre>{#syntax#}@sin(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Sine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Cosine trigometric function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@exp#}
       <pre>{#syntax#}@exp(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Base-e exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@exp2#}
       <pre>{#syntax#}@exp2(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@ln#}
       <pre>{#syntax#}@ln(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@log2#}
       <pre>{#syntax#}@log2(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@log10#}
       <pre>{#syntax#}@log10(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@fabs#}
       <pre>{#syntax#}@fabs(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@floor#}
       <pre>{#syntax#}@floor(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the largest integral value not greater than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Returns the largest integral value not less than the given floating point number. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@trunc#}
       <pre>{#syntax#}@trunc(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, towards zero. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
       {#header_open|@round#}
       <pre>{#syntax#}@round(comptime T: type, value: T) T{#endsyntax#}</pre>
       <p>
       Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
-      when available. Currently supports f32 and f64.
+      when available. Currently supports {#syntax#}f32{#endsyntax#} and {#syntax#}f64{#endsyntax#}.
       </p>
       {#header_close#}
 
@@ -7786,6 +7929,17 @@ pub const TypeInfo = union(TypeId) {
       expression passed as an argument. The expression is evaluated.
       </p>
 
+      {#header_close#}
+
+      {#header_open|@unionInit#}
+      <pre>{#syntax#}@unionInit(comptime Union: type, comptime active_field_name: []const u8, init_expr) Union{#endsyntax#}</pre>
+      <p>
+      This is the same thing as {#link|union#} initialization syntax, except that the field name is a
+      {#link|comptime#}-known value rather than an identifier token.
+      </p>
+      <p>
+      {#syntax#}@unionInit{#endsyntax#} forwards its {#link|result location|Result Location Semantics#} to {#syntax#}init_expr{#endsyntax#}.
+      </p>
       {#header_close#}
 
       {#header_open|@Vector#}
@@ -9086,20 +9240,16 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
-    const exe = b.addCExecutable("test");
-    exe.addCompileFlags([_][]const u8 {
-        "-std=c99",
-    });
-    exe.addSourceFile("test.c");
+    const exe = b.addExecutable("test", null);
+    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
     exe.addObject(obj);
-    exe.setOutputPath(".");
-
-    b.default_step.dependOn(&exe.step);
+    exe.linkSystemLibrary("c");
+    exe.install();
 }
       {#code_end#}
       <p class="file">terminal</p>
       <pre><code class="shell">$ zig build
-$ ./test
+$ ./zig-cache/bin/test
 all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
       {#header_close#}
@@ -9674,7 +9824,6 @@ PrimaryTypeExpr
      / IDENTIFIER
      / IfTypeExpr
      / INTEGER
-     / KEYWORD_anyerror
      / KEYWORD_comptime TypeExpr
      / KEYWORD_error DOT IDENTIFIER
      / KEYWORD_false
@@ -9883,8 +10032,7 @@ eof &lt;- !.
 hex &lt;- [0-9a-fA-F]
 char_escape
     &lt;- "\\x" hex hex
-     / "\\u" hex hex hex hex
-     / "\\U" hex hex hex hex hex hex
+     / "\\u{" hex+ "}"
      / "\\" [nr\\t'"]
 char_char
     &lt;- char_escape
@@ -9981,7 +10129,6 @@ end_of_word &lt;- ![a-zA-Z0-9_] skip
 KEYWORD_align       &lt;- 'align'       end_of_word
 KEYWORD_allowzero   &lt;- 'allowzero'   end_of_word
 KEYWORD_and         &lt;- 'and'         end_of_word
-KEYWORD_anyerror    &lt;- 'anyerror'    end_of_word
 KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
@@ -10030,7 +10177,7 @@ KEYWORD_var         &lt;- 'var'         end_of_word
 KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
-keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_anyerror / KEYWORD_asm
+keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
          / KEYWORD_async / KEYWORD_await / KEYWORD_break / KEYWORD_cancel
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer

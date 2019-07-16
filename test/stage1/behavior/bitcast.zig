@@ -112,3 +112,16 @@ test "bitcast packed struct to integer and back" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "implicit cast to error union by returning" {
+    const S = struct {
+        fn entry() void {
+            expect((func(-1) catch unreachable) == maxInt(u64));
+        }
+        pub fn func(sz: i64) anyerror!u64 {
+            return @bitCast(u64, sz);
+        }
+    };
+    S.entry();
+    comptime S.entry();
+}

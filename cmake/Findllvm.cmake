@@ -65,7 +65,7 @@ NEED_TARGET("WebAssembly")
 NEED_TARGET("X86")
 NEED_TARGET("XCore")
 
-if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
+if(ZIG_STATIC_LLVM)
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
       OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES

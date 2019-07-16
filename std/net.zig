@@ -33,7 +33,6 @@ pub const Address = struct {
 
     pub fn initIp6(ip6: *const Ip6Addr, _port: u16) Address {
         return Address{
-            .family = os.AF_INET6,
             .os_addr = os.sockaddr{
                 .in6 = os.sockaddr_in6{
                     .family = os.AF_INET6,

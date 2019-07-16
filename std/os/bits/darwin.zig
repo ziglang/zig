@@ -44,6 +44,11 @@ pub const mach_timebase_info_data = extern struct {
 };
 
 /// Renamed to Stat to not conflict with the stat function.
+/// atime, mtime, and ctime have functions to return `timespec`,
+/// because although this is a POSIX API, the layout and names of
+/// the structs are inconsistent across operating systems, and
+/// in C, macros are used to hide the differences. Here we use
+/// methods to accomplish this.
 pub const Stat = extern struct {
     dev: i32,
     mode: u16,
@@ -52,14 +57,14 @@ pub const Stat = extern struct {
     uid: u32,
     gid: u32,
     rdev: i32,
-    atime: usize,
-    atimensec: usize,
-    mtime: usize,
-    mtimensec: usize,
-    ctime: usize,
-    ctimensec: usize,
-    birthtime: usize,
-    birthtimensec: usize,
+    atimesec: isize,
+    atimensec: isize,
+    mtimesec: isize,
+    mtimensec: isize,
+    ctimesec: isize,
+    ctimensec: isize,
+    birthtimesec: isize,
+    birthtimensec: isize,
     size: i64,
     blocks: i64,
     blksize: i32,
@@ -67,6 +72,27 @@ pub const Stat = extern struct {
     gen: u32,
     lspare: i32,
     qspare: [2]i64,
+
+    pub fn atime(self: Stat) timespec {
+        return timespec{
+            .tv_sec = self.atimesec,
+            .tv_nsec = self.atimensec,
+        };
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return timespec{
+            .tv_sec = self.mtimesec,
+            .tv_nsec = self.mtimensec,
+        };
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return timespec{
+            .tv_sec = self.ctimesec,
+            .tv_nsec = self.ctimensec,
+        };
+    }
 };
 
 pub const timespec = extern struct {

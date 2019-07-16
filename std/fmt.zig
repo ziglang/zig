@@ -443,13 +443,9 @@ fn formatValue(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
-        // TODO https://github.com/ziglang/zig/issues/2725
-        if (options.width) |w| return formatBytes(value, w, 1000, context, Errors, output);
-        return formatBytes(value, null, 1000, context, Errors, output);
+        return formatBytes(value, options.width, 1000, context, Errors, output);
     } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        // TODO https://github.com/ziglang/zig/issues/2725
-        if (options.width) |w| return formatBytes(value, w, 1024, context, Errors, output);
-        return formatBytes(value, null, 1024, context, Errors, output);
+        return formatBytes(value, options.width, 1024, context, Errors, output);
     }
 
     const T = @typeOf(value);
@@ -499,9 +495,7 @@ pub fn formatIntValue(
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
 
-    // TODO https://github.com/ziglang/zig/issues/2725
-    if (options.width) |w| return formatInt(int_value, radix, uppercase, w, context, Errors, output);
-    return formatInt(int_value, radix, uppercase, 0, context, Errors, output);
+    return formatInt(int_value, radix, uppercase, options.width orelse 0, context, Errors, output);
 }
 
 fn formatFloatValue(
@@ -513,13 +507,9 @@ fn formatFloatValue(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        // TODO https://github.com/ziglang/zig/issues/2725
-        if (options.precision) |p| return formatFloatScientific(value, p, context, Errors, output);
-        return formatFloatScientific(value, null, context, Errors, output);
+        return formatFloatScientific(value, options.precision, context, Errors, output);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        // TODO https://github.com/ziglang/zig/issues/2725
-        if (options.precision) |p| return formatFloatDecimal(value, p, context, Errors, output);
-        return formatFloatDecimal(value, null, context, Errors, output);
+        return formatFloatDecimal(value, options.precision, context, Errors, output);
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }

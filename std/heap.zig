@@ -8,6 +8,8 @@ const builtin = @import("builtin");
 const c = std.c;
 const maxInt = std.math.maxInt;
 
+pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
+
 const Allocator = mem.Allocator;
 
 pub const c_allocator = &c_allocator_state;
@@ -360,9 +362,9 @@ pub const ArenaAllocator = struct {
         var it = self.buffer_list.first;
         while (it) |node| {
             // this has to occur before the free because the free frees node
-            it = node.next;
-
+            const next_it = node.next;
             self.child_allocator.free(node.data);
+            it = next_it;
         }
     }
 

@@ -114,6 +114,9 @@ ZIG_EXTERN_C void stage2_render_ast(struct Stage2Ast *ast, FILE *output_file);
 ZIG_EXTERN_C void stage2_zen(const char **ptr, size_t *len);
 
 // ABI warning
+ZIG_EXTERN_C void stage2_attach_segfault_handler(void);
+
+// ABI warning
 ZIG_EXTERN_C ZIG_ATTRIBUTE_NORETURN void stage2_panic(const char *ptr, size_t len);
 
 // ABI warning

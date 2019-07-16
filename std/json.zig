@@ -876,8 +876,9 @@ pub const TokenStream = struct {
 
     pub fn next(self: *TokenStream) !?Token {
         if (self.token) |token| {
+            const copy = token;
             self.token = null;
-            return token;
+            return copy;
         }
 
         var t1: ?Token = undefined;
@@ -1022,7 +1023,7 @@ pub const Value = union(enum) {
                 debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                debug.warn("{.5}", inner);
+                debug.warn("{:.5}", inner);
             },
             Value.String => |inner| {
                 debug.warn("\"{}\"", inner);
@@ -1077,7 +1078,7 @@ pub const Value = union(enum) {
                 debug.warn("{}", inner);
             },
             Value.Float => |inner| {
-                debug.warn("{.5}", inner);
+                debug.warn("{:.5}", inner);
             },
             Value.String => |inner| {
                 debug.warn("\"{}\"", inner);

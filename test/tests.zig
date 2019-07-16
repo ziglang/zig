@@ -13,7 +13,7 @@ const Mode = builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
 
 const compare_output = @import("compare_output.zig");
-const build_examples = @import("build_examples.zig");
+const standalone = @import("standalone.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const runtime_safety = @import("runtime_safety.zig");
@@ -91,17 +91,17 @@ pub fn addCompileErrorTests(b: *build.Builder, test_filter: ?[]const u8, modes: 
     return cases.step;
 }
 
-pub fn addBuildExampleTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(BuildExamplesContext) catch unreachable;
-    cases.* = BuildExamplesContext{
+pub fn addStandaloneTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    const cases = b.allocator.create(StandaloneContext) catch unreachable;
+    cases.* = StandaloneContext{
         .b = b,
-        .step = b.step("test-build-examples", "Build the examples"),
+        .step = b.step("test-standalone", "Run the standalone tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
     };
 
-    build_examples.addCases(cases);
+    standalone.addCases(cases);
 
     return cases.step;
 }
@@ -811,43 +811,41 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {} ({})", case.name, @tagName(mode)) catch unreachable;
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {}", case.name) catch unreachable;
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
+        }
 
-            const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, mode);
-            self.step.dependOn(&compile_and_cmp_errors.step);
+        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug);
+        self.step.dependOn(&compile_and_cmp_errors.step);
 
-            for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = fs.path.join(
-                    b.allocator,
-                    [_][]const u8{ b.cache_root, src_file.filename },
-                ) catch unreachable;
-                const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                compile_and_cmp_errors.step.dependOn(&write_src.step);
-            }
+        for (case.sources.toSliceConst()) |src_file| {
+            const expanded_src_path = fs.path.join(
+                b.allocator,
+                [_][]const u8{ b.cache_root, src_file.filename },
+            ) catch unreachable;
+            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
+            compile_and_cmp_errors.step.dependOn(&write_src.step);
         }
     }
 };
 
-pub const BuildExamplesContext = struct {
+pub const StandaloneContext = struct {
     b: *build.Builder,
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
     modes: []const Mode,
 
-    pub fn addC(self: *BuildExamplesContext, root_src: []const u8) void {
+    pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
     }
 
-    pub fn add(self: *BuildExamplesContext, root_src: []const u8) void {
+    pub fn add(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, false);
     }
 
-    pub fn addBuildFile(self: *BuildExamplesContext, build_file: []const u8) void {
+    pub fn addBuildFile(self: *StandaloneContext, build_file: []const u8) void {
         const b = self.b;
 
         const annotated_case_name = b.fmt("build {} (Debug)", build_file);
@@ -877,7 +875,7 @@ pub const BuildExamplesContext = struct {
         self.step.dependOn(&log_step.step);
     }
 
-    pub fn addAllArgs(self: *BuildExamplesContext, root_src: []const u8, link_libc: bool) void {
+    pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
         for (self.modes) |mode| {

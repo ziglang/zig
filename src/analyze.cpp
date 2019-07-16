@@ -2995,7 +2995,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeGroupedExpr:
         case NodeTypeBinOpExpr:
-        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeCatchExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
@@ -3896,22 +3896,21 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf *pkg_root_src_dir = &package->root_src_dir;
     Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
 
-    Buf namespace_name = BUF_INIT;
-    buf_init_from_buf(&namespace_name, &package->pkg_path);
+    Buf *namespace_name = buf_create_from_buf(&package->pkg_path);
     if (source_kind == SourceKindNonRoot) {
         assert(buf_starts_with_buf(resolved_path, &resolved_root_src_dir));
-        if (buf_len(&namespace_name) != 0) {
-            buf_append_char(&namespace_name, NAMESPACE_SEP_CHAR);
+        if (buf_len(namespace_name) != 0) {
+            buf_append_char(namespace_name, NAMESPACE_SEP_CHAR);
         }
         // The namespace components are obtained from the relative path to the
         // source directory
         if (buf_len(&noextname) > buf_len(&resolved_root_src_dir)) {
             // Skip the trailing separator
-            buf_append_mem(&namespace_name,
+            buf_append_mem(namespace_name,
                 buf_ptr(&noextname) + buf_len(&resolved_root_src_dir) + 1,
                 buf_len(&noextname) - buf_len(&resolved_root_src_dir) - 1);
         }
-        buf_replace(&namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
+        buf_replace(namespace_name, ZIG_OS_SEP_CHAR, NAMESPACE_SEP_CHAR);
     }
     Buf *bare_name = buf_alloc();
     os_path_extname(src_basename, bare_name, nullptr);
@@ -3922,7 +3921,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     root_struct->line_offsets = tokenization.line_offsets;
     root_struct->path = resolved_path;
     root_struct->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-    ZigType *import_entry = get_root_container_type(g, buf_ptr(&namespace_name), bare_name, root_struct);
+    ZigType *import_entry = get_root_container_type(g, buf_ptr(namespace_name), bare_name, root_struct);
     if (source_kind == SourceKindRoot) {
         assert(g->root_import == nullptr);
         g->root_import = import_entry;
@@ -3966,7 +3965,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     }
 
     TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, &namespace_name, VisibModPub, root_node, nullptr);
+    init_tld(&tld_container->base, TldIdContainer, namespace_name, VisibModPub, root_node, nullptr);
     tld_container->type_entry = import_entry;
     tld_container->decls_scope = import_entry->data.structure.decls_scope;
     g->resolve_queue.append(&tld_container->base);
@@ -4181,6 +4180,7 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
         case ConstPtrMutComptimeConst:
             hash_val += (uint32_t)4214318515;
             break;
+        case ConstPtrMutInfer:
         case ConstPtrMutComptimeVar:
             hash_val += (uint32_t)1103195694;
             break;
@@ -4511,6 +4511,8 @@ bool fn_eval_cacheable(Scope *scope, ZigType *return_type) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
             if (type_is_invalid(var_scope->var->var_type))
                 return false;
+            if (var_scope->var->const_value->special == ConstValSpecialUndef)
+                return false;
             if (can_mutate_comptime_var_state(var_scope->var->const_value))
                 return false;
         } else if (scope->id == ScopeIdFnDef) {
@@ -4710,7 +4712,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     auto entry = g->string_literals_table.maybe_get(str);
     if (entry != nullptr) {
-        *const_val = *entry->value;
+        memcpy(const_val, entry->value, sizeof(ConstExprValue));
         return;
     }
 
@@ -4998,12 +5000,9 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
             field_val->type = wanted_type->data.structure.fields[i].type_entry;
             assert(field_val->type);
             init_const_undefined(g, field_val);
-            ConstParent *parent = get_const_val_parent(g, field_val);
-            if (parent != nullptr) {
-                parent->id = ConstParentIdStruct;
-                parent->data.p_struct.struct_val = const_val;
-                parent->data.p_struct.field_index = i;
-            }
+            field_val->parent.id = ConstParentIdStruct;
+            field_val->parent.data.p_struct.struct_val = const_val;
+            field_val->parent.data.p_struct.field_index = i;
         }
     } else {
         const_val->special = ConstValSpecialUndef;
@@ -5841,11 +5840,6 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
         }
     }
     zig_unreachable();
-}
-
-// Deprecated. Reference the parent field directly.
-ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
-    return &value->parent;
 }
 
 static const ZigTypeId all_type_ids[] = {
@@ -7281,6 +7275,6 @@ void src_assert(bool ok, AstNode *source_node) {
             buf_ptr(source_node->owner->data.structure.root_struct->path),
             (unsigned)source_node->line + 1, (unsigned)source_node->column + 1);
     }
-    const char *msg = "assertion failed";
+    const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }

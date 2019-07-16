@@ -165,8 +165,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Parens";
         case NodeTypeBinOpExpr:
             return "BinOpExpr";
-        case NodeTypeUnwrapErrorExpr:
-            return "UnwrapErrorExpr";
+        case NodeTypeCatchExpr:
+            return "CatchExpr";
         case NodeTypeFnCallExpr:
             return "FnCallExpr";
         case NodeTypeArrayAccessExpr:
@@ -444,9 +444,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *export_str = export_string(node->data.fn_proto.is_export);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%s%sfn", pub_str, inline_str, export_str, extern_str);
+                fprintf(ar->f, "%s%s%s%sfn ", pub_str, inline_str, export_str, extern_str);
                 if (node->data.fn_proto.name != nullptr) {
-                    fprintf(ar->f, " ");
                     print_symbol(ar, node->data.fn_proto.name);
                 }
                 fprintf(ar->f, "(");
@@ -1108,7 +1107,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "]");
                 break;
             }
-        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeCatchExpr:
             {
                 render_node_ungrouped(ar, node->data.unwrap_err_expr.op1);
                 fprintf(ar->f, " catch ");

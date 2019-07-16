@@ -76,6 +76,27 @@ test "unwrap function call with optional pointer return value" {
         }
     };
     S.entry();
-    // TODO https://github.com/ziglang/zig/issues/1901
-    //comptime S.entry();
+    comptime S.entry();
+}
+
+test "nested orelse" {
+    const S = struct {
+        fn entry() void {
+            expect(func() == null);
+        }
+        fn maybe() ?Foo {
+            return null;
+        }
+        fn func() ?Foo {
+            const x = maybe() orelse
+                maybe() orelse
+                return null;
+            unreachable;
+        }
+        const Foo = struct {
+            field: i32,
+        };
+    };
+    S.entry();
+    comptime S.entry();
 }

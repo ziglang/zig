@@ -52,3 +52,14 @@ test "unwrap mutable global var" {
         expect(e == error.SomeError);
     }
 }
+
+test "labeled break inside comptime if inside runtime if" {
+    var answer: i32 = 0;
+    var c = true;
+    if (c) {
+        answer = if (true) blk: {
+            break :blk i32(42);
+        };
+    }
+    expect(answer == 42);
+}

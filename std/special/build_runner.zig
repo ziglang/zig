@@ -38,12 +38,10 @@ pub fn main() !void {
         return error.InvalidArgs;
     });
 
-    var builder = Builder.init(allocator, zig_exe, build_root, cache_root);
-    defer builder.deinit();
+    const builder = try Builder.create(allocator, zig_exe, build_root, cache_root);
+    defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(allocator);
-
-    var prefix: ?[]const u8 = null;
 
     var stderr_file = io.getStdErr();
     var stderr_file_stream: File.OutStream = undefined;
@@ -65,42 +63,42 @@ pub fn main() !void {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
                 warn("Expected option name after '-D'\n\n");
-                return usageAndErr(&builder, false, try stderr_stream);
+                return usageAndErr(builder, false, try stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1 ..];
                 if (try builder.addUserInputOption(option_name, option_value))
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
             } else {
                 if (try builder.addUserInputFlag(option_contents))
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "--help")) {
-                return usage(&builder, false, try stdout_stream);
+                return usage(builder, false, try stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
-                prefix = try unwrapArg(arg_it.next(allocator) orelse {
+                builder.install_prefix = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --prefix\n\n");
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --search-prefix\n\n");
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
                 });
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--override-std-dir")) {
                 builder.override_std_dir = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --override-std-dir\n\n");
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--override-lib-dir")) {
                 builder.override_lib_dir = try unwrapArg(arg_it.next(allocator) orelse {
                     warn("Expected argument after --override-lib-dir\n\n");
-                    return usageAndErr(&builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, try stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
@@ -118,23 +116,22 @@ pub fn main() !void {
                 builder.verbose_cc = true;
             } else {
                 warn("Unrecognized argument: {}\n\n", arg);
-                return usageAndErr(&builder, false, try stderr_stream);
+                return usageAndErr(builder, false, try stderr_stream);
             }
         } else {
             try targets.append(arg);
         }
     }
 
-    builder.setInstallPrefix(prefix);
-    try runBuild(&builder);
+    try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
-        return usageAndErr(&builder, true, try stderr_stream);
+        return usageAndErr(builder, true, try stderr_stream);
 
     builder.make(targets.toSliceConst()) catch |err| {
         switch (err) {
             error.InvalidStepName => {
-                return usageAndErr(&builder, true, try stderr_stream);
+                return usageAndErr(builder, true, try stderr_stream);
             },
             error.UncleanExit => process.exit(1),
             else => return err,
@@ -144,8 +141,8 @@ pub fn main() !void {
 
 fn runBuild(builder: *Builder) anyerror!void {
     switch (@typeId(@typeOf(root.build).ReturnType)) {
-        builtin.TypeId.Void => root.build(builder),
-        builtin.TypeId.ErrorUnion => try root.build(builder),
+        .Void => root.build(builder),
+        .ErrorUnion => try root.build(builder),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
 }
@@ -157,7 +154,6 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         try runBuild(builder);
     }
 
-    // This usage text has to be synchronized with src/main.cpp
     try out_stream.print(
         \\Usage: {} build [steps] [options]
         \\
@@ -167,7 +163,11 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
-        try out_stream.print("  {s:22} {}\n", top_level_step.step.name, top_level_step.description);
+        const name = if (&top_level_step.step == builder.default_step)
+            try fmt.allocPrint(allocator, "{} (default)", top_level_step.step.name)
+        else
+            top_level_step.step.name;
+        try out_stream.print("  {s:22} {}\n", name, top_level_step.description);
     }
 
     try out_stream.write(
