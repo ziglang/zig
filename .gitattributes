@@ -1,10 +1,8 @@
 *.zig text eol=lf
 langref.html.in text eol=lf
 
-c_headers/* linguist-vendored
 deps/* linguist-vendored
-libc/glibc/* linguist-vendored
-libc/musl/* linguist-vendored
-libc/include/* linguist-vendored
-libcxx/* linguist-vendored
-libunwind/* linguist-vendored
+lib/include/* linguist-vendored
+lib/libc/* linguist-vendored
+lib/libcxx/* linguist-vendored
+lib/libunwind/* linguist-vendored
