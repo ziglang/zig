@@ -9210,20 +9210,16 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
-    const exe = b.addCExecutable("test");
-    exe.addCompileFlags([_][]const u8 {
-        "-std=c99",
-    });
-    exe.addSourceFile("test.c");
+    const exe = b.addExecutable("test", null);
+    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
     exe.addObject(obj);
-    exe.setOutputPath(".");
-
-    b.default_step.dependOn(&exe.step);
+    exe.linkSystemLibrary("c");
+    exe.install();
 }
       {#code_end#}
       <p class="file">terminal</p>
       <pre><code class="shell">$ zig build
-$ ./test
+$ ./zig-cache/bin/test
 all your base are belong to us</code></pre>
       {#see_also|Targets|Zig Build System#}
       {#header_close#}
