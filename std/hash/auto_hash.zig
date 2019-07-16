@@ -21,7 +21,9 @@ pub fn autoHash(hasher: var, key: var) void {
         builtin.TypeId.EnumLiteral,
         => @compileError("cannot hash this type"),
 
-        builtin.TypeId.Int => hasher.update(std.mem.asBytes(&key)),
+        // Help the optimizer see that hashing an int is easy by inlining!
+        // TODO Check if the situation is better after #561 is resolved.
+        builtin.TypeId.Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
 
         builtin.TypeId.Float => |info| autoHash(hasher, @bitCast(@IntType(false, info.bits), key)),
 
