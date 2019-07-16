@@ -377,7 +377,7 @@ static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruc
     fprintf(irp->f, "unreachable");
 }
 
-static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
+static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElem *instruction) {
     fprintf(irp->f, "&");
     ir_print_other_instruction(irp, instruction->array_ptr);
     fprintf(irp->f, "[");
@@ -396,7 +396,18 @@ static void ir_print_return_ptr(IrPrint *irp, IrInstructionReturnPtr *instructio
     fprintf(irp->f, "@ReturnPtr");
 }
 
-static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
+static void ir_print_extractinsert(IrPrint *irp, IrInstructionExtractInsert *instruction) {
+    if (instruction->value) {
+        ir_print_other_instruction(irp, instruction->value);
+        fprintf(irp->f, " = ");
+    }
+    ir_print_other_instruction(irp, instruction->agg);
+    fprintf(irp->f, "[");
+    ir_print_other_instruction(irp, instruction->index);
+    fprintf(irp->f, "]");
+}
+
+static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoad *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ".*");
 }
@@ -408,7 +419,7 @@ static void ir_print_load_ptr_gen(IrPrint *irp, IrInstructionLoadPtrGen *instruc
     ir_print_other_instruction(irp, instruction->result_loc);
 }
 
-static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
+static void ir_print_store_ptr(IrPrint *irp, IrInstructionStore *instruction) {
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
@@ -1706,8 +1717,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdUnreachable:
             ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);
             break;
-        case IrInstructionIdElemPtr:
-            ir_print_elem_ptr(irp, (IrInstructionElemPtr *)instruction);
+        case IrInstructionIdElem:
+            ir_print_elem_ptr(irp, (IrInstructionElem *)instruction);
             break;
         case IrInstructionIdVarPtr:
             ir_print_var_ptr(irp, (IrInstructionVarPtr *)instruction);
@@ -1715,14 +1726,17 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdReturnPtr:
             ir_print_return_ptr(irp, (IrInstructionReturnPtr *)instruction);
             break;
-        case IrInstructionIdLoadPtr:
-            ir_print_load_ptr(irp, (IrInstructionLoadPtr *)instruction);
+        case IrInstructionIdExtractInsert:
+            ir_print_extractinsert(irp, (IrInstructionExtractInsert *)instruction);
+            break;
+        case IrInstructionIdLoad:
+            ir_print_load_ptr(irp, (IrInstructionLoad *)instruction);
             break;
         case IrInstructionIdLoadPtrGen:
             ir_print_load_ptr_gen(irp, (IrInstructionLoadPtrGen *)instruction);
             break;
-        case IrInstructionIdStorePtr:
-            ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+        case IrInstructionIdStore:
+            ir_print_store_ptr(irp, (IrInstructionStore *)instruction);
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);

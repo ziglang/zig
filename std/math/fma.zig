@@ -3,6 +3,7 @@
 //
 // https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/fmal.c
 
 const std = @import("../std.zig");
 const math = std.math;
@@ -13,6 +14,7 @@ pub fn fma(comptime T: type, x: T, y: T, z: T) T {
     return switch (T) {
         f32 => fma32(x, y, z),
         f64 => fma64(x, y, z),
+        f128 => fma128(x, y, z),
         else => @compileError("fma not implemented for " ++ @typeName(T)),
     };
 }
