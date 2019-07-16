@@ -28,7 +28,7 @@
  * Hyperbolic tangent of a complex argument z.  See s_ctanh.c for details.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 float complex ctanhf(float complex z)
 {

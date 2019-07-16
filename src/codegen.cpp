@@ -8273,30 +8273,7 @@ static void detect_libc(CodeGen *g) {
             // musl has some overrides. its headers are ABI-agnostic and so they all have the "musl" ABI name.
             abi_name = "musl";
             // some architectures are handled by the same set of headers
-            switch (g->zig_target->arch) {
-                case ZigLLVM_aarch64:
-                case ZigLLVM_aarch64_be:
-                    arch_name = "aarch64";
-                    break;
-                case ZigLLVM_arm:
-                case ZigLLVM_armeb:
-                    arch_name = "arm";
-                    break;
-                case ZigLLVM_mips:
-                case ZigLLVM_mipsel:
-                    arch_name = "mips";
-                    break;
-                case ZigLLVM_mips64:
-                case ZigLLVM_mips64el:
-                    arch_name = "mips64";
-                    break;
-                case ZigLLVM_ppc64:
-                case ZigLLVM_ppc64le:
-                    arch_name = "powerpc64";
-                    break;
-                default:
-                    break;
-            }
+            arch_name = target_arch_musl_name(g->zig_target->arch);
         }
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
                 buf_ptr(g->zig_lib_dir), arch_name, target_os_name(g->zig_target->os), abi_name);

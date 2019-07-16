@@ -1,6 +1,11 @@
 #include "pthread_impl.h"
 #include <sys/mman.h>
 
+static void dummy1(pthread_t t)
+{
+}
+weak_alias(dummy1, __tl_sync);
+
 static int __pthread_timedjoin_np(pthread_t t, void **res, const struct timespec *at)
 {
 	int state, cs, r = 0;
@@ -9,11 +14,11 @@ static int __pthread_timedjoin_np(pthread_t t, void **res, const struct timespec
 	if (cs == PTHREAD_CANCEL_ENABLE) __pthread_setcancelstate(cs, 0);
 	while ((state = t->detach_state) && r != ETIMEDOUT && r != EINVAL) {
 		if (state >= DT_DETACHED) a_crash();
-		r = __timedwait_cp(&t->detach_state, state, CLOCK_REALTIME, at, 0);
+		r = __timedwait_cp(&t->detach_state, state, CLOCK_REALTIME, at, 1);
 	}
 	__pthread_setcancelstate(cs, 0);
 	if (r == ETIMEDOUT || r == EINVAL) return r;
-	a_barrier();
+	__tl_sync(t);
 	if (res) *res = t->result;
 	if (t->map_base) __munmap(t->map_base, t->map_size);
 	return 0;

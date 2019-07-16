@@ -83,7 +83,7 @@ static inline void a_crash()
 		: : : "memory");
 }
 
-#if __ARM_ARCH >= 5
+#if __ARM_ARCH >= 5 && (!__thumb__ || __thumb2__)
 
 #define a_clz_32 a_clz_32
 static inline int a_clz_32(uint32_t x)

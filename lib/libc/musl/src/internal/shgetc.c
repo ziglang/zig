@@ -22,7 +22,8 @@ int __shgetc(FILE *f)
 	off_t cnt = shcnt(f);
 	if (f->shlim && cnt >= f->shlim || (c=__uflow(f)) < 0) {
 		f->shcnt = f->buf - f->rpos + cnt;
-		f->shend = 0;
+		f->shend = f->rpos;
+		f->shlim = -1;
 		return EOF;
 	}
 	cnt++;

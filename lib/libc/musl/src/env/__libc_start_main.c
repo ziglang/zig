@@ -28,7 +28,7 @@ void __init_libc(char **envp, char *pn)
 	libc.auxv = auxv = (void *)(envp+i+1);
 	for (i=0; auxv[i]; i+=2) if (auxv[i]<AUX_CNT) aux[auxv[i]] = auxv[i+1];
 	__hwcap = aux[AT_HWCAP];
-	__sysinfo = aux[AT_SYSINFO];
+	if (aux[AT_SYSINFO]) __sysinfo = aux[AT_SYSINFO];
 	libc.page_size = aux[AT_PAGESZ];
 
 	if (!pn) pn = (void*)aux[AT_EXECFN];

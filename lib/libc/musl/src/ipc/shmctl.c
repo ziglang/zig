@@ -17,7 +17,7 @@ int shmctl(int id, int cmd, struct shmid_ds *buf)
 		buf = &tmp;
 	}
 #endif
-#ifdef SYS_shmctl
+#ifndef SYS_ipc
 	int r = __syscall(SYS_shmctl, id, cmd | IPC_64, buf);
 #else
 	int r = __syscall(SYS_ipc, IPCOP_shmctl, id, cmd | IPC_64, 0, buf, 0);

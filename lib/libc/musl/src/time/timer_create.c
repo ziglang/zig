@@ -27,23 +27,12 @@ static void cleanup_fromsig(void *p)
 	self->cancelbuf = 0;
 	self->canceldisable = 0;
 	self->cancelasync = 0;
-	self->unblock_cancel = 0;
 	__reset_tls();
 	longjmp(p, 1);
 }
 
 static void timer_handler(int sig, siginfo_t *si, void *ctx)
 {
-	pthread_t self = __pthread_self();
-	jmp_buf jb;
-	void (*notify)(union sigval) = (void (*)(union sigval))self->start;
-	union sigval val = { .sival_ptr = self->start_arg };
-
-	if (!setjmp(jb) && si->si_code == SI_TIMER) {
-		pthread_cleanup_push(cleanup_fromsig, jb);
-		notify(val);
-		pthread_cleanup_pop(1);
-	}
 }
 
 static void install_handler()
@@ -59,20 +48,24 @@ static void *start(void *arg)
 {
 	pthread_t self = __pthread_self();
 	struct start_args *args = arg;
-	int id;
+	int id = self->timer_id;
+	jmp_buf jb;
 
-	/* Reuse no-longer-needed thread structure fields to avoid
-	 * needing the timer address in the signal handler. */
-	self->start = (void *(*)(void *))args->sev->sigev_notify_function;
-	self->start_arg = args->sev->sigev_value.sival_ptr;
+	void (*notify)(union sigval) = args->sev->sigev_notify_function;
+	union sigval val = args->sev->sigev_value;
 
 	pthread_barrier_wait(&args->b);
-	if ((id = self->timer_id) >= 0) {
-		__syscall(SYS_rt_sigprocmask, SIG_UNBLOCK,
-			SIGTIMER_SET, 0, _NSIG/8);
-		__wait(&self->timer_id, 0, id, 1);
-		__syscall(SYS_timer_delete, id);
+	for (;;) {
+		siginfo_t si;
+		while (sigwaitinfo(SIGTIMER_SET, &si) < 0);
+		if (si.si_code == SI_TIMER && !setjmp(jb)) {
+			pthread_cleanup_push(cleanup_fromsig, jb);
+			notify(val);
+			pthread_cleanup_pop(1);
+		}
+		if (self->timer_id < 0) break;
 	}
+	__syscall(SYS_timer_delete, id);
 	return 0;
 }
 
@@ -112,6 +105,7 @@ int timer_create(clockid_t clk, struct sigevent *restrict evp, timer_t *restrict
 		args.sev = evp;
 
 		__block_app_sigs(&set);
+		__syscall(SYS_rt_sigprocmask, SIG_BLOCK, SIGTIMER_SET, 0, _NSIG/8);
 		r = pthread_create(&td, &attr, start, &args);
 		__restore_sigs(&set);
 		if (r) {

@@ -4,7 +4,7 @@
 
 int shmdt(const void *addr)
 {
-#ifdef SYS_shmdt
+#ifndef SYS_ipc
 	return syscall(SYS_shmdt, addr);
 #else
 	return syscall(SYS_ipc, IPCOP_shmdt, 0, 0, 0, addr);
