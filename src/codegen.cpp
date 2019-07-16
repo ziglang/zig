@@ -3399,6 +3399,30 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrI
     return nullptr;
 }
 
+static LLVMValueRef ir_render_extract(CodeGen *g, IrExecutable *executable, IrInstructionExtract *instruction) {
+    assert(instruction->index);
+    ZigType *child_type = instruction->base.value.type;
+    if (!type_has_bits(child_type))
+        return nullptr;
+
+    LLVMValueRef agg = ir_llvm_value(g, instruction->agg);
+    ZigType *agg_type = instruction->agg->value.type;
+    assert(agg_type->id == ZigTypeIdVector && "Arrays not yet implemented");
+
+    return LLVMBuildExtractElement(g->builder, agg, ir_llvm_value(g, instruction->index), "");
+}
+
+static LLVMValueRef ir_render_insert(CodeGen *g, IrExecutable *executable, IrInstructionInsert *instruction) {
+    assert(instruction->index);
+
+    LLVMValueRef agg = ir_llvm_value(g, instruction->agg);
+    ZigType *agg_type = instruction->agg->value.type;
+    assert(agg_type->id == ZigTypeIdVector && "Arrays not yet implemented");
+
+    return LLVMBuildInsertElement(g->builder,
+        agg, ir_llvm_value(g, instruction->value), ir_llvm_value(g, instruction->index), "");
+}
+
 static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtrGen *instruction) {
     ZigType *child_type = instruction->base.value.type;
     if (!type_has_bits(child_type))
@@ -3643,7 +3667,8 @@ static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
     ZigType *array_ptr_type = instruction->array_ptr->value.type;
-    assert(array_ptr_type->id == ZigTypeIdPointer);
+    if (array_ptr_type->id != ZigTypeIdPointer)
+        return ir_llvm_value(g, instruction->array_ptr);
     ZigType *array_type = array_ptr_type->data.pointer.child_type;
     LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
@@ -6071,6 +6096,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAwaitSrc:
         case IrInstructionIdSplatSrc:
         case IrInstructionIdMergeErrSets:
+        case IrInstructionIdVectorElem:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6089,6 +6115,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_br(g, executable, (IrInstructionBr *)instruction);
         case IrInstructionIdUnOp:
             return ir_render_un_op(g, executable, (IrInstructionUnOp *)instruction);
+        case IrInstructionIdExtract:
+            return ir_render_extract(g, executable, (IrInstructionExtract *)instruction);
+        case IrInstructionIdInsert:
+            return ir_render_insert(g, executable, (IrInstructionInsert *)instruction);
         case IrInstructionIdLoadPtrGen:
             return ir_render_load_ptr(g, executable, (IrInstructionLoadPtrGen *)instruction);
         case IrInstructionIdStorePtr:
@@ -6252,6 +6282,8 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstructionIdLoadPtr)
+                abort();
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
                 continue;
             if (get_scope_typeof(instruction->scope) != nullptr)

@@ -48,6 +48,12 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SplatSrc";
         case IrInstructionIdSplatGen:
             return "SplatGen";
+        case IrInstructionIdVectorElem:
+            return "VectorElem";
+        case IrInstructionIdExtract:
+            return "Extract";
+        case IrInstructionIdInsert:
+            return "Insert";
         case IrInstructionIdDeclVarSrc:
             return "DeclVarSrc";
         case IrInstructionIdDeclVarGen:
@@ -779,6 +785,22 @@ static void ir_print_load_ptr_gen(IrPrint *irp, IrInstructionLoadPtrGen *instruc
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, ")result=");
     ir_print_other_instruction(irp, instruction->result_loc);
+}
+
+static void ir_print_insert(IrPrint *irp, IrInstructionInsert *instruction) {
+    ir_print_var_instruction(irp, instruction->agg);
+    fprintf(irp->f, "[");
+    ir_print_var_instruction(irp, instruction->index);
+    fprintf(irp->f, "]");
+    fprintf(irp->f, " = ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
+static void ir_print_extract(IrPrint *irp, IrInstructionExtract *instruction) {
+    ir_print_var_instruction(irp, instruction->agg);
+    fprintf(irp->f, "[");
+    ir_print_var_instruction(irp, instruction->index);
+    fprintf(irp->f, "]");
 }
 
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
@@ -2036,6 +2058,13 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+            break;
+        case IrInstructionIdExtract:
+        case IrInstructionIdVectorElem:
+            ir_print_extract(irp, (IrInstructionExtract *)instruction);
+            break;
+        case IrInstructionIdInsert:
+            ir_print_insert(irp, (IrInstructionInsert *)instruction);
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);

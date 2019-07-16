@@ -6594,6 +6594,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
     );
 
+    cases.addTest(
+        "vector out-of bounds index",
+        \\export fn entry() void {
+        \\    var v: @Vector(4, u32) = [4]u32{0, 1, 2, 3};
+        \\    v[5] = 5;
+        \\}
+    ,
+        "tmp.zig:3:7: error: vector index out of range; max is 3, got 5",
+    );
+
     cases.add("compileLog of tagged enum doesn't crash the compiler",
         \\const Bar = union(enum(u32)) {
         \\    X: i32 = 1
