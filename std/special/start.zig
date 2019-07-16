@@ -125,10 +125,13 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
 }
 
+// General error message for a malformed return type
+const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
+
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
 inline fn callMain() u8 {
-    switch (@typeId(@typeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -136,25 +139,32 @@ inline fn callMain() u8 {
             root.main();
             return 0;
         },
-        .Int => {
-            if (@typeOf(root.main).ReturnType.bit_count != 8) {
-                @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
+        .Int => |info| {
+            if (info.bits != 8) {
+                @compileError(bad_main_ret);
             }
             return root.main();
         },
         .ErrorUnion => {
-            root.main() catch |err| {
+            const result = root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
-                if (builtin.os != builtin.Os.zen) {
-                    if (@errorReturnTrace()) |trace| {
-                        std.debug.dumpStackTrace(trace.*);
-                    }
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
                 }
                 return 1;
             };
-            return 0;
+            switch (@typeInfo(@typeOf(result))) {
+                .Void => return 0,
+                .Int => |info| {
+                    if (info.bits != 8) {
+                        @compileError(bad_main_ret);
+                    }
+                    return result;
+                },
+                else => @compileError(bad_main_ret),
+            }
         },
-        else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'"),
+        else => @compileError(bad_main_ret),
     }
 }
 
