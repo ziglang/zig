@@ -18,28 +18,80 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     );
 
+    cases.add_both("simple var decls",
+        \\void foo(void) {
+        \\    int a;
+        \\    char b = 123;
+        \\    const int c;
+        \\    const unsigned d = 440;
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    var b: u8 = u8(123);
+        \\    const c: c_int = undefined;
+        \\    const d: c_uint = c_uint(440);
+        \\}
+    );
+
+    cases.add_both("ignore result, explicit function arguments",
+        \\void foo(void) {
+        \\    int a;
+        \\    1;
+        \\    "hey";
+        \\    1 + 1;
+        \\    1 - 1;
+        \\    a = 1;
+        \\}
+    ,
+        \\pub fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    _ = 1;
+        \\    _ = c"hey";
+        \\    _ = (1 + 1);
+        \\    _ = (1 - 1);
+        \\    a = 1;
+        \\}
+    );
+
     /////////////// Cases that pass for only stage2 ////////////////
-    cases.add_2("Parameterless function prototypes",
+    // TODO: restore these tests after removing "import mode" concept
+    // https://github.com/ziglang/zig/issues/2780
+
+    // cases.add_2("Parameterless function prototypes",
+    //     \\void a() {}
+    //     \\void b(void) {}
+    //     \\void c();
+    //     \\void d(void);
+    // ,
+    //     \\pub export fn a() void {}
+    //     \\pub export fn b() void {}
+    //     \\pub extern fn c(...) void;
+    //     \\pub extern fn d() void;
+    // );
+
+    // cases.add_2("simple function definition",
+    //     \\void foo(void) {}
+    //     \\static void bar(void) {}
+    // ,
+    //     \\pub export fn foo() void {}
+    //     \\pub extern fn bar() void {}
+    // );
+
+    cases.add_2("parameterless function prototypes",
         \\void a() {}
         \\void b(void) {}
         \\void c();
         \\void d(void);
     ,
-        \\pub export fn a() void {}
-        \\pub export fn b() void {}
+        \\pub fn a(...) void {}
+        \\pub fn b() void {}
         \\pub extern fn c(...) void;
         \\pub extern fn d() void;
     );
 
-    cases.add_2("simple function definition",
-        \\void foo(void) {}
-        \\static void bar(void) {}
-    ,
-        \\pub export fn foo() void {}
-        \\pub extern fn bar() void {}
-    );
-
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
+
     cases.add("typedef of function in struct field",
         \\typedef void lws_callback_function(void);
         \\struct Foo {
@@ -47,9 +99,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    lws_callback_function *callback_http;
         \\};
     ,
-        \\pub const lws_callback_function = extern fn() void;
+        \\pub const lws_callback_function = extern fn () void;
         \\pub const struct_Foo = extern struct {
-        \\    func: ?extern fn() void,
+        \\    func: ?extern fn () void,
         \\    callback_http: ?lws_callback_function,
         \\};
     );
@@ -68,13 +120,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     );
 
+    cases.add_both("simple function definition",
+        \\void foo(void) {}
+        \\static void bar(void) {}
+    ,
+        \\pub fn foo() void {}
+        \\pub fn bar() void {}
+    );
+
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     ,
         \\pub const REDISMODULE_READ = 1 << 0;
     );
 
-    cases.add("casting pointers to ints and ints to pointers",
+    cases.add_both("casting pointers to ints and ints to pointers",
         \\void foo(void);
         \\void bar(void) {
         \\    void *func_ptr = foo;
@@ -84,7 +144,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub fn bar() void {
         \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn() void = @intToPtr(?extern fn() void, c_ulong(@ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, c_ulong(@ptrToInt(func_ptr)));
         \\}
     );
 
@@ -159,7 +219,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     );
 
-    cases.add("ignore result",
+    cases.add("ignore result, no function arguments",
         \\void foo() {
         \\    int a;
         \\    1;
@@ -260,7 +320,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
     );
 
-    cases.add("noreturn attribute",
+    cases.add_both("noreturn attribute",
         \\void foo(void) __attribute__((noreturn));
     ,
         \\pub extern fn foo() noreturn;
@@ -384,7 +444,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     ,
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn([*c]struct_Foo) void,
+        \\    derp: ?extern fn ([*c]struct_Foo) void,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -467,13 +527,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern char (*fn_ptr2)(int, float);
         \\#define bar fn_ptr2
     ,
-        \\pub extern var fn_ptr: ?extern fn() void;
+        \\pub extern var fn_ptr: ?extern fn () void;
     ,
         \\pub inline fn foo() void {
         \\    return fn_ptr.?();
         \\}
     ,
-        \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
+        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
         \\    return fn_ptr2.?(arg0, arg1);
@@ -489,7 +549,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("__cdecl doesn't mess up function pointers",
         \\void foo(void (__cdecl *fn_ptr)(void));
     ,
-        \\pub extern fn foo(fn_ptr: ?extern fn() void) void;
+        \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
     );
 
     cases.add("comment after integer literal",
@@ -1236,8 +1296,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 0;
         \\}
         \\pub export fn bar() void {
-        \\    var f: ?extern fn() void = foo;
-        \\    var b: ?extern fn() c_int = baz;
+        \\    var f: ?extern fn () void = foo;
+        \\    var b: ?extern fn () c_int = baz;
         \\    f.?();
         \\    f.?();
         \\    foo();
@@ -1372,9 +1432,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const GLbitfield = c_uint;
     ,
-        \\pub const PFNGLCLEARPROC = ?extern fn(GLbitfield) void;
+        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
     ,
-        \\pub const OpenGLProc = ?extern fn() void;
+        \\pub const OpenGLProc = ?extern fn () void;
     ,
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,

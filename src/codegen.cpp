@@ -3837,7 +3837,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         return result_loc;
     } else if (handle_is_ptr(src_return_type)) {
         LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);
-        LLVMSetAlignment(store_instr, LLVMGetAlignment(result_loc));
+        LLVMSetAlignment(store_instr, get_ptr_align(g, instruction->result_loc->value.type));
         return result_loc;
     } else {
         return result;
