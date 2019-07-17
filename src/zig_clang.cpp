@@ -182,6 +182,7 @@ void ZigClang_detect_enum_CK(clang::CastKind x) {
         case clang::CK_IntegralToFloating:
         case clang::CK_IntegralToPointer:
         case clang::CK_LValueBitCast:
+        case clang::CK_LValueToRValueBitCast:
         case clang::CK_LValueToRValue:
         case clang::CK_MemberPointerToBoolean:
         case clang::CK_NoOp:
@@ -199,6 +200,8 @@ void ZigClang_detect_enum_CK(clang::CastKind x) {
         case clang::CK_VectorSplat:
         case clang::CK_ZeroToOCLOpaqueType:
         case clang::CK_FixedPointCast:
+        case clang::CK_FixedPointToIntegral:
+        case clang::CK_IntegralToFixedPoint:
         case clang::CK_FixedPointToBoolean:
             break;
     }
@@ -207,6 +210,7 @@ void ZigClang_detect_enum_CK(clang::CastKind x) {
 static_assert((clang::CastKind)ZigClangCK_Dependent == clang::CK_Dependent, "");
 static_assert((clang::CastKind)ZigClangCK_BitCast == clang::CK_BitCast, "");
 static_assert((clang::CastKind)ZigClangCK_LValueBitCast == clang::CK_LValueBitCast, "");
+static_assert((clang::CastKind)ZigClangCK_LValueToRValueBitCast == clang::CK_LValueToRValueBitCast, "");
 static_assert((clang::CastKind)ZigClangCK_LValueToRValue == clang::CK_LValueToRValue, "");
 static_assert((clang::CastKind)ZigClangCK_NoOp == clang::CK_NoOp, "");
 static_assert((clang::CastKind)ZigClangCK_BaseToDerived == clang::CK_BaseToDerived, "");
@@ -233,6 +237,8 @@ static_assert((clang::CastKind)ZigClangCK_IntegralCast == clang::CK_IntegralCast
 static_assert((clang::CastKind)ZigClangCK_IntegralToBoolean == clang::CK_IntegralToBoolean, "");
 static_assert((clang::CastKind)ZigClangCK_IntegralToFloating == clang::CK_IntegralToFloating, "");
 static_assert((clang::CastKind)ZigClangCK_FixedPointCast == clang::CK_FixedPointCast, "");
+static_assert((clang::CastKind)ZigClangCK_FixedPointToIntegral == clang::CK_FixedPointToIntegral, "");
+static_assert((clang::CastKind)ZigClangCK_IntegralToFixedPoint == clang::CK_IntegralToFixedPoint, "");
 static_assert((clang::CastKind)ZigClangCK_FixedPointToBoolean == clang::CK_FixedPointToBoolean, "");
 static_assert((clang::CastKind)ZigClangCK_FloatingToIntegral == clang::CK_FloatingToIntegral, "");
 static_assert((clang::CastKind)ZigClangCK_FloatingToBoolean == clang::CK_FloatingToBoolean, "");
@@ -288,6 +294,7 @@ void ZigClang_detect_enum_TypeClass(clang::Type::TypeClass ty) {
         case clang::Type::UnresolvedUsing:
         case clang::Type::Paren:
         case clang::Type::Typedef:
+        case clang::Type::MacroQualified:
         case clang::Type::Adjusted:
         case clang::Type::Decayed:
         case clang::Type::TypeOfExpr:
@@ -339,6 +346,7 @@ static_assert((clang::Type::TypeClass)ZigClangType_FunctionNoProto == clang::Typ
 static_assert((clang::Type::TypeClass)ZigClangType_UnresolvedUsing == clang::Type::UnresolvedUsing, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Paren == clang::Type::Paren, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Typedef == clang::Type::Typedef, "");
+static_assert((clang::Type::TypeClass)ZigClangType_MacroQualified == clang::Type::MacroQualified, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Adjusted == clang::Type::Adjusted, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Decayed == clang::Type::Decayed, "");
 static_assert((clang::Type::TypeClass)ZigClangType_TypeOfExpr == clang::Type::TypeOfExpr, "");
@@ -423,6 +431,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::ConditionalOperatorClass:
         case clang::Stmt::BinaryConditionalOperatorClass:
         case clang::Stmt::ImplicitCastExprClass:
+        case clang::Stmt::BuiltinBitCastExprClass:
         case clang::Stmt::CStyleCastExprClass:
         case clang::Stmt::CompoundLiteralExprClass:
         case clang::Stmt::ExtVectorElementExprClass:
@@ -479,6 +488,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::CXXNoexceptExprClass:
         case clang::Stmt::PackExpansionExprClass:
         case clang::Stmt::SizeOfPackExprClass:
+        case clang::Stmt::SourceLocExprClass:
         case clang::Stmt::SubstNonTypeTemplateParmExprClass:
         case clang::Stmt::SubstNonTypeTemplateParmPackExprClass:
         case clang::Stmt::FunctionParmPackExprClass:
@@ -624,6 +634,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_CompoundAssignOperatorClass =
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ConditionalOperatorClass == clang::Stmt::ConditionalOperatorClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_BinaryConditionalOperatorClass == clang::Stmt::BinaryConditionalOperatorClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImplicitCastExprClass == clang::Stmt::ImplicitCastExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_BuiltinBitCastExprClass == clang::Stmt::BuiltinBitCastExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CStyleCastExprClass == clang::Stmt::CStyleCastExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CompoundLiteralExprClass == clang::Stmt::CompoundLiteralExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ExtVectorElementExprClass == clang::Stmt::ExtVectorElementExprClass, "");
@@ -680,6 +691,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnresolvedMemberExprClass == 
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CXXNoexceptExprClass == clang::Stmt::CXXNoexceptExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_PackExpansionExprClass == clang::Stmt::PackExpansionExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SizeOfPackExprClass == clang::Stmt::SizeOfPackExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SourceLocExprClass == clang::Stmt::SourceLocExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SubstNonTypeTemplateParmExprClass == clang::Stmt::SubstNonTypeTemplateParmExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SubstNonTypeTemplateParmPackExprClass == clang::Stmt::SubstNonTypeTemplateParmPackExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_FunctionParmPackExprClass == clang::Stmt::FunctionParmPackExprClass, "");
@@ -770,9 +782,11 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeSimdD
 
 void ZigClang_detect_enum_APValueKind(clang::APValue::ValueKind x) {
     switch (x) {
-        case clang::APValue::Uninitialized:
+        case clang::APValue::None:
+        case clang::APValue::Indeterminate:
         case clang::APValue::Int:
         case clang::APValue::Float:
+        case clang::APValue::FixedPoint:
         case clang::APValue::ComplexInt:
         case clang::APValue::ComplexFloat:
         case clang::APValue::LValue:
@@ -786,9 +800,11 @@ void ZigClang_detect_enum_APValueKind(clang::APValue::ValueKind x) {
     }
 }
 
-static_assert((clang::APValue::ValueKind)ZigClangAPValueUninitialized == clang::APValue::Uninitialized, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValueNone == clang::APValue::None, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValueIndeterminate == clang::APValue::Indeterminate, "");
 static_assert((clang::APValue::ValueKind)ZigClangAPValueInt == clang::APValue::Int, "");
 static_assert((clang::APValue::ValueKind)ZigClangAPValueFloat == clang::APValue::Float, "");
+static_assert((clang::APValue::ValueKind)ZigClangAPValueFixedPoint == clang::APValue::FixedPoint, "");
 static_assert((clang::APValue::ValueKind)ZigClangAPValueComplexInt == clang::APValue::ComplexInt, "");
 static_assert((clang::APValue::ValueKind)ZigClangAPValueComplexFloat == clang::APValue::ComplexFloat, "");
 static_assert((clang::APValue::ValueKind)ZigClangAPValueLValue == clang::APValue::LValue, "");
@@ -826,6 +842,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::ObjCMethod:
         case clang::Decl::ObjCProperty:
         case clang::Decl::BuiltinTemplate:
+        case clang::Decl::Concept:
         case clang::Decl::ClassTemplate:
         case clang::Decl::FunctionTemplate:
         case clang::Decl::TypeAliasTemplate:
@@ -867,8 +884,10 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::VarTemplatePartialSpecialization:
         case clang::Decl::EnumConstant:
         case clang::Decl::IndirectField:
+        case clang::Decl::OMPDeclareMapper:
         case clang::Decl::OMPDeclareReduction:
         case clang::Decl::UnresolvedUsingValue:
+        case clang::Decl::OMPAllocate:
         case clang::Decl::OMPRequires:
         case clang::Decl::OMPThreadPrivate:
         case clang::Decl::ObjCPropertyImpl:
@@ -904,6 +923,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclObjCProtocol == clang::Decl::ObjCPr
 static_assert((clang::Decl::Kind)ZigClangDeclObjCMethod == clang::Decl::ObjCMethod, "");
 static_assert((clang::Decl::Kind)ZigClangDeclObjCProperty == clang::Decl::ObjCProperty, "");
 static_assert((clang::Decl::Kind)ZigClangDeclBuiltinTemplate == clang::Decl::BuiltinTemplate, "");
+static_assert((clang::Decl::Kind)ZigClangDeclConcept == clang::Decl::Concept, "");
 static_assert((clang::Decl::Kind)ZigClangDeclClassTemplate == clang::Decl::ClassTemplate, "");
 static_assert((clang::Decl::Kind)ZigClangDeclFunctionTemplate == clang::Decl::FunctionTemplate, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTypeAliasTemplate == clang::Decl::TypeAliasTemplate, "");
@@ -919,6 +939,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclObjCTypeParam == clang::Decl::ObjCT
 static_assert((clang::Decl::Kind)ZigClangDeclTypeAlias == clang::Decl::TypeAlias, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTypedef == clang::Decl::Typedef, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUnresolvedUsingTypename == clang::Decl::UnresolvedUsingTypename, "");
+static_assert((clang::Decl::Kind)ZigClangDeclOMPAllocate == clang::Decl::OMPAllocate, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUsing == clang::Decl::Using, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUsingDirective == clang::Decl::UsingDirective, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUsingPack == clang::Decl::UsingPack, "");
@@ -945,6 +966,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclVarTemplateSpecialization == clang:
 static_assert((clang::Decl::Kind)ZigClangDeclVarTemplatePartialSpecialization == clang::Decl::VarTemplatePartialSpecialization, "");
 static_assert((clang::Decl::Kind)ZigClangDeclEnumConstant == clang::Decl::EnumConstant, "");
 static_assert((clang::Decl::Kind)ZigClangDeclIndirectField == clang::Decl::IndirectField, "");
+static_assert((clang::Decl::Kind)ZigClangDeclOMPDeclareMapper == clang::Decl::OMPDeclareMapper, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPDeclareReduction == clang::Decl::OMPDeclareReduction, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUnresolvedUsingValue == clang::Decl::UnresolvedUsingValue, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPRequires == clang::Decl::OMPRequires, "");
@@ -1287,19 +1309,6 @@ static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF8 == clang::StringLiteral::UTF8, "");
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF16 == clang::StringLiteral::UTF16, "");
 static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF32 == clang::StringLiteral::UTF32, "");
-
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Uninitialized == clang::APValue::ValueKind::Uninitialized, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Int == clang::APValue::ValueKind::Int, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Float == clang::APValue::ValueKind::Float, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexInt == clang::APValue::ValueKind::ComplexInt, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_ComplexFloat == clang::APValue::ValueKind::ComplexFloat, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_LValue == clang::APValue::ValueKind::LValue, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Vector == clang::APValue::ValueKind::Vector, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Array == clang::APValue::ValueKind::Array, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Struct == clang::APValue::ValueKind::Struct, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_Union == clang::APValue::ValueKind::Union, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_MemberPointer == clang::APValue::ValueKind::MemberPointer, "");
-static_assert((clang::APValue::ValueKind)ZigClangAPValue_ValueKind_AddrLabelDiff == clang::APValue::ValueKind::AddrLabelDiff, "");
 
 static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
 
@@ -1744,7 +1753,6 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
 
     bool only_local_decls = true;
-    bool capture_diagnostics = true;
     bool user_files_are_volatile = true;
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
@@ -1753,7 +1761,7 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
             args_begin, args_end,
             pch_container_ops, diags, resources_path,
-            only_local_decls, capture_diagnostics, clang::None, true, 0, clang::TU_Complete,
+            only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
             single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
             nullptr);

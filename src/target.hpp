@@ -186,6 +186,7 @@ bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
 bool target_is_glibc(const ZigTarget *target);
 bool target_is_musl(const ZigTarget *target);
 bool target_is_wasm(const ZigTarget *target);
+bool target_is_android(const ZigTarget *target);
 bool target_is_single_threaded(const ZigTarget *target);
 bool target_supports_stack_probing(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);

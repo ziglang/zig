@@ -2520,6 +2520,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 static void construct_linker_job(LinkJob *lj) {
     switch (target_object_format(lj->codegen->zig_target)) {
         case ZigLLVM_UnknownObjectFormat:
+        case ZigLLVM_XCOFF:
             zig_unreachable();
 
         case ZigLLVM_COFF:
