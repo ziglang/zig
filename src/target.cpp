@@ -1477,9 +1477,9 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsKFreeBSD:
         case OsNetBSD:
         case OsHurd:
-        case OsWindows:
             return ZigLLVM_GNU;
         case OsUefi:
+        case OsWindows:
             return ZigLLVM_MSVC;
         case OsLinux:
         case OsWASI:
