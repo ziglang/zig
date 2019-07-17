@@ -227,6 +227,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_armeb,          // ARM (big endian): armeb
     ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
     ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+    ZigLLVM_aarch64_32,     // AArch64 (little endian) ILP32: aarch64_32
     ZigLLVM_arc,            // ARC: Synopsys ARC
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
@@ -289,6 +290,7 @@ enum ZigLLVM_SubArchType {
     ZigLLVM_ARMSubArch_v8r,
     ZigLLVM_ARMSubArch_v8m_baseline,
     ZigLLVM_ARMSubArch_v8m_mainline,
+    ZigLLVM_ARMSubArch_v8_1m_mainline,
     ZigLLVM_ARMSubArch_v7,
     ZigLLVM_ARMSubArch_v7em,
     ZigLLVM_ARMSubArch_v7m,
@@ -370,11 +372,12 @@ enum ZigLLVM_OSType {
     ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
     ZigLLVM_Hurd,       // GNU/Hurd
     ZigLLVM_WASI,       // Experimental WebAssembly OS
+    ZigLLVM_Emscripten,
 
-    ZigLLVM_LastOSType = ZigLLVM_WASI
+    ZigLLVM_LastOSType = ZigLLVM_Emscripten
 };
 
-// Synchronize with target.cpp::environ_list
+// Synchronize with target.cpp::abi_list
 enum ZigLLVM_EnvironmentType {
     ZigLLVM_UnknownEnvironment,
 
@@ -387,6 +390,8 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
+    ZigLLVM_ELFv1,
+    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
@@ -396,9 +401,10 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
-    ZigLLVM_Simulator,
+    ZigLLVM_Simulator, // Simulator variants of other systems, e.g., Apple's iOS
+    ZigLLVM_MacABI, // Mac Catalyst variant of Apple's iOS deployment target.
 
-    ZigLLVM_LastEnvironmentType = ZigLLVM_Simulator
+    ZigLLVM_LastEnvironmentType = ZigLLVM_MacABI
 };
 
 enum ZigLLVM_ObjectFormatType {
@@ -408,6 +414,7 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_ELF,
     ZigLLVM_MachO,
     ZigLLVM_Wasm,
+    ZigLLVM_XCOFF,
 };
 
 #define ZigLLVM_DIFlags_Zero 0U

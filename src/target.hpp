@@ -48,6 +48,7 @@ enum Os {
     OsHermitCore,
     OsHurd,
     OsWASI,
+    OsEmscripten,
     OsZen,
     OsUefi,
 };

@@ -33,6 +33,7 @@ static const ZigLLVM_SubArchType subarch_list_arm32[] = {
     ZigLLVM_ARMSubArch_v8r,
     ZigLLVM_ARMSubArch_v8m_baseline,
     ZigLLVM_ARMSubArch_v8m_mainline,
+    ZigLLVM_ARMSubArch_v8_1m_mainline,
     ZigLLVM_ARMSubArch_v7,
     ZigLLVM_ARMSubArch_v7em,
     ZigLLVM_ARMSubArch_v7m,
@@ -76,6 +77,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_armeb,          // ARM (big endian): armeb
     ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
     ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+    ZigLLVM_aarch64_32,     // AArch64 (little endian) ILP32: aarch64_32
     ZigLLVM_arc,            // ARC: Synopsys ARC
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
@@ -176,6 +178,7 @@ static const Os os_list[] = {
     OsHermitCore,
     OsHurd,
     OsWASI,
+    OsEmscripten,
     OsZen,
     OsUefi,
 };
@@ -193,15 +196,19 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
+    ZigLLVM_ELFv1,
+    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
     ZigLLVM_MuslEABIHF,
+
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator,
+    ZigLLVM_MacABI,
 };
 
 static const ZigLLVM_ObjectFormatType oformat_list[] = {
