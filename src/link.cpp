@@ -1775,11 +1775,15 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("--no-as-needed");
             }
         } else if (target_is_glibc(g->zig_target)) {
-            lj->args.append(build_libunwind(g));
+            if (target_supports_libunwind(g->zig_target)) {
+                lj->args.append(build_libunwind(g));
+            }
             add_glibc_libs(lj);
             lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
         } else if (target_is_musl(g->zig_target)) {
-            lj->args.append(build_libunwind(g));
+            if (target_supports_libunwind(g->zig_target)) {
+                lj->args.append(build_libunwind(g));
+            }
             lj->args.append(build_musl(g));
         } else {
             zig_unreachable();

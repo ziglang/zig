@@ -1687,3 +1687,9 @@ const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
     }
 }
 
+bool target_supports_libunwind(const ZigTarget *target) {
+    if (target->arch == ZigLLVM_arm || target->arch == ZigLLVM_armeb) {
+        return false;
+    }
+    return true;
+}

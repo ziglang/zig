@@ -189,6 +189,7 @@ bool target_is_single_threaded(const ZigTarget *target);
 bool target_supports_stack_probing(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
 const char *target_arch_musl_name(ZigLLVM_ArchType arch);
+bool target_supports_libunwind(const ZigTarget *target);
 
 uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch);
 

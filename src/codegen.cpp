@@ -8390,14 +8390,15 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         }
     }
 
-    args.append("-isystem");
-    args.append(buf_ptr(g->zig_c_headers_dir));
-
     for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
         Buf *include_dir = g->libc_include_dir_list[i];
         args.append("-isystem");
         args.append(buf_ptr(include_dir));
     }
+
+    // According to Rich Felker libc headers are supposed to go before C language headers.
+    args.append("-isystem");
+    args.append(buf_ptr(g->zig_c_headers_dir));
 
     if (g->zig_target->is_native) {
         args.append("-march=native");
