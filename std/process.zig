@@ -146,13 +146,12 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
                 error.Unexpected => return error.EnvironmentVariableNotFound,
                 else => |e| return e,
             };
-
             if (result > buf.len) {
                 buf = try allocator.realloc(buf, result);
                 continue;
             }
 
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf) catch |err| switch (err) {
+            return std.unicode.utf16leToUtf8Alloc(allocator, buf[0..result]) catch |err| switch (err) {
                 error.DanglingSurrogateHalf => return error.InvalidUtf8,
                 error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
                 error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
