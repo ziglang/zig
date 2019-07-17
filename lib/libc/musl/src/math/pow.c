@@ -1,328 +1,343 @@
-/* origin: FreeBSD /usr/src/lib/msun/src/e_pow.c */
 /*
- * ====================================================
- * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+ * Double-precision x^y function.
  *
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice
- * is preserved.
- * ====================================================
- */
-/* pow(x,y) return x**y
- *
- *                    n
- * Method:  Let x =  2   * (1+f)
- *      1. Compute and return log2(x) in two pieces:
- *              log2(x) = w1 + w2,
- *         where w1 has 53-24 = 29 bit trailing zeros.
- *      2. Perform y*log2(x) = n+y' by simulating muti-precision
- *         arithmetic, where |y'|<=0.5.
- *      3. Return x**y = 2**n*exp(y'*log2)
- *
- * Special cases:
- *      1.  (anything) ** 0  is 1
- *      2.  1 ** (anything)  is 1
- *      3.  (anything except 1) ** NAN is NAN
- *      4.  NAN ** (anything except 0) is NAN
- *      5.  +-(|x| > 1) **  +INF is +INF
- *      6.  +-(|x| > 1) **  -INF is +0
- *      7.  +-(|x| < 1) **  +INF is +0
- *      8.  +-(|x| < 1) **  -INF is +INF
- *      9.  -1          ** +-INF is 1
- *      10. +0 ** (+anything except 0, NAN)               is +0
- *      11. -0 ** (+anything except 0, NAN, odd integer)  is +0
- *      12. +0 ** (-anything except 0, NAN)               is +INF, raise divbyzero
- *      13. -0 ** (-anything except 0, NAN, odd integer)  is +INF, raise divbyzero
- *      14. -0 ** (+odd integer) is -0
- *      15. -0 ** (-odd integer) is -INF, raise divbyzero
- *      16. +INF ** (+anything except 0,NAN) is +INF
- *      17. +INF ** (-anything except 0,NAN) is +0
- *      18. -INF ** (+odd integer) is -INF
- *      19. -INF ** (anything) = -0 ** (-anything), (anything except odd integer)
- *      20. (anything) ** 1 is (anything)
- *      21. (anything) ** -1 is 1/(anything)
- *      22. (-anything) ** (integer) is (-1)**(integer)*(+anything**integer)
- *      23. (-anything except 0 and inf) ** (non-integer) is NAN
- *
- * Accuracy:
- *      pow(x,y) returns x**y nearly rounded. In particular
- *                      pow(integer,integer)
- *      always returns the correct integer provided it is
- *      representable.
- *
- * Constants :
- * The hexadecimal values are the intended ones for the following
- * constants. The decimal values may be used, provided that the
- * compiler will convert from decimal to binary accurately enough
- * to produce the hexadecimal values shown.
+ * Copyright (c) 2018, Arm Limited.
+ * SPDX-License-Identifier: MIT
  */
 
+#include <math.h>
+#include <stdint.h>
 #include "libm.h"
+#include "exp_data.h"
+#include "pow_data.h"
 
-static const double
-bp[]   = {1.0, 1.5,},
-dp_h[] = { 0.0, 5.84962487220764160156e-01,}, /* 0x3FE2B803, 0x40000000 */
-dp_l[] = { 0.0, 1.35003920212974897128e-08,}, /* 0x3E4CFDEB, 0x43CFD006 */
-two53  =  9007199254740992.0, /* 0x43400000, 0x00000000 */
-huge   =  1.0e300,
-tiny   =  1.0e-300,
-/* poly coefs for (3/2)*(log(x)-2s-2/3*s**3 */
-L1 =  5.99999999999994648725e-01, /* 0x3FE33333, 0x33333303 */
-L2 =  4.28571428578550184252e-01, /* 0x3FDB6DB6, 0xDB6FABFF */
-L3 =  3.33333329818377432918e-01, /* 0x3FD55555, 0x518F264D */
-L4 =  2.72728123808534006489e-01, /* 0x3FD17460, 0xA91D4101 */
-L5 =  2.30660745775561754067e-01, /* 0x3FCD864A, 0x93C9DB65 */
-L6 =  2.06975017800338417784e-01, /* 0x3FCA7E28, 0x4A454EEF */
-P1 =  1.66666666666666019037e-01, /* 0x3FC55555, 0x5555553E */
-P2 = -2.77777777770155933842e-03, /* 0xBF66C16C, 0x16BEBD93 */
-P3 =  6.61375632143793436117e-05, /* 0x3F11566A, 0xAF25DE2C */
-P4 = -1.65339022054652515390e-06, /* 0xBEBBBD41, 0xC5D26BF1 */
-P5 =  4.13813679705723846039e-08, /* 0x3E663769, 0x72BEA4D0 */
-lg2     =  6.93147180559945286227e-01, /* 0x3FE62E42, 0xFEFA39EF */
-lg2_h   =  6.93147182464599609375e-01, /* 0x3FE62E43, 0x00000000 */
-lg2_l   = -1.90465429995776804525e-09, /* 0xBE205C61, 0x0CA86C39 */
-ovt     =  8.0085662595372944372e-017, /* -(1024-log2(ovfl+.5ulp)) */
-cp      =  9.61796693925975554329e-01, /* 0x3FEEC709, 0xDC3A03FD =2/(3ln2) */
-cp_h    =  9.61796700954437255859e-01, /* 0x3FEEC709, 0xE0000000 =(float)cp */
-cp_l    = -7.02846165095275826516e-09, /* 0xBE3E2FE0, 0x145B01F5 =tail of cp_h*/
-ivln2   =  1.44269504088896338700e+00, /* 0x3FF71547, 0x652B82FE =1/ln2 */
-ivln2_h =  1.44269502162933349609e+00, /* 0x3FF71547, 0x60000000 =24b 1/ln2*/
-ivln2_l =  1.92596299112661746887e-08; /* 0x3E54AE0B, 0xF85DDF44 =1/ln2 tail*/
+/*
+Worst-case error: 0.54 ULP (~= ulperr_exp + 1024*Ln2*relerr_log*2^53)
+relerr_log: 1.3 * 2^-68 (Relative error of log, 1.5 * 2^-68 without fma)
+ulperr_exp: 0.509 ULP (ULP error of exp, 0.511 ULP without fma)
+*/
+
+#define T __pow_log_data.tab
+#define A __pow_log_data.poly
+#define Ln2hi __pow_log_data.ln2hi
+#define Ln2lo __pow_log_data.ln2lo
+#define N (1 << POW_LOG_TABLE_BITS)
+#define OFF 0x3fe6955500000000
+
+/* Top 12 bits of a double (sign and exponent bits).  */
+static inline uint32_t top12(double x)
+{
+	return asuint64(x) >> 52;
+}
+
+/* Compute y+TAIL = log(x) where the rounded result is y and TAIL has about
+   additional 15 bits precision.  IX is the bit representation of x, but
+   normalized in the subnormal range using the sign bit for the exponent.  */
+static inline double_t log_inline(uint64_t ix, double_t *tail)
+{
+	/* double_t for better performance on targets with FLT_EVAL_METHOD==2.  */
+	double_t z, r, y, invc, logc, logctail, kd, hi, t1, t2, lo, lo1, lo2, p;
+	uint64_t iz, tmp;
+	int k, i;
+
+	/* x = 2^k z; where z is in range [OFF,2*OFF) and exact.
+	   The range is split into N subintervals.
+	   The ith subinterval contains z and c is near its center.  */
+	tmp = ix - OFF;
+	i = (tmp >> (52 - POW_LOG_TABLE_BITS)) % N;
+	k = (int64_t)tmp >> 52; /* arithmetic shift */
+	iz = ix - (tmp & 0xfffULL << 52);
+	z = asdouble(iz);
+	kd = (double_t)k;
+
+	/* log(x) = k*Ln2 + log(c) + log1p(z/c-1).  */
+	invc = T[i].invc;
+	logc = T[i].logc;
+	logctail = T[i].logctail;
+
+	/* Note: 1/c is j/N or j/N/2 where j is an integer in [N,2N) and
+     |z/c - 1| < 1/N, so r = z/c - 1 is exactly representible.  */
+#if __FP_FAST_FMA
+	r = __builtin_fma(z, invc, -1.0);
+#else
+	/* Split z such that rhi, rlo and rhi*rhi are exact and |rlo| <= |r|.  */
+	double_t zhi = asdouble((iz + (1ULL << 31)) & (-1ULL << 32));
+	double_t zlo = z - zhi;
+	double_t rhi = zhi * invc - 1.0;
+	double_t rlo = zlo * invc;
+	r = rhi + rlo;
+#endif
+
+	/* k*Ln2 + log(c) + r.  */
+	t1 = kd * Ln2hi + logc;
+	t2 = t1 + r;
+	lo1 = kd * Ln2lo + logctail;
+	lo2 = t1 - t2 + r;
+
+	/* Evaluation is optimized assuming superscalar pipelined execution.  */
+	double_t ar, ar2, ar3, lo3, lo4;
+	ar = A[0] * r; /* A[0] = -0.5.  */
+	ar2 = r * ar;
+	ar3 = r * ar2;
+	/* k*Ln2 + log(c) + r + A[0]*r*r.  */
+#if __FP_FAST_FMA
+	hi = t2 + ar2;
+	lo3 = __builtin_fma(ar, r, -ar2);
+	lo4 = t2 - hi + ar2;
+#else
+	double_t arhi = A[0] * rhi;
+	double_t arhi2 = rhi * arhi;
+	hi = t2 + arhi2;
+	lo3 = rlo * (ar + arhi);
+	lo4 = t2 - hi + arhi2;
+#endif
+	/* p = log1p(r) - r - A[0]*r*r.  */
+	p = (ar3 * (A[1] + r * A[2] +
+		    ar2 * (A[3] + r * A[4] + ar2 * (A[5] + r * A[6]))));
+	lo = lo1 + lo2 + lo3 + lo4 + p;
+	y = hi + lo;
+	*tail = hi - y + lo;
+	return y;
+}
+
+#undef N
+#undef T
+#define N (1 << EXP_TABLE_BITS)
+#define InvLn2N __exp_data.invln2N
+#define NegLn2hiN __exp_data.negln2hiN
+#define NegLn2loN __exp_data.negln2loN
+#define Shift __exp_data.shift
+#define T __exp_data.tab
+#define C2 __exp_data.poly[5 - EXP_POLY_ORDER]
+#define C3 __exp_data.poly[6 - EXP_POLY_ORDER]
+#define C4 __exp_data.poly[7 - EXP_POLY_ORDER]
+#define C5 __exp_data.poly[8 - EXP_POLY_ORDER]
+#define C6 __exp_data.poly[9 - EXP_POLY_ORDER]
+
+/* Handle cases that may overflow or underflow when computing the result that
+   is scale*(1+TMP) without intermediate rounding.  The bit representation of
+   scale is in SBITS, however it has a computed exponent that may have
+   overflown into the sign bit so that needs to be adjusted before using it as
+   a double.  (int32_t)KI is the k used in the argument reduction and exponent
+   adjustment of scale, positive k here means the result may overflow and
+   negative k means the result may underflow.  */
+static inline double specialcase(double_t tmp, uint64_t sbits, uint64_t ki)
+{
+	double_t scale, y;
+
+	if ((ki & 0x80000000) == 0) {
+		/* k > 0, the exponent of scale might have overflowed by <= 460.  */
+		sbits -= 1009ull << 52;
+		scale = asdouble(sbits);
+		y = 0x1p1009 * (scale + scale * tmp);
+		return eval_as_double(y);
+	}
+	/* k < 0, need special care in the subnormal range.  */
+	sbits += 1022ull << 52;
+	/* Note: sbits is signed scale.  */
+	scale = asdouble(sbits);
+	y = scale + scale * tmp;
+	if (fabs(y) < 1.0) {
+		/* Round y to the right precision before scaling it into the subnormal
+		   range to avoid double rounding that can cause 0.5+E/2 ulp error where
+		   E is the worst-case ulp error outside the subnormal range.  So this
+		   is only useful if the goal is better than 1 ulp worst-case error.  */
+		double_t hi, lo, one = 1.0;
+		if (y < 0.0)
+			one = -1.0;
+		lo = scale - y + scale * tmp;
+		hi = one + y;
+		lo = one - hi + y + lo;
+		y = eval_as_double(hi + lo) - one;
+		/* Fix the sign of 0.  */
+		if (y == 0.0)
+			y = asdouble(sbits & 0x8000000000000000);
+		/* The underflow exception needs to be signaled explicitly.  */
+		fp_force_eval(fp_barrier(0x1p-1022) * 0x1p-1022);
+	}
+	y = 0x1p-1022 * y;
+	return eval_as_double(y);
+}
+
+#define SIGN_BIAS (0x800 << EXP_TABLE_BITS)
+
+/* Computes sign*exp(x+xtail) where |xtail| < 2^-8/N and |xtail| <= |x|.
+   The sign_bias argument is SIGN_BIAS or 0 and sets the sign to -1 or 1.  */
+static inline double exp_inline(double_t x, double_t xtail, uint32_t sign_bias)
+{
+	uint32_t abstop;
+	uint64_t ki, idx, top, sbits;
+	/* double_t for better performance on targets with FLT_EVAL_METHOD==2.  */
+	double_t kd, z, r, r2, scale, tail, tmp;
+
+	abstop = top12(x) & 0x7ff;
+	if (predict_false(abstop - top12(0x1p-54) >=
+			  top12(512.0) - top12(0x1p-54))) {
+		if (abstop - top12(0x1p-54) >= 0x80000000) {
+			/* Avoid spurious underflow for tiny x.  */
+			/* Note: 0 is common input.  */
+			double_t one = WANT_ROUNDING ? 1.0 + x : 1.0;
+			return sign_bias ? -one : one;
+		}
+		if (abstop >= top12(1024.0)) {
+			/* Note: inf and nan are already handled.  */
+			if (asuint64(x) >> 63)
+				return __math_uflow(sign_bias);
+			else
+				return __math_oflow(sign_bias);
+		}
+		/* Large x is special cased below.  */
+		abstop = 0;
+	}
+
+	/* exp(x) = 2^(k/N) * exp(r), with exp(r) in [2^(-1/2N),2^(1/2N)].  */
+	/* x = ln2/N*k + r, with int k and r in [-ln2/2N, ln2/2N].  */
+	z = InvLn2N * x;
+#if TOINT_INTRINSICS
+	kd = roundtoint(z);
+	ki = converttoint(z);
+#elif EXP_USE_TOINT_NARROW
+	/* z - kd is in [-0.5-2^-16, 0.5] in all rounding modes.  */
+	kd = eval_as_double(z + Shift);
+	ki = asuint64(kd) >> 16;
+	kd = (double_t)(int32_t)ki;
+#else
+	/* z - kd is in [-1, 1] in non-nearest rounding modes.  */
+	kd = eval_as_double(z + Shift);
+	ki = asuint64(kd);
+	kd -= Shift;
+#endif
+	r = x + kd * NegLn2hiN + kd * NegLn2loN;
+	/* The code assumes 2^-200 < |xtail| < 2^-8/N.  */
+	r += xtail;
+	/* 2^(k/N) ~= scale * (1 + tail).  */
+	idx = 2 * (ki % N);
+	top = (ki + sign_bias) << (52 - EXP_TABLE_BITS);
+	tail = asdouble(T[idx]);
+	/* This is only a valid scale when -1023*N < k < 1024*N.  */
+	sbits = T[idx + 1] + top;
+	/* exp(x) = 2^(k/N) * exp(r) ~= scale + scale * (tail + exp(r) - 1).  */
+	/* Evaluation is optimized assuming superscalar pipelined execution.  */
+	r2 = r * r;
+	/* Without fma the worst case error is 0.25/N ulp larger.  */
+	/* Worst case error is less than 0.5+1.11/N+(abs poly error * 2^53) ulp.  */
+	tmp = tail + r + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5);
+	if (predict_false(abstop == 0))
+		return specialcase(tmp, sbits, ki);
+	scale = asdouble(sbits);
+	/* Note: tmp == 0 or |tmp| > 2^-200 and scale > 2^-739, so there
+	   is no spurious underflow here even without fma.  */
+	return eval_as_double(scale + scale * tmp);
+}
+
+/* Returns 0 if not int, 1 if odd int, 2 if even int.  The argument is
+   the bit representation of a non-zero finite floating-point value.  */
+static inline int checkint(uint64_t iy)
+{
+	int e = iy >> 52 & 0x7ff;
+	if (e < 0x3ff)
+		return 0;
+	if (e > 0x3ff + 52)
+		return 2;
+	if (iy & ((1ULL << (0x3ff + 52 - e)) - 1))
+		return 0;
+	if (iy & (1ULL << (0x3ff + 52 - e)))
+		return 1;
+	return 2;
+}
+
+/* Returns 1 if input is the bit representation of 0, infinity or nan.  */
+static inline int zeroinfnan(uint64_t i)
+{
+	return 2 * i - 1 >= 2 * asuint64(INFINITY) - 1;
+}
 
 double pow(double x, double y)
 {
-	double z,ax,z_h,z_l,p_h,p_l;
-	double y1,t1,t2,r,s,t,u,v,w;
-	int32_t i,j,k,yisint,n;
-	int32_t hx,hy,ix,iy;
-	uint32_t lx,ly;
+	uint32_t sign_bias = 0;
+	uint64_t ix, iy;
+	uint32_t topx, topy;
 
-	EXTRACT_WORDS(hx, lx, x);
-	EXTRACT_WORDS(hy, ly, y);
-	ix = hx & 0x7fffffff;
-	iy = hy & 0x7fffffff;
-
-	/* x**0 = 1, even if x is NaN */
-	if ((iy|ly) == 0)
-		return 1.0;
-	/* 1**y = 1, even if y is NaN */
-	if (hx == 0x3ff00000 && lx == 0)
-		return 1.0;
-	/* NaN if either arg is NaN */
-	if (ix > 0x7ff00000 || (ix == 0x7ff00000 && lx != 0) ||
-	    iy > 0x7ff00000 || (iy == 0x7ff00000 && ly != 0))
-		return x + y;
-
-	/* determine if y is an odd int when x < 0
-	 * yisint = 0       ... y is not an integer
-	 * yisint = 1       ... y is an odd int
-	 * yisint = 2       ... y is an even int
-	 */
-	yisint = 0;
-	if (hx < 0) {
-		if (iy >= 0x43400000)
-			yisint = 2; /* even integer y */
-		else if (iy >= 0x3ff00000) {
-			k = (iy>>20) - 0x3ff;  /* exponent */
-			if (k > 20) {
-				uint32_t j = ly>>(52-k);
-				if ((j<<(52-k)) == ly)
-					yisint = 2 - (j&1);
-			} else if (ly == 0) {
-				uint32_t j = iy>>(20-k);
-				if ((j<<(20-k)) == iy)
-					yisint = 2 - (j&1);
-			}
-		}
-	}
-
-	/* special value of y */
-	if (ly == 0) {
-		if (iy == 0x7ff00000) {  /* y is +-inf */
-			if (((ix-0x3ff00000)|lx) == 0)  /* (-1)**+-inf is 1 */
+	ix = asuint64(x);
+	iy = asuint64(y);
+	topx = top12(x);
+	topy = top12(y);
+	if (predict_false(topx - 0x001 >= 0x7ff - 0x001 ||
+			  (topy & 0x7ff) - 0x3be >= 0x43e - 0x3be)) {
+		/* Note: if |y| > 1075 * ln2 * 2^53 ~= 0x1.749p62 then pow(x,y) = inf/0
+		   and if |y| < 2^-54 / 1075 ~= 0x1.e7b6p-65 then pow(x,y) = +-1.  */
+		/* Special cases: (x < 0x1p-126 or inf or nan) or
+		   (|y| < 0x1p-65 or |y| >= 0x1p63 or nan).  */
+		if (predict_false(zeroinfnan(iy))) {
+			if (2 * iy == 0)
+				return issignaling_inline(x) ? x + y : 1.0;
+			if (ix == asuint64(1.0))
+				return issignaling_inline(y) ? x + y : 1.0;
+			if (2 * ix > 2 * asuint64(INFINITY) ||
+			    2 * iy > 2 * asuint64(INFINITY))
+				return x + y;
+			if (2 * ix == 2 * asuint64(1.0))
 				return 1.0;
-			else if (ix >= 0x3ff00000) /* (|x|>1)**+-inf = inf,0 */
-				return hy >= 0 ? y : 0.0;
-			else                       /* (|x|<1)**+-inf = 0,inf */
-				return hy >= 0 ? 0.0 : -y;
+			if ((2 * ix < 2 * asuint64(1.0)) == !(iy >> 63))
+				return 0.0; /* |x|<1 && y==inf or |x|>1 && y==-inf.  */
+			return y * y;
 		}
-		if (iy == 0x3ff00000) {    /* y is +-1 */
-			if (hy >= 0)
-				return x;
-			y = 1/x;
-#if FLT_EVAL_METHOD!=0
-			{
-				union {double f; uint64_t i;} u = {y};
-				uint64_t i = u.i & -1ULL/2;
-				if (i>>52 == 0 && (i&(i-1)))
-					FORCE_EVAL((float)y);
+		if (predict_false(zeroinfnan(ix))) {
+			double_t x2 = x * x;
+			if (ix >> 63 && checkint(iy) == 1)
+				x2 = -x2;
+			/* Without the barrier some versions of clang hoist the 1/x2 and
+			   thus division by zero exception can be signaled spuriously.  */
+			return iy >> 63 ? fp_barrier(1 / x2) : x2;
+		}
+		/* Here x and y are non-zero finite.  */
+		if (ix >> 63) {
+			/* Finite x < 0.  */
+			int yint = checkint(iy);
+			if (yint == 0)
+				return __math_invalid(x);
+			if (yint == 1)
+				sign_bias = SIGN_BIAS;
+			ix &= 0x7fffffffffffffff;
+			topx &= 0x7ff;
+		}
+		if ((topy & 0x7ff) - 0x3be >= 0x43e - 0x3be) {
+			/* Note: sign_bias == 0 here because y is not odd.  */
+			if (ix == asuint64(1.0))
+				return 1.0;
+			if ((topy & 0x7ff) < 0x3be) {
+				/* |y| < 2^-65, x^y ~= 1 + y*log(x).  */
+				if (WANT_ROUNDING)
+					return ix > asuint64(1.0) ? 1.0 + y :
+								    1.0 - y;
+				else
+					return 1.0;
 			}
+			return (ix > asuint64(1.0)) == (topy < 0x800) ?
+				       __math_oflow(0) :
+				       __math_uflow(0);
+		}
+		if (topx == 0) {
+			/* Normalize subnormal x so exponent becomes negative.  */
+			ix = asuint64(x * 0x1p52);
+			ix &= 0x7fffffffffffffff;
+			ix -= 52ULL << 52;
+		}
+	}
+
+	double_t lo;
+	double_t hi = log_inline(ix, &lo);
+	double_t ehi, elo;
+#if __FP_FAST_FMA
+	ehi = y * hi;
+	elo = y * lo + __builtin_fma(y, hi, -ehi);
+#else
+	double_t yhi = asdouble(iy & -1ULL << 27);
+	double_t ylo = y - yhi;
+	double_t lhi = asdouble(asuint64(hi) & -1ULL << 27);
+	double_t llo = hi - lhi + lo;
+	ehi = yhi * lhi;
+	elo = ylo * lhi + y * llo; /* |elo| < |ehi| * 2^-25.  */
 #endif
-			return y;
-		}
-		if (hy == 0x40000000)    /* y is 2 */
-			return x*x;
-		if (hy == 0x3fe00000) {  /* y is 0.5 */
-			if (hx >= 0)     /* x >= +0 */
-				return sqrt(x);
-		}
-	}
-
-	ax = fabs(x);
-	/* special value of x */
-	if (lx == 0) {
-		if (ix == 0x7ff00000 || ix == 0 || ix == 0x3ff00000) { /* x is +-0,+-inf,+-1 */
-			z = ax;
-			if (hy < 0)   /* z = (1/|x|) */
-				z = 1.0/z;
-			if (hx < 0) {
-				if (((ix-0x3ff00000)|yisint) == 0) {
-					z = (z-z)/(z-z); /* (-1)**non-int is NaN */
-				} else if (yisint == 1)
-					z = -z;          /* (x<0)**odd = -(|x|**odd) */
-			}
-			return z;
-		}
-	}
-
-	s = 1.0; /* sign of result */
-	if (hx < 0) {
-		if (yisint == 0) /* (x<0)**(non-int) is NaN */
-			return (x-x)/(x-x);
-		if (yisint == 1) /* (x<0)**(odd int) */
-			s = -1.0;
-	}
-
-	/* |y| is huge */
-	if (iy > 0x41e00000) { /* if |y| > 2**31 */
-		if (iy > 0x43f00000) {  /* if |y| > 2**64, must o/uflow */
-			if (ix <= 0x3fefffff)
-				return hy < 0 ? huge*huge : tiny*tiny;
-			if (ix >= 0x3ff00000)
-				return hy > 0 ? huge*huge : tiny*tiny;
-		}
-		/* over/underflow if x is not close to one */
-		if (ix < 0x3fefffff)
-			return hy < 0 ? s*huge*huge : s*tiny*tiny;
-		if (ix > 0x3ff00000)
-			return hy > 0 ? s*huge*huge : s*tiny*tiny;
-		/* now |1-x| is tiny <= 2**-20, suffice to compute
-		   log(x) by x-x^2/2+x^3/3-x^4/4 */
-		t = ax - 1.0;       /* t has 20 trailing zeros */
-		w = (t*t)*(0.5 - t*(0.3333333333333333333333-t*0.25));
-		u = ivln2_h*t;      /* ivln2_h has 21 sig. bits */
-		v = t*ivln2_l - w*ivln2;
-		t1 = u + v;
-		SET_LOW_WORD(t1, 0);
-		t2 = v - (t1-u);
-	} else {
-		double ss,s2,s_h,s_l,t_h,t_l;
-		n = 0;
-		/* take care subnormal number */
-		if (ix < 0x00100000) {
-			ax *= two53;
-			n -= 53;
-			GET_HIGH_WORD(ix,ax);
-		}
-		n += ((ix)>>20) - 0x3ff;
-		j = ix & 0x000fffff;
-		/* determine interval */
-		ix = j | 0x3ff00000;   /* normalize ix */
-		if (j <= 0x3988E)      /* |x|<sqrt(3/2) */
-			k = 0;
-		else if (j < 0xBB67A)  /* |x|<sqrt(3)   */
-			k = 1;
-		else {
-			k = 0;
-			n += 1;
-			ix -= 0x00100000;
-		}
-		SET_HIGH_WORD(ax, ix);
-
-		/* compute ss = s_h+s_l = (x-1)/(x+1) or (x-1.5)/(x+1.5) */
-		u = ax - bp[k];        /* bp[0]=1.0, bp[1]=1.5 */
-		v = 1.0/(ax+bp[k]);
-		ss = u*v;
-		s_h = ss;
-		SET_LOW_WORD(s_h, 0);
-		/* t_h=ax+bp[k] High */
-		t_h = 0.0;
-		SET_HIGH_WORD(t_h, ((ix>>1)|0x20000000) + 0x00080000 + (k<<18));
-		t_l = ax - (t_h-bp[k]);
-		s_l = v*((u-s_h*t_h)-s_h*t_l);
-		/* compute log(ax) */
-		s2 = ss*ss;
-		r = s2*s2*(L1+s2*(L2+s2*(L3+s2*(L4+s2*(L5+s2*L6)))));
-		r += s_l*(s_h+ss);
-		s2 = s_h*s_h;
-		t_h = 3.0 + s2 + r;
-		SET_LOW_WORD(t_h, 0);
-		t_l = r - ((t_h-3.0)-s2);
-		/* u+v = ss*(1+...) */
-		u = s_h*t_h;
-		v = s_l*t_h + t_l*ss;
-		/* 2/(3log2)*(ss+...) */
-		p_h = u + v;
-		SET_LOW_WORD(p_h, 0);
-		p_l = v - (p_h-u);
-		z_h = cp_h*p_h;        /* cp_h+cp_l = 2/(3*log2) */
-		z_l = cp_l*p_h+p_l*cp + dp_l[k];
-		/* log2(ax) = (ss+..)*2/(3*log2) = n + dp_h + z_h + z_l */
-		t = (double)n;
-		t1 = ((z_h + z_l) + dp_h[k]) + t;
-		SET_LOW_WORD(t1, 0);
-		t2 = z_l - (((t1 - t) - dp_h[k]) - z_h);
-	}
-
-	/* split up y into y1+y2 and compute (y1+y2)*(t1+t2) */
-	y1 = y;
-	SET_LOW_WORD(y1, 0);
-	p_l = (y-y1)*t1 + y*t2;
-	p_h = y1*t1;
-	z = p_l + p_h;
-	EXTRACT_WORDS(j, i, z);
-	if (j >= 0x40900000) {                      /* z >= 1024 */
-		if (((j-0x40900000)|i) != 0)        /* if z > 1024 */
-			return s*huge*huge;         /* overflow */
-		if (p_l + ovt > z - p_h)
-			return s*huge*huge;         /* overflow */
-	} else if ((j&0x7fffffff) >= 0x4090cc00) {  /* z <= -1075 */  // FIXME: instead of abs(j) use unsigned j
-		if (((j-0xc090cc00)|i) != 0)        /* z < -1075 */
-			return s*tiny*tiny;         /* underflow */
-		if (p_l <= z - p_h)
-			return s*tiny*tiny;         /* underflow */
-	}
-	/*
-	 * compute 2**(p_h+p_l)
-	 */
-	i = j & 0x7fffffff;
-	k = (i>>20) - 0x3ff;
-	n = 0;
-	if (i > 0x3fe00000) {  /* if |z| > 0.5, set n = [z+0.5] */
-		n = j + (0x00100000>>(k+1));
-		k = ((n&0x7fffffff)>>20) - 0x3ff;  /* new k for n */
-		t = 0.0;
-		SET_HIGH_WORD(t, n & ~(0x000fffff>>k));
-		n = ((n&0x000fffff)|0x00100000)>>(20-k);
-		if (j < 0)
-			n = -n;
-		p_h -= t;
-	}
-	t = p_l + p_h;
-	SET_LOW_WORD(t, 0);
-	u = t*lg2_h;
-	v = (p_l-(t-p_h))*lg2 + t*lg2_l;
-	z = u + v;
-	w = v - (z-u);
-	t = z*z;
-	t1 = z - t*(P1+t*(P2+t*(P3+t*(P4+t*P5))));
-	r = (z*t1)/(t1-2.0) - (w + z*w);
-	z = 1.0 - (r-z);
-	GET_HIGH_WORD(j, z);
-	j += n<<20;
-	if ((j>>20) <= 0)  /* subnormal output */
-		z = scalbn(z,n);
-	else
-		SET_HIGH_WORD(z, j);
-	return s*z;
+	return exp_inline(ehi, elo, sign_bias);
 }

@@ -1524,7 +1524,7 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_aarch64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
@@ -1555,7 +1555,6 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_ppc64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_ppc, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_riscv32, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_riscv64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_riscv64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_systemz, OsLinux, ZigLLVM_GNU},
@@ -1655,3 +1654,36 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
 bool target_has_debug_info(const ZigTarget *target) {
     return !target_is_wasm(target);
 }
+
+const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+            return "aarch64";
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+            return "arm";
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+            return "mips";
+        case ZigLLVM_mips64el:
+        case ZigLLVM_mips64:
+            return "mips64";
+        case ZigLLVM_ppc:
+            return "powerpc";
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+            return "powerpc64";
+        case ZigLLVM_systemz:
+            return "s390x";
+        case ZigLLVM_x86:
+            return "i386";
+        case ZigLLVM_x86_64:
+            return "x86_64";
+        case ZigLLVM_riscv64:
+            return "riscv64";
+        default:
+            zig_unreachable();
+    }
+}
+

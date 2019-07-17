@@ -1,6 +1,6 @@
 #include "pthread_impl.h"
 
-int pthread_rwlock_tryrdlock(pthread_rwlock_t *rw)
+int __pthread_rwlock_tryrdlock(pthread_rwlock_t *rw)
 {
 	int val, cnt;
 	do {
@@ -11,3 +11,5 @@ int pthread_rwlock_tryrdlock(pthread_rwlock_t *rw)
 	} while (a_cas(&rw->_rw_lock, val, val+1) != val);
 	return 0;
 }
+
+weak_alias(__pthread_rwlock_tryrdlock, pthread_rwlock_tryrdlock);

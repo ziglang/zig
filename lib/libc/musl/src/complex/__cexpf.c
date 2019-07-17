@@ -25,7 +25,7 @@
  * SUCH DAMAGE.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 static const uint32_t k = 235; /* constant for reduction */
 static const float kln2 = 162.88958740F; /* k * ln2 */

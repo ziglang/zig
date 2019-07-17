@@ -8267,10 +8267,16 @@ static void detect_libc(CodeGen *g) {
 
     if (target_can_build_libc(g->zig_target)) {
         const char *generic_name = target_libc_generic_name(g->zig_target);
-
+        const char *arch_name = target_arch_name(g->zig_target->arch);
+        const char *abi_name = target_abi_name(g->zig_target->abi);
+        if (target_is_musl(g->zig_target)) {
+            // musl has some overrides. its headers are ABI-agnostic and so they all have the "musl" ABI name.
+            abi_name = "musl";
+            // some architectures are handled by the same set of headers
+            arch_name = target_arch_musl_name(g->zig_target->arch);
+        }
         Buf *arch_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
-                buf_ptr(g->zig_lib_dir), target_arch_name(g->zig_target->arch),
-                target_os_name(g->zig_target->os), target_abi_name(g->zig_target->abi));
+                buf_ptr(g->zig_lib_dir), arch_name, target_os_name(g->zig_target->os), abi_name);
         Buf *generic_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-%s",
                 buf_ptr(g->zig_lib_dir), generic_name);
         Buf *arch_os_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-any",

@@ -113,7 +113,7 @@ int lio_listio(int mode, struct aiocb *restrict const *restrict cbs, int cnt, st
 
 	if (st) {
 		pthread_attr_t a;
-		sigset_t set;
+		sigset_t set, set_old;
 		pthread_t td;
 
 		if (sev->sigev_notify == SIGEV_THREAD) {
@@ -128,13 +128,13 @@ int lio_listio(int mode, struct aiocb *restrict const *restrict cbs, int cnt, st
 		}
 		pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
 		sigfillset(&set);
-		pthread_sigmask(SIG_BLOCK, &set, &set);
+		pthread_sigmask(SIG_BLOCK, &set, &set_old);
 		if (pthread_create(&td, &a, wait_thread, st)) {
 			free(st);
 			errno = EAGAIN;
 			return -1;
 		}
-		pthread_sigmask(SIG_SETMASK, &set, 0);
+		pthread_sigmask(SIG_SETMASK, &set_old, 0);
 	}
 
 	return 0;

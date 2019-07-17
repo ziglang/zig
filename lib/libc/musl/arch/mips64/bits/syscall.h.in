@@ -324,6 +324,10 @@
 #define __NR_pkey_alloc			5324
 #define __NR_pkey_free			5325
 #define __NR_statx			5326
-#define __NR_rseq			4327
-#define __NR_io_pgetevents		4328
+#define __NR_rseq			5327
+#define __NR_io_pgetevents		5328
+#define __NR_pidfd_send_signal		5424
+#define __NR_io_uring_setup		5425
+#define __NR_io_uring_enter		5426
+#define __NR_io_uring_register		5427
 

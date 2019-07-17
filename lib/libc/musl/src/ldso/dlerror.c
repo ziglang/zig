@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include "pthread_impl.h"
 #include "dynlink.h"
+#include "lock.h"
 
 char *dlerror()
 {
@@ -16,21 +17,38 @@ char *dlerror()
 		return s;
 }
 
+static volatile int freebuf_queue_lock[1];
+static void **freebuf_queue;
+
 void __dl_thread_cleanup(void)
 {
 	pthread_t self = __pthread_self();
-	if (self->dlerror_buf != (void *)-1)
-		free(self->dlerror_buf);
+	if (self->dlerror_buf && self->dlerror_buf != (void *)-1) {
+		LOCK(freebuf_queue_lock);
+		void **p = (void **)self->dlerror_buf;
+		*p = freebuf_queue;
+		freebuf_queue = p;
+		UNLOCK(freebuf_queue_lock);
+	}
 }
 
 hidden void __dl_vseterr(const char *fmt, va_list ap)
 {
+	LOCK(freebuf_queue_lock);
+	while (freebuf_queue) {
+		void **p = freebuf_queue;
+		freebuf_queue = *p;
+		free(p);
+	}
+	UNLOCK(freebuf_queue_lock);
+
 	va_list ap2;
 	va_copy(ap2, ap);
 	pthread_t self = __pthread_self();
 	if (self->dlerror_buf != (void *)-1)
 		free(self->dlerror_buf);
 	size_t len = vsnprintf(0, 0, fmt, ap2);
+	if (len < sizeof(void *)) len = sizeof(void *);
 	va_end(ap2);
 	char *buf = malloc(len+1);
 	if (buf) {

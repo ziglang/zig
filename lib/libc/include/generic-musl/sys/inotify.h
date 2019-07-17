@@ -40,6 +40,7 @@ struct inotify_event {
 #define IN_ONLYDIR       0x01000000
 #define IN_DONT_FOLLOW   0x02000000
 #define IN_EXCL_UNLINK   0x04000000
+#define IN_MASK_CREATE   0x10000000
 #define IN_MASK_ADD      0x20000000
 
 #define IN_ISDIR         0x40000000

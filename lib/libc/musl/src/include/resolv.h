@@ -1,7 +1,7 @@
 #ifndef RESOLV_H
 #define RESOLV_H
 
-#include_next "resolv.h"
+#include "../../include/resolv.h"
 
 hidden int __dn_expand(const unsigned char *, const unsigned char *, const unsigned char *, char *, int);
 

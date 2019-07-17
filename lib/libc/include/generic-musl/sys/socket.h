@@ -235,6 +235,9 @@ struct linger {
 #define SCM_TIMESTAMPING_PKTINFO 58
 #define SO_PEERGROUPS           59
 #define SO_ZEROCOPY             60
+#define SO_TXTIME               61
+#define SCM_TXTIME              SO_TXTIME
+#define SO_BINDTOIFINDEX        62
 
 #ifndef SOL_SOCKET
 #define SOL_SOCKET      1

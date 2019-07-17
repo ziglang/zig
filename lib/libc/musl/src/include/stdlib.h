@@ -1,7 +1,7 @@
 #ifndef STDLIB_H
 #define STDLIB_H
 
-#include_next "stdlib.h"
+#include "../../include/stdlib.h"
 
 hidden int __putenv(char *, size_t, char *);
 hidden void __env_rm_add(char *, char *);

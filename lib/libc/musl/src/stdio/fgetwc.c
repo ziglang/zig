@@ -25,12 +25,18 @@ static wint_t __fgetwc_unlocked_internal(FILE *f)
 	do {
 		b = c = getc_unlocked(f);
 		if (c < 0) {
-			if (!first) errno = EILSEQ;
+			if (!first) {
+				f->flags |= F_ERR;
+				errno = EILSEQ;
+			}
 			return WEOF;
 		}
 		l = mbrtowc(&wc, (void *)&b, 1, &st);
 		if (l == -1) {
-			if (!first) ungetc(b, f);
+			if (!first) {
+				f->flags |= F_ERR;
+				ungetc(b, f);
+			}
 			return WEOF;
 		}
 		first = 0;

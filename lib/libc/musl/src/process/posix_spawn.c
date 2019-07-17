@@ -101,6 +101,10 @@ static int child(void *args_vp)
 				break;
 			case FDOP_DUP2:
 				fd = op->srcfd;
+				if (fd == p) {
+					ret = -EBADF;
+					goto fail;
+				}
 				if (fd != op->fd) {
 					if ((ret=__sys_dup2(fd, op->fd))<0)
 						goto fail;

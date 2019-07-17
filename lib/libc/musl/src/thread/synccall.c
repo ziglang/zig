@@ -1,46 +1,42 @@
 #include "pthread_impl.h"
 #include <semaphore.h>
-#include <unistd.h>
-#include <dirent.h>
 #include <string.h>
-#include <ctype.h>
-#include "futex.h"
-#include "atomic.h"
-#include "../dirent/__dirent.h"
-#include "lock.h"
 
-static struct chain {
-	struct chain *next;
-	int tid;
-	sem_t target_sem, caller_sem;
-} *volatile head;
+static void dummy_0(void)
+{
+}
 
-static volatile int synccall_lock[1];
-static volatile int target_tid;
+weak_alias(dummy_0, __tl_lock);
+weak_alias(dummy_0, __tl_unlock);
+
+static int target_tid;
 static void (*callback)(void *), *context;
-static volatile int dummy = 0;
-weak_alias(dummy, __block_new_threads);
+static sem_t target_sem, caller_sem;
+
+static void dummy(void *p)
+{
+}
 
 static void handler(int sig)
 {
-	struct chain ch;
+	if (__pthread_self()->tid != target_tid) return;
+
 	int old_errno = errno;
 
-	sem_init(&ch.target_sem, 0, 0);
-	sem_init(&ch.caller_sem, 0, 0);
+	/* Inform caller we have received signal and wait for
+	 * the caller to let us make the callback. */
+	sem_post(&caller_sem);
+	sem_wait(&target_sem);
 
-	ch.tid = __syscall(SYS_gettid);
-
-	do ch.next = head;
-	while (a_cas_p(&head, ch.next, &ch) != ch.next);
-
-	if (a_cas(&target_tid, ch.tid, 0) == (ch.tid | 0x80000000))
-		__syscall(SYS_futex, &target_tid, FUTEX_UNLOCK_PI|FUTEX_PRIVATE);
-
-	sem_wait(&ch.target_sem);
 	callback(context);
-	sem_post(&ch.caller_sem);
-	sem_wait(&ch.target_sem);
+
+	/* Inform caller we've complered the callback and wait
+	 * for the caller to release us to return. */
+	sem_post(&caller_sem);
+	sem_wait(&target_sem);
+
+	/* Inform caller we are returning and state is destroyable. */
+	sem_post(&caller_sem);
 
 	errno = old_errno;
 }
@@ -48,12 +44,10 @@ static void handler(int sig)
 void __synccall(void (*func)(void *), void *ctx)
 {
 	sigset_t oldmask;
-	int cs, i, r, pid, self;;
-	DIR dir = {0};
-	struct dirent *de;
+	int cs, i, r;
 	struct sigaction sa = { .sa_flags = SA_RESTART, .sa_handler = handler };
-	struct chain *cp, *next;
-	struct timespec ts;
+	pthread_t self = __pthread_self(), td;
+	int count = 0;
 
 	/* Blocking signals in two steps, first only app-level signals
 	 * before taking the lock, then all signals after taking the lock,
@@ -62,22 +56,17 @@ void __synccall(void (*func)(void *), void *ctx)
 	 * any until after the lock would allow re-entry in the same thread
 	 * with the lock already held. */
 	__block_app_sigs(&oldmask);
-	LOCK(synccall_lock);
+	__tl_lock();
 	__block_all_sigs(0);
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
 
-	head = 0;
+	sem_init(&target_sem, 0, 0);
+	sem_init(&caller_sem, 0, 0);
 
-	if (!libc.threaded) goto single_threaded;
+	if (!libc.threads_minus_1) goto single_threaded;
 
 	callback = func;
 	context = ctx;
-
-	/* This atomic store ensures that any signaled threads will see the
-	 * above stores, and prevents more than a bounded number of threads,
-	 * those already in pthread_create, from creating new threads until
-	 * the value is cleared to zero again. */
-	a_store(&__block_new_threads, 1);
 
 	/* Block even implementation-internal signals, so that nothing
 	 * interrupts the SIGSYNCCALL handlers. The main possible source
@@ -85,75 +74,27 @@ void __synccall(void (*func)(void *), void *ctx)
 	memset(&sa.sa_mask, -1, sizeof sa.sa_mask);
 	__libc_sigaction(SIGSYNCCALL, &sa, 0);
 
-	pid = __syscall(SYS_getpid);
-	self = __syscall(SYS_gettid);
 
-	/* Since opendir is not AS-safe, the DIR needs to be setup manually
-	 * in automatic storage. Thankfully this is easy. */
-	dir.fd = open("/proc/self/task", O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-	if (dir.fd < 0) goto out;
-
-	/* Initially send one signal per counted thread. But since we can't
-	 * synchronize with thread creation/exit here, there could be too
-	 * few signals. This initial signaling is just an optimization, not
-	 * part of the logic. */
-	for (i=libc.threads_minus_1; i; i--)
-		__syscall(SYS_kill, pid, SIGSYNCCALL);
-
-	/* Loop scanning the kernel-provided thread list until it shows no
-	 * threads that have not already replied to the signal. */
-	for (;;) {
-		int miss_cnt = 0;
-		while ((de = readdir(&dir))) {
-			if (!isdigit(de->d_name[0])) continue;
-			int tid = atoi(de->d_name);
-			if (tid == self || !tid) continue;
-
-			/* Set the target thread as the PI futex owner before
-			 * checking if it's in the list of caught threads. If it
-			 * adds itself to the list after we check for it, then
-			 * it will see its own tid in the PI futex and perform
-			 * the unlock operation. */
-			a_store(&target_tid, tid);
-
-			/* Thread-already-caught is a success condition. */
-			for (cp = head; cp && cp->tid != tid; cp=cp->next);
-			if (cp) continue;
-
-			r = -__syscall(SYS_tgkill, pid, tid, SIGSYNCCALL);
-
-			/* Target thread exit is a success condition. */
-			if (r == ESRCH) continue;
-
-			/* The FUTEX_LOCK_PI operation is used to loan priority
-			 * to the target thread, which otherwise may be unable
-			 * to run. Timeout is necessary because there is a race
-			 * condition where the tid may be reused by a different
-			 * process. */
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_nsec += 10000000;
-			if (ts.tv_nsec >= 1000000000) {
-				ts.tv_sec++;
-				ts.tv_nsec -= 1000000000;
-			}
-			r = -__syscall(SYS_futex, &target_tid,
-				FUTEX_LOCK_PI|FUTEX_PRIVATE, 0, &ts);
-
-			/* Obtaining the lock means the thread responded. ESRCH
-			 * means the target thread exited, which is okay too. */
-			if (!r || r == ESRCH) continue;
-
-			miss_cnt++;
+	for (td=self->next; td!=self; td=td->next) {
+		target_tid = td->tid;
+		while ((r = -__syscall(SYS_tkill, td->tid, SIGSYNCCALL)) == EAGAIN);
+		if (r) {
+			/* If we failed to signal any thread, nop out the
+			 * callback to abort the synccall and just release
+			 * any threads already caught. */
+			callback = func = dummy;
+			break;
 		}
-		if (!miss_cnt) break;
-		rewinddir(&dir);
+		sem_wait(&caller_sem);
+		count++;
 	}
-	close(dir.fd);
+	target_tid = 0;
 
-	/* Serialize execution of callback in caught threads. */
-	for (cp=head; cp; cp=cp->next) {
-		sem_post(&cp->target_sem);
-		sem_wait(&cp->caller_sem);
+	/* Serialize execution of callback in caught threads, or just
+	 * release them all if synccall is being aborted. */
+	for (i=0; i<count; i++) {
+		sem_post(&target_sem);
+		sem_wait(&caller_sem);
 	}
 
 	sa.sa_handler = SIG_IGN;
@@ -164,16 +105,15 @@ single_threaded:
 
 	/* Only release the caught threads once all threads, including the
 	 * caller, have returned from the callback function. */
-	for (cp=head; cp; cp=next) {
-		next = cp->next;
-		sem_post(&cp->target_sem);
-	}
+	for (i=0; i<count; i++)
+		sem_post(&target_sem);
+	for (i=0; i<count; i++)
+		sem_wait(&caller_sem);
 
-out:
-	a_store(&__block_new_threads, 0);
-	__wake(&__block_new_threads, -1, 1);
+	sem_destroy(&caller_sem);
+	sem_destroy(&target_sem);
 
 	pthread_setcancelstate(cs, 0);
-	UNLOCK(synccall_lock);
+	__tl_unlock();
 	__restore_sigs(&oldmask);
 }

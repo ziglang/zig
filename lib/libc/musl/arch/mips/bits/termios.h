@@ -165,5 +165,5 @@ struct termios {
 #define EXTPROC 0200000
 
 #define XTABS  0014000
-#define TIOCSER_TEMT 0x01
+#define TIOCSER_TEMT 1
 #endif
