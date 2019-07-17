@@ -12,6 +12,10 @@ const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
+const is_msvc = switch (builtin.abi) {
+    .msvc => true,
+    else => false,
+};
 const is_freestanding = switch (builtin.os) {
     .freestanding => true,
     else => false,
@@ -25,8 +29,12 @@ comptime {
         @export("strncmp", strncmp, .Strong);
         @export("strerror", strerror, .Strong);
         @export("strlen", strlen, .Strong);
+    } else if (is_msvc) {
+        @export("_fltused", _fltused, .Strong);
     }
 }
+
+extern var _fltused: c_int = 1;
 
 extern fn main(argc: c_int, argv: [*][*]u8) c_int;
 extern fn wasm_start() void {
