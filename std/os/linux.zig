@@ -17,6 +17,7 @@ pub const is_the_target = builtin.os == .linux;
 pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     else => struct {},
 };
 pub usingnamespace @import("bits.zig");

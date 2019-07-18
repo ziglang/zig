@@ -47,7 +47,7 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be => TLSVariant.VariantI,
+    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64 => TLSVariant.VariantI,
     .x86_64, .i386 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -114,6 +114,13 @@ pub fn setThreadPointer(addr: usize) void {
         .aarch64 => {
             asm volatile (
                 \\ msr tpidr_el0, %[addr]
+                :
+                : [addr] "r" (addr)
+            );
+        },
+        .riscv64 => {
+            asm volatile (
+                \\ mv tp, %[addr]
                 :
                 : [addr] "r" (addr)
             );

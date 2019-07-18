@@ -1320,6 +1320,8 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_aarch64:
         case ZigLLVM_aarch64_be:
         case ZigLLVM_aarch64_32:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
             return "sp";
 
         case ZigLLVM_arm:
@@ -1350,8 +1352,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
-        case ZigLLVM_riscv32:
-        case ZigLLVM_riscv64:
         case ZigLLVM_shave:
         case ZigLLVM_sparc:
         case ZigLLVM_sparcel:
