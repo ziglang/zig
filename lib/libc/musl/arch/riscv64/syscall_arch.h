@@ -3,7 +3,7 @@
 
 #define __asm_syscall(...) \
 	__asm__ __volatile__ ("ecall\n\t" \
-	: "+r"(a0) : __VA_ARGS__ : "memory"); \
+	: "=r"(a0) : __VA_ARGS__ : "memory"); \
 	return a0; \
 
 static inline long __syscall0(long n)
