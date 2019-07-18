@@ -8409,16 +8409,11 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         if (target_is_musl(g->zig_target) && target_is_riscv(g->zig_target)) {
             // Musl depends on atomic instructions, which are disabled by default in Clang/LLVM's
             // cross compilation CPU info for RISCV.
-            switch (g->zig_target->arch) {
-                case ZigLLVM_riscv32:
-                    args.append("-march=rv32ia");
-                    break;
-                case ZigLLVM_riscv64:
-                    args.append("-march=rv64ia");
-                    break;
-                default:
-                    zig_unreachable();
-            }
+            // TODO: https://github.com/ziglang/zig/issues/2883
+            args.append("-Xclang");
+            args.append("-target-feature");
+            args.append("-Xclang");
+            args.append("+a");
         }
     }
     if (g->zig_target->os == OsFreestanding) {
