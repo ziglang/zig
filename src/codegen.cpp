@@ -8148,6 +8148,10 @@ static void init(CodeGen *g) {
             target_specific_cpu_args = ZigLLVMGetHostCPUName();
             target_specific_features = ZigLLVMGetNativeFeatures();
         }
+    } else if (target_is_riscv(g->zig_target)) {
+        // TODO https://github.com/ziglang/zig/issues/2883
+        target_specific_cpu_args = "";
+        target_specific_features = "+a";
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";

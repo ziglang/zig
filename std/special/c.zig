@@ -180,7 +180,10 @@ comptime {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
     if (builtin.os == builtin.Os.linux) {
-        @export("clone", clone, builtin.GlobalLinkage.Strong);
+        // TODO implement clone for riscv64
+        if (builtin.arch != .riscv64) {
+            @export("clone", clone, builtin.GlobalLinkage.Strong);
+        }
     }
 }
 extern fn __stack_chk_fail() noreturn {
