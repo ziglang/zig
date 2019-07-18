@@ -1658,7 +1658,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
             crt1o = "Scrt1.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
-        lj->args.append(get_libc_crt_file(g, "crti.o"));
+        if (target_libc_needs_crti_crtn(g->zig_target)) {
+            lj->args.append(get_libc_crt_file(g, "crti.o"));
+        }
     }
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -1791,7 +1793,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     // crt end
-    if (lj->link_in_crt) {
+    if (lj->link_in_crt && target_libc_needs_crti_crtn(g->zig_target)) {
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 

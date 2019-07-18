@@ -8390,13 +8390,13 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         }
     }
 
+    // According to Rich Felker libc headers are supposed to go before C language headers.
     for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
         Buf *include_dir = g->libc_include_dir_list[i];
         args.append("-isystem");
         args.append(buf_ptr(include_dir));
     }
 
-    // According to Rich Felker libc headers are supposed to go before C language headers.
     args.append("-isystem");
     args.append(buf_ptr(g->zig_c_headers_dir));
 
@@ -8405,6 +8405,21 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     } else {
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
+
+        if (target_is_musl(g->zig_target) && target_is_riscv(g->zig_target)) {
+            // Musl depends on atomic instructions, which are disabled by default in Clang/LLVM's
+            // cross compilation CPU info for RISCV.
+            switch (g->zig_target->arch) {
+                case ZigLLVM_riscv32:
+                    args.append("-march=rv32ia");
+                    break;
+                case ZigLLVM_riscv64:
+                    args.append("-march=rv64ia");
+                    break;
+                default:
+                    zig_unreachable();
+            }
+        }
     }
     if (g->zig_target->os == OsFreestanding) {
         args.append("-ffreestanding");
@@ -8474,6 +8489,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         args.append(g->clang_argv[arg_i]);
     }
+
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {

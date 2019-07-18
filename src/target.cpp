@@ -1739,8 +1739,25 @@ const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
 }
 
 bool target_supports_libunwind(const ZigTarget *target) {
-    if (target->arch == ZigLLVM_arm || target->arch == ZigLLVM_armeb) {
+    switch (target->arch) {
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+            return false;
+        default:
+            return true;
+    }
+    return true;
+}
+
+bool target_libc_needs_crti_crtn(const ZigTarget *target) {
+    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64) {
         return false;
     }
     return true;
+}
+
+bool target_is_riscv(const ZigTarget *target) {
+    return target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64;
 }
