@@ -1,22 +1,8 @@
 /*===---- avx512vldqintrin.h - AVX512VL and AVX512DQ intrinsics ------------===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -523,23 +509,21 @@ _mm_maskz_cvtepi64_ps (__mmask8 __U, __m128i __A) {
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_cvtepi64_ps (__m256i __A) {
-  return (__m128) __builtin_ia32_cvtqq2ps256_mask ((__v4di) __A,
-                (__v4sf) _mm_setzero_ps(),
-                (__mmask8) -1);
+  return (__m128)__builtin_convertvector((__v4di)__A, __v4sf);
 }
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_mask_cvtepi64_ps (__m128 __W, __mmask8 __U, __m256i __A) {
-  return (__m128) __builtin_ia32_cvtqq2ps256_mask ((__v4di) __A,
-                (__v4sf) __W,
-                (__mmask8) __U);
+  return (__m128)__builtin_ia32_selectps_128((__mmask8)__U,
+                                             (__v4sf)_mm256_cvtepi64_ps(__A),
+                                             (__v4sf)__W);
 }
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_maskz_cvtepi64_ps (__mmask8 __U, __m256i __A) {
-  return (__m128) __builtin_ia32_cvtqq2ps256_mask ((__v4di) __A,
-                (__v4sf) _mm_setzero_ps(),
-                (__mmask8) __U);
+  return (__m128)__builtin_ia32_selectps_128((__mmask8)__U,
+                                             (__v4sf)_mm256_cvtepi64_ps(__A),
+                                             (__v4sf)_mm_setzero_ps());
 }
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
@@ -771,23 +755,21 @@ _mm_maskz_cvtepu64_ps (__mmask8 __U, __m128i __A) {
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_cvtepu64_ps (__m256i __A) {
-  return (__m128) __builtin_ia32_cvtuqq2ps256_mask ((__v4di) __A,
-                (__v4sf) _mm_setzero_ps(),
-                (__mmask8) -1);
+  return (__m128)__builtin_convertvector((__v4du)__A, __v4sf);
 }
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_mask_cvtepu64_ps (__m128 __W, __mmask8 __U, __m256i __A) {
-  return (__m128) __builtin_ia32_cvtuqq2ps256_mask ((__v4di) __A,
-                (__v4sf) __W,
-                (__mmask8) __U);
+  return (__m128)__builtin_ia32_selectps_128((__mmask8)__U,
+                                             (__v4sf)_mm256_cvtepu64_ps(__A),
+                                             (__v4sf)__W);
 }
 
 static __inline__ __m128 __DEFAULT_FN_ATTRS256
 _mm256_maskz_cvtepu64_ps (__mmask8 __U, __m256i __A) {
-  return (__m128) __builtin_ia32_cvtuqq2ps256_mask ((__v4di) __A,
-                (__v4sf) _mm_setzero_ps(),
-                (__mmask8) __U);
+  return (__m128)__builtin_ia32_selectps_128((__mmask8)__U,
+                                             (__v4sf)_mm256_cvtepu64_ps(__A),
+                                             (__v4sf)_mm_setzero_ps());
 }
 
 #define _mm_range_pd(A, B, C) \

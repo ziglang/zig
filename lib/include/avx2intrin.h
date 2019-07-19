@@ -1,22 +1,8 @@
 /*===---- avx2intrin.h - AVX2 intrinsics -----------------------------------===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -146,21 +132,13 @@ _mm256_andnot_si256(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_avg_epu8(__m256i __a, __m256i __b)
 {
-  typedef unsigned short __v32hu __attribute__((__vector_size__(64)));
-  return (__m256i)__builtin_convertvector(
-               ((__builtin_convertvector((__v32qu)__a, __v32hu) +
-                 __builtin_convertvector((__v32qu)__b, __v32hu)) + 1)
-                 >> 1, __v32qu);
+  return (__m256i)__builtin_ia32_pavgb256((__v32qi)__a, (__v32qi)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_avg_epu16(__m256i __a, __m256i __b)
 {
-  typedef unsigned int __v16su __attribute__((__vector_size__(64)));
-  return (__m256i)__builtin_convertvector(
-               ((__builtin_convertvector((__v16hu)__a, __v16su) +
-                 __builtin_convertvector((__v16hu)__b, __v16su)) + 1)
-                 >> 1, __v16hu);
+  return (__m256i)__builtin_ia32_pavgw256((__v16hi)__a, (__v16hi)__b);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
