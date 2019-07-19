@@ -49,6 +49,7 @@ pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const pdb = @import("pdb.zig");
 pub const process = @import("process.zig");
+pub const progress = @import("progress.zig");
 pub const rand = @import("rand.zig");
 pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
