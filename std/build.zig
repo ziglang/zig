@@ -1255,6 +1255,8 @@ pub const LibExeObjStep = struct {
     libc_file: ?[]const u8 = null,
     target_glibc: ?Version = null,
 
+    valgrind_support: ?bool = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -1880,6 +1882,14 @@ pub const LibExeObjStep = struct {
 
         if (self.system_linker_hack) {
             try zig_args.append("--system-linker-hack");
+        }
+
+        if (self.valgrind_support) |valgrind_support| {
+            if (valgrind_support) {
+                try zig_args.append("--enable-valgrind");
+            } else {
+                try zig_args.append("--disable-valgrind");
+            }
         }
 
         if (self.override_std_dir) |dir| {
