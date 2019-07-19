@@ -77,6 +77,7 @@ pub const Token = struct {
 
     pub const Id = enum {
         Invalid,
+        Invalid_ampersands,
         Identifier,
         StringLiteral,
         MultilineStringLiteralLine,
@@ -484,6 +485,11 @@ pub const Tokenizer = struct {
                 },
 
                 State.Ampersand => switch (c) {
+                    '&' => {
+                        result.id = Token.Id.Invalid_ampersands;
+                        self.index += 1;
+                        break;
+                    },
                     '=' => {
                         result.id = Token.Id.AmpersandEqual;
                         self.index += 1;
