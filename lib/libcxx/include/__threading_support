@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,6 +21,8 @@
 #if defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
 # include <__external_threading>
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
+
+typedef ::timespec __libcpp_timespec_t;
 
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
 # include <pthread.h>
@@ -149,7 +150,7 @@ int __libcpp_condvar_wait(__libcpp_condvar_t* __cv, __libcpp_mutex_t* __m);
 
 _LIBCPP_THREAD_ABI_VISIBILITY _LIBCPP_NO_THREAD_SAFETY_ANALYSIS
 int __libcpp_condvar_timedwait(__libcpp_condvar_t *__cv, __libcpp_mutex_t *__m,
-                               timespec *__ts);
+                               __libcpp_timespec_t *__ts);
 
 _LIBCPP_THREAD_ABI_VISIBILITY
 int __libcpp_condvar_destroy(__libcpp_condvar_t* __cv);
@@ -157,7 +158,7 @@ int __libcpp_condvar_destroy(__libcpp_condvar_t* __cv);
 // Execute once
 _LIBCPP_THREAD_ABI_VISIBILITY
 int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
-                          void (*init_routine)(void));
+                          void (*init_routine)());
 
 // Thread id
 _LIBCPP_THREAD_ABI_VISIBILITY
@@ -288,7 +289,7 @@ int __libcpp_condvar_wait(__libcpp_condvar_t *__cv, __libcpp_mutex_t *__m)
 }
 
 int __libcpp_condvar_timedwait(__libcpp_condvar_t *__cv, __libcpp_mutex_t *__m,
-                               timespec *__ts)
+                               __libcpp_timespec_t *__ts)
 {
   return pthread_cond_timedwait(__cv, __m, __ts);
 }
@@ -300,7 +301,7 @@ int __libcpp_condvar_destroy(__libcpp_condvar_t *__cv)
 
 // Execute once
 int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
-                          void (*init_routine)(void)) {
+                          void (*init_routine)()) {
   return pthread_once(flag, init_routine);
 }
 
@@ -357,7 +358,7 @@ void __libcpp_thread_sleep_for(const chrono::nanoseconds& __ns)
 {
    using namespace chrono;
    seconds __s = duration_cast<seconds>(__ns);
-   timespec __ts;
+   __libcpp_timespec_t __ts;
    typedef decltype(__ts.tv_sec) ts_sec;
    _LIBCPP_CONSTEXPR ts_sec __ts_sec_max = numeric_limits<ts_sec>::max();
 

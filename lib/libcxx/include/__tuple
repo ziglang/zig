@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -54,27 +53,24 @@ template <class _Tp> struct _LIBCPP_TEMPLATE_VIS tuple_size<volatile _Tp> : publ
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS tuple_size<const volatile _Tp> : public tuple_size<_Tp> {};
 #endif
 
-template <size_t _Ip, class _Tp> class _LIBCPP_TEMPLATE_VIS tuple_element;
+template <size_t _Ip, class _Tp> struct _LIBCPP_TEMPLATE_VIS tuple_element;
 
 template <size_t _Ip, class _Tp>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const _Tp>
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const _Tp>
 {
-public:
-    typedef typename add_const<typename tuple_element<_Ip, _Tp>::type>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename add_const<typename tuple_element<_Ip, _Tp>::type>::type type;
 };
 
 template <size_t _Ip, class _Tp>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, volatile _Tp>
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, volatile _Tp>
 {
-public:
-    typedef typename add_volatile<typename tuple_element<_Ip, _Tp>::type>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename add_volatile<typename tuple_element<_Ip, _Tp>::type>::type type;
 };
 
 template <size_t _Ip, class _Tp>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const volatile _Tp>
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const volatile _Tp>
 {
-public:
-    typedef typename add_cv<typename tuple_element<_Ip, _Tp>::type>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename add_cv<typename tuple_element<_Ip, _Tp>::type>::type type;
 };
 
 template <class _Tp> struct __tuple_like : false_type {};
@@ -103,7 +99,7 @@ namespace __detail {
 
 template<typename _Tp, size_t ..._Extra> struct __repeat;
 template<typename _Tp, _Tp ..._Np, size_t ..._Extra> struct __repeat<__integer_sequence<_Tp, _Np...>, _Extra...> {
-  typedef __integer_sequence<_Tp,
+  typedef _LIBCPP_NODEBUG_TYPE __integer_sequence<_Tp,
                            _Np...,
                            sizeof...(_Np) + _Np...,
                            2 * sizeof...(_Np) + _Np...,
@@ -257,7 +253,7 @@ template <class ..._Tp> struct __tuple_types {};
 namespace __indexer_detail {
 
 template <size_t _Idx, class _Tp>
-struct __indexed { using type = _Tp; };
+struct __indexed { using type _LIBCPP_NODEBUG_TYPE = _Tp; };
 
 template <class _Types, class _Indexes> struct __indexer;
 
@@ -272,7 +268,7 @@ __indexed<_Idx, _Tp> __at_index(__indexed<_Idx, _Tp> const&);
 } // namespace __indexer_detail
 
 template <size_t _Idx, class ..._Types>
-using __type_pack_element = typename decltype(
+using __type_pack_element _LIBCPP_NODEBUG_TYPE = typename decltype(
     __indexer_detail::__at_index<_Idx>(
         __indexer_detail::__indexer<
             __tuple_types<_Types...>,
@@ -282,11 +278,10 @@ using __type_pack_element = typename decltype(
 #endif
 
 template <size_t _Ip, class ..._Types>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, __tuple_types<_Types...>>
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, __tuple_types<_Types...>>
 {
-public:
     static_assert(_Ip < sizeof...(_Types), "tuple_element index out of range");
-    typedef __type_pack_element<_Ip, _Types...> type;
+    typedef _LIBCPP_NODEBUG_TYPE __type_pack_element<_Ip, _Types...> type;
 };
 
 
@@ -306,34 +301,34 @@ struct __apply_cv_mf<false, false, false> {
 };
 template <>
 struct __apply_cv_mf<false, true, false> {
-  template <class _Tp> using __apply = const _Tp;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = const _Tp;
 };
 template <>
 struct __apply_cv_mf<false, false, true> {
-  template <class _Tp> using __apply = volatile _Tp;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = volatile _Tp;
 };
 template <>
 struct __apply_cv_mf<false, true, true> {
-  template <class _Tp> using __apply = const volatile _Tp;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = const volatile _Tp;
 };
 template <>
 struct __apply_cv_mf<true, false, false> {
-  template <class _Tp> using __apply = _Tp&;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = _Tp&;
 };
 template <>
 struct __apply_cv_mf<true, true, false> {
-  template <class _Tp> using __apply = const _Tp&;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = const _Tp&;
 };
 template <>
 struct __apply_cv_mf<true, false, true> {
-  template <class _Tp> using __apply = volatile _Tp&;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE  = volatile _Tp&;
 };
 template <>
 struct __apply_cv_mf<true, true, true> {
-  template <class _Tp> using __apply = const volatile _Tp&;
+  template <class _Tp> using __apply _LIBCPP_NODEBUG_TYPE = const volatile _Tp&;
 };
 template <class _Tp, class _RawTp = typename remove_reference<_Tp>::type>
-using __apply_cv_t = __apply_cv_mf<
+using __apply_cv_t _LIBCPP_NODEBUG_TYPE  = __apply_cv_mf<
     is_lvalue_reference<_Tp>::value,
     is_const<_RawTp>::value,
     is_volatile<_RawTp>::value>;
@@ -352,7 +347,7 @@ template <template <class...> class _Tuple, class ..._Types, size_t ..._Idx>
 struct __make_tuple_types_flat<_Tuple<_Types...>, __tuple_indices<_Idx...>> {
   // Specialization for pair, tuple, and __tuple_types
   template <class _Tp, class _ApplyFn = __apply_cv_t<_Tp>>
-  using __apply_quals = __tuple_types<
+  using __apply_quals _LIBCPP_NODEBUG_TYPE = __tuple_types<
       typename _ApplyFn::template __apply<__type_pack_element<_Idx, _Types...>>...
     >;
 };
@@ -380,19 +375,19 @@ struct __make_tuple_types
 
 template <class ..._Types, size_t _Ep>
 struct __make_tuple_types<tuple<_Types...>, _Ep, 0, true> {
-  typedef __tuple_types<_Types...> type;
+  typedef _LIBCPP_NODEBUG_TYPE __tuple_types<_Types...> type;
 };
 
 template <class ..._Types, size_t _Ep>
 struct __make_tuple_types<__tuple_types<_Types...>, _Ep, 0, true> {
-  typedef __tuple_types<_Types...> type;
+  typedef _LIBCPP_NODEBUG_TYPE __tuple_types<_Types...> type;
 };
 
 template <bool ..._Preds>
 struct __all_dummy;
 
 template <bool ..._Pred>
-using __all = is_same<__all_dummy<_Pred...>, __all_dummy<((void)_Pred, true)...>>;
+using __all = _IsSame<__all_dummy<_Pred...>, __all_dummy<((void)_Pred, true)...>>;
 
 struct __tuple_sfinae_base {
   template <template <class, class...> class _Trait,
@@ -457,15 +452,14 @@ struct __tuple_assignable<_Tp, _Up, true, true>
 
 
 template <size_t _Ip, class ..._Tp>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, tuple<_Tp...> >
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, tuple<_Tp...> >
 {
-public:
-    typedef typename tuple_element<_Ip, __tuple_types<_Tp...> >::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename tuple_element<_Ip, __tuple_types<_Tp...> >::type type;
 };
 
 #if _LIBCPP_STD_VER > 11
 template <size_t _Ip, class ..._Tp>
-using tuple_element_t = typename tuple_element <_Ip, _Tp...>::type;
+using tuple_element_t _LIBCPP_NODEBUG_TYPE  = typename tuple_element <_Ip, _Tp...>::type;
 #endif
 
 template <bool _IsTuple, class _SizeTrait, size_t _Expected>
@@ -477,7 +471,7 @@ struct __tuple_like_with_size_imp<true, _SizeTrait, _Expected>
 
 template <class _Tuple, size_t _ExpectedSize,
           class _RawTuple = typename __uncvref<_Tuple>::type>
-using __tuple_like_with_size = __tuple_like_with_size_imp<
+using __tuple_like_with_size _LIBCPP_NODEBUG_TYPE = __tuple_like_with_size_imp<
                                    __tuple_like<_RawTuple>::value,
                                    tuple_size<_RawTuple>, _ExpectedSize
                               >;

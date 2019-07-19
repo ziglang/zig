@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- version ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -59,6 +58,7 @@ __cpp_lib_hypot                                         201603L <cmath>
 __cpp_lib_incomplete_container_elements                 201505L <forward_list> <list> <vector>
 __cpp_lib_integer_sequence                              201304L <utility>
 __cpp_lib_integral_constant_callable                    201304L <type_traits>
+__cpp_lib_interpolate                                   201902L <numeric>
 __cpp_lib_invoke                                        201411L <functional>
 __cpp_lib_is_aggregate                                  201703L <type_traits>
 __cpp_lib_is_constant_evaluated                         201811L <type_traits>
@@ -220,10 +220,15 @@ __cpp_lib_void_t                                        201411L <type_traits>
 // # define __cpp_lib_concepts                             201806L
 // # define __cpp_lib_constexpr_misc                       201811L
 // # define __cpp_lib_constexpr_swap_algorithms            201806L
-// # define __cpp_lib_destroying_delete                    201806L
+# if _LIBCPP_STD_VER > 17 && defined(__cpp_impl_destroying_delete) && __cpp_impl_destroying_delete >= 201806L
+#   define __cpp_lib_destroying_delete                  201806L
+# endif
 # define __cpp_lib_erase_if                             201811L
 // # define __cpp_lib_generic_unordered_lookup             201811L
-// # define __cpp_lib_is_constant_evaluated                201811L
+# define __cpp_lib_interpolate                          201902L
+# if !defined(_LIBCPP_HAS_NO_BUILTIN_IS_CONSTANT_EVALUATED)
+#   define __cpp_lib_is_constant_evaluated              201811L
+# endif
 // # define __cpp_lib_list_remove_return_type              201806L
 // # define __cpp_lib_ranges                               201811L
 // # define __cpp_lib_three_way_comparison                 201711L

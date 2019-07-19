@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===------------------------------ charconv ------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -97,7 +96,7 @@ _LIBCPP_FUNC_VIS char* __u64toa(uint64_t __value, char* __buffer);
 _LIBCPP_FUNC_VIS char* __u32toa(uint32_t __value, char* __buffer);
 }
 
-#if _LIBCPP_STD_VER > 11
+#ifndef _LIBCPP_CXX03_LANG
 
 enum class _LIBCPP_ENUM_VIS chars_format
 {
@@ -125,7 +124,7 @@ void from_chars(const char*, const char*, bool, int = 10) = delete;
 namespace __itoa
 {
 
-static constexpr uint64_t __pow10_64[] = {
+static _LIBCPP_CONSTEXPR uint64_t __pow10_64[] = {
     UINT64_C(0),
     UINT64_C(10),
     UINT64_C(100),
@@ -148,7 +147,7 @@ static constexpr uint64_t __pow10_64[] = {
     UINT64_C(10000000000000000000),
 };
 
-static constexpr uint32_t __pow10_32[] = {
+static _LIBCPP_CONSTEXPR uint32_t __pow10_32[] = {
     UINT32_C(0),          UINT32_C(10),       UINT32_C(100),
     UINT32_C(1000),       UINT32_C(10000),    UINT32_C(100000),
     UINT32_C(1000000),    UINT32_C(10000000), UINT32_C(100000000),
@@ -173,7 +172,7 @@ struct _LIBCPP_HIDDEN __traits_base
         return __u64toa(__v, __p);
     }
 
-    static _LIBCPP_INLINE_VISIBILITY auto& __pow() { return __pow10_64; }
+    static _LIBCPP_INLINE_VISIBILITY decltype(__pow10_64)& __pow() { return __pow10_64; }
 };
 
 template <typename _Tp>
@@ -195,7 +194,7 @@ struct _LIBCPP_HIDDEN
         return __u32toa(__v, __p);
     }
 
-    static _LIBCPP_INLINE_VISIBILITY auto& __pow() { return __pow10_32; }
+    static _LIBCPP_INLINE_VISIBILITY decltype(__pow10_32)& __pow() { return __pow10_32; }
 };
 
 template <typename _Tp>
@@ -240,7 +239,7 @@ __mul_overflowed(_Tp __a, _Up __b, _Tp& __r)
 template <typename _Tp>
 struct _LIBCPP_HIDDEN __traits : __traits_base<_Tp>
 {
-    static constexpr int digits = numeric_limits<_Tp>::digits10 + 1;
+    static _LIBCPP_CONSTEXPR int digits = numeric_limits<_Tp>::digits10 + 1;
     using __traits_base<_Tp>::__pow;
     using typename __traits_base<_Tp>::type;
 
@@ -286,10 +285,10 @@ __complement(_Tp __x)
 }
 
 template <typename _Tp>
-inline _LIBCPP_INLINE_VISIBILITY auto
+inline _LIBCPP_INLINE_VISIBILITY typename make_unsigned<_Tp>::type
 __to_unsigned(_Tp __x)
 {
-    return static_cast<make_unsigned_t<_Tp>>(__x);
+    return static_cast<typename make_unsigned<_Tp>::type>(__x);
 }
 
 template <typename _Tp>
@@ -315,7 +314,7 @@ __to_chars_itoa(char* __first, char* __last, _Tp __value, false_type)
 
 #if !defined(_LIBCPP_COMPILER_MSVC)
     if (__tx::digits <= __diff || __tx::__width(__value) <= __diff)
-        return {__tx::__convert(__value, __first), {}};
+        return {__tx::__convert(__value, __first), errc(0)};
     else
         return {__last, errc::value_too_large};
 #else
@@ -380,14 +379,14 @@ __to_chars_integral(char* __first, char* __last, _Tp __value, int __base,
     }
 }
 
-template <typename _Tp, enable_if_t<is_integral<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 to_chars(char* __first, char* __last, _Tp __value)
 {
     return __to_chars_itoa(__first, __last, __value, is_signed<_Tp>());
 }
 
-template <typename _Tp, enable_if_t<is_integral<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY to_chars_result
 to_chars(char* __first, char* __last, _Tp __value, int __base)
 {
@@ -502,7 +501,7 @@ __subject_seq_combinator(_It __first, _It __last, _Tp& __value, _Fn __f,
     return __r;
 }
 
-template <typename _Tp, enable_if_t<is_unsigned<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_unsigned<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_atoi(const char* __first, const char* __last, _Tp& __value)
 {
@@ -528,7 +527,7 @@ __from_chars_atoi(const char* __first, const char* __last, _Tp& __value)
         });
 }
 
-template <typename _Tp, enable_if_t<is_signed<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_signed<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_atoi(const char* __first, const char* __last, _Tp& __value)
 {
@@ -536,7 +535,7 @@ __from_chars_atoi(const char* __first, const char* __last, _Tp& __value)
     return __sign_combinator(__first, __last, __value, __from_chars_atoi<__t>);
 }
 
-template <typename _Tp, enable_if_t<is_unsigned<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_unsigned<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
                       int __base)
@@ -583,7 +582,7 @@ __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
         __base);
 }
 
-template <typename _Tp, enable_if_t<is_signed<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_signed<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
                       int __base)
@@ -593,14 +592,14 @@ __from_chars_integral(const char* __first, const char* __last, _Tp& __value,
                              __from_chars_integral<__t>, __base);
 }
 
-template <typename _Tp, enable_if_t<is_integral<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 from_chars(const char* __first, const char* __last, _Tp& __value)
 {
     return __from_chars_atoi(__first, __last, __value);
 }
 
-template <typename _Tp, enable_if_t<is_integral<_Tp>::value, int> = 0>
+template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
 inline _LIBCPP_INLINE_VISIBILITY from_chars_result
 from_chars(const char* __first, const char* __last, _Tp& __value, int __base)
 {
@@ -608,7 +607,7 @@ from_chars(const char* __first, const char* __last, _Tp& __value, int __base)
     return __from_chars_integral(__first, __last, __value, __base);
 }
 
-#endif  // _LIBCPP_STD_VER > 11
+#endif  // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- functional --------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -110,8 +109,7 @@ _LIBCPP_BEGIN_NAMESPACE_LFTS
 #if _LIBCPP_STD_VER > 11
 // default searcher
 template<class _ForwardIterator, class _BinaryPredicate = equal_to<>>
-_LIBCPP_TYPE_VIS
-class default_searcher {
+class _LIBCPP_TYPE_VIS default_searcher {
 public:
     _LIBCPP_INLINE_VISIBILITY
     default_searcher(_ForwardIterator __f, _ForwardIterator __l, 
@@ -209,8 +207,7 @@ public:
 template <class _RandomAccessIterator1, 
           class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>, 
           class _BinaryPredicate = equal_to<>>
-_LIBCPP_TYPE_VIS
-class boyer_moore_searcher {
+class _LIBCPP_TYPE_VIS boyer_moore_searcher {
 private:
     typedef typename std::iterator_traits<_RandomAccessIterator1>::difference_type difference_type;
     typedef typename std::iterator_traits<_RandomAccessIterator1>::value_type      value_type;
@@ -361,8 +358,7 @@ make_boyer_moore_searcher( _RandomAccessIterator __f, _RandomAccessIterator __l,
 template <class _RandomAccessIterator1, 
           class _Hash = hash<typename iterator_traits<_RandomAccessIterator1>::value_type>, 
           class _BinaryPredicate = equal_to<>>
-_LIBCPP_TYPE_VIS
-class boyer_moore_horspool_searcher {
+class _LIBCPP_TYPE_VIS boyer_moore_horspool_searcher {
 private:
     typedef typename std::iterator_traits<_RandomAccessIterator1>::difference_type difference_type;
     typedef typename std::iterator_traits<_RandomAccessIterator1>::value_type      value_type;

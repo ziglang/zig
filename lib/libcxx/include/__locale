@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -20,6 +19,7 @@
 #include <cctype>
 #include <locale.h>
 #if defined(_LIBCPP_MSVCRT_LIKE)
+# include <cstring>
 # include <support/win32/locale_win32.h>
 #elif defined(_AIX)
 # include <support/ibm/xlocale.h>
@@ -35,6 +35,9 @@
 # include <xlocale.h>
 #elif defined(__Fuchsia__)
 # include <support/fuchsia/xlocale.h>
+#elif defined(__wasi__)
+// WASI libc uses musl's locales support.
+# include <support/musl/xlocale.h>
 #elif defined(_LIBCPP_HAS_MUSL_LIBC)
 # include <support/musl/xlocale.h>
 #endif
@@ -64,28 +67,41 @@ private:
 #elif defined(_LIBCPP_MSVCRT_LIKE)
 struct __libcpp_locale_guard {
     __libcpp_locale_guard(locale_t __l) :
-        __status(_configthreadlocale(_ENABLE_PER_THREAD_LOCALE)),
-        __locale_collate(setlocale(LC_COLLATE, __l.__get_locale())),
-        __locale_ctype(setlocale(LC_CTYPE, __l.__get_locale())),
-        __locale_monetary(setlocale(LC_MONETARY, __l.__get_locale())),
-        __locale_numeric(setlocale(LC_NUMERIC, __l.__get_locale())),
-        __locale_time(setlocale(LC_TIME, __l.__get_locale()))
-        // LC_MESSAGES is not supported on Windows.
-    {}
+        __status(_configthreadlocale(_ENABLE_PER_THREAD_LOCALE)) {
+      // Setting the locale can be expensive even when the locale given is
+      // already the current locale, so do an explicit check to see if the
+      // current locale is already the one we want.
+      const char* __lc = __setlocale(nullptr);
+      // If every category is the same, the locale string will simply be the
+      // locale name, otherwise it will be a semicolon-separated string listing
+      // each category.  In the second case, we know at least one category won't
+      // be what we want, so we only have to check the first case.
+      if (strcmp(__l.__get_locale(), __lc) != 0) {
+        __locale_all = _strdup(__lc);
+        if (__locale_all == nullptr)
+          __throw_bad_alloc();
+        __setlocale(__l.__get_locale());
+      }
+    }
     ~__libcpp_locale_guard() {
-        setlocale(LC_COLLATE, __locale_collate);
-        setlocale(LC_CTYPE, __locale_ctype);
-        setlocale(LC_MONETARY, __locale_monetary);
-        setlocale(LC_NUMERIC, __locale_numeric);
-        setlocale(LC_TIME, __locale_time);
-        _configthreadlocale(__status);
+      // The CRT documentation doesn't explicitly say, but setlocale() does the
+      // right thing when given a semicolon-separated list of locale settings
+      // for the different categories in the same format as returned by
+      // setlocale(LC_ALL, nullptr).
+      if (__locale_all != nullptr) {
+        __setlocale(__locale_all);
+        free(__locale_all);
+      }
+      _configthreadlocale(__status);
+    }
+    static const char* __setlocale(const char* __locale) {
+      const char* __new_locale = setlocale(LC_ALL, __locale);
+      if (__new_locale == nullptr)
+        __throw_bad_alloc();
+      return __new_locale;
     }
     int __status;
-    char* __locale_collate;
-    char* __locale_ctype;
-    char* __locale_monetary;
-    char* __locale_numeric;
-    char* __locale_time;
+    char* __locale_all = nullptr;
 };
 #endif
 
@@ -255,7 +271,10 @@ public:
         return do_compare(__lo1, __hi1, __lo2, __hi2);
     }
 
+    // FIXME(EricWF): The _LIBCPP_ALWAYS_INLINE is needed on Windows to work
+    // around a dllimport bug that expects an external instantiation.
     _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_ALWAYS_INLINE
     string_type transform(const char_type* __lo, const char_type* __hi) const
     {
         return do_transform(__lo, __hi);
@@ -389,6 +408,11 @@ public:
     static const mask punct  = _ISpunct;
     static const mask xdigit = _ISxdigit;
     static const mask blank  = _ISblank;
+#if defined(__mips__)
+    static const mask __regex_word = static_cast<char_class_type>(_ISbit(15));
+#else
+    static const mask __regex_word = 0x80;
+#endif
 #elif defined(_LIBCPP_MSVCRT_LIKE)
     typedef unsigned short mask;
     static const mask space  = _SPACE;
@@ -401,6 +425,7 @@ public:
     static const mask punct  = _PUNCT;
     static const mask xdigit = _HEX;
     static const mask blank  = _BLANK;
+    static const mask __regex_word = 0x80;
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__EMSCRIPTEN__) || defined(__NetBSD__)
 # ifdef __APPLE__
@@ -422,8 +447,12 @@ public:
 
 # if defined(__NetBSD__)
     static const mask blank  = _CTYPE_BL;
+    // NetBSD defines classes up to 0x2000
+    // see sys/ctype_bits.h, _CTYPE_Q
+    static const mask __regex_word = 0x8000;
 # else
     static const mask blank  = _CTYPE_B;
+    static const mask __regex_word = 0x80;
 # endif
 #elif defined(__sun__) || defined(_AIX)
     typedef unsigned int mask;
@@ -437,6 +466,7 @@ public:
     static const mask punct  = _ISPUNCT;
     static const mask xdigit = _ISXDIGIT;
     static const mask blank  = _ISBLANK;
+    static const mask __regex_word = 0x80;
 #elif defined(_NEWLIB_VERSION)
     // Same type as Newlib's _ctype_ array in newlib/libc/include/ctype.h.
     typedef char mask;
@@ -450,6 +480,7 @@ public:
     static const mask punct  = _P;
     static const mask xdigit = _X | _N;
     static const mask blank  = _B;
+    static const mask __regex_word = 0x80;
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_XDIGIT
@@ -465,6 +496,7 @@ public:
     static const mask punct  = 1<<7;
     static const mask xdigit = 1<<8;
     static const mask blank  = 1<<9;
+    static const mask __regex_word = 1<<10;
 #endif
     static const mask alnum  = alpha | digit;
     static const mask graph  = alnum | punct;
@@ -1229,8 +1261,6 @@ _LIBCPP_EXTERN_TEMPLATE2(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<c
 _LIBCPP_EXTERN_TEMPLATE2(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>)
 _LIBCPP_EXTERN_TEMPLATE2(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>)
 _LIBCPP_EXTERN_TEMPLATE2(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>)
-
-_LIBCPP_NORETURN _LIBCPP_FUNC_VIS void __throw_runtime_error(const char*);
 
 template <size_t _Np>
 struct __narrow_to_utf8

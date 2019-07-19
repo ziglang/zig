@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- thread -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -435,7 +434,12 @@ sleep_for(const chrono::duration<_Rep, _Period>& __d)
     using namespace chrono;
     if (__d > duration<_Rep, _Period>::zero())
     {
+#if defined(_LIBCPP_COMPILER_GCC) && (__powerpc__ || __POWERPC__)
+    //  GCC's long double const folding is incomplete for IBM128 long doubles.
         _LIBCPP_CONSTEXPR duration<long double> _Max = nanoseconds::max();
+#else
+        _LIBCPP_CONSTEXPR duration<long double> _Max = duration<long double>(ULLONG_MAX/1000000000ULL) ;
+#endif
         nanoseconds __ns;
         if (__d < _Max)
         {

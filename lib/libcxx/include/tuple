@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- tuple ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -88,8 +87,8 @@ template <class T> struct tuple_size; // undefined
 template <class... T> struct tuple_size<tuple<T...>>;
 template <class T>
  inline constexpr size_t tuple_size_v = tuple_size<T>::value; // C++17
-template <size_t I, class T> class tuple_element; // undefined
-template <size_t I, class... T> class tuple_element<I, tuple<T...>>;
+template <size_t I, class T> struct tuple_element; // undefined
+template <size_t I, class... T> struct tuple_element<I, tuple<T...>>;
 template <size_t I, class T>
   using tuple_element_t = typename tuple_element <I, T>::type; // C++14
 
@@ -210,12 +209,12 @@ public:
               "Attempted to default construct a reference element in a tuple");}
 
     template <class _Tp,
-              class = typename enable_if<
-                  __lazy_and<
-                      __lazy_not<is_same<typename __uncvref<_Tp>::type, __tuple_leaf>>
-                    , is_constructible<_Hp, _Tp>
+              class = _EnableIf<
+                  _And<
+                      _IsNotSame<__uncvref_t<_Tp>, __tuple_leaf>,
+                      is_constructible<_Hp, _Tp>
                     >::value
-                >::type
+                >
             >
         _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
         explicit __tuple_leaf(_Tp&& __t) _NOEXCEPT_((is_nothrow_constructible<_Hp, _Tp>::value))
@@ -292,12 +291,12 @@ public:
             : _Hp(__a) {}
 
     template <class _Tp,
-              class = typename enable_if<
-                  __lazy_and<
-                        __lazy_not<is_same<typename __uncvref<_Tp>::type, __tuple_leaf>>
-                      , is_constructible<_Hp, _Tp>
-                    >::value
-                >::type
+              class = _EnableIf<
+                  _And<
+                    _IsNotSame<__uncvref_t<_Tp>, __tuple_leaf>,
+                    is_constructible<_Hp, _Tp>
+                  >::value
+                >
             >
         _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
         explicit __tuple_leaf(_Tp&& __t) _NOEXCEPT_((is_nothrow_constructible<_Hp, _Tp>::value))
@@ -345,9 +344,6 @@ public:
 template <class ..._Tp>
 _LIBCPP_INLINE_VISIBILITY
 void __swallow(_Tp&&...) _NOEXCEPT {}
-
-template <class ..._Tp>
-struct __lazy_all : __all<_Tp::value...> {};
 
 template <class _Tp>
 struct __all_default_constructible;
@@ -525,6 +521,13 @@ class _LIBCPP_TEMPLATE_VIS tuple
         template <class ..._Args>
         static constexpr bool __enable_implicit() {
             return
+               __tuple_constructible<
+                    tuple<_Args...>,
+                    typename __make_tuple_types<tuple,
+                             sizeof...(_Args) < sizeof...(_Tp) ?
+                                 sizeof...(_Args) :
+                                 sizeof...(_Tp)>::type
+                >::value &&
                 __tuple_convertible<
                     tuple<_Args...>,
                     typename __make_tuple_types<tuple,
@@ -551,7 +554,8 @@ class _LIBCPP_TEMPLATE_VIS tuple
     {
         template <class _Tuple>
         static constexpr bool __enable_implicit() {
-            return __tuple_convertible<_Tuple, tuple>::value;
+            return __tuple_constructible<_Tuple, tuple>::value
+                && __tuple_convertible<_Tuple, tuple>::value;
         }
 
         template <class _Tuple>
@@ -568,19 +572,20 @@ class _LIBCPP_TEMPLATE_VIS tuple
         // the UTypes... constructor should be selected instead.
         // See LWG issue #2549.
         template <class _Tuple>
-        using _PreferTupleLikeConstructor = __lazy_or<
+        using _PreferTupleLikeConstructor = _Or<
             // Don't attempt the two checks below if the tuple we are given
             // has the same type as this tuple.
-            is_same<typename __uncvref<_Tuple>::type, tuple>,
-            __lazy_and<
-                __lazy_not<is_constructible<_Tp..., _Tuple>>,
-                __lazy_not<is_convertible<_Tuple, _Tp...>>
+            _IsSame<__uncvref_t<_Tuple>, tuple>,
+            _Lazy<_And,
+                _Not<is_constructible<_Tp..., _Tuple>>,
+                _Not<is_convertible<_Tuple, _Tp...>>
             >
         >;
 
         template <class _Tuple>
         static constexpr bool __enable_implicit() {
-            return __lazy_and<
+            return _And<
+                __tuple_constructible<_Tuple, tuple>,
                 __tuple_convertible<_Tuple, tuple>,
                 _PreferTupleLikeConstructor<_Tuple>
             >::value;
@@ -588,14 +593,33 @@ class _LIBCPP_TEMPLATE_VIS tuple
 
         template <class _Tuple>
         static constexpr bool __enable_explicit() {
-            return __lazy_and<
+            return _And<
                 __tuple_constructible<_Tuple, tuple>,
                 _PreferTupleLikeConstructor<_Tuple>,
-                __lazy_not<__tuple_convertible<_Tuple, tuple>>
+                _Not<__tuple_convertible<_Tuple, tuple>>
             >::value;
         }
     };
 
+    template <class _Tuple, bool _DisableIfLValue>
+    using _EnableImplicitTupleLikeConstructor = _EnableIf<
+                         _CheckTupleLikeConstructor<
+                             __tuple_like_with_size<_Tuple, sizeof...(_Tp)>::value
+                             && !_PackExpandsToThisTuple<_Tuple>::value
+                             && (!is_lvalue_reference<_Tuple>::value || !_DisableIfLValue)
+                         >::template __enable_implicit<_Tuple>(),
+                         bool
+                      >;
+
+    template <class _Tuple, bool _DisableIfLValue>
+    using _EnableExplicitTupleLikeConstructor = _EnableIf<
+                         _CheckTupleLikeConstructor<
+                             __tuple_like_with_size<_Tuple, sizeof...(_Tp)>::value
+                             && !_PackExpandsToThisTuple<_Tuple>::value
+                             && (!is_lvalue_reference<_Tuple>::value || !_DisableIfLValue)
+                         >::template __enable_explicit<_Tuple>(),
+                         bool
+                      >;
     template <size_t _Jp, class ..._Up> friend _LIBCPP_CONSTEXPR_AFTER_CXX11
         typename tuple_element<_Jp, tuple<_Up...> >::type& get(tuple<_Up...>&) _NOEXCEPT;
     template <size_t _Jp, class ..._Up> friend _LIBCPP_CONSTEXPR_AFTER_CXX11
@@ -616,12 +640,13 @@ public:
     tuple(tuple const&) = default;
     tuple(tuple&&) = default;
 
-    template <class _AllocArgT, class _Alloc, bool _Dummy = true, class = typename enable_if<
-        __lazy_and<
-            is_same<allocator_arg_t, _AllocArgT>,
-            __lazy_all<__dependent_type<is_default_constructible<_Tp>, _Dummy>...>
+    template <class _AllocArgT, class _Alloc, bool _Dummy = true, class = _EnableIf<
+        _And<
+            _IsSame<allocator_arg_t, _AllocArgT>,
+           __dependent_type<is_default_constructible<_Tp>, _Dummy>...
        >::value
-    >::type>
+      >
+    >
     _LIBCPP_INLINE_VISIBILITY
     tuple(_AllocArgT, _Alloc const& __a)
       : __base_(allocator_arg_t(), __a,
@@ -809,34 +834,26 @@ public:
                     typename __make_tuple_types<tuple, sizeof...(_Tp), sizeof...(_Up)>::type(),
                     _VSTD::forward<_Up>(__u)...) {}
 
-    template <class _Tuple,
-              typename enable_if
-                      <
-                         _CheckTupleLikeConstructor<
-                             __tuple_like_with_size<_Tuple, sizeof...(_Tp)>::value
-                             && !_PackExpandsToThisTuple<_Tuple>::value
-                         >::template __enable_implicit<_Tuple>(),
-                         bool
-                      >::type = false
-             >
+    template <class _Tuple, _EnableImplicitTupleLikeConstructor<_Tuple, true> = false>
         _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
         tuple(_Tuple&& __t) _NOEXCEPT_((is_nothrow_constructible<_BaseT, _Tuple>::value))
             : __base_(_VSTD::forward<_Tuple>(__t)) {}
 
-    template <class _Tuple,
-              typename enable_if
-                      <
-                         _CheckTupleLikeConstructor<
-                             __tuple_like_with_size<_Tuple, sizeof...(_Tp)>::value
-                             && !_PackExpandsToThisTuple<_Tuple>::value
-                         >::template __enable_explicit<_Tuple>(),
-                         bool
-                      >::type = false
-             >
+    template <class _Tuple, _EnableImplicitTupleLikeConstructor<const _Tuple&, false> = false>
+        _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+        tuple(const _Tuple& __t) _NOEXCEPT_((is_nothrow_constructible<_BaseT, const _Tuple&>::value))
+            : __base_(__t) {}
+    template <class _Tuple, _EnableExplicitTupleLikeConstructor<_Tuple, true> = false>
         _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
         explicit
         tuple(_Tuple&& __t) _NOEXCEPT_((is_nothrow_constructible<_BaseT, _Tuple>::value))
             : __base_(_VSTD::forward<_Tuple>(__t)) {}
+
+    template <class _Tuple, _EnableExplicitTupleLikeConstructor<const _Tuple&, false> = false>
+        _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+        explicit
+        tuple(const _Tuple& __t) _NOEXCEPT_((is_nothrow_constructible<_BaseT, const _Tuple&>::value))
+            : __base_(__t) {}
 
     template <class _Alloc, class _Tuple,
               typename enable_if
@@ -908,7 +925,7 @@ class _LIBCPP_TEMPLATE_VIS tuple<>
 {
 public:
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR tuple() _NOEXCEPT {}
+    _LIBCPP_CONSTEXPR tuple() _NOEXCEPT = default;
     template <class _Alloc>
     _LIBCPP_INLINE_VISIBILITY
         tuple(allocator_arg_t, const _Alloc&) _NOEXCEPT {}
@@ -953,7 +970,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 typename tuple_element<_Ip, tuple<_Tp...> >::type&
 get(tuple<_Tp...>& __t) _NOEXCEPT
 {
-    typedef typename tuple_element<_Ip, tuple<_Tp...> >::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename tuple_element<_Ip, tuple<_Tp...> >::type type;
     return static_cast<__tuple_leaf<_Ip, type>&>(__t.__base_).get();
 }
 
@@ -962,7 +979,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 const typename tuple_element<_Ip, tuple<_Tp...> >::type&
 get(const tuple<_Tp...>& __t) _NOEXCEPT
 {
-    typedef typename tuple_element<_Ip, tuple<_Tp...> >::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename tuple_element<_Ip, tuple<_Tp...> >::type type;
     return static_cast<const __tuple_leaf<_Ip, type>&>(__t.__base_).get();
 }
 
@@ -971,7 +988,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 typename tuple_element<_Ip, tuple<_Tp...> >::type&&
 get(tuple<_Tp...>&& __t) _NOEXCEPT
 {
-    typedef typename tuple_element<_Ip, tuple<_Tp...> >::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename tuple_element<_Ip, tuple<_Tp...> >::type type;
     return static_cast<type&&>(
              static_cast<__tuple_leaf<_Ip, type>&&>(__t.__base_).get());
 }
@@ -981,7 +998,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 const typename tuple_element<_Ip, tuple<_Tp...> >::type&&
 get(const tuple<_Tp...>&& __t) _NOEXCEPT
 {
-    typedef typename tuple_element<_Ip, tuple<_Tp...> >::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename tuple_element<_Ip, tuple<_Tp...> >::type type;
     return static_cast<const type&&>(
              static_cast<const __tuple_leaf<_Ip, type>&&>(__t.__base_).get());
 }
@@ -1121,6 +1138,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 bool
 operator==(const tuple<_Tp...>& __x, const tuple<_Up...>& __y)
 {
+    static_assert (sizeof...(_Tp) == sizeof...(_Up), "Can't compare tuples of different sizes");
     return __tuple_equal<sizeof...(_Tp)>()(__x, __y);
 }
 
@@ -1164,6 +1182,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 bool
 operator<(const tuple<_Tp...>& __x, const tuple<_Up...>& __y)
 {
+    static_assert (sizeof...(_Tp) == sizeof...(_Up), "Can't compare tuples of different sizes");
     return __tuple_less<sizeof...(_Tp)>()(__x, __y);
 }
 
@@ -1198,7 +1217,7 @@ template <class _Tp, class _Up> struct __tuple_cat_type;
 template <class ..._Ttypes, class ..._Utypes>
 struct __tuple_cat_type<tuple<_Ttypes...>, __tuple_types<_Utypes...> >
 {
-    typedef tuple<_Ttypes..., _Utypes...> type;
+    typedef _LIBCPP_NODEBUG_TYPE tuple<_Ttypes..., _Utypes...> type;
 };
 
 template <class _ResultTuple, bool _Is_Tuple0TupleLike, class ..._Tuples>
@@ -1209,8 +1228,8 @@ struct __tuple_cat_return_1
 template <class ..._Types, class _Tuple0>
 struct __tuple_cat_return_1<tuple<_Types...>, true, _Tuple0>
 {
-    typedef typename __tuple_cat_type<tuple<_Types...>,
-            typename __make_tuple_types<typename remove_reference<_Tuple0>::type>::type>::type
+    typedef _LIBCPP_NODEBUG_TYPE typename __tuple_cat_type<tuple<_Types...>,
+            typename __make_tuple_types<typename __uncvref<_Tuple0>::type>::type>::type
                                                                            type;
 };
 
@@ -1219,7 +1238,7 @@ struct __tuple_cat_return_1<tuple<_Types...>, true, _Tuple0, _Tuple1, _Tuples...
     : public __tuple_cat_return_1<
                  typename __tuple_cat_type<
                      tuple<_Types...>,
-                     typename __make_tuple_types<typename remove_reference<_Tuple0>::type>::type
+                     typename __make_tuple_types<typename __uncvref<_Tuple0>::type>::type
                  >::type,
                  __tuple_like<typename remove_reference<_Tuple1>::type>::value,
                  _Tuple1, _Tuples...>
@@ -1239,7 +1258,7 @@ struct __tuple_cat_return<_Tuple0, _Tuples...>
 template <>
 struct __tuple_cat_return<>
 {
-    typedef tuple<> type;
+    typedef _LIBCPP_NODEBUG_TYPE tuple<> type;
 };
 
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
@@ -1255,7 +1274,7 @@ struct __tuple_cat_return_ref_imp;
 template <class ..._Types, size_t ..._I0, class _Tuple0>
 struct __tuple_cat_return_ref_imp<tuple<_Types...>, __tuple_indices<_I0...>, _Tuple0>
 {
-    typedef typename remove_reference<_Tuple0>::type _T0;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple0>::type _T0;
     typedef tuple<_Types..., typename __apply_cv<_Tuple0,
                           typename tuple_element<_I0, _T0>::type>::type&&...> type;
 };
@@ -1302,8 +1321,8 @@ struct __tuple_cat<tuple<_Types...>, __tuple_indices<_I0...>, __tuple_indices<_J
     typename __tuple_cat_return_ref<tuple<_Types...>&&, _Tuple0&&, _Tuple1&&, _Tuples&&...>::type
     operator()(tuple<_Types...> __t, _Tuple0&& __t0, _Tuple1&& __t1, _Tuples&& ...__tpls)
     {
-        typedef typename remove_reference<_Tuple0>::type _T0;
-        typedef typename remove_reference<_Tuple1>::type _T1;
+        typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple0>::type _T0;
+        typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple1>::type _T1;
         return __tuple_cat<
            tuple<_Types..., typename __apply_cv<_Tuple0, typename tuple_element<_J0, _T0>::type>::type&&...>,
            typename __make_tuple_indices<sizeof ...(_Types) + tuple_size<_T0>::value>::type,
@@ -1322,7 +1341,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 typename __tuple_cat_return<_Tuple0, _Tuples...>::type
 tuple_cat(_Tuple0&& __t0, _Tuples&&... __tpls)
 {
-    typedef typename remove_reference<_Tuple0>::type _T0;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tuple0>::type _T0;
     return __tuple_cat<tuple<>, __tuple_indices<>,
                   typename __make_tuple_indices<tuple_size<_T0>::value>::type>()
                   (tuple<>(), _VSTD::forward<_Tuple0>(__t0),

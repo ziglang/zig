@@ -1,15 +1,19 @@
 // -*- C++ -*-
 //===--------------------------- inttypes.h -------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef _LIBCPP_INTTYPES_H
+// AIX system headers need inttypes.h to be re-enterable while _STD_TYPES_T
+// is defined until an inclusion of it without _STD_TYPES_T occurs, in which
+// case the header guard macro is defined.
+#if !defined(_AIX) || !defined(_STD_TYPES_T)
 #define _LIBCPP_INTTYPES_H
+#endif // _STD_TYPES_T
 
 /*
     inttypes.h synopsis

@@ -24,7 +24,10 @@ module std [system] {
       header "errno.h"
       export *
     }
-    // <fenv.h> provided by C library.
+    module fenv_h {
+      header "fenv.h"
+      export *
+    }
     // <float.h> provided by compiler or C library.
     module inttypes_h {
       header "inttypes.h"

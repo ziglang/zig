@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- valarray ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -674,6 +673,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_t size() const {return __size_;}
 
+    template <class> friend class __val_expr;
     template <class> friend class _LIBCPP_TEMPLATE_VIS valarray;
 };
 
@@ -1059,8 +1059,6 @@ private:
     valarray& __assign_range(const value_type* __f, const value_type* __l);
 };
 
-_LIBCPP_EXTERN_TEMPLATE(_LIBCPP_FUNC_VIS valarray<size_t>::valarray(size_t))
-_LIBCPP_EXTERN_TEMPLATE(_LIBCPP_FUNC_VIS valarray<size_t>::~valarray())
 _LIBCPP_EXTERN_TEMPLATE(_LIBCPP_FUNC_VIS void valarray<size_t>::resize(size_t, size_t))
 
 template <class _Op, class _Tp>
@@ -2222,6 +2220,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_t size() const {return __1d_.size();}
 
+    template <class> friend class __val_expr;
     template <class> friend class valarray;
 };
 
@@ -2592,6 +2591,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_t size() const {return __1d_.size();}
 
+    template <class> friend class __val_expr;
     template <class> friend class _LIBCPP_TEMPLATE_VIS valarray;
 };
 
@@ -2614,19 +2614,31 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     __val_expr<__slice_expr<_ValExpr> > operator[](slice __s) const
-        {return __val_expr<__slice_expr<_ValExpr> >(__expr_, __s);}
+    {
+        typedef __slice_expr<_ValExpr> _NewExpr;
+        return __val_expr< _NewExpr >(_NewExpr(__s, __expr_));
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     __val_expr<__indirect_expr<_ValExpr> > operator[](const gslice& __gs) const
-        {return __val_expr<__indirect_expr<_ValExpr> >(__expr_, __gs.__1d_);}
+    {
+        typedef __indirect_expr<_ValExpr> _NewExpr;
+        return __val_expr<_NewExpr >(_NewExpr(__gs.__1d_, __expr_));
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     __val_expr<__mask_expr<_ValExpr> > operator[](const valarray<bool>& __vb) const
-        {return __val_expr<__mask_expr<_ValExpr> >(__expr_, __vb);}
+    {
+        typedef __mask_expr<_ValExpr> _NewExpr;
+        return __val_expr< _NewExpr >( _NewExpr(__vb, __expr_));
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     __val_expr<__indirect_expr<_ValExpr> > operator[](const valarray<size_t>& __vs) const
-        {return __val_expr<__indirect_expr<_ValExpr> >(__expr_, __vs);}
+    {
+        typedef __indirect_expr<_ValExpr> _NewExpr;
+        return __val_expr< _NewExpr >(_NewExpr(__vs, __expr_));
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     __val_expr<_UnaryOp<__unary_plus<value_type>, _ValExpr> >

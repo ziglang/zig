@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- cmath -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -530,7 +529,7 @@ inline _LIBCPP_INLINE_VISIBILITY long double hypot( long double x, long double y
 
 template <class _A1, class _A2, class _A3>
 inline _LIBCPP_INLINE_VISIBILITY
-typename __lazy_enable_if
+typename _EnableIf
 <
     is_arithmetic<_A1>::value &&
     is_arithmetic<_A2>::value &&
@@ -606,6 +605,32 @@ __libcpp_isfinite_or_builtin(_A1 __lcpp_x) _NOEXCEPT
 {
     return isfinite(__lcpp_x);
 }
+
+#if _LIBCPP_STD_VER > 17
+template <typename _Fp>
+constexpr
+_Fp __lerp(_Fp __a, _Fp __b, _Fp __t) noexcept {
+    if ((__a <= 0 && __b >= 0) || (__a >= 0 && __b <= 0))
+        return __t * __b + (1 - __t) * __a;
+
+    if (__t == 1) return __b;
+    const _Fp __x = __a + __t * (__b - __a);
+    if (__t > 1 == __b > __a)
+    	return __b < __x ? __x : __b;
+    else
+    	return __x < __b ? __x : __b;
+}
+
+constexpr float
+lerp(float __a, float __b, float __t)                   _NOEXCEPT { return __lerp(__a, __b, __t); }
+
+constexpr double
+lerp(double __a, double __b, double __t)                _NOEXCEPT { return __lerp(__a, __b, __t); }
+
+constexpr long double
+lerp(long double __a, long double __b, long double __t) _NOEXCEPT { return __lerp(__a, __b, __t); }
+
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

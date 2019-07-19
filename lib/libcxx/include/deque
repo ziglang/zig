@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- deque -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1331,21 +1330,21 @@ public:
 
     // element access:
     _LIBCPP_INLINE_VISIBILITY
-    reference operator[](size_type __i);
+    reference operator[](size_type __i) _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    const_reference operator[](size_type __i) const;
+    const_reference operator[](size_type __i) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
     reference at(size_type __i);
     _LIBCPP_INLINE_VISIBILITY
     const_reference at(size_type __i) const;
     _LIBCPP_INLINE_VISIBILITY
-    reference front();
+    reference front() _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    const_reference front() const;
+    const_reference front() const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    reference back();
+    reference back() _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    const_reference back() const;
+    const_reference back() const _NOEXCEPT;
 
     // 23.2.2.3 modifiers:
     void push_front(const value_type& __v);
@@ -1746,7 +1745,7 @@ deque<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::reference
-deque<_Tp, _Allocator>::operator[](size_type __i)
+deque<_Tp, _Allocator>::operator[](size_type __i) _NOEXCEPT
 {
     size_type __p = __base::__start_ + __i;
     return *(*(__base::__map_.begin() + __p / __base::__block_size) + __p % __base::__block_size);
@@ -1755,7 +1754,7 @@ deque<_Tp, _Allocator>::operator[](size_type __i)
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::const_reference
-deque<_Tp, _Allocator>::operator[](size_type __i) const
+deque<_Tp, _Allocator>::operator[](size_type __i) const _NOEXCEPT
 {
     size_type __p = __base::__start_ + __i;
     return *(*(__base::__map_.begin() + __p / __base::__block_size) + __p % __base::__block_size);
@@ -1786,7 +1785,7 @@ deque<_Tp, _Allocator>::at(size_type __i) const
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::reference
-deque<_Tp, _Allocator>::front()
+deque<_Tp, _Allocator>::front() _NOEXCEPT
 {
     return *(*(__base::__map_.begin() + __base::__start_ / __base::__block_size)
                                       + __base::__start_ % __base::__block_size);
@@ -1795,7 +1794,7 @@ deque<_Tp, _Allocator>::front()
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::const_reference
-deque<_Tp, _Allocator>::front() const
+deque<_Tp, _Allocator>::front() const _NOEXCEPT
 {
     return *(*(__base::__map_.begin() + __base::__start_ / __base::__block_size)
                                       + __base::__start_ % __base::__block_size);
@@ -1804,7 +1803,7 @@ deque<_Tp, _Allocator>::front() const
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::reference
-deque<_Tp, _Allocator>::back()
+deque<_Tp, _Allocator>::back() _NOEXCEPT
 {
     size_type __p = __base::size() + __base::__start_ - 1;
     return *(*(__base::__map_.begin() + __p / __base::__block_size) + __p % __base::__block_size);
@@ -1813,7 +1812,7 @@ deque<_Tp, _Allocator>::back()
 template <class _Tp, class _Allocator>
 inline
 typename deque<_Tp, _Allocator>::const_reference
-deque<_Tp, _Allocator>::back() const
+deque<_Tp, _Allocator>::back() const _NOEXCEPT
 {
     size_type __p = __base::size() + __base::__start_ - 1;
     return *(*(__base::__map_.begin() + __p / __base::__block_size) + __p % __base::__block_size);

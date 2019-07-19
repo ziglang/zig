@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- random -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -2227,19 +2226,19 @@ template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::state_size;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::shift_size;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::mask_bits;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
@@ -2251,7 +2250,7 @@ template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::tempering_u;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
@@ -2263,7 +2262,7 @@ template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::tempering_s;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
@@ -2275,7 +2274,7 @@ template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::tempering_t;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
@@ -2287,7 +2286,7 @@ template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
           _UIntType __a, size_t __u, _UIntType __d, size_t __s,
           _UIntType __b, size_t __t, _UIntType __c, size_t __l, _UIntType __f>
-    _LIBCPP_CONSTEXPR const size_t 
+    _LIBCPP_CONSTEXPR const size_t
     mersenne_twister_engine<_UIntType, __w, __n, __m, __r, __a, __u, __d, __s, __b, __t, __c, __l, __f>::tempering_l;
 
 template <class _UIntType, size_t __w, size_t __n, size_t __m, size_t __r,
@@ -6427,7 +6426,7 @@ public:
             param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
         param_type & operator=(const param_type& __rhs);
-        
+
         _LIBCPP_INLINE_VISIBILITY
         vector<result_type> intervals() const {return __b_;}
         _LIBCPP_INLINE_VISIBILITY
