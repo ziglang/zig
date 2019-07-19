@@ -113,7 +113,6 @@ pub const Tree = struct {
 
 pub const Error = union(enum) {
     InvalidToken: InvalidToken,
-    InvalidAmpersandAmpersand: InvalidAmpersandAmpersand,
     ExpectedContainerMembers: ExpectedContainerMembers,
     ExpectedStringLiteral: ExpectedStringLiteral,
     ExpectedIntegerLiteral: ExpectedIntegerLiteral,
@@ -161,7 +160,6 @@ pub const Error = union(enum) {
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tokens, stream),
-            .InvalidAmpersandAmpersand => |*x| return x.render(tokens, stream),
             .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
             .ExpectedStringLiteral => |*x| return x.render(tokens, stream),
             .ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
@@ -211,7 +209,6 @@ pub const Error = union(enum) {
     pub fn loc(self: *const Error) TokenIndex {
         switch (self.*) {
             .InvalidToken => |x| return x.token,
-            .InvalidAmpersandAmpersand => |x| return x.token,
             .ExpectedContainerMembers => |x| return x.token,
             .ExpectedStringLiteral => |x| return x.token,
             .ExpectedIntegerLiteral => |x| return x.token,
@@ -292,7 +289,6 @@ pub const Error = union(enum) {
     pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found {}");
     pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found {}");
 
-    pub const InvalidAmpersandAmpersand = SimpleError("Invalid token '&&', 'and' performs boolean AND");
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Pub must be followed by fn decl, var decl, or container member");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
@@ -322,8 +318,19 @@ pub const Error = union(enum) {
         expected_id: Token.Id,
 
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
-            const token_name = @tagName(tokens.at(self.token).id);
-            return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+            const found_token = tokens.at(self.token);
+            switch (found_token.id) {
+                .Invalid_ampersands => {
+                    return stream.print("`&&` is invalid. Note that `and` is boolean AND.");
+                },
+                .Invalid => {
+                    return stream.print("expected {}, found invalid bytes", @tagName(self.expected_id));
+                },
+                else => {
+                    const token_name = @tagName(found_token.id);
+                    return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+                },
+            }
         }
     };
 
