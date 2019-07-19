@@ -28,6 +28,8 @@ static Error ATTRIBUTE_MUST_USE resolve_union_zero_bits(CodeGen *g, ZigType *uni
 static Error ATTRIBUTE_MUST_USE resolve_union_alignment(CodeGen *g, ZigType *union_type);
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status);
+static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope);
+static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace, ScopeDecls *dest_decls_scope);
 
 static bool is_top_level_struct(ZigType *import) {
     return import->id == ZigTypeIdStruct && import->data.structure.root_struct != nullptr;
@@ -2854,6 +2856,8 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             add_node_error(g, tld->source_node, buf_sprintf("non-extern function has no body"));
             return;
         }
+    } else if (tld->id == TldIdUsingNamespace) {
+        g->resolve_queue.append(tld);
     }
     if (is_export) {
         g->resolve_queue.append(tld);
@@ -2867,7 +2871,7 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         }
     }
 
-    {
+    if (tld->name != nullptr) {
         auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
         if (entry) {
             Tld *other_tld = entry->value;
@@ -2875,9 +2879,7 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
             add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
             return;
         }
-    }
 
-    {
         ZigType *type;
         if (get_primitive_type(g, tld->name, &type) != ErrorPrimitiveTypeNotFound) {
             add_node_error(g, tld->source_node,
@@ -2977,12 +2979,14 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
 
                 break;
             }
-        case NodeTypeUse:
-            {
-                g->use_queue.append(node);
-                decls_scope->use_decls.append(node);
-                break;
-            }
+        case NodeTypeUsingNamespace: {
+            VisibMod visib_mod = node->data.using_namespace.visib_mod;
+            TldUsingNamespace *tld_using_namespace = allocate<TldUsingNamespace>(1);
+            init_tld(&tld_using_namespace->base, TldIdUsingNamespace, nullptr, visib_mod, node, &decls_scope->base);
+            add_top_level_decl(g, decls_scope, &tld_using_namespace->base);
+            decls_scope->use_decls.append(tld_using_namespace);
+            break;
+        }
         case NodeTypeTestDecl:
             preview_test_decl(g, node, decls_scope);
             break;
@@ -3266,6 +3270,117 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     g->global_vars.append(tld_var);
 }
 
+static void add_symbols_from_container(CodeGen *g, TldUsingNamespace *src_using_namespace,
+        TldUsingNamespace *dst_using_namespace, ScopeDecls* dest_decls_scope)
+{
+    if (src_using_namespace->base.resolution == TldResolutionUnresolved ||
+        src_using_namespace->base.resolution == TldResolutionResolving)
+    {
+        assert(src_using_namespace->base.parent_scope->id == ScopeIdDecls);
+        ScopeDecls *src_decls_scope = (ScopeDecls *)src_using_namespace->base.parent_scope;
+        preview_use_decl(g, src_using_namespace, src_decls_scope);
+        if (src_using_namespace != dst_using_namespace) {
+            resolve_use_decl(g, src_using_namespace, src_decls_scope);
+        }
+    }
+
+    ConstExprValue *use_expr = src_using_namespace->using_namespace_value;
+    if (type_is_invalid(use_expr->type)) {
+        dest_decls_scope->any_imports_failed = true;
+        return;
+    }
+
+    dst_using_namespace->base.resolution = TldResolutionOk;
+
+    assert(use_expr->special != ConstValSpecialRuntime);
+
+    // The source scope for the imported symbols
+    ScopeDecls *src_scope = get_container_scope(use_expr->data.x_type);
+    // The top-level container where the symbols are defined, it's used in the
+    // loop below in order to exclude the ones coming from an import statement
+    ZigType *src_import = get_scope_import(&src_scope->base);
+    assert(src_import != nullptr);
+
+    if (src_scope->any_imports_failed) {
+        dest_decls_scope->any_imports_failed = true;
+    }
+
+    auto it = src_scope->decl_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        Buf *target_tld_name = entry->key;
+        Tld *target_tld = entry->value;
+
+        if (target_tld->visib_mod == VisibModPrivate) {
+            continue;
+        }
+
+        if (target_tld->import != src_import) {
+            continue;
+        }
+
+        auto existing_entry = dest_decls_scope->decl_table.put_unique(target_tld_name, target_tld);
+        if (existing_entry) {
+            Tld *existing_decl = existing_entry->value;
+            if (existing_decl != target_tld) {
+                ErrorMsg *msg = add_node_error(g, dst_using_namespace->base.source_node,
+                        buf_sprintf("import of '%s' overrides existing definition",
+                            buf_ptr(target_tld_name)));
+                add_error_note(g, msg, existing_decl->source_node, buf_sprintf("previous definition here"));
+                add_error_note(g, msg, target_tld->source_node, buf_sprintf("imported definition here"));
+            }
+        }
+    }
+
+    for (size_t i = 0; i < src_scope->use_decls.length; i += 1) {
+        TldUsingNamespace *tld_using_namespace = src_scope->use_decls.at(i);
+        if (tld_using_namespace->base.visib_mod != VisibModPrivate)
+            add_symbols_from_container(g, tld_using_namespace, dst_using_namespace, dest_decls_scope);
+    }
+}
+
+static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace, ScopeDecls *dest_decls_scope) {
+    if (tld_using_namespace->base.resolution == TldResolutionOk ||
+        tld_using_namespace->base.resolution == TldResolutionInvalid)
+    {
+        return;
+    }
+    add_symbols_from_container(g, tld_using_namespace, tld_using_namespace, dest_decls_scope);
+}
+
+static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope) {
+    if (using_namespace->base.resolution == TldResolutionOk ||
+        using_namespace->base.resolution == TldResolutionInvalid)
+    {
+        return;
+    }
+
+    using_namespace->base.resolution = TldResolutionResolving;
+    assert(using_namespace->base.source_node->type == NodeTypeUsingNamespace);
+    ConstExprValue *result = analyze_const_value(g, &dest_decls_scope->base,
+        using_namespace->base.source_node->data.using_namespace.expr, g->builtin_types.entry_type, nullptr);
+    using_namespace->using_namespace_value = result;
+
+    if (type_is_invalid(result->type)) {
+        dest_decls_scope->any_imports_failed = true;
+        using_namespace->base.resolution = TldResolutionInvalid;
+        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        return;
+    }
+
+    if (!is_container(result->data.x_type)) {
+        add_node_error(g, using_namespace->base.source_node,
+            buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&result->data.x_type->name)));
+        dest_decls_scope->any_imports_failed = true;
+        using_namespace->base.resolution = TldResolutionInvalid;
+        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        return;
+    }
+}
+
 void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
@@ -3299,6 +3414,14 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
                 resolve_decl_comptime(g, tld_comptime);
                 break;
             }
+        case TldIdUsingNamespace: {
+            TldUsingNamespace *tld_using_namespace = (TldUsingNamespace *)tld;
+            assert(tld_using_namespace->base.parent_scope->id == ScopeIdDecls);
+            ScopeDecls *dest_decls_scope = (ScopeDecls *)tld_using_namespace->base.parent_scope;
+            preview_use_decl(g, tld_using_namespace, dest_decls_scope);
+            resolve_use_decl(g, tld_using_namespace, dest_decls_scope);
+            break;
+        }
     }
 
     tld->resolution = TldResolutionOk;
@@ -3308,10 +3431,10 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
 Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name) {
     // resolve all the using_namespace decls
     for (size_t i = 0; i < decls_scope->use_decls.length; i += 1) {
-        AstNode *use_decl_node = decls_scope->use_decls.at(i);
-        if (use_decl_node->data.using_namespace.resolution == TldResolutionUnresolved) {
-            preview_use_decl(g, use_decl_node, decls_scope);
-            resolve_use_decl(g, use_decl_node, decls_scope);
+        TldUsingNamespace *tld_using_namespace = decls_scope->use_decls.at(i);
+        if (tld_using_namespace->base.resolution == TldResolutionUnresolved) {
+            preview_use_decl(g, tld_using_namespace, decls_scope);
+            resolve_use_decl(g, tld_using_namespace, decls_scope);
         }
     }
 
@@ -3752,110 +3875,6 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
-static void add_symbols_from_container(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node, ScopeDecls* decls_scope) {
-    if (src_use_node->data.using_namespace.resolution == TldResolutionUnresolved) {
-        preview_use_decl(g, src_use_node, decls_scope);
-    }
-
-    ConstExprValue *use_expr = src_use_node->data.using_namespace.using_namespace_value;
-    if (type_is_invalid(use_expr->type)) {
-        decls_scope->any_imports_failed = true;
-        return;
-    }
-
-    dst_use_node->data.using_namespace.resolution = TldResolutionOk;
-
-    assert(use_expr->special != ConstValSpecialRuntime);
-
-    // The source struct for the imported symbols
-    ZigType *src_ty = use_expr->data.x_type;
-    assert(src_ty);
-
-    if (!is_container(src_ty)) {
-        add_node_error(g, dst_use_node,
-            buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&src_ty->name)));
-        decls_scope->any_imports_failed = true;
-        return;
-    }
-
-    // The source scope for the imported symbols
-    ScopeDecls *src_scope = get_container_scope(src_ty);
-    // The top-level container where the symbols are defined, it's used in the
-    // loop below in order to exclude the ones coming from an import statement
-    ZigType *src_import = get_scope_import(&src_scope->base);
-    assert(src_import != nullptr);
-
-    if (src_scope->any_imports_failed) {
-        decls_scope->any_imports_failed = true;
-    }
-
-    auto it = src_scope->decl_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        Buf *target_tld_name = entry->key;
-        Tld *target_tld = entry->value;
-
-        if (target_tld->visib_mod == VisibModPrivate) {
-            continue;
-        }
-
-        if (target_tld->import != src_import) {
-            continue;
-        }
-
-        auto existing_entry = decls_scope->decl_table.put_unique(target_tld_name, target_tld);
-        if (existing_entry) {
-            Tld *existing_decl = existing_entry->value;
-            if (existing_decl != target_tld) {
-                ErrorMsg *msg = add_node_error(g, dst_use_node,
-                        buf_sprintf("import of '%s' overrides existing definition",
-                            buf_ptr(target_tld_name)));
-                add_error_note(g, msg, existing_decl->source_node, buf_sprintf("previous definition here"));
-                add_error_note(g, msg, target_tld->source_node, buf_sprintf("imported definition here"));
-            }
-        }
-    }
-
-    for (size_t i = 0; i < src_scope->use_decls.length; i += 1) {
-        AstNode *use_decl_node = src_scope->use_decls.at(i);
-        if (use_decl_node->data.using_namespace.visib_mod != VisibModPrivate)
-            add_symbols_from_container(g, use_decl_node, dst_use_node, decls_scope);
-    }
-}
-
-void resolve_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
-    assert(node->type == NodeTypeUse);
-
-    if (node->data.using_namespace.resolution == TldResolutionOk ||
-        node->data.using_namespace.resolution == TldResolutionInvalid)
-    {
-        return;
-    }
-    add_symbols_from_container(g, node, node, decls_scope);
-}
-
-void preview_use_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
-    assert(node->type == NodeTypeUse);
-
-    if (node->data.using_namespace.resolution == TldResolutionOk ||
-        node->data.using_namespace.resolution == TldResolutionInvalid)
-    {
-        return;
-    }
-
-    node->data.using_namespace.resolution = TldResolutionResolving;
-    ConstExprValue *result = analyze_const_value(g, &decls_scope->base,
-        node->data.using_namespace.expr, g->builtin_types.entry_type, nullptr);
-
-    if (type_is_invalid(result->type))
-        decls_scope->any_imports_failed = true;
-
-    node->data.using_namespace.using_namespace_value = result;
-}
-
 ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Buf *source_code,
         SourceKind source_kind)
 {
@@ -3975,18 +3994,8 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
 
 void semantic_analyze(CodeGen *g) {
     while (g->resolve_queue_index < g->resolve_queue.length ||
-           g->fn_defs_index < g->fn_defs.length ||
-           g->use_queue_index < g->use_queue.length)
+           g->fn_defs_index < g->fn_defs.length)
     {
-        for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
-            AstNode *use_decl_node = g->use_queue.at(g->use_queue_index);
-            // Get the top-level scope where `using_namespace` is used
-            ScopeDecls *decls_scope = get_container_scope(use_decl_node->owner);
-            if (use_decl_node->data.using_namespace.resolution == TldResolutionUnresolved) {
-                preview_use_decl(g, use_decl_node, decls_scope);
-                resolve_use_decl(g, use_decl_node, decls_scope);
-            }
-        }
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             AstNode *source_node = nullptr;

@@ -234,7 +234,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "usingnamespace with wrong type",
-        \\use void;
+        \\usingnamespace void;
     ,
         "tmp.zig:1:1: error: expected struct, enum, or union; found 'void'",
     );

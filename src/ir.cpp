@@ -8430,7 +8430,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
     switch (node->type) {
         case NodeTypeStructValueField:
         case NodeTypeParamDecl:
-        case NodeTypeUse:
+        case NodeTypeUsingNamespace:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeStructField:
@@ -17847,6 +17847,7 @@ static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_
     switch (tld->id) {
         case TldIdContainer:
         case TldIdCompTime:
+        case TldIdUsingNamespace:
             zig_unreachable();
         case TldIdVar:
         {

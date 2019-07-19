@@ -193,8 +193,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeUse:
-            return "Use";
+        case NodeTypeUsingNamespace:
+            return "UsingNamespace";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
         case NodeTypeNullLiteral:
@@ -791,7 +791,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     AstNode *decls_node = node->data.container_decl.decls.at(decl_i);
                     render_node_grouped(ar, decls_node);
 
-                    if (decls_node->type == NodeTypeUse ||
+                    if (decls_node->type == NodeTypeUsingNamespace ||
                         decls_node->type == NodeTypeVariableDeclaration ||
                         decls_node->type == NodeTypeFnProto)
                     {
@@ -1170,7 +1170,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:
-        case NodeTypeUse:
+        case NodeTypeUsingNamespace:
             zig_panic("TODO more ast rendering");
     }
 }

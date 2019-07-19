@@ -93,6 +93,7 @@ comptime {
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
+    _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");

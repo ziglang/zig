@@ -676,7 +676,7 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
         AstNode *expr = ast_expect(pc, ast_parse_expr);
         expect_token(pc, TokenIdSemicolon);
 
-        AstNode *res = ast_create_node(pc, NodeTypeUse, usingnamespace);
+        AstNode *res = ast_create_node(pc, NodeTypeUsingNamespace, usingnamespace);
         res->data.using_namespace.visib_mod = visib_mod;
         res->data.using_namespace.expr = expr;
         return res;
@@ -2938,7 +2938,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeUnwrapOptional:
             visit_field(&node->data.unwrap_optional.expr, visit, context);
             break;
-        case NodeTypeUse:
+        case NodeTypeUsingNamespace:
             visit_field(&node->data.using_namespace.expr, visit, context);
             break;
         case NodeTypeBoolLiteral:
