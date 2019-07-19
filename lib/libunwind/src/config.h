@@ -1,9 +1,8 @@
 //===----------------------------- config.h -------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //
 //  Defines macros used within libunwind project.
@@ -61,6 +60,35 @@
     #define _LIBUNWIND_EXPORT __attribute__((visibility("default")))
     #define _LIBUNWIND_HIDDEN __attribute__((visibility("hidden")))
   #endif
+#endif
+
+#define STR(a) #a
+#define XSTR(a) STR(a)
+#define SYMBOL_NAME(name) XSTR(__USER_LABEL_PREFIX__) #name
+
+#if defined(__APPLE__)
+#define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
+  __asm__(".globl " SYMBOL_NAME(aliasname));                                   \
+  __asm__(SYMBOL_NAME(aliasname) " = " SYMBOL_NAME(name));                     \
+  extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
+      __attribute__((weak_import));
+#elif defined(__ELF__)
+#define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
+  extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
+      __attribute__((weak, alias(#name)));
+#elif defined(_WIN32)
+#if defined(__MINGW32__)
+#define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
+  extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
+      __attribute__((alias(#name)));
+#else
+#define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
+  __pragma(comment(linker, "/alternatename:" SYMBOL_NAME(aliasname) "="        \
+                                             SYMBOL_NAME(name)))               \
+  extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname;
+#endif
+#else
+#error Unsupported target
 #endif
 
 #if (defined(__APPLE__) && defined(__arm__)) || defined(__USING_SJLJ_EXCEPTIONS__)
