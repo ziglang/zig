@@ -2216,7 +2216,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             assert(handle_is_ptr(ty));
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
-                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
+                    ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                     // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
