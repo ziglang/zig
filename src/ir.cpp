@@ -12172,34 +12172,90 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
 static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, ZigType *wanted_type)
 {
-    assert(wanted_type->id == ZigTypeIdInt || wanted_type->id == ZigTypeIdFloat);
+    bool is_vector = wanted_type->id == ZigTypeIdVector;
+    ZigType *wanted_scalar_type = is_vector ? wanted_type->data.vector.elem_type : wanted_type;
+    assert(wanted_scalar_type->id == ZigTypeIdInt || wanted_scalar_type->id == ZigTypeIdFloat);
+    assert((target->value.type->id == ZigTypeIdVector) == is_vector);
+    if (is_vector) {
+        assert(target->value.type->data.vector.len == wanted_type->data.vector.len);
+    }
 
     if (instr_is_comptime(target)) {
-        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
-        if (wanted_type->id == ZigTypeIdInt) {
-            if (bigint_cmp_zero(&val->data.x_bigint) == CmpLT && !wanted_type->data.integral.is_signed) {
-                ir_add_error(ira, source_instr,
-                    buf_sprintf("attempt to cast negative value to unsigned integer"));
-                return ira->codegen->invalid_instruction;
-            }
-            if (!bigint_fits_in_bits(&val->data.x_bigint, wanted_type->data.integral.bit_count,
-                    wanted_type->data.integral.is_signed))
-            {
-                ir_add_error(ira, source_instr,
-                    buf_sprintf("cast from '%s' to '%s' truncates bits",
-                        buf_ptr(&target->value.type->name), buf_ptr(&wanted_type->name)));
-                return ira->codegen->invalid_instruction;
-            }
-        }
         IrInstruction *result = ir_const(ira, source_instr, wanted_type);
-        result->value.type = wanted_type;
-        if (wanted_type->id == ZigTypeIdInt) {
-            bigint_init_bigint(&result->value.data.x_bigint, &val->data.x_bigint);
+        if (wanted_scalar_type->id == ZigTypeIdInt || wanted_scalar_type->id == ZigTypeIdFloat) {
+            uint32_t i = 0;
+            uint32_t vector_len = 1;
+            ConstExprValue *sval = val;
+            if (is_vector) {
+                vector_len = val->type->data.vector.len;
+                expand_undef_array(ira->codegen, &result->value);
+                result->value.data.x_array.data.s_none.elements =
+                    allocate<ConstExprValue>(vector_len);
+                sval = &val->data.x_array.data.s_none.elements[0];
+            }
+            while (i < vector_len) {
+                if (sval->special == ConstValSpecialUndef) {
+                    if (is_vector) {
+                        result->value.data.x_array.data.s_none.elements[i].special = ConstValSpecialUndef;
+                        sval = &val->data.x_array.data.s_none.elements[++i];
+                    } else {
+                        result->value.special = ConstValSpecialUndef;
+                    }
+                    continue;
+                }
+                if (wanted_scalar_type->id == ZigTypeIdInt) {
+                    if (bigint_cmp_zero(&sval->data.x_bigint) == CmpLT && !wanted_scalar_type->data.integral.is_signed) {
+                        ErrorMsg *msg = ir_add_error(ira, source_instr,
+                            buf_sprintf("attempt to cast negative value to unsigned integer"));
+                        if (is_vector) {
+                            add_error_note(ira->codegen, msg, source_instr->source_node,
+                                buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, (uintptr_t)i));
+                        }
+                        return ira->codegen->invalid_instruction;
+                    }
+                    if (!bigint_fits_in_bits(&sval->data.x_bigint, wanted_scalar_type->data.integral.bit_count,
+                            wanted_scalar_type->data.integral.is_signed))
+                    {
+                        ErrorMsg *msg = ir_add_error(ira, source_instr,
+                            buf_sprintf("cast from '%s' to '%s' truncates bits",
+                                buf_ptr(&target->value.type->name), buf_ptr(&wanted_type->name)));
+                        if (is_vector) {
+                            add_error_note(ira->codegen, msg, source_instr->source_node,
+                                buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, (uintptr_t)i));
+                        }
+                        return ira->codegen->invalid_instruction;
+                    }
+                }
+                if (is_vector) {
+                    // float_init_float requires this to be set
+                    result->value.data.x_array.data.s_none.elements[i].type = wanted_scalar_type;
+                    if (wanted_scalar_type->id == ZigTypeIdInt) {
+                        bigint_init_bigint(&result->value.data.x_array.data.s_none.elements[i].data.x_bigint,
+                            &sval->data.x_bigint);
+                    } else if (wanted_scalar_type->id == ZigTypeIdFloat) {
+                        float_init_float(&result->value.data.x_array.data.s_none.elements[i], sval);
+                    } else {
+                        zig_unreachable();
+                    }
+                    result->value.data.x_array.data.s_none.elements[i].special = ConstValSpecialStatic;
+                    sval = &val->data.x_array.data.s_none.elements[++i];
+                } else if (wanted_type->id == ZigTypeIdInt) {
+                    bigint_init_bigint(&result->value.data.x_bigint, &sval->data.x_bigint);
+                    break;
+                } else if (wanted_type->id == ZigTypeIdFloat) {
+                    float_init_float(&result->value, sval);
+                    break;
+                } else {
+                    zig_unreachable();
+                }
+            }
         } else {
-            float_init_float(&result->value, val);
+            zig_unreachable();
         }
+        result->value.type = wanted_type;
         return result;
     }
 
@@ -12207,10 +12263,23 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
     // zero. However, we still want to emit a runtime safety check to make sure
     // the target is zero.
     if (!type_has_bits(wanted_type)) {
-        assert(wanted_type->id == ZigTypeIdInt);
+        assert(wanted_scalar_type->id == ZigTypeIdInt);
         assert(type_has_bits(target->value.type));
         ir_build_assert_zero(ira, source_instr, target);
-        IrInstruction *result = ir_const_unsigned(ira, source_instr, 0);
+        IrInstruction *result;
+        if (is_vector) {
+            result = ir_const_type(ira, source_instr, wanted_type);
+            result->value.data.x_array.data.s_none.elements =
+                    allocate<ConstExprValue>(wanted_type->data.vector.len);
+            for (uint32_t i = 0; i < wanted_type->data.vector.len; i++) {
+                ConstExprValue *cur = &result->value.data.x_array.data.s_none.elements[i];
+                bigint_init_unsigned(&cur->data.x_bigint, 0);
+                cur->special = ConstValSpecialStatic;
+                cur->type = wanted_scalar_type;
+            }
+        } else {
+            result = ir_const_unsigned(ira, source_instr, 0);
+        }
         result->value.type = wanted_type;
         return result;
     }
@@ -12738,6 +12807,11 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return value;
     }
 
+    bool actual_is_vector = actual_type->id == ZigTypeIdVector;
+    bool wanted_is_vector = wanted_type->id == ZigTypeIdVector;
+    ZigType *actual_scalar_type = actual_is_vector ? actual_type->data.vector.elem_type : actual_type;
+    ZigType *wanted_scalar_type = wanted_is_vector ? wanted_type->data.vector.elem_type : wanted_type;
+
     // perfect match or non-const to const
     ConstCastOnly const_cast_result = types_match_const_cast_only(ira, wanted_type, actual_type,
             source_node, false);
@@ -12908,6 +12982,30 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
     }
 
+    // widening of vectors
+    // These are separate (while identical) as I am still not sure if this should not implicitely cast,
+    // but only explicitely cast. (i.e. with @cast, or @as, or @Vector(4, i32)(foo)),
+    // as they are more expensive than scalar zext/sext/fext operations.
+    if (wanted_is_vector &&
+        actual_is_vector) {
+        if (wanted_scalar_type->id == ZigTypeIdInt &&
+            actual_scalar_type->id == ZigTypeIdInt) {
+            if (wanted_scalar_type->data.integral.is_signed == actual_scalar_type->data.integral.is_signed &&
+                wanted_scalar_type->data.integral.bit_count >= actual_scalar_type->data.integral.bit_count) {
+                return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+            }
+            if (wanted_scalar_type->data.integral.is_signed &&
+                !actual_scalar_type->data.integral.is_signed &&
+                wanted_scalar_type->data.integral.bit_count > actual_scalar_type->data.integral.bit_count) {
+                return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+            }
+        }
+        if (wanted_scalar_type->id == ZigTypeIdFloat &&
+            actual_scalar_type->id == ZigTypeIdFloat &&
+            wanted_scalar_type->data.floating.bit_count >= actual_scalar_type->data.floating.bit_count) {
+            return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
+        }
+    }
 
     // cast from [N]T to []const T
     // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
@@ -22739,8 +22837,12 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
 
-    if (dest_type->id != ZigTypeIdInt &&
-        dest_type->id != ZigTypeIdComptimeInt)
+    bool dest_is_vector = dest_type->id == ZigTypeIdVector;
+    ZigType *dest_scalar_type = dest_is_vector ? dest_type->data.vector.elem_type : dest_type;
+
+    if (!(dest_type->id == ZigTypeIdInt ||
+          dest_type->id == ZigTypeIdComptimeInt ||
+          (dest_is_vector && dest_scalar_type->id == ZigTypeIdInt)))
     {
         ir_add_error(ira, dest_type_value, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
@@ -22751,10 +22853,26 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(src_type))
         return ira->codegen->invalid_instruction;
 
-    if (src_type->id != ZigTypeIdInt &&
-        src_type->id != ZigTypeIdComptimeInt)
+    bool src_is_vector = src_type->id == ZigTypeIdVector;
+    ZigType *src_scalar_type = src_is_vector ? src_type->data.vector.elem_type : src_type;
+
+    if (!(src_type->id == ZigTypeIdInt ||
+          src_type->id == ZigTypeIdComptimeInt ||
+          (src_is_vector && src_scalar_type->id == ZigTypeIdInt)))
     {
         ir_add_error(ira, target, buf_sprintf("expected integer type, found '%s'", buf_ptr(&src_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    bool is_vector = src_is_vector;
+    if (is_vector && !dest_is_vector) {
+        dest_type = get_vector_type(ira->codegen, src_type->data.vector.len, dest_type);
+    }
+    if ((is_vector &&
+         dest_type->data.vector.len != src_type->data.vector.len))
+    {
+        ir_add_error(ira, target, buf_sprintf("vector lengths don't match: '%s' and '%s'",
+            buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -22768,22 +22886,49 @@ static IrInstruction *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruct
             return ira->codegen->invalid_instruction;
 
         IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
-        bigint_truncate(&result->value.data.x_bigint, &val->data.x_bigint,
-                dest_type->data.integral.bit_count, dest_type->data.integral.is_signed);
+        if (is_vector) {
+            result->value.data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(dest_type->data.vector.len);
+            for (uint32_t i = 0; i < dest_type->data.vector.len; i++) {
+                ConstExprValue *val = &target->value.data.x_array.data.s_none.elements[i];
+                ConstExprValue *result_val = &result->value.data.x_array.data.s_none.elements[i];
+                bigint_truncate(&result_val->data.x_bigint,
+                    &val->data.x_bigint,
+                    dest_scalar_type->data.integral.bit_count,
+                    dest_scalar_type->data.integral.is_signed);
+                result_val->special = ConstValSpecialStatic;
+                result_val->type = dest_scalar_type;
+            }
+        } else {
+            bigint_truncate(&result->value.data.x_bigint, &val->data.x_bigint,
+                    dest_type->data.integral.bit_count, dest_type->data.integral.is_signed);
+        }
         return result;
     }
 
-    if (src_type->data.integral.bit_count == 0 || dest_type->data.integral.bit_count == 0) {
+    if (src_scalar_type->data.integral.bit_count == 0 || dest_scalar_type->data.integral.bit_count == 0) {
         IrInstruction *result = ir_const(ira, &instruction->base, dest_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        if (is_vector) {
+            result->value.data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(dest_type->data.vector.len);
+            for (uint32_t i = 0; i < dest_type->data.vector.len; i++) {
+                ConstExprValue *result_val = &result->value.data.x_array.data.s_none.elements[i];
+                bigint_init_unsigned(&result_val->data.x_bigint, 0);
+                result_val->special = ConstValSpecialStatic;
+                result_val->type = dest_scalar_type;
+            }
+        } else {
+            bigint_init_unsigned(&result->value.data.x_bigint, 0);
+        }
         return result;
     }
 
-    if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
+    if (src_scalar_type->data.integral.is_signed != dest_scalar_type->data.integral.is_signed) {
         const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
-        ir_add_error(ira, target, buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
+        const char *vector_str = is_vector ? "vector" : "integer";
+        ir_add_error(ira, target, buf_sprintf("expected %s %s type, found '%s'", sign_str, vector_str, buf_ptr(&src_type->name)));
         return ira->codegen->invalid_instruction;
-    } else if (src_type->data.integral.bit_count < dest_type->data.integral.bit_count) {
+    } else if (src_scalar_type->data.integral.bit_count < dest_scalar_type->data.integral.bit_count) {
         ir_add_error(ira, target, buf_sprintf("type '%s' has fewer bits than destination type '%s'",
                     buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
@@ -22800,7 +22945,10 @@ static IrInstruction *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
 
-    if (dest_type->id != ZigTypeIdInt && dest_type->id != ZigTypeIdComptimeInt) {
+    bool dest_is_vector = dest_type->id == ZigTypeIdVector;
+    ZigType *scalar_dest_type = dest_is_vector ? dest_type->data.vector.elem_type : dest_type;
+
+    if (scalar_dest_type->id != ZigTypeIdInt && scalar_dest_type->id != ZigTypeIdComptimeInt) {
         ir_add_error(ira, instruction->dest_type, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
@@ -22809,14 +22957,37 @@ static IrInstruction *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value.type->id != ZigTypeIdInt && target->value.type->id != ZigTypeIdComptimeInt) {
+    bool is_vector = target->value.type->id == ZigTypeIdVector;
+    ZigType *scalar_type = is_vector ? target->value.type->data.vector.elem_type : target->value.type;
+
+    if (dest_is_vector && !is_vector) {
+        ir_add_error(ira, target,
+            buf_sprintf("cannot cast from scalar to vector"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (dest_is_vector && dest_type->data.vector.len != target->value.type->data.vector.len) {
+        ir_add_error(ira, target,
+            buf_sprintf("length mis-match; expected %" PRIu32 ", got %" PRIu32,
+                dest_type->data.vector.len,
+                target->value.type->data.vector.len));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (scalar_type->id != ZigTypeIdInt &&
+        target->value.type->id != ZigTypeIdComptimeInt) {
         ir_add_error(ira, instruction->target, buf_sprintf("expected integer type, found '%s'",
                     buf_ptr(&target->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
+    ZigType *wanted_type = dest_type;
+    if (is_vector && !dest_is_vector) {
+        wanted_type = get_vector_type(ira->codegen, target->value.type->data.vector.len, wanted_type);
+    }
+
     if (instr_is_comptime(target)) {
-        return ir_implicit_cast(ira, target, dest_type);
+        return ir_implicit_cast(ira, target, wanted_type);
     }
 
     if (dest_type->id == ZigTypeIdComptimeInt) {
@@ -22825,7 +22996,7 @@ static IrInstruction *ir_analyze_instruction_int_cast(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
     }
 
-    return ir_analyze_widen_or_shorten(ira, &instruction->base, target, dest_type);
+    return ir_analyze_widen_or_shorten(ira, &instruction->base, target, wanted_type);
 }
 
 static IrInstruction *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstructionFloatCast *instruction) {

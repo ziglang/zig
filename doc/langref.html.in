@@ -8142,7 +8142,7 @@ fn List(comptime T: type) type {
       {#header_open|@truncate#}
       <pre>{#syntax#}@truncate(comptime T: type, integer: var) T{#endsyntax#}</pre>
       <p>
-      This function truncates bits from an integer type, resulting in a smaller
+      This function truncates bits from an integer type (or the integers of a vector), resulting in a smaller
       or same-sized integer type.
       </p>
       <p>
