@@ -8990,8 +8990,7 @@ pub fn assert(ok: bool) void {
       This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
       is not sufficient to check the result of a computation:
       </p>
-      {#code_begin|test|assert#}
-      {#code_release_fast#}
+      {#code_begin|syntax#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -8999,9 +8998,11 @@ test "assert in release fast mode" {
     assert(false);
 }
       {#code_end#}
-      <p>Note that although the above example shows the test passing, this is invoking
-      unchecked {#link|Undefined Behavior#}. This documentation is showing only one possible
-      outcome of this test.</p>
+      <p>
+      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
+      {#link|Undefined Behavior#}. Since that could do anything, this documentation
+      cannot show you the output.
+      </p>
       <p>
       Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
       </p>
