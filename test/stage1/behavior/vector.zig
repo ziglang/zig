@@ -138,3 +138,58 @@ test "vector bin compares with .all() and any()" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector upcast" {
+    const S = struct {
+        fn doTheTest() void {
+            {
+              const v: @Vector(4, i16) = [4]i16{ 21, -2, 30, 40};
+              const x: @Vector(4, i32) = @Vector(4, i32)(v);
+              expect((x == @Vector(4, i32)([4]i32{ 21, -2, 30, 40})).all);
+              expect(x[0] == 21);
+              expect(x[1] == -2);
+              expect(x[2] == 30);
+              expect(x[3] == 40);
+            }
+
+            {
+              const v: @Vector(4, u16) = [4]u16{ 21, 2, 30, 40};
+              const x: @Vector(4, u32) = @Vector(4, u32)(v);
+              expect((x == @Vector(4, u32)([4]u32{ 21, 2, 30, 40})).all);
+              expect(x[0] == 21);
+              expect(x[1] == 2);
+              expect(x[2] == 30);
+              expect(x[3] == 40);
+            }
+
+            {
+              const v: @Vector(4, f16) = [4]f16{ 21, -2, 30, 40};
+              const x: @Vector(4, f32) = @Vector(4, f32)(v);
+              expect((x == @Vector(4, f32)([4]f32{ 21, -2, 30, 40})).all);
+              expect(x[0] == 21);
+              expect(x[1] == -2);
+              expect(x[2] == 30);
+              expect(x[3] == 40);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+
+test "vector truncate" {
+    const S = struct {
+        fn doTheTest() void {
+            const v: @Vector(4, i32) = [4]i32{ 21, -2, 30, 40};
+            const x: @Vector(4, i16) = @truncate(@Vector(4, i16), v);
+            expect((x == @Vector(4, i16)([4]i16{ 21, -2, 30, 40})).all);
+            expect(x[0] == 21);
+            expect(x[1] == -2);
+            expect(x[2] == 30);
+            expect(x[3] == 40);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
