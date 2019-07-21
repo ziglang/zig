@@ -1251,6 +1251,7 @@ enum ZigTypeId {
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
+    ZigTypeIdCoroFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
 };
@@ -1263,6 +1264,11 @@ enum OnePossibleValue {
 
 struct ZigTypeOpaque {
     Buf *bare_name;
+};
+
+struct ZigTypeCoroFrame {
+    ZigFn *fn;
+    ZigType *locals_struct;
 };
 
 struct ZigType {
@@ -1290,6 +1296,7 @@ struct ZigType {
         ZigTypeBoundFn bound_fn;
         ZigTypeVector vector;
         ZigTypeOpaque opaque;
+        ZigTypeCoroFrame frame;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -1340,6 +1347,7 @@ struct ZigFn {
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
     ZigType *type_entry; // function type
+    ZigType *frame_type; // coro frame type
     // in the case of normal functions this is the implicit return type
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
@@ -1356,6 +1364,7 @@ struct ZigFn {
 
     ZigList<IrInstructionAllocaGen *> alloca_gen_list;
     ZigList<ZigVar *> variable_list;
+    ZigList<IrBasicBlock *> resume_blocks;
 
     Buf *section_name;
     AstNode *set_alignstack_node;
@@ -1365,6 +1374,7 @@ struct ZigFn {
     ZigList<GlobalExport> export_list;
 
     LLVMValueRef valgrind_client_request_array;
+    LLVMBasicBlockRef preamble_llvm_block;
 
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1512,6 +1522,7 @@ enum PanicMsgId {
     PanicMsgIdBadEnumValue,
     PanicMsgIdFloatToInt,
     PanicMsgIdPtrCastNull,
+    PanicMsgIdBadResume,
 
     PanicMsgIdCount,
 };
@@ -1755,6 +1766,7 @@ struct CodeGen {
         ZigType *entry_global_error_set;
         ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
+        ZigType *entry_frame_header;
     } builtin_types;
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
@@ -2119,6 +2131,8 @@ struct IrBasicBlock {
     size_t ref_count;
     // index into the basic block list
     size_t index;
+    // for coroutines, the resume_index which corresponds to this block
+    size_t resume_index;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -2297,6 +2311,8 @@ enum IrInstructionId {
     IrInstructionIdEndExpr,
     IrInstructionIdPtrOfArrayToSlice,
     IrInstructionIdUnionInitNamedField,
+    IrInstructionIdSuspendBegin,
+    IrInstructionIdSuspendBr,
 };
 
 struct IrInstruction {
@@ -3511,6 +3527,18 @@ struct IrInstructionPtrOfArrayToSlice {
     IrInstruction *result_loc;
 };
 
+struct IrInstructionSuspendBegin {
+    IrInstruction base;
+
+    IrBasicBlock *resume_block;
+};
+
+struct IrInstructionSuspendBr {
+    IrInstruction base;
+
+    IrBasicBlock *resume_block;
+};
+
 enum ResultLocId {
     ResultLocIdInvalid,
     ResultLocIdNone,
@@ -3592,6 +3620,8 @@ static const size_t maybe_null_index = 1;
 
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
+
+static const size_t coro_resume_index_index = 0;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

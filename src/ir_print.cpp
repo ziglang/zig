@@ -1503,6 +1503,16 @@ static void ir_print_union_init_named_field(IrPrint *irp, IrInstructionUnionInit
     fprintf(irp->f, ")");
 }
 
+static void ir_print_suspend_begin(IrPrint *irp, IrInstructionSuspendBegin *instruction) {
+    fprintf(irp->f, "@suspendBegin()");
+}
+
+static void ir_print_suspend_br(IrPrint *irp, IrInstructionSuspendBr *instruction) {
+    fprintf(irp->f, "@suspendBr(");
+    ir_print_other_block(irp, instruction->resume_block);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1960,6 +1970,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdUnionInitNamedField:
             ir_print_union_init_named_field(irp, (IrInstructionUnionInitNamedField *)instruction);
+            break;
+        case IrInstructionIdSuspendBegin:
+            ir_print_suspend_begin(irp, (IrInstructionSuspendBegin *)instruction);
+            break;
+        case IrInstructionIdSuspendBr:
+            ir_print_suspend_br(irp, (IrInstructionSuspendBr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

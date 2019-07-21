@@ -498,7 +498,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
 
     ZigType *fn_type = fn_table_entry->type_entry;
     // Make the raw_type_ref populated
-    (void)get_llvm_type(g, fn_type);
+    resolve_llvm_types_fn(g, fn_type, fn_table_entry);
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
     if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
@@ -921,9 +921,8 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
     return false;
 }
 
-static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
+static bool ir_want_runtime_safety_scope(CodeGen *g, Scope *scope) {
     // TODO memoize
-    Scope *scope = instruction->scope;
     while (scope) {
         if (scope->id == ScopeIdBlock) {
             ScopeBlock *block_scope = (ScopeBlock *)scope;
@@ -939,6 +938,10 @@ static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
 
     return (g->build_mode != BuildModeFastRelease &&
             g->build_mode != BuildModeSmallRelease);
+}
+
+static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
+    return ir_want_runtime_safety_scope(g, instruction->scope);
 }
 
 static Buf *panic_msg_buf(PanicMsgId msg_id) {
@@ -981,6 +984,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("integer part of floating point value out of bounds");
         case PanicMsgIdPtrCastNull:
             return buf_create_from_str("cast causes pointer to be null");
+        case PanicMsgIdBadResume:
+            return buf_create_from_str("invalid resume of async function");
     }
     zig_unreachable();
 }
@@ -1027,12 +1032,16 @@ static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
 }
 
-static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
-    if (ir_want_runtime_safety(g, source_instruction)) {
+static void gen_assertion_scope(CodeGen *g, PanicMsgId msg_id, Scope *source_scope) {
+    if (ir_want_runtime_safety_scope(g, source_scope)) {
         gen_safety_crash(g, msg_id);
     } else {
         LLVMBuildUnreachable(g->builder);
     }
+}
+
+static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
+    return gen_assertion_scope(g, msg_id, source_instruction->scope);
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -2092,6 +2101,10 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
+    if (g->cur_fn->resume_blocks.length != 0) {
+        LLVMBuildRet(g->builder, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type));
+        return nullptr;
+    }
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
         if (return_instruction->value == nullptr) {
             LLVMBuildRetVoid(g->builder);
@@ -3375,8 +3388,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
 static bool get_prefix_arg_err_ret_stack(CodeGen *g, FnTypeId *fn_type_id) {
     return g->have_err_ret_tracing &&
         (fn_type_id->return_type->id == ZigTypeIdErrorUnion ||
-         fn_type_id->return_type->id == ZigTypeIdErrorSet ||
-         fn_type_id->cc == CallingConventionAsync);
+         fn_type_id->return_type->id == ZigTypeIdErrorSet);
 }
 
 static LLVMValueRef get_new_stack_addr(CodeGen *g, LLVMValueRef new_stack) {
@@ -3440,14 +3452,22 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
-    if (first_arg_ret) {
-        gen_param_values.append(result_loc);
-    }
-    if (prefix_arg_err_ret_stack) {
-        gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
-    }
     if (instruction->is_async) {
-        zig_panic("TODO codegen async call");
+        assert(result_loc != nullptr);
+        assert(instruction->fn_entry != nullptr);
+        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, result_loc, coro_resume_index_index, "");
+        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->llvm_type);
+        LLVMBuildStore(g->builder, zero, resume_index_ptr);
+
+        if (prefix_arg_err_ret_stack) {
+            zig_panic("TODO");
+        }
+
+        gen_param_values.append(result_loc);
+    } else if (first_arg_ret) {
+        gen_param_values.append(result_loc);
+    } else if (prefix_arg_err_ret_stack) {
+        gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
     }
     FnWalk fn_walk = {};
     fn_walk.id = FnWalkIdCall;
@@ -3489,9 +3509,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
 
     if (instruction->is_async) {
-        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_payload_index, "");
-        LLVMBuildStore(g->builder, result, payload_ptr);
-        return result_loc;
+        return nullptr;
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -4921,6 +4939,24 @@ static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executab
     return nullptr;
 }
 
+static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable,
+        IrInstructionSuspendBegin *instruction)
+{
+    LLVMValueRef locals_ptr = g->cur_ret_ptr;
+    LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_resume_index_index, "");
+    LLVMValueRef new_resume_index = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
+            instruction->resume_block->resume_index, false);
+    LLVMBuildStore(g->builder, new_resume_index, resume_index_ptr);
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
+        IrInstructionSuspendBr *instruction)
+{
+    LLVMBuildRet(g->builder, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type));
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5161,6 +5197,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
         case IrInstructionIdPtrOfArrayToSlice:
             return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
+        case IrInstructionIdSuspendBegin:
+            return ir_render_suspend_begin(g, executable, (IrInstructionSuspendBegin *)instruction);
+        case IrInstructionIdSuspendBr:
+            return ir_render_suspend_br(g, executable, (IrInstructionSuspendBr *)instruction);
     }
     zig_unreachable();
 }
@@ -5422,7 +5462,8 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                 }
                 return val;
             }
-
+        case ZigTypeIdCoroFrame:
+            zig_panic("TODO bit pack a coroutine frame");
     }
     zig_unreachable();
 }
@@ -5943,7 +5984,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             zig_unreachable();
-
+        case ZigTypeIdCoroFrame:
+            zig_panic("TODO");
     }
     zig_unreachable();
 }
@@ -6027,12 +6069,20 @@ static void generate_error_name_table(CodeGen *g) {
 static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
     IrExecutable *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
+    LLVMValueRef fn_val = fn_llvm_value(g, fn);
+    LLVMBasicBlockRef first_bb = nullptr;
+    if (fn->resume_blocks.length != 0) {
+        first_bb = LLVMAppendBasicBlock(fn_val, "AsyncSwitch");
+        fn->preamble_llvm_block = first_bb;
+    }
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *bb = executable->basic_block_list.at(block_i);
-        bb->llvm_block = LLVMAppendBasicBlock(fn_llvm_value(g, fn), bb->name_hint);
+        bb->llvm_block = LLVMAppendBasicBlock(fn_val, bb->name_hint);
     }
-    IrBasicBlock *entry_bb = executable->basic_block_list.at(0);
-    LLVMPositionBuilderAtEnd(g->builder, entry_bb->llvm_block);
+    if (first_bb == nullptr) {
+        first_bb = executable->basic_block_list.at(0)->llvm_block;
+    }
+    LLVMPositionBuilderAtEnd(g->builder, first_bb);
 }
 
 static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
@@ -6209,7 +6259,7 @@ static void do_code_gen(CodeGen *g) {
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
 
-        if (want_sret) {
+        if (want_sret || fn_table_entry->resume_blocks.length != 0) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
         } else if (handle_is_ptr(fn_type_id->return_type)) {
             g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
@@ -6356,6 +6406,41 @@ static void do_code_gen(CodeGen *g) {
         fn_walk_init.data.inits.llvm_fn = fn;
         fn_walk_init.data.inits.gen_i = gen_i_init;
         walk_function_params(g, fn_table_entry->type_entry, &fn_walk_init);
+
+        if (fn_table_entry->resume_blocks.length != 0) {
+            if (!g->strip_debug_symbols) {
+                AstNode *source_node = fn_table_entry->proto_node;
+                ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
+                        (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
+            }
+            LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+            LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
+            LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
+            gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
+
+            LLVMBasicBlockRef get_size_block = LLVMAppendBasicBlock(g->cur_fn_val, "GetSize");
+            LLVMPositionBuilderAtEnd(g->builder, get_size_block);
+            assert(fn_table_entry->frame_type->abi_size != 0);
+            assert(fn_table_entry->frame_type->abi_size != SIZE_MAX);
+            LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
+            LLVMBuildRet(g->builder, size_val);
+
+            LLVMPositionBuilderAtEnd(g->builder, fn_table_entry->preamble_llvm_block);
+            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
+                    coro_resume_index_index, "");
+            LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
+            // The +1 is because index 0 is reserved for getting the size.
+            LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block,
+                    fn_table_entry->resume_blocks.length + 1);
+
+            LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+            LLVMAddCase(switch_instr, zero, get_size_block);
+
+            for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
+                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_i + 1, false);
+                LLVMAddCase(switch_instr, case_value, fn_table_entry->resume_blocks.at(resume_i)->llvm_block);
+            }
+        }
 
         ir_render(g, fn_table_entry);
 
@@ -6644,8 +6729,12 @@ static void define_builtin_types(CodeGen *g) {
 
         g->primitive_type_table.put(&entry->name, entry);
     }
+    {
+        const char *field_names[] = {"resume_index"};
+        ZigType *field_types[] = {g->builtin_types.entry_usize};
+        g->builtin_types.entry_frame_header = get_struct_type(g, "(frame header)", field_names, field_types, 1);
+    }
 }
-
 
 static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name, size_t count) {
     BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
@@ -7072,6 +7161,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    BoundFn: Fn,\n"
             "    ArgTuple: void,\n"
             "    Opaque: void,\n"
+            "    Frame: void,\n"
             "    Vector: Vector,\n"
             "    EnumLiteral: void,\n"
             "\n\n"
@@ -8335,6 +8425,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdArgTuple:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
+        case ZigTypeIdCoroFrame:
             zig_unreachable();
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
@@ -8518,6 +8609,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
+        case ZigTypeIdCoroFrame:
             zig_unreachable();
     }
 }
@@ -8685,6 +8777,7 @@ static void gen_h_file(CodeGen *g) {
             case ZigTypeIdOptional:
             case ZigTypeIdFn:
             case ZigTypeIdVector:
+            case ZigTypeIdCoroFrame:
                 zig_unreachable();
             case ZigTypeIdEnum:
                 if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {

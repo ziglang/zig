@@ -318,6 +318,7 @@ static bool types_have_same_zig_comptime_repr(ZigType *a, ZigType *b) {
         case ZigTypeIdFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             return false;
     }
     zig_unreachable();
@@ -1024,6 +1025,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEndExpr *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInitNamedField *) {
     return IrInstructionIdUnionInitNamedField;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBegin *) {
+    return IrInstructionIdSuspendBegin;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBr *) {
+    return IrInstructionIdSuspendBr;
 }
 
 template<typename T>
@@ -3183,6 +3192,30 @@ static IrInstruction *ir_build_end_expr(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_suspend_begin(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrBasicBlock *resume_block)
+{
+    IrInstructionSuspendBegin *instruction = ir_build_instruction<IrInstructionSuspendBegin>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    instruction->resume_block = resume_block;
+
+    ir_ref_bb(resume_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_suspend_br(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrBasicBlock *resume_block)
+{
+    IrInstructionSuspendBr *instruction = ir_build_instruction<IrInstructionSuspendBr>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    instruction->resume_block = resume_block;
+
+    ir_ref_bb(resume_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3286,6 +3319,18 @@ static void ir_set_cursor_at_end_and_append_block(IrBuilder *irb, IrBasicBlock *
     ir_set_cursor_at_end(irb, basic_block);
 }
 
+static ScopeSuspend *get_scope_suspend(Scope *scope) {
+    while (scope) {
+        if (scope->id == ScopeIdSuspend)
+            return (ScopeSuspend *)scope;
+        if (scope->id == ScopeIdFnDef)
+            return nullptr;
+
+        scope = scope->parent;
+    }
+    return nullptr;
+}
+
 static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDeferExpr)
@@ -3308,14 +3353,9 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
 {
     ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
 
-    bool is_async = exec_is_async(irb->exec);
-    if (!is_async) {
-        IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
-        return_inst->is_gen = is_generated_code;
-        return return_inst;
-    }
-
-    zig_panic("TODO async return");
+    IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
+    return_inst->is_gen = is_generated_code;
+    return return_inst;
 }
 
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
@@ -5393,12 +5433,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     }
 
     bool is_async = node->data.fn_call_expr.is_async;
-    if (is_async) {
-        zig_panic("TODO async fn call");
-    }
-
-    IrInstruction *fn_call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto,
-            is_async, nullptr, result_loc);
+    IrInstruction *fn_call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
+            FnInlineAuto, is_async, nullptr, result_loc);
     return ir_lval_wrap(irb, scope, fn_call, lval, result_loc);
 }
 
@@ -7655,7 +7691,45 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeSuspend);
 
-    zig_panic("TODO ir_gen_suspend");
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("suspend outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
+    if (scope_defer_expr) {
+        if (!scope_defer_expr->reported_err) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside defer expression"));
+            add_error_note(irb->codegen, msg, scope_defer_expr->base.source_node, buf_sprintf("defer here"));
+            scope_defer_expr->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+    ScopeSuspend *existing_suspend_scope = get_scope_suspend(parent_scope);
+    if (existing_suspend_scope) {
+        if (!existing_suspend_scope->reported_err) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside suspend block"));
+            add_error_note(irb->codegen, msg, existing_suspend_scope->base.source_node, buf_sprintf("other suspend block here"));
+            existing_suspend_scope->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "Resume");
+
+    ir_build_suspend_begin(irb, parent_scope, node, resume_block);
+    if (node->data.suspend.block != nullptr) {
+        Scope *child_scope;
+        ScopeSuspend *suspend_scope = create_suspend_scope(irb->codegen, node, parent_scope);
+        suspend_scope->resume_block = resume_block;
+        child_scope = &suspend_scope->base;
+        IrInstruction *susp_res = ir_gen_node(irb, node->data.suspend.block, child_scope);
+        ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.suspend.block, susp_res));
+    }
+
+    IrInstruction *result = ir_build_suspend_br(irb, parent_scope, node, resume_block);
+    ir_set_cursor_at_end_and_append_block(irb, resume_block);
+    return result;
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -7853,13 +7927,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     ir_set_cursor_at_end_and_append_block(irb, entry_block);
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
-
-    ZigFn *fn_entry = exec_fn_entry(irb->exec);
-
-    bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-    if (is_async) {
-        zig_panic("ir_gen async fn");
-    }
 
     IrInstruction *result = ir_gen_node_extra(irb, node, scope, LValNone, nullptr);
     assert(result);
@@ -12659,6 +12726,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdNull:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdUnion:
+        case ZigTypeIdCoroFrame:
             operator_allowed = false;
             break;
         case ZigTypeIdOptional:
@@ -14023,6 +14091,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case ZigTypeIdBoundFn:
                 case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
+                case ZigTypeIdCoroFrame:
                     ir_add_error(ira, target,
                         buf_sprintf("invalid export target '%s'", buf_ptr(&type_value->name)));
                     break;
@@ -14047,6 +14116,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdEnumLiteral:
+        case ZigTypeIdCoroFrame:
             ir_add_error(ira, target,
                     buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
             break;
@@ -14553,6 +14623,20 @@ static IrInstruction *ir_analyze_instruction_reset_result(IrAnalyze *ira, IrInst
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction, ZigFn *fn_entry,
+        ZigType *fn_type, IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count)
+{
+    ir_assert(fn_entry != nullptr, &call_instruction->base);
+
+    ZigType *frame_type = get_coro_frame_type(ira->codegen, fn_entry);
+    IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
+            frame_type, nullptr, true, true);
+    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
+        return result_loc;
+    }
+    return ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
+            casted_args, FnInlineAuto, true, nullptr, result_loc, frame_type);
+}
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
 {
@@ -15366,14 +15450,16 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     if (type_is_invalid(return_type))
         return ira->codegen->invalid_instruction;
 
-    if (call_instruction->is_async) {
-        zig_panic("TODO async call");
-    }
-
     if (fn_entry != nullptr && fn_entry->fn_inline == FnInlineAlways && fn_inline == FnInlineNever) {
         ir_add_error(ira, &call_instruction->base,
             buf_sprintf("no-inline call of inline function"));
         return ira->codegen->invalid_instruction;
+    }
+
+    if (call_instruction->is_async) {
+        IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref,
+                casted_args, call_param_count);
+        return ir_finish_anal(ira, result);
     }
 
     IrInstruction *result_loc;
@@ -15535,7 +15621,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+static IrInstruction *ir_analyze_optional_type(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     Error err;
     IrInstruction *value = un_op_instruction->value->child;
     ZigType *type_entry = ir_resolve_type(ira, value);
@@ -15569,6 +15655,7 @@ static IrInstruction *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
+        case ZigTypeIdCoroFrame:
             return ir_const_type(ira, &un_op_instruction->base, get_optional_type(ira->codegen, type_entry));
         case ZigTypeIdUnreachable:
         case ZigTypeIdOpaque:
@@ -15733,7 +15820,7 @@ static IrInstruction *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstruction
             return result;
         }
         case IrUnOpOptional:
-            return ir_analyze_maybe(ira, instruction);
+            return ir_analyze_optional_type(ira, instruction);
     }
     zig_unreachable();
 }
@@ -17340,6 +17427,7 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             {
                 ResolveStatus needed_status = (align_bytes == 0) ?
                     ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
@@ -17454,6 +17542,7 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             {
                 if ((err = ensure_complete_type(ira->codegen, child_type)))
                     return ira->codegen->invalid_instruction;
@@ -17504,6 +17593,7 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
                 return ir_const_unsigned(ira, &size_of_instruction->base, size_in_bytes);
@@ -18067,6 +18157,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             ir_add_error(ira, &switch_target_instruction->base,
                 buf_sprintf("invalid switch target type '%s'", buf_ptr(&target_type->name)));
             return ira->codegen->invalid_instruction;
@@ -19906,6 +19997,8 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 break;
             }
+        case ZigTypeIdCoroFrame:
+            zig_panic("TODO @typeInfo for coro frames");
     }
 
     assert(result != nullptr);
@@ -21660,6 +21753,7 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdVector:
+        case ZigTypeIdCoroFrame:
             {
                 uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
                 return ir_const_unsigned(ira, &instruction->base, align_in_bytes);
@@ -22815,6 +22909,8 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             zig_panic("TODO buf_write_value_bytes fn type");
         case ZigTypeIdUnion:
             zig_panic("TODO buf_write_value_bytes union type");
+        case ZigTypeIdCoroFrame:
+            zig_panic("TODO buf_write_value_bytes coro frame type");
     }
     zig_unreachable();
 }
@@ -22994,6 +23090,8 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
             zig_panic("TODO buf_read_value_bytes fn type");
         case ZigTypeIdUnion:
             zig_panic("TODO buf_read_value_bytes union type");
+        case ZigTypeIdCoroFrame:
+            zig_panic("TODO buf_read_value_bytes coro frame type");
     }
     zig_unreachable();
 }
@@ -24021,6 +24119,33 @@ static IrInstruction *ir_analyze_instruction_union_init_named_field(IrAnalyze *i
             union_type, field_name, field_result_loc, result_loc);
 }
 
+static IrInstruction *ir_analyze_instruction_suspend_begin(IrAnalyze *ira, IrInstructionSuspendBegin *instruction) {
+    IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, instruction->resume_block, &instruction->base);
+    if (new_bb == nullptr)
+        return ir_unreach_error(ira);
+    return ir_build_suspend_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node, new_bb);
+}
+
+static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstructionSuspendBr *instruction) {
+    IrBasicBlock *old_dest_block = instruction->resume_block;
+
+    IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, old_dest_block, &instruction->base);
+    if (new_bb == nullptr)
+        return ir_unreach_error(ira);
+
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ir_assert(fn_entry != nullptr, &instruction->base);
+    fn_entry->resume_blocks.append(new_bb);
+    // This is done after appending the block because resume_index 0 is reserved for querying the size.
+    new_bb->resume_index = fn_entry->resume_blocks.length;
+
+    ir_push_resume_block(ira, old_dest_block);
+
+    IrInstruction *result = ir_build_suspend_br(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node, new_bb);
+    return ir_finish_anal(ira, result);
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -24304,6 +24429,10 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_bit_cast_src(ira, (IrInstructionBitCastSrc *)instruction);
         case IrInstructionIdUnionInitNamedField:
             return ir_analyze_instruction_union_init_named_field(ira, (IrInstructionUnionInitNamedField *)instruction);
+        case IrInstructionIdSuspendBegin:
+            return ir_analyze_instruction_suspend_begin(ira, (IrInstructionSuspendBegin *)instruction);
+        case IrInstructionIdSuspendBr:
+            return ir_analyze_instruction_suspend_br(ira, (IrInstructionSuspendBr *)instruction);
     }
     zig_unreachable();
 }
@@ -24436,6 +24565,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOptionalWrap:
         case IrInstructionIdVectorToArray:
         case IrInstructionIdResetResult:
+        case IrInstructionIdSuspendBegin:
+        case IrInstructionIdSuspendBr:
             return true;
 
         case IrInstructionIdPhi:
