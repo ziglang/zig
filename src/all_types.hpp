@@ -461,9 +461,6 @@ enum NodeType {
     NodeTypePtrDeref,
     NodeTypeUnwrapOptional,
     NodeTypeUsingNamespace,
-    NodeTypeBoolLiteral,
-    NodeTypeNullLiteral,
-    NodeTypeUndefinedLiteral,
     NodeTypeUnreachable,
     NodeTypeIfBoolExpr,
     NodeTypeWhileExpr,
@@ -900,21 +897,11 @@ struct AstNodeContainerInitExpr {
     ContainerInitKind kind;
 };
 
-struct AstNodeNullLiteral {
-};
-
-struct AstNodeUndefinedLiteral {
-};
-
 struct AstNodeThisLiteral {
 };
 
 struct AstNodeSymbolExpr {
     Buf *symbol;
-};
-
-struct AstNodeBoolLiteral {
-    bool value;
 };
 
 struct AstNodeBreakExpr {
@@ -1002,11 +989,8 @@ struct AstNode {
         AstNodeIntLiteral int_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeNullLiteral null_literal;
-        AstNodeUndefinedLiteral undefined_literal;
         AstNodeThisLiteral this_literal;
         AstNodeSymbolExpr symbol_expr;
-        AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
         AstNodeUnreachableExpr unreachable_expr;

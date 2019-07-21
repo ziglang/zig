@@ -1521,11 +1521,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //      / INTEGER
 //      / KEYWORD_comptime TypeExpr
 //      / KEYWORD_error DOT IDENTIFIER
-//      / KEYWORD_false
-//      / KEYWORD_null
 //      / KEYWORD_promise
-//      / KEYWORD_true
-//      / KEYWORD_undefined
 //      / KEYWORD_unreachable
 //      / STRINGLITERAL
 //      / SwitchExpr
@@ -1632,31 +1628,9 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         return res;
     }
 
-    Token *false_token = eat_token_if(pc, TokenIdKeywordFalse);
-    if (false_token != nullptr) {
-        AstNode *res = ast_create_node(pc, NodeTypeBoolLiteral, false_token);
-        res->data.bool_literal.value = false;
-        return res;
-    }
-
-    Token *null = eat_token_if(pc, TokenIdKeywordNull);
-    if (null != nullptr)
-        return ast_create_node(pc, NodeTypeNullLiteral, null);
-
     Token *promise = eat_token_if(pc, TokenIdKeywordPromise);
     if (promise != nullptr)
         return ast_create_node(pc, NodeTypePromiseType, promise);
-
-    Token *true_token = eat_token_if(pc, TokenIdKeywordTrue);
-    if (true_token != nullptr) {
-        AstNode *res = ast_create_node(pc, NodeTypeBoolLiteral, true_token);
-        res->data.bool_literal.value = true;
-        return res;
-    }
-
-    Token *undefined = eat_token_if(pc, TokenIdKeywordUndefined);
-    if (undefined != nullptr)
-        return ast_create_node(pc, NodeTypeUndefinedLiteral, undefined);
 
     Token *unreachable = eat_token_if(pc, TokenIdKeywordUnreachable);
     if (unreachable != nullptr)
@@ -2940,15 +2914,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeUsingNamespace:
             visit_field(&node->data.using_namespace.expr, visit, context);
-            break;
-        case NodeTypeBoolLiteral:
-            // none
-            break;
-        case NodeTypeNullLiteral:
-            // none
-            break;
-        case NodeTypeUndefinedLiteral:
-            // none
             break;
         case NodeTypeIfBoolExpr:
             visit_field(&node->data.if_bool_expr.condition, visit, context);

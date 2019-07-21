@@ -802,16 +802,6 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
                 next_tok_is_fn = true;
             },
 
-            .Keyword_undefined,
-            .Keyword_null,
-            .Keyword_true,
-            .Keyword_false,
-            => {
-                try out.write("<span class=\"tok-null\">");
-                try writeEscaped(out, src[token.start..token.end]);
-                try out.write("</span>");
-            },
-
             .StringLiteral,
             .MultilineStringLiteralLine,
             .CharLiteral,

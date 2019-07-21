@@ -1199,11 +1199,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / INTEGER
 ///      / KEYWORD_comptime TypeExpr
 ///      / KEYWORD_error DOT IDENTIFIER
-///      / KEYWORD_false
-///      / KEYWORD_null
 ///      / KEYWORD_promise
-///      / KEYWORD_true
-///      / KEYWORD_undefined
 ///      / KEYWORD_unreachable
 ///      / STRINGLITERAL
 ///      / SwitchExpr
@@ -1254,8 +1250,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         };
         return &node.base;
     }
-    if (eatToken(it, .Keyword_false)) |token| return createLiteral(arena, Node.BoolLiteral, token);
-    if (eatToken(it, .Keyword_null)) |token| return createLiteral(arena, Node.NullLiteral, token);
     if (eatToken(it, .Keyword_promise)) |token| {
         const node = try arena.create(Node.PromiseType);
         node.* = Node.PromiseType{
@@ -1265,8 +1259,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         };
         return &node.base;
     }
-    if (eatToken(it, .Keyword_true)) |token| return createLiteral(arena, Node.BoolLiteral, token);
-    if (eatToken(it, .Keyword_undefined)) |token| return createLiteral(arena, Node.UndefinedLiteral, token);
     if (eatToken(it, .Keyword_unreachable)) |token| return createLiteral(arena, Node.Unreachable, token);
     if (try parseStringLiteral(arena, it, tree)) |node| return node;
     if (try parseSwitchExpr(arena, it, tree)) |node| return node;

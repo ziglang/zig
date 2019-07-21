@@ -350,12 +350,6 @@ static AstNode *trans_create_node_addr_of(Context *c, AstNode *child_node) {
     return node;
 }
 
-static AstNode *trans_create_node_bool(Context *c, bool value) {
-    AstNode *bool_node = trans_create_node(c, NodeTypeBoolLiteral);
-    bool_node->data.bool_literal.value = value;
-    return bool_node;
-}
-
 static AstNode *trans_create_node_str_lit_c(Context *c, Buf *buf) {
     AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
     node->data.string_literal.buf = buf;
@@ -1960,7 +1954,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 return trans_c_cast(c, bitcast(stmt->getBeginLoc()), dest_type, src_type, target_node);
             }
         case ZigClangCK_NullToPointer:
-            return trans_create_node(c, NodeTypeNullLiteral);
+            return trans_create_node_symbol_str(c, "null");
         case ZigClangCK_NoOp:
             return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
         case ZigClangCK_Dependent:
@@ -2032,7 +2026,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
 
                 bool expr_val;
                 if (expr->EvaluateAsBooleanCondition(expr_val, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
-                    return trans_create_node_bool(c, expr_val);
+                    return trans_create_node_symbol_str(c, expr_val ? "true" : "false");
                 }
 
                 AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
@@ -2434,7 +2428,7 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                         return ErrorUnexpected;
 
                 } else {
-                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
+                    init_node = trans_create_node_symbol_str(c, "undefined");
                 }
                 AstNode *type_node = trans_qual_type(c, qual_type, bitcast(stmt->getBeginLoc()));
                 if (type_node == nullptr)
@@ -2724,9 +2718,6 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                     break;
             }
 
-        case NodeTypeBoolLiteral:
-            return res;
-
         default:
             break;
     }
@@ -2767,7 +2758,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
                 case ZigClangBuiltinTypeNullPtr:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq,
-                            trans_create_node(c, NodeTypeNullLiteral));
+                            trans_create_node_symbol_str(c, "null"));
 
                 case ZigClangBuiltinTypeVoid:
                 case ZigClangBuiltinTypeHalf:
@@ -2864,7 +2855,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
             break;
         }
         case ZigClangType_Pointer:
-            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
+            return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_symbol_str(c, "null"));
 
         case ZigClangType_Typedef:
         {
@@ -3104,7 +3095,7 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed resul
 static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang::DoStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
 
-    while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
+    while_scope->node->data.while_expr.condition = trans_create_node_symbol_str(c, "true");
 
     AstNode *body_node;
     TransScope *child_scope;
@@ -3188,7 +3179,7 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
 
     const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
     if (cond_expr == nullptr) {
-        while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
+        while_scope->node->data.while_expr.condition = trans_create_node_symbol_str(c, "true");
     } else {
         while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, cond_scope,
                 cond_expr, TransRValue);
@@ -4449,7 +4440,7 @@ static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigC
         case ZigClangAPValueInt:
             return trans_create_node_apint(c, ZigClangAPValue_getInt(ap_value));
         case ZigClangAPValueUninitialized:
-            return trans_create_node(c, NodeTypeUndefinedLiteral);
+            return trans_create_node_symbol_str(c, "undefined");
         case ZigClangAPValueArray: {
             emit_warning(c, source_loc, "TODO add a test case for this code");
 
@@ -4583,7 +4574,7 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
             if (init_node == nullptr)
                 return;
         } else {
-            init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
+            init_node = trans_create_node_symbol_str(c, "undefined");
         }
 
         AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, init_node);

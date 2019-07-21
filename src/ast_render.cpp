@@ -195,12 +195,6 @@ static const char *node_type_str(NodeType node_type) {
             return "PrefixOpExpr";
         case NodeTypeUsingNamespace:
             return "UsingNamespace";
-        case NodeTypeBoolLiteral:
-            return "BoolLiteral";
-        case NodeTypeNullLiteral:
-            return "NullLiteral";
-        case NodeTypeUndefinedLiteral:
-            return "UndefinedLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
         case NodeTypeWhileExpr:
@@ -747,9 +741,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ".?");
                 break;
             }
-        case NodeTypeUndefinedLiteral:
-            fprintf(ar->f, "undefined");
-            break;
         case NodeTypeContainerDecl:
             {
                 if (!node->data.container_decl.is_root) {
@@ -948,12 +939,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
-        case NodeTypeBoolLiteral:
-            {
-                const char *bool_str = node->data.bool_literal.value ? "true" : "false";
-                fprintf(ar->f, "%s", bool_str);
-                break;
-            }
         case NodeTypeIfBoolExpr:
             {
                 fprintf(ar->f, "if (");
@@ -964,11 +949,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, " else ");
                     render_node_grouped(ar, node->data.if_bool_expr.else_node);
                 }
-                break;
-            }
-        case NodeTypeNullLiteral:
-            {
-                fprintf(ar->f, "null");
                 break;
             }
         case NodeTypeIfErrorExpr:

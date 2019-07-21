@@ -529,15 +529,8 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                 const eq_token = try appendToken(c, .Equal, "=");
                 const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
                     (try transExpr(rp, scope, expr, .used, .r_value)).node
-                else blk: {
-                    const undefined_token = try appendToken(c, .Keyword_undefined, "undefined");
-                    const undefined_node = try rp.c.a().create(ast.Node.UndefinedLiteral);
-                    undefined_node.* = ast.Node.UndefinedLiteral{
-                        .base = ast.Node{ .id = .UndefinedLiteral },
-                        .token = undefined_token,
-                    };
-                    break :blk &undefined_node.base;
-                };
+                else 
+                    try appendIdentifier(c, "undefined");
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
 
                 const node = try c.a().create(ast.Node.VarDecl);
