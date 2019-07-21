@@ -912,14 +912,6 @@ fn renderExpression(
             const char_literal = @fieldParentPtr(ast.Node.CharLiteral, "base", base);
             return renderToken(tree, stream, char_literal.token, indent, start_col, space);
         },
-        ast.Node.Id.BoolLiteral => {
-            const bool_literal = @fieldParentPtr(ast.Node.CharLiteral, "base", base);
-            return renderToken(tree, stream, bool_literal.token, indent, start_col, space);
-        },
-        ast.Node.Id.NullLiteral => {
-            const null_literal = @fieldParentPtr(ast.Node.NullLiteral, "base", base);
-            return renderToken(tree, stream, null_literal.token, indent, start_col, space);
-        },
         ast.Node.Id.Unreachable => {
             const unreachable_node = @fieldParentPtr(ast.Node.Unreachable, "base", base);
             return renderToken(tree, stream, unreachable_node.token, indent, start_col, space);
@@ -1075,10 +1067,6 @@ fn renderExpression(
                 skip_first_indent = false;
             }
             try stream.writeByteNTimes(' ', indent);
-        },
-        ast.Node.Id.UndefinedLiteral => {
-            const undefined_literal = @fieldParentPtr(ast.Node.UndefinedLiteral, "base", base);
-            return renderToken(tree, stream, undefined_literal.token, indent, start_col, space);
         },
 
         ast.Node.Id.BuiltinCall => {

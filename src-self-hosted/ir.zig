@@ -1148,9 +1148,6 @@ pub const Builder = struct {
             },
             ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
             ast.Node.Id.CharLiteral => return error.Unimplemented,
-            ast.Node.Id.BoolLiteral => return error.Unimplemented,
-            ast.Node.Id.NullLiteral => return error.Unimplemented,
-            ast.Node.Id.UndefinedLiteral => return error.Unimplemented,
             ast.Node.Id.Unreachable => return error.Unimplemented,
             ast.Node.Id.Identifier => {
                 const identifier = @fieldParentPtr(ast.Node.Identifier, "base", node);
