@@ -24121,9 +24121,11 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
+
+    // +2 - one for the GetSize block, one for the Entry block, resume blocks are indexed after that.
+    new_bb->resume_index = fn_entry->resume_blocks.length + 2;
+
     fn_entry->resume_blocks.append(new_bb);
-    // This is done after appending the block because resume_index 0 is reserved for querying the size.
-    new_bb->resume_index = fn_entry->resume_blocks.length;
 
     ir_push_resume_block(ira, old_dest_block);
 

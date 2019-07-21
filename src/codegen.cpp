@@ -6413,6 +6413,7 @@ static void do_code_gen(CodeGen *g) {
                 ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
                         (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
             }
+            IrExecutable *executable = &fn_table_entry->analyzed_executable;
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
             LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
@@ -6429,15 +6430,19 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
                     coro_resume_index_index, "");
             LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
-            // The +1 is because index 0 is reserved for getting the size.
+            // +1 - index 0 is reserved for the entry block
+            // +1 - index 1 is reserved for getting the size.
             LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block,
-                    fn_table_entry->resume_blocks.length + 1);
+                    fn_table_entry->resume_blocks.length + 2);
 
             LLVMValueRef zero = LLVMConstNull(usize_type_ref);
-            LLVMAddCase(switch_instr, zero, get_size_block);
+            LLVMAddCase(switch_instr, zero, executable->basic_block_list.at(0)->llvm_block);
+
+            LLVMValueRef one = LLVMConstInt(usize_type_ref, 1, false);
+            LLVMAddCase(switch_instr, one, get_size_block);
 
             for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
-                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_i + 1, false);
+                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_i + 2, false);
                 LLVMAddCase(switch_instr, case_value, fn_table_entry->resume_blocks.at(resume_i)->llvm_block);
             }
         }
