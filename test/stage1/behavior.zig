@@ -43,7 +43,7 @@ comptime {
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/const_slice_child.zig");
     //_ = @import("behavior/coroutine_await_struct.zig");
-    //_ = @import("behavior/coroutines.zig");
+    _ = @import("behavior/coroutines.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/enum_with_members.zig");

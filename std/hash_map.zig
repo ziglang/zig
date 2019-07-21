@@ -535,17 +535,18 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
 // TODO improve these hash functions
 pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type) HashInt {
     switch (@typeInfo(@typeOf(key))) {
-        builtin.TypeId.NoReturn,
-        builtin.TypeId.Opaque,
-        builtin.TypeId.Undefined,
-        builtin.TypeId.ArgTuple,
+        .NoReturn,
+        .Opaque,
+        .Undefined,
+        .ArgTuple,
+        .Frame,
         => @compileError("cannot hash this type"),
 
-        builtin.TypeId.Void,
-        builtin.TypeId.Null,
+        .Void,
+        .Null,
         => return 0,
 
-        builtin.TypeId.Int => |info| {
+        .Int => |info| {
             const unsigned_x = @bitCast(@IntType(false, info.bits), key);
             if (info.bits <= HashInt.bit_count) {
                 return HashInt(unsigned_x) ^ comptime rng.scalar(HashInt);
@@ -554,26 +555,26 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
             }
         },
 
-        builtin.TypeId.Float => |info| {
+        .Float => |info| {
             return autoHash(@bitCast(@IntType(false, info.bits), key), rng, HashInt);
         },
-        builtin.TypeId.Bool => return autoHash(@boolToInt(key), rng, HashInt),
-        builtin.TypeId.Enum => return autoHash(@enumToInt(key), rng, HashInt),
-        builtin.TypeId.ErrorSet => return autoHash(@errorToInt(key), rng, HashInt),
-        builtin.TypeId.Fn => return autoHash(@ptrToInt(key), rng, HashInt),
+        .Bool => return autoHash(@boolToInt(key), rng, HashInt),
+        .Enum => return autoHash(@enumToInt(key), rng, HashInt),
+        .ErrorSet => return autoHash(@errorToInt(key), rng, HashInt),
+        .Fn => return autoHash(@ptrToInt(key), rng, HashInt),
 
-        builtin.TypeId.BoundFn,
-        builtin.TypeId.ComptimeFloat,
-        builtin.TypeId.ComptimeInt,
-        builtin.TypeId.Type,
-        builtin.TypeId.EnumLiteral,
+        .BoundFn,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Type,
+        .EnumLiteral,
         => return 0,
 
-        builtin.TypeId.Pointer => |info| switch (info.size) {
-            builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto hash for single item pointers"),
-            builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto hash for many item pointers"),
-            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto hash C pointers"),
-            builtin.TypeInfo.Pointer.Size.Slice => {
+        .Pointer => |info| switch (info.size) {
+            .One => @compileError("TODO auto hash for single item pointers"),
+            .Many => @compileError("TODO auto hash for many item pointers"),
+            .C => @compileError("TODO auto hash C pointers"),
+            .Slice => {
                 const interval = std.math.max(1, key.len / 256);
                 var i: usize = 0;
                 var h = comptime rng.scalar(HashInt);
@@ -584,44 +585,44 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
             },
         },
 
-        builtin.TypeId.Optional => @compileError("TODO auto hash for optionals"),
-        builtin.TypeId.Array => @compileError("TODO auto hash for arrays"),
-        builtin.TypeId.Vector => @compileError("TODO auto hash for vectors"),
-        builtin.TypeId.Struct => @compileError("TODO auto hash for structs"),
-        builtin.TypeId.Union => @compileError("TODO auto hash for unions"),
-        builtin.TypeId.ErrorUnion => @compileError("TODO auto hash for unions"),
+        .Optional => @compileError("TODO auto hash for optionals"),
+        .Array => @compileError("TODO auto hash for arrays"),
+        .Vector => @compileError("TODO auto hash for vectors"),
+        .Struct => @compileError("TODO auto hash for structs"),
+        .Union => @compileError("TODO auto hash for unions"),
+        .ErrorUnion => @compileError("TODO auto hash for unions"),
     }
 }
 
 pub fn autoEql(a: var, b: @typeOf(a)) bool {
     switch (@typeInfo(@typeOf(a))) {
-        builtin.TypeId.NoReturn,
-        builtin.TypeId.Opaque,
-        builtin.TypeId.Undefined,
-        builtin.TypeId.ArgTuple,
+        .NoReturn,
+        .Opaque,
+        .Undefined,
+        .ArgTuple,
         => @compileError("cannot test equality of this type"),
-        builtin.TypeId.Void,
-        builtin.TypeId.Null,
+        .Void,
+        .Null,
         => return true,
-        builtin.TypeId.Bool,
-        builtin.TypeId.Int,
-        builtin.TypeId.Float,
-        builtin.TypeId.ComptimeFloat,
-        builtin.TypeId.ComptimeInt,
-        builtin.TypeId.EnumLiteral,
-        builtin.TypeId.Promise,
-        builtin.TypeId.Enum,
-        builtin.TypeId.BoundFn,
-        builtin.TypeId.Fn,
-        builtin.TypeId.ErrorSet,
-        builtin.TypeId.Type,
+        .Bool,
+        .Int,
+        .Float,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Promise,
+        .Enum,
+        .BoundFn,
+        .Fn,
+        .ErrorSet,
+        .Type,
         => return a == b,
 
-        builtin.TypeId.Pointer => |info| switch (info.size) {
-            builtin.TypeInfo.Pointer.Size.One => @compileError("TODO auto eql for single item pointers"),
-            builtin.TypeInfo.Pointer.Size.Many => @compileError("TODO auto eql for many item pointers"),
-            builtin.TypeInfo.Pointer.Size.C => @compileError("TODO auto eql for C pointers"),
-            builtin.TypeInfo.Pointer.Size.Slice => {
+        .Pointer => |info| switch (info.size) {
+            .One => @compileError("TODO auto eql for single item pointers"),
+            .Many => @compileError("TODO auto eql for many item pointers"),
+            .C => @compileError("TODO auto eql for C pointers"),
+            .Slice => {
                 if (a.len != b.len) return false;
                 for (a) |a_item, i| {
                     if (!autoEql(a_item, b[i])) return false;
@@ -630,11 +631,11 @@ pub fn autoEql(a: var, b: @typeOf(a)) bool {
             },
         },
 
-        builtin.TypeId.Optional => @compileError("TODO auto eql for optionals"),
-        builtin.TypeId.Array => @compileError("TODO auto eql for arrays"),
-        builtin.TypeId.Struct => @compileError("TODO auto eql for structs"),
-        builtin.TypeId.Union => @compileError("TODO auto eql for unions"),
-        builtin.TypeId.ErrorUnion => @compileError("TODO auto eql for unions"),
-        builtin.TypeId.Vector => @compileError("TODO auto eql for vectors"),
+        .Optional => @compileError("TODO auto eql for optionals"),
+        .Array => @compileError("TODO auto eql for arrays"),
+        .Struct => @compileError("TODO auto eql for structs"),
+        .Union => @compileError("TODO auto eql for unions"),
+        .ErrorUnion => @compileError("TODO auto eql for unions"),
+        .Vector => @compileError("TODO auto eql for vectors"),
     }
 }

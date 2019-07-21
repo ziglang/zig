@@ -499,7 +499,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     // Make the raw_type_ref populated
     resolve_llvm_types_fn(g, fn_type, fn_table_entry);
-    LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
+    LLVMTypeRef fn_llvm_type = fn_table_entry->raw_type_ref;
     if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
         if (existing_llvm_fn) {
@@ -521,9 +521,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 assert(entry->value->id == TldIdFn);
                 TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
                 // Make the raw_type_ref populated
-                (void)get_llvm_type(g, tld_fn->fn_entry->type_entry);
+                resolve_llvm_types_fn(g, tld_fn->fn_entry->type_entry, tld_fn->fn_entry);
                 tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
-                        tld_fn->fn_entry->type_entry->data.fn.raw_type_ref);
+                        tld_fn->fn_entry->raw_type_ref);
                 fn_table_entry->llvm_value = LLVMConstBitCast(tld_fn->fn_entry->llvm_value,
                         LLVMPointerType(fn_llvm_type, 0));
                 return fn_table_entry->llvm_value;
@@ -683,10 +683,11 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             unsigned flags = ZigLLVM_DIFlags_StaticMember;
             ZigLLVMDIScope *fn_di_scope = get_di_scope(g, scope->parent);
             assert(fn_di_scope != nullptr);
+            assert(fn_table_entry->raw_di_type != nullptr);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 fn_di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
                 import->data.structure.root_struct->di_file, line_number,
-                fn_table_entry->type_entry->data.fn.raw_di_type, is_internal_linkage,
+                fn_table_entry->raw_di_type, is_internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
             scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
@@ -3472,10 +3473,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
 
         gen_param_values.append(result_loc);
-    } else if (first_arg_ret) {
-        gen_param_values.append(result_loc);
-    } else if (prefix_arg_err_ret_stack) {
-        gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+    } else {
+        if (first_arg_ret) {
+            gen_param_values.append(result_loc);
+        }
+        if (prefix_arg_err_ret_stack) {
+            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+        }
     }
     FnWalk fn_walk = {};
     fn_walk.id = FnWalkIdCall;

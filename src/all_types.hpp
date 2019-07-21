@@ -1346,7 +1346,16 @@ struct ZigFn {
     Scope *child_scope; // parent is scope for last parameter
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
-    ZigType *type_entry; // function type
+    // This is the function type assuming the function does not suspend.
+    // Note that for an async function, this can be shared with non-async functions. So the value here
+    // should only be read for things in common between non-async and async function types.
+    ZigType *type_entry;
+    // For normal functions one could use the type_entry->raw_type_ref and type_entry->raw_di_type.
+    // However for functions that suspend, those values could possibly be their non-suspending equivalents.
+    // So these values should be preferred.
+    LLVMTypeRef raw_type_ref;
+    ZigLLVMDIType *raw_di_type;
+
     ZigType *frame_type; // coro frame type
     // in the case of normal functions this is the implicit return type
     // in the case of async functions this is the implicit return type according to the

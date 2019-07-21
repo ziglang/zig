@@ -3750,7 +3750,7 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
     return true;
 }
 
-void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node) {
+static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -5850,6 +5850,7 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
+    ZigTypeIdCoroFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
 };
@@ -7035,7 +7036,13 @@ static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
 }
 
 void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
-    if (fn_type->llvm_di_type != nullptr) return;
+    if (fn_type->llvm_di_type != nullptr) {
+        if (fn != nullptr) {
+            fn->raw_type_ref = fn_type->data.fn.raw_type_ref;
+            fn->raw_di_type = fn_type->data.fn.raw_di_type;
+        }
+        return;
+    }
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     bool first_arg_return = want_first_arg_sret(g, fn_type_id);
@@ -7117,6 +7124,12 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
 
     for (size_t i = 0; i < gen_param_types.length; i += 1) {
         assert(gen_param_types.items[i] != nullptr);
+    }
+    if (fn != nullptr) {
+        fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
+                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
+        fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+        return;
     }
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
