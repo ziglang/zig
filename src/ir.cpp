@@ -721,6 +721,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionShuffleVector *)
     return IrInstructionIdShuffleVector;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSplat *) {
+    return IrInstructionIdSplat;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolNot *) {
     return IrInstructionIdBoolNot;
 }
@@ -2296,6 +2300,19 @@ static IrInstruction *ir_build_shuffle_vector(IrBuilder *irb, Scope *scope, AstN
     ir_ref_instruction(a, irb->current_basic_block);
     ir_ref_instruction(b, irb->current_basic_block);
     ir_ref_instruction(mask, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_splat(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *len, IrInstruction *scalar)
+{
+    IrInstructionSplat *instruction = ir_build_instruction<IrInstructionSplat>(irb, scope, source_node);
+    instruction->len = len;
+    instruction->scalar = scalar;
+
+    ir_ref_instruction(len, irb->current_basic_block);
+    ir_ref_instruction(scalar, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4984,6 +5001,22 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *shuffle_vector = ir_build_shuffle_vector(irb, scope, node,
                     arg0_value, arg1_value, arg2_value, arg3_value);
                 return ir_lval_wrap(irb, scope, shuffle_vector, lval, result_loc);
+            }
+        case BuiltinFnIdSplat:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *splat = ir_build_splat(irb, scope, node,
+                    arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, splat, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:
             {
@@ -22324,6 +22357,52 @@ static IrInstruction *ir_analyze_instruction_shuffle_vector(IrAnalyze *ira, IrIn
     return ir_analyze_shuffle_vector(ira, &instruction->base, scalar_type, a, b, mask);
 }
 
+static IrInstruction *ir_analyze_instruction_splat(IrAnalyze *ira, IrInstructionSplat *instruction) {
+    IrInstruction *len = instruction->len->child;
+    if (type_is_invalid(len->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *scalar = instruction->scalar->child;
+    if (type_is_invalid(scalar->value.type))
+        return ira->codegen->invalid_instruction;
+
+    uint64_t len_int;
+    if (!ir_resolve_unsigned(ira, len, ira->codegen->builtin_types.entry_u32, &len_int)) {
+        ir_add_error(ira, len,
+            buf_sprintf("splat length must be comptime"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (!is_valid_vector_elem_type(scalar->value.type)) {
+        ir_add_error(ira, len,
+            buf_sprintf("vector element type must be integer, float, bool, or pointer; '%s' is invalid",
+                buf_ptr(&scalar->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *return_type = get_vector_type(ira->codegen, len_int, scalar->value.type);
+
+    if (instr_is_comptime(scalar)) {
+        IrInstruction *result = ir_const_undef(ira, scalar, return_type);
+        result->value.data.x_array.data.s_none.elements =
+            allocate<ConstExprValue>(len_int);
+        for (uint32_t i = 0; i < len_int; i++) {
+            result->value.data.x_array.data.s_none.elements[i] =
+                scalar->value;
+        }
+        result->value.type = return_type;
+        result->value.special = ConstValSpecialStatic;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_splat(&ira->new_irb,
+        instruction->base.scope, instruction->base.source_node,
+        instruction->len->child, instruction->scalar->child);
+    result->value.type = return_type;
+    result->value.special = ConstValSpecialRuntime;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstructionBoolNot *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -25908,6 +25987,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_vector_type(ira, (IrInstructionVectorType *)instruction);
         case IrInstructionIdShuffleVector:
             return ir_analyze_instruction_shuffle_vector(ira, (IrInstructionShuffleVector *)instruction);
+         case IrInstructionIdSplat:
+            return ir_analyze_instruction_splat(ira, (IrInstructionSplat *)instruction);
         case IrInstructionIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdMemset:
@@ -26244,6 +26325,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdIntType:
         case IrInstructionIdVectorType:
         case IrInstructionIdShuffleVector:
+        case IrInstructionIdSplat:
         case IrInstructionIdBoolNot:
         case IrInstructionIdSliceSrc:
         case IrInstructionIdMemberCount:
