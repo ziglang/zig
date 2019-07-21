@@ -2102,6 +2102,14 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     if (g->cur_fn->resume_blocks.length != 0) {
+        if (ir_want_runtime_safety(g, &return_instruction->base)) {
+            LLVMValueRef locals_ptr = g->cur_ret_ptr;
+            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_resume_index_index, "");
+            LLVMValueRef new_resume_index = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
+                    g->cur_fn->resume_blocks.length + 2, false);
+            LLVMBuildStore(g->builder, new_resume_index, resume_index_ptr);
+        }
+
         LLVMBuildRet(g->builder, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type));
         return nullptr;
     }
