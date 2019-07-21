@@ -14984,20 +14984,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
         return ira->codegen->invalid_instruction;
     }
-    if (fn_type_id->cc == CallingConventionAsync && !call_instruction->is_async) {
-        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("must use async keyword to call async function"));
-        if (fn_proto_node) {
-            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
-        }
-        return ira->codegen->invalid_instruction;
-    }
-    if (fn_type_id->cc != CallingConventionAsync && call_instruction->is_async) {
-        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("cannot use async keyword to call non-async function"));
-        if (fn_proto_node) {
-            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
-        }
-        return ira->codegen->invalid_instruction;
-    }
 
 
     if (fn_type_id->is_var_args) {
