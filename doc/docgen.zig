@@ -729,6 +729,18 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
+const primitive_values = [_][]const u8{
+    "true", "false",    "null", "undefined"
+};
+
+fn isPrimitive(name: []const u8) bool {
+    for (primitive_values) |t| {
+        if (mem.eql(u8, t, name))
+            return true;
+    }
+    return false;
+}
+
 fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Token, raw_src: []const u8) !void {
     const src = mem.trim(u8, raw_src, " \n");
     try out.write("<code class=\"zig\">");
@@ -829,6 +841,10 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Identifier => {
                 if (prev_tok_was_fn) {
                     try out.write("<span class=\"tok-fn\">");
+                    try writeEscaped(out, src[token.start..token.end]);
+                    try out.write("</span>");
+                } else if (isPrimitive(src[token.start..token.end])) {
+                    try out.write("<span class=\"tok-null\">");
                     try writeEscaped(out, src[token.start..token.end]);
                     try out.write("</span>");
                 } else {
