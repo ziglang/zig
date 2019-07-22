@@ -12,6 +12,7 @@ const coff = std.coff;
 const pdb = std.pdb;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
+const root = @import("root");
 const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
@@ -216,6 +217,12 @@ var panicking: u8 = 0; // TODO make this a bool
 
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: ...) noreturn {
     @setCold(true);
+
+    if (enable_segfault_handler) {
+        // If a segfault happens while panicking, we want it to actually segfault, not trigger
+        // the handler.
+        resetSegfaultHandler();
+    }
 
     if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
         // Panicked during a panic.
@@ -2312,39 +2319,58 @@ fn getDebugInfoAllocator() *mem.Allocator {
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
 pub const have_segfault_handling_support = (builtin.arch == builtin.Arch.x86_64 and builtin.os == .linux) or builtin.os == .windows;
+pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
+    root.enable_segfault_handler
+else
+    runtime_safety and have_segfault_handling_support;
+
+pub fn maybeEnableSegfaultHandler() void {
+    if (enable_segfault_handler) {
+        std.debug.attachSegfaultHandler();
+    }
+}
+
+var windows_segfault_handle: ?windows.HANDLE = null;
 
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    switch (builtin.os) {
-        .linux => {
-            var act = os.Sigaction{
-                .sigaction = handleSegfaultLinux,
-                .mask = os.empty_sigset,
-                .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
-            };
-
-            os.sigaction(os.SIGSEGV, &act, null);
-        },
-        .windows => {
-            _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
-        },
-        else => unreachable,
+    if (windows.is_the_target) {
+        windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
+        return;
     }
+    var act = os.Sigaction{
+        .sigaction = handleSegfaultLinux,
+        .mask = os.empty_sigset,
+        .flags = (os.SA_SIGINFO | os.SA_RESTART | os.SA_RESETHAND),
+    };
+
+    os.sigaction(os.SIGSEGV, &act, null);
 }
 
-extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
-    // Reset to the default handler so that if a segfault happens in this handler it will crash
-    // the process. Also when this handler returns, the original instruction will be repeated
-    // and the resulting segfault will crash the process rather than continually dump stack traces.
+fn resetSegfaultHandler() void {
+    if (windows.is_the_target) {
+        if (windows_segfault_handle) |handle| {
+            assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
+            windows_segfault_handle = null;
+        }
+        return;
+    }
     var act = os.Sigaction{
         .sigaction = os.SIG_DFL,
         .mask = os.empty_sigset,
         .flags = 0,
     };
     os.sigaction(os.SIGSEGV, &act, null);
+}
+
+extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
+    // Reset to the default handler so that if a segfault happens in this handler it will crash
+    // the process. Also when this handler returns, the original instruction will be repeated
+    // and the resulting segfault will crash the process rather than continually dump stack traces.
+    resetSegfaultHandler();
 
     const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
     const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);

@@ -89,126 +89,6 @@ static const char *symbols_that_llvm_depends_on[] = {
     // TODO probably all of compiler-rt needs to go here
 };
 
-CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *override_lib_dir, Buf *override_std_dir,
-    ZigLibCInstallation *libc, Buf *cache_dir)
-{
-    CodeGen *g = allocate<CodeGen>(1);
-
-    codegen_add_time_event(g, "Initialize");
-
-    g->subsystem = TargetSubsystemAuto;
-    g->libc = libc;
-    g->zig_target = target;
-    g->cache_dir = cache_dir;
-
-    if (override_lib_dir == nullptr) {
-        g->zig_lib_dir = get_zig_lib_dir();
-    } else {
-        g->zig_lib_dir = override_lib_dir;
-    }
-
-    if (override_std_dir == nullptr) {
-        g->zig_std_dir = buf_alloc();
-        os_path_join(g->zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
-    } else {
-        g->zig_std_dir = override_std_dir;
-    }
-
-    g->zig_c_headers_dir = buf_alloc();
-    os_path_join(g->zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
-
-    g->build_mode = build_mode;
-    g->out_type = out_type;
-    g->import_table.init(32);
-    g->builtin_fn_table.init(32);
-    g->primitive_type_table.init(32);
-    g->type_table.init(32);
-    g->fn_type_table.init(32);
-    g->error_table.init(16);
-    g->generic_table.init(16);
-    g->llvm_fn_table.init(16);
-    g->memoized_fn_eval_table.init(16);
-    g->exported_symbol_names.init(8);
-    g->external_prototypes.init(8);
-    g->string_literals_table.init(16);
-    g->type_info_cache.init(32);
-    g->is_test_build = false;
-    g->is_single_threaded = false;
-    buf_resize(&g->global_asm, 0);
-
-    for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
-        g->external_prototypes.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
-    }
-
-    if (root_src_path) {
-        Buf *root_pkg_path;
-        Buf *rel_root_src_path;
-        if (main_pkg_path == nullptr) {
-            Buf *src_basename = buf_alloc();
-            Buf *src_dir = buf_alloc();
-            os_path_split(root_src_path, src_dir, src_basename);
-
-            if (buf_len(src_basename) == 0) {
-                fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
-                exit(1);
-            }
-            root_pkg_path = src_dir;
-            rel_root_src_path = src_basename;
-        } else {
-            Buf resolved_root_src_path = os_path_resolve(&root_src_path, 1);
-            Buf resolved_main_pkg_path = os_path_resolve(&main_pkg_path, 1);
-
-            if (!buf_starts_with_buf(&resolved_root_src_path, &resolved_main_pkg_path)) {
-                fprintf(stderr, "Root source path '%s' outside main package path '%s'",
-                        buf_ptr(root_src_path), buf_ptr(main_pkg_path));
-                exit(1);
-            }
-            root_pkg_path = main_pkg_path;
-            rel_root_src_path = buf_create_from_mem(
-                    buf_ptr(&resolved_root_src_path) + buf_len(&resolved_main_pkg_path) + 1,
-                    buf_len(&resolved_root_src_path) - buf_len(&resolved_main_pkg_path) - 1);
-        }
-
-        g->root_package = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
-        g->std_package = new_package(buf_ptr(g->zig_std_dir), "std.zig", "std");
-        g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
-    } else {
-        g->root_package = new_package(".", "", "");
-    }
-
-    g->root_package->package_table.put(buf_create_from_str("root"), g->root_package);
-
-    g->zig_std_special_dir = buf_alloc();
-    os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
-
-    assert(target != nullptr);
-    if (!target->is_native) {
-        g->each_lib_rpath = false;
-    } else {
-        g->each_lib_rpath = true;
-
-        if (target_os_is_darwin(g->zig_target->os)) {
-            init_darwin_native(g);
-        }
-
-    }
-
-    if (target_os_requires_libc(g->zig_target->os)) {
-        g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
-        g->link_libs_list.append(g->libc_link_lib);
-    }
-
-    target_triple_llvm(&g->llvm_triple_str, g->zig_target);
-    g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
-
-    if (!target_has_debug_info(g->zig_target)) {
-        g->strip_debug_symbols = true;
-    }
-
-    return g;
-}
-
 void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
     g->clang_argv = args;
     g->clang_argv_len = len;
@@ -231,10 +111,6 @@ void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patc
     g->version_major = major;
     g->version_minor = minor;
     g->version_patch = patch;
-}
-
-void codegen_set_is_test(CodeGen *g, bool is_test_build) {
-    g->is_test_build = is_test_build;
 }
 
 void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
@@ -7994,6 +7870,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     return contents;
 }
 
+static ZigPackage *create_test_runner_pkg(CodeGen *g) {
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig", "std.special");
+}
+
+static ZigPackage *create_panic_pkg(CodeGen *g) {
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig", "std.special");
+}
+
 static Error define_builtin_compile_vars(CodeGen *g) {
     if (g->std_package == nullptr)
         return ErrorNone;
@@ -8078,8 +7962,16 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
-    g->std_package->package_table.put(buf_create_from_str("root"),
-            g->is_test_build ? g->test_runner_package : g->root_package);
+    ZigPackage *root_pkg;
+    if (g->is_test_build) {
+        if (g->test_runner_package == nullptr) {
+            g->test_runner_package = create_test_runner_pkg(g);
+        }
+        root_pkg = g->test_runner_package;
+    } else {
+        root_pkg = g->root_package;
+    }
+    g->std_package->package_table.put(buf_create_from_str("root"), root_pkg);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents,
             SourceKindPkgMain);
 
@@ -8571,14 +8463,6 @@ static ZigPackage *create_start_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
     return package;
 }
 
-static ZigPackage *create_test_runner_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig", "std.special");
-}
-
-static ZigPackage *create_panic_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig", "std.special");
-}
-
 static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     Error err;
 
@@ -8628,7 +8512,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
 
     update_compile_var(g, buf_create_from_str("test_functions"), test_fn_slice);
-    g->test_runner_package = create_test_runner_pkg(g);
+    assert(g->test_runner_package != nullptr);
     g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }
 
@@ -9742,7 +9626,8 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
         ZigLibCInstallation *libc)
 {
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path());
+        parent_gen->build_mode, parent_gen->zig_lib_dir, parent_gen->zig_std_dir, libc, get_stage1_cache_path(),
+        false);
     child_gen->disable_gen_h = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
@@ -9767,5 +9652,125 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
     child_gen->enable_cache = true;
 
     return child_gen;
+}
+
+CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
+    OutType out_type, BuildMode build_mode, Buf *override_lib_dir, Buf *override_std_dir,
+    ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build)
+{
+    CodeGen *g = allocate<CodeGen>(1);
+
+    codegen_add_time_event(g, "Initialize");
+
+    g->subsystem = TargetSubsystemAuto;
+    g->libc = libc;
+    g->zig_target = target;
+    g->cache_dir = cache_dir;
+
+    if (override_lib_dir == nullptr) {
+        g->zig_lib_dir = get_zig_lib_dir();
+    } else {
+        g->zig_lib_dir = override_lib_dir;
+    }
+
+    if (override_std_dir == nullptr) {
+        g->zig_std_dir = buf_alloc();
+        os_path_join(g->zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+    } else {
+        g->zig_std_dir = override_std_dir;
+    }
+
+    g->zig_c_headers_dir = buf_alloc();
+    os_path_join(g->zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
+
+    g->build_mode = build_mode;
+    g->out_type = out_type;
+    g->import_table.init(32);
+    g->builtin_fn_table.init(32);
+    g->primitive_type_table.init(32);
+    g->type_table.init(32);
+    g->fn_type_table.init(32);
+    g->error_table.init(16);
+    g->generic_table.init(16);
+    g->llvm_fn_table.init(16);
+    g->memoized_fn_eval_table.init(16);
+    g->exported_symbol_names.init(8);
+    g->external_prototypes.init(8);
+    g->string_literals_table.init(16);
+    g->type_info_cache.init(32);
+    g->is_test_build = is_test_build;
+    g->is_single_threaded = false;
+    buf_resize(&g->global_asm, 0);
+
+    for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
+        g->external_prototypes.put(buf_create_from_str(symbols_that_llvm_depends_on[i]), nullptr);
+    }
+
+    if (root_src_path) {
+        Buf *root_pkg_path;
+        Buf *rel_root_src_path;
+        if (main_pkg_path == nullptr) {
+            Buf *src_basename = buf_alloc();
+            Buf *src_dir = buf_alloc();
+            os_path_split(root_src_path, src_dir, src_basename);
+
+            if (buf_len(src_basename) == 0) {
+                fprintf(stderr, "Invalid root source path: %s\n", buf_ptr(root_src_path));
+                exit(1);
+            }
+            root_pkg_path = src_dir;
+            rel_root_src_path = src_basename;
+        } else {
+            Buf resolved_root_src_path = os_path_resolve(&root_src_path, 1);
+            Buf resolved_main_pkg_path = os_path_resolve(&main_pkg_path, 1);
+
+            if (!buf_starts_with_buf(&resolved_root_src_path, &resolved_main_pkg_path)) {
+                fprintf(stderr, "Root source path '%s' outside main package path '%s'",
+                        buf_ptr(root_src_path), buf_ptr(main_pkg_path));
+                exit(1);
+            }
+            root_pkg_path = main_pkg_path;
+            rel_root_src_path = buf_create_from_mem(
+                    buf_ptr(&resolved_root_src_path) + buf_len(&resolved_main_pkg_path) + 1,
+                    buf_len(&resolved_root_src_path) - buf_len(&resolved_main_pkg_path) - 1);
+        }
+
+        g->root_package = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
+        g->std_package = new_package(buf_ptr(g->zig_std_dir), "std.zig", "std");
+        g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    } else {
+        g->root_package = new_package(".", "", "");
+    }
+
+    g->root_package->package_table.put(buf_create_from_str("root"), g->root_package);
+
+    g->zig_std_special_dir = buf_alloc();
+    os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
+
+    assert(target != nullptr);
+    if (!target->is_native) {
+        g->each_lib_rpath = false;
+    } else {
+        g->each_lib_rpath = true;
+
+        if (target_os_is_darwin(g->zig_target->os)) {
+            init_darwin_native(g);
+        }
+
+    }
+
+    if (target_os_requires_libc(g->zig_target->os)) {
+        g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
+        g->link_libs_list.append(g->libc_link_lib);
+    }
+
+    target_triple_llvm(&g->llvm_triple_str, g->zig_target);
+    g->pointer_size_bytes = target_arch_pointer_bit_width(g->zig_target->arch) / 8;
+
+    if (!target_has_debug_info(g->zig_target)) {
+        g->strip_debug_symbols = true;
+    }
+
+    return g;
 }
 
