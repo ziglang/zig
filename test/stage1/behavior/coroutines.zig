@@ -2,33 +2,34 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 
-var x: i32 = 1;
+var global_x: i32 = 1;
 
 test "simple coroutine suspend and resume" {
     const p = async simpleAsyncFn();
-    expect(x == 2);
+    expect(global_x == 2);
     resume p;
-    expect(x == 3);
+    expect(global_x == 3);
 }
 fn simpleAsyncFn() void {
-    x += 1;
+    global_x += 1;
     suspend;
-    x += 1;
+    global_x += 1;
 }
 
-//test "create a coroutine and cancel it" {
-//    const p = try async<allocator> simpleAsyncFn();
-//    comptime expect(@typeOf(p) == promise->void);
-//    cancel p;
-//    expect(x == 2);
-//}
-//async fn simpleAsyncFn() void {
-//    x += 1;
-//    suspend;
-//    x += 1;
-//}
-//
-//test "coroutine suspend, resume, cancel" {
+var global_y: i32 = 1;
+
+test "pass parameter to coroutine" {
+    const p = async simpleAsyncFnWithArg(2);
+    expect(global_y == 3);
+    resume p;
+    expect(global_y == 5);
+}
+fn simpleAsyncFnWithArg(delta: i32) void {
+    global_y += delta;
+    suspend;
+    global_y += delta;
+}
+//test "coroutine suspend, resume" {
 //    seq('a');
 //    const p = try async<allocator> testAsyncSeq();
 //    seq('c');

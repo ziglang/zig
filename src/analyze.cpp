@@ -1891,6 +1891,21 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     field_names.append("resume_index");
     field_types.append(g->builtin_types.entry_usize);
 
+    for (size_t arg_i = 0; arg_i < fn->type_entry->data.fn.fn_type_id.param_count; arg_i += 1) {
+        FnTypeParamInfo *param_info = &fn->type_entry->data.fn.fn_type_id.param_info[arg_i];
+        AstNode *param_decl_node = get_param_decl_node(fn, arg_i);
+        Buf *param_name;
+        bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
+        if (param_decl_node && !is_var_args) {
+            param_name = param_decl_node->data.param_decl.name;
+        } else {
+            param_name = buf_sprintf("arg%" ZIG_PRI_usize "", arg_i);
+        }
+        ZigType *param_type = param_info[arg_i].type;
+        field_names.append(buf_ptr(param_name));
+        field_types.append(param_type);
+    }
+
     assert(field_names.length == field_types.length);
     frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
             field_names.items, field_types.items, field_names.length);
@@ -7058,19 +7073,22 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
     // +1 for maybe first argument the error return trace
     // +2 for maybe arguments async allocator and error code pointer
     ZigList<ZigLLVMDIType *> param_di_types = {};
-    param_di_types.append(get_llvm_di_type(g, fn_type_id->return_type));
     ZigType *gen_return_type;
     if (is_async) {
         gen_return_type = g->builtin_types.entry_usize;
+        param_di_types.append(get_llvm_di_type(g, gen_return_type));
     } else if (!type_has_bits(fn_type_id->return_type)) {
         gen_return_type = g->builtin_types.entry_void;
+        param_di_types.append(get_llvm_di_type(g, gen_return_type));
     } else if (first_arg_return) {
+        gen_return_type = g->builtin_types.entry_void;
+        param_di_types.append(get_llvm_di_type(g, gen_return_type));
         ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
         gen_param_types.append(get_llvm_type(g, gen_type));
         param_di_types.append(get_llvm_di_type(g, gen_type));
-        gen_return_type = g->builtin_types.entry_void;
     } else {
         gen_return_type = fn_type_id->return_type;
+        param_di_types.append(get_llvm_di_type(g, gen_return_type));
     }
     fn_type->data.fn.gen_return_type = gen_return_type;
 
@@ -7080,36 +7098,43 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
         param_di_types.append(get_llvm_di_type(g, gen_type));
     }
     if (is_async) {
+        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(1);
+
         ZigType *frame_type = (fn == nullptr) ? g->builtin_types.entry_frame_header : get_coro_frame_type(g, fn);
         ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
         gen_param_types.append(get_llvm_type(g, ptr_type));
         param_di_types.append(get_llvm_di_type(g, ptr_type));
-    }
 
-    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
-    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
-        ZigType *type_entry = src_param_info->type;
-        FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
+        fn_type->data.fn.gen_param_info[0].src_index = 0;
+        fn_type->data.fn.gen_param_info[0].gen_index = 0;
+        fn_type->data.fn.gen_param_info[0].type = ptr_type;
 
-        gen_param_info->src_index = i;
-        gen_param_info->gen_index = SIZE_MAX;
+    } else {
+        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+        for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+            FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
+            ZigType *type_entry = src_param_info->type;
+            FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
 
-        if (is_c_abi || !type_has_bits(type_entry))
-            continue;
+            gen_param_info->src_index = i;
+            gen_param_info->gen_index = SIZE_MAX;
 
-        ZigType *gen_type;
-        if (handle_is_ptr(type_entry)) {
-            gen_type = get_pointer_to_type(g, type_entry, true);
-            gen_param_info->is_byval = true;
-        } else {
-            gen_type = type_entry;
+            if (is_c_abi || !type_has_bits(type_entry))
+                continue;
+
+            ZigType *gen_type;
+            if (handle_is_ptr(type_entry)) {
+                gen_type = get_pointer_to_type(g, type_entry, true);
+                gen_param_info->is_byval = true;
+            } else {
+                gen_type = type_entry;
+            }
+            gen_param_info->gen_index = gen_param_types.length;
+            gen_param_info->type = gen_type;
+            gen_param_types.append(get_llvm_type(g, gen_type));
+
+            param_di_types.append(get_llvm_di_type(g, gen_type));
         }
-        gen_param_info->gen_index = gen_param_types.length;
-        gen_param_info->type = gen_type;
-        gen_param_types.append(get_llvm_type(g, gen_type));
-
-        param_di_types.append(get_llvm_di_type(g, gen_type));
     }
 
     if (is_c_abi) {

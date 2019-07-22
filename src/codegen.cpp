@@ -1965,10 +1965,12 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 }
                 case FnWalkIdInits: {
                     clear_debug_source_node(g);
-                    LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i);
-                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
-                    gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
+                    if (fn_walk->data.inits.fn->resume_blocks.length == 0) {
+                        LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i);
+                        LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
+                        LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
+                        gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
+                    }
                     if (var->decl_node) {
                         gen_var_debug_decl(g, var);
                     }
@@ -2061,7 +2063,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 assert(variable);
                 assert(variable->value_ref);
 
-                if (!handle_is_ptr(variable->var_type)) {
+                if (!handle_is_ptr(variable->var_type) && fn_walk->data.inits.fn->resume_blocks.length == 0) {
                     clear_debug_source_node(g);
                     ZigType *fn_type = fn_table_entry->type_entry;
                     unsigned gen_arg_index = fn_type->data.fn.gen_param_info[variable->src_arg_index].gen_index;
@@ -3471,8 +3473,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         if (prefix_arg_err_ret_stack) {
             zig_panic("TODO");
         }
-
-        gen_param_values.append(result_loc);
     } else {
         if (first_arg_ret) {
             gen_param_values.append(result_loc);
@@ -3504,6 +3504,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
 
+    if (instruction->is_async) {
+        for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
+            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, result_loc, coro_arg_start + arg_i, "");
+            LLVMBuildStore(g->builder, gen_param_values.at(arg_i), arg_ptr);
+        }
+        ZigLLVMBuildCall(g->builder, fn_val, &result_loc, 1, llvm_cc, fn_inline, "");
+        return nullptr;
+    }
+
     if (instruction->new_stack == nullptr) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
@@ -3517,11 +3526,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
         LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
-    }
-
-
-    if (instruction->is_async) {
-        return nullptr;
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -6285,7 +6289,9 @@ static void do_code_gen(CodeGen *g) {
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
 
-        if (want_sret || fn_table_entry->resume_blocks.length != 0) {
+        bool is_async = cc == CallingConventionAsync || fn_table_entry->resume_blocks.length != 0;
+
+        if (want_sret || is_async) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
         } else if (handle_is_ptr(fn_type_id->return_type)) {
             g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
@@ -6303,7 +6309,6 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // error return tracing setup
-        bool is_async = cc == CallingConventionAsync;
         bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn && !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
@@ -6378,7 +6383,9 @@ static void do_code_gen(CodeGen *g) {
                 FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
                 assert(gen_info->gen_index != SIZE_MAX);
 
-                if (handle_is_ptr(var->var_type)) {
+                if (is_async) {
+                    var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_arg_start + var_i, "");
+                } else if (handle_is_ptr(var->var_type)) {
                     if (gen_info->is_byval) {
                         gen_type = var->var_type;
                     } else {
