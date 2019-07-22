@@ -2884,6 +2884,9 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         if (get_primitive_type(g, tld->name, &type) != ErrorPrimitiveTypeNotFound) {
             add_node_error(g, tld->source_node,
                 buf_sprintf("declaration shadows primitive type '%s'", buf_ptr(tld->name)));
+        } else if (get_primitive_value(g, tld->name) != nullptr) {
+            add_node_error(g, tld->source_node,
+                buf_sprintf("declaration shadows primitive value '%s'", buf_ptr(tld->name)));
         }
     }
 }
@@ -3133,6 +3136,10 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
             if (get_primitive_type(g, name, &type) != ErrorPrimitiveTypeNotFound) {
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
+                variable_entry->var_type = g->builtin_types.entry_invalid;
+            } else if (get_primitive_value(g, name) != nullptr) {
+                add_node_error(g, source_node,
+                        buf_sprintf("variable shadows primitive value '%s'", buf_ptr(name)));
                 variable_entry->var_type = g->builtin_types.entry_invalid;
             } else {
                 Scope *search_scope = nullptr;
@@ -6076,6 +6083,14 @@ bool type_can_fail(ZigType *type_entry) {
 
 bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
+}
+
+ConstExprValue *get_primitive_value(CodeGen *g, Buf *name) {
+    auto primitive_table_entry = g->primitive_value_table.maybe_get(name);
+    if (primitive_table_entry == nullptr)
+        return nullptr;
+
+    return primitive_table_entry->value;
 }
 
 // ErrorNone - result pointer has the type

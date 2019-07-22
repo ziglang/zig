@@ -1720,6 +1720,7 @@ struct CodeGen {
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> primitive_type_table;
+    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> primitive_value_table;
     HashMap<TypeId, ZigType *, type_id_hash, type_id_eql> type_table;
     HashMap<FnTypeId *, ZigType *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;

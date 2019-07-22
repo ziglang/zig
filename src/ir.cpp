@@ -3821,6 +3821,10 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
                     add_node_error(codegen, node,
                             buf_sprintf("variable shadows primitive type '%s'", buf_ptr(name)));
                     variable_entry->var_type = codegen->builtin_types.entry_invalid;
+                } else if (get_primitive_value(codegen, name) != nullptr) {
+                    add_node_error(codegen, node,
+                            buf_sprintf("variable shadows primitive value '%s'", buf_ptr(name)));
+                    variable_entry->var_type = codegen->builtin_types.entry_invalid;
                 } else {
                     Tld *tld = find_decl(codegen, parent_scope, name);
                     if (tld != nullptr) {
@@ -4365,21 +4369,19 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
             return irb->codegen->invalid_instruction;
         }
     }
-
-    if (buf_eql_str(variable_name, "null")) {
-        return ir_lval_wrap(irb, scope, ir_build_const_null(irb, scope, node), lval, result_loc);
-    }
-
-    if (buf_eql_str(variable_name, "undefined")) {
-        return ir_lval_wrap(irb, scope, ir_build_const_undefined(irb, scope, node), lval, result_loc);
-    }
-
-    if (buf_eql_str(variable_name, "true")) {
-        return ir_lval_wrap(irb, scope, ir_build_const_bool(irb, scope, node, true), lval, result_loc);
-    }
-
-    if (buf_eql_str(variable_name, "false")) {
-        return ir_lval_wrap(irb, scope, ir_build_const_bool(irb, scope, node, false), lval, result_loc);
+    
+    ConstExprValue *primitive_value = get_primitive_value(irb->codegen, variable_name);
+    if (primitive_value != nullptr) {
+        switch (primitive_value->type->id) {
+            case ZigTypeIdBool:
+                return ir_lval_wrap(irb, scope, ir_build_const_bool(irb, scope, node, primitive_value->data.x_bool), lval, result_loc);
+            case ZigTypeIdNull:
+                return ir_lval_wrap(irb, scope, ir_build_const_null(irb, scope, node), lval, result_loc);
+            case ZigTypeIdUndefined:
+                return ir_lval_wrap(irb, scope, ir_build_const_undefined(irb, scope, node), lval, result_loc);
+            default:
+                zig_unreachable();
+        }
     }
 
     ZigType *primitive_type;

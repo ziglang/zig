@@ -123,6 +123,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
+    g->primitive_value_table.init(4);
     g->type_table.init(32);
     g->fn_type_table.init(32);
     g->error_table.init(16);
@@ -7303,6 +7304,42 @@ static void define_builtin_types(CodeGen *g) {
     }
 }
 
+static void define_builtin_values(CodeGen *g) {
+    {
+        assert(g->builtin_types.entry_bool != nullptr);
+        ConstExprValue *value = create_const_vals(1);
+        value->type = g->builtin_types.entry_bool;
+        value->special = ConstValSpecialStatic;
+        value->parent.id = ConstParentIdNone;
+        value->data.x_bool = true;
+        g->primitive_value_table.put(buf_create_from_str("true"), value);
+    }
+    {
+        assert(g->builtin_types.entry_bool != nullptr);
+        ConstExprValue *value = create_const_vals(1);
+        value->type = g->builtin_types.entry_bool;
+        value->special = ConstValSpecialStatic;
+        value->parent.id = ConstParentIdNone;
+        value->data.x_bool = false;
+        g->primitive_value_table.put(buf_create_from_str("false"), value);
+    }
+    {
+        assert(g->builtin_types.entry_bool != nullptr);
+        ConstExprValue *value = create_const_vals(1);
+        value->type = g->builtin_types.entry_null;
+        value->special = ConstValSpecialStatic;
+        value->parent.id = ConstParentIdNone;
+        g->primitive_value_table.put(buf_create_from_str("null"), value);
+    }
+    {
+        assert(g->builtin_types.entry_bool != nullptr);
+        ConstExprValue *value = create_const_vals(1);
+        value->type = g->builtin_types.entry_undef;
+        value->special = ConstValSpecialUndef;
+        value->parent.id = ConstParentIdNone;
+        g->primitive_value_table.put(buf_create_from_str("undefined"), value);
+    }
+}
 
 static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name, size_t count) {
     BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
@@ -8184,6 +8221,7 @@ static void init(CodeGen *g) {
     g->dummy_di_file = nullptr;
 
     define_builtin_types(g);
+    define_builtin_values(g);
 
     IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
     g->invalid_instruction = &sentinel_instructions[0];
