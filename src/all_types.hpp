@@ -2322,6 +2322,7 @@ enum IrInstructionId {
     IrInstructionIdUnionInitNamedField,
     IrInstructionIdSuspendBegin,
     IrInstructionIdSuspendBr,
+    IrInstructionIdCoroResume,
 };
 
 struct IrInstruction {
@@ -3546,6 +3547,12 @@ struct IrInstructionSuspendBr {
     IrInstruction base;
 
     IrBasicBlock *resume_block;
+};
+
+struct IrInstructionCoroResume {
+    IrInstruction base;
+
+    IrInstruction *frame;
 };
 
 enum ResultLocId {

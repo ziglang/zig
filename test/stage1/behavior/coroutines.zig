@@ -4,9 +4,11 @@ const expect = std.testing.expect;
 
 var x: i32 = 1;
 
-test "simple coroutine suspend" {
+test "simple coroutine suspend and resume" {
     const p = async simpleAsyncFn();
     expect(x == 2);
+    resume p;
+    expect(x == 3);
 }
 fn simpleAsyncFn() void {
     x += 1;

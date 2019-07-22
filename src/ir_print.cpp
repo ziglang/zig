@@ -1513,6 +1513,12 @@ static void ir_print_suspend_br(IrPrint *irp, IrInstructionSuspendBr *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruction) {
+    fprintf(irp->f, "@coroResume(");
+    ir_print_other_instruction(irp, instruction->frame);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1976,6 +1982,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSuspendBr:
             ir_print_suspend_br(irp, (IrInstructionSuspendBr *)instruction);
+            break;
+        case IrInstructionIdCoroResume:
+            ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

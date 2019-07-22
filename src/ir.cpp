@@ -1035,6 +1035,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBr *) {
     return IrInstructionIdSuspendBr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroResume *) {
+    return IrInstructionIdCoroResume;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3212,6 +3216,18 @@ static IrInstruction *ir_build_suspend_br(IrBuilder *irb, Scope *scope, AstNode 
     instruction->resume_block = resume_block;
 
     ir_ref_bb(resume_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_resume(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *frame)
+{
+    IrInstructionCoroResume *instruction = ir_build_instruction<IrInstructionCoroResume>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    instruction->frame = frame;
+
+    ir_ref_instruction(frame, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -7675,7 +7691,7 @@ static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node)
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    zig_panic("TODO ir_gen_resume");
+    return ir_build_coro_resume(irb, scope, node, target_inst);
 }
 
 static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -24134,6 +24150,20 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     return ir_finish_anal(ira, result);
 }
 
+static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstructionCoroResume *instruction) {
+    IrInstruction *frame = instruction->frame->child;
+    if (type_is_invalid(frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (frame->value.type->id != ZigTypeIdCoroFrame) {
+        ir_add_error(ira, instruction->frame,
+            buf_sprintf("expected frame, found '%s'", buf_ptr(&frame->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    return ir_build_coro_resume(&ira->new_irb, instruction->base.scope, instruction->base.source_node, frame);
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -24421,6 +24451,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_suspend_begin(ira, (IrInstructionSuspendBegin *)instruction);
         case IrInstructionIdSuspendBr:
             return ir_analyze_instruction_suspend_br(ira, (IrInstructionSuspendBr *)instruction);
+        case IrInstructionIdCoroResume:
+            return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
     }
     zig_unreachable();
 }
@@ -24555,6 +24587,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdResetResult:
         case IrInstructionIdSuspendBegin:
         case IrInstructionIdSuspendBr:
+        case IrInstructionIdCoroResume:
             return true;
 
         case IrInstructionIdPhi:

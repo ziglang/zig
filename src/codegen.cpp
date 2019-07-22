@@ -4969,6 +4969,18 @@ static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
+        IrInstructionCoroResume *instruction)
+{
+    LLVMValueRef frame = ir_llvm_value(g, instruction->frame);
+    ZigType *frame_type = instruction->frame->value.type;
+    assert(frame_type->id == ZigTypeIdCoroFrame);
+    ZigFn *fn = frame_type->data.frame.fn;
+    LLVMValueRef fn_val = fn_llvm_value(g, fn);
+    LLVMBuildCall(g->builder, fn_val, &frame, 1, "");
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5213,6 +5225,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_suspend_begin(g, executable, (IrInstructionSuspendBegin *)instruction);
         case IrInstructionIdSuspendBr:
             return ir_render_suspend_br(g, executable, (IrInstructionSuspendBr *)instruction);
+        case IrInstructionIdCoroResume:
+            return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
     }
     zig_unreachable();
 }
