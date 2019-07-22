@@ -3212,7 +3212,6 @@ static IrInstruction *ir_build_suspend_br(IrBuilder *irb, Scope *scope, AstNode 
         IrBasicBlock *resume_block)
 {
     IrInstructionSuspendBr *instruction = ir_build_instruction<IrInstructionSuspendBr>(irb, scope, source_node);
-    instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
     instruction->resume_block = resume_block;
 
     ir_ref_bb(resume_block);
@@ -7744,6 +7743,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     }
 
     IrInstruction *result = ir_build_suspend_br(irb, parent_scope, node, resume_block);
+    result->value.type = irb->codegen->builtin_types.entry_void;
     ir_set_cursor_at_end_and_append_block(irb, resume_block);
     return result;
 }
@@ -10279,7 +10279,7 @@ static IrBasicBlock *ir_get_new_bb_runtime(IrAnalyze *ira, IrBasicBlock *old_bb,
 }
 
 static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
-    ir_assert(!old_bb->suspended, old_bb->instruction_list.at(0));
+    ir_assert(!old_bb->suspended, (old_bb->instruction_list.length != 0) ? old_bb->instruction_list.at(0) : nullptr);
     ira->instruction_index = 0;
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
@@ -22547,7 +22547,7 @@ static IrInstruction *ir_analyze_instruction_check_statement_is_void(IrAnalyze *
     if (type_is_invalid(statement_type))
         return ira->codegen->invalid_instruction;
 
-    if (statement_type->id != ZigTypeIdVoid) {
+    if (statement_type->id != ZigTypeIdVoid && statement_type->id != ZigTypeIdUnreachable) {
         ir_add_error(ira, &instruction->base, buf_sprintf("expression value is ignored"));
     }
 
@@ -24147,6 +24147,7 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
 
     IrInstruction *result = ir_build_suspend_br(&ira->new_irb,
             instruction->base.scope, instruction->base.source_node, new_bb);
+    result->value.type = ira->codegen->builtin_types.entry_unreachable;
     return ir_finish_anal(ira, result);
 }
 
