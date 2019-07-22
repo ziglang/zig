@@ -247,6 +247,6 @@ void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
 ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
 
-void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn);
+void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 
 #endif

@@ -29,6 +29,24 @@ fn simpleAsyncFnWithArg(delta: i32) void {
     suspend;
     global_y += delta;
 }
+
+test "suspend at end of function" {
+    const S = struct {
+        var x: i32 = 1;
+
+        fn doTheTest() void {
+            expect(x == 1);
+            const p = async suspendAtEnd();
+            expect(x == 2);
+        }
+
+        fn suspendAtEnd() void {
+            x += 1;
+            suspend;
+        }
+    };
+    S.doTheTest();
+}
 //test "coroutine suspend, resume" {
 //    seq('a');
 //    const p = try async<allocator> testAsyncSeq();

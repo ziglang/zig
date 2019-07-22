@@ -371,10 +371,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
         symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
     }
 
+    bool is_async = fn_table_entry->resume_blocks.length != 0 || cc == CallingConventionAsync;
+
 
     ZigType *fn_type = fn_table_entry->type_entry;
     // Make the raw_type_ref populated
-    resolve_llvm_types_fn(g, fn_type, fn_table_entry);
+    resolve_llvm_types_fn(g, fn_table_entry);
     LLVMTypeRef fn_llvm_type = fn_table_entry->raw_type_ref;
     if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
@@ -397,7 +399,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
                 assert(entry->value->id == TldIdFn);
                 TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
                 // Make the raw_type_ref populated
-                resolve_llvm_types_fn(g, tld_fn->fn_entry->type_entry, tld_fn->fn_entry);
+                resolve_llvm_types_fn(g, tld_fn->fn_entry);
                 tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
                         tld_fn->fn_entry->raw_type_ref);
                 fn_table_entry->llvm_value = LLVMConstBitCast(tld_fn->fn_entry->llvm_value,
@@ -517,18 +519,22 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, ZigFn *fn_table_entry) {
         init_gen_i = 1;
     }
 
-    // set parameter attributes
-    FnWalk fn_walk = {};
-    fn_walk.id = FnWalkIdAttrs;
-    fn_walk.data.attrs.fn = fn_table_entry;
-    fn_walk.data.attrs.gen_i = init_gen_i;
-    walk_function_params(g, fn_type, &fn_walk);
+    if (is_async) {
+        addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
+    } else {
+        // set parameter attributes
+        FnWalk fn_walk = {};
+        fn_walk.id = FnWalkIdAttrs;
+        fn_walk.data.attrs.fn = fn_table_entry;
+        fn_walk.data.attrs.gen_i = init_gen_i;
+        walk_function_params(g, fn_type, &fn_walk);
 
-    uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
-    if (err_ret_trace_arg_index != UINT32_MAX) {
-        // Error return trace memory is in the stack, which is impossible to be at address 0
-        // on any architecture.
-        addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
+        uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
+        if (err_ret_trace_arg_index != UINT32_MAX) {
+            // Error return trace memory is in the stack, which is impossible to be at address 0
+            // on any architecture.
+            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
+        }
     }
 
     return fn_table_entry->llvm_value;
@@ -6254,14 +6260,21 @@ static void do_code_gen(CodeGen *g) {
             } else if (is_c_abi) {
                 fn_walk_var.data.vars.var = var;
                 iter_function_params_c_abi(g, fn_table_entry->type_entry, &fn_walk_var, var->src_arg_index);
+            } else if (is_async) {
+                var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_arg_start + var_i, "");
+                if (var->decl_node) {
+                    var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
+                        buf_ptr(&var->name), import->data.structure.root_struct->di_file,
+                        (unsigned)(var->decl_node->line + 1),
+                        get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);
+                    gen_var_debug_decl(g, var);
+                }
             } else {
                 ZigType *gen_type;
                 FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
                 assert(gen_info->gen_index != SIZE_MAX);
 
-                if (is_async) {
-                    var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_arg_start + var_i, "");
-                } else if (handle_is_ptr(var->var_type)) {
+                if (handle_is_ptr(var->var_type)) {
                     if (gen_info->is_byval) {
                         gen_type = var->var_type;
                     } else {
@@ -6307,16 +6320,7 @@ static void do_code_gen(CodeGen *g) {
             gen_store(g, LLVMConstInt(usize->llvm_type, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         }
 
-        // create debug variable declarations for parameters
-        // rely on the first variables in the variable_list being parameters.
-        FnWalk fn_walk_init = {};
-        fn_walk_init.id = FnWalkIdInits;
-        fn_walk_init.data.inits.fn = fn_table_entry;
-        fn_walk_init.data.inits.llvm_fn = fn;
-        fn_walk_init.data.inits.gen_i = gen_i_init;
-        walk_function_params(g, fn_table_entry->type_entry, &fn_walk_init);
-
-        if (fn_table_entry->resume_blocks.length != 0) {
+        if (is_async) {
             if (!g->strip_debug_symbols) {
                 AstNode *source_node = fn_table_entry->proto_node;
                 ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
@@ -6354,7 +6358,17 @@ static void do_code_gen(CodeGen *g) {
                 LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_i + 2, false);
                 LLVMAddCase(switch_instr, case_value, fn_table_entry->resume_blocks.at(resume_i)->llvm_block);
             }
+        } else {
+            // create debug variable declarations for parameters
+            // rely on the first variables in the variable_list being parameters.
+            FnWalk fn_walk_init = {};
+            fn_walk_init.id = FnWalkIdInits;
+            fn_walk_init.data.inits.fn = fn_table_entry;
+            fn_walk_init.data.inits.llvm_fn = fn;
+            fn_walk_init.data.inits.gen_i = gen_i_init;
+            walk_function_params(g, fn_table_entry->type_entry, &fn_walk_init);
         }
+
 
         ir_render(g, fn_table_entry);
 

@@ -1,6 +1,20 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("invalid resume of async function",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var p = async suspendOnce();
+        \\    resume p; //ok
+        \\    resume p; //bad
+        \\}
+        \\fn suspendOnce() void {
+        \\    suspend;
+        \\}
+    );
+
     cases.addRuntimeSafety(".? operator on null pointer",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

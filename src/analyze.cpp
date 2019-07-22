@@ -1865,7 +1865,8 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
 }
 
 static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
-    assert(frame_type->data.frame.locals_struct == nullptr);
+    if (frame_type->data.frame.locals_struct != nullptr)
+        return ErrorNone;
 
     ZigFn *fn = frame_type->data.frame.fn;
     switch (fn->anal_state) {
@@ -3824,6 +3825,15 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_typ
     }
 
     fn_table_entry->anal_state = FnAnalStateComplete;
+
+    if (fn_table_entry->resume_blocks.length != 0) {
+        ZigType *frame_type = get_coro_frame_type(g, fn_table_entry);
+        Error err;
+        if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
+            fn_table_entry->anal_state = FnAnalStateInvalid;
+            return;
+        }
+    }
 }
 
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
@@ -7050,18 +7060,12 @@ static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
             debug_align_in_bits, get_llvm_di_type(g, elem_type), (int)type->data.array.len);
 }
 
-void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
-    if (fn_type->llvm_di_type != nullptr) {
-        if (fn != nullptr) {
-            fn->raw_type_ref = fn_type->data.fn.raw_type_ref;
-            fn->raw_di_type = fn_type->data.fn.raw_di_type;
-        }
-        return;
-    }
+static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
+    if (fn_type->llvm_di_type != nullptr) return;
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     bool first_arg_return = want_first_arg_sret(g, fn_type_id);
-    bool is_async = fn_type_id->cc == CallingConventionAsync || (fn != nullptr && fn->resume_blocks.length != 0);
+    bool is_async = fn_type_id->cc == CallingConventionAsync;
     bool is_c_abi = fn_type_id->cc == CallingConventionC;
     bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
     // +1 for maybe making the first argument the return value
@@ -7100,7 +7104,11 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
     if (is_async) {
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(1);
 
-        ZigType *frame_type = (fn == nullptr) ? g->builtin_types.entry_frame_header : get_coro_frame_type(g, fn);
+        ZigType *frame_type = g->builtin_types.entry_frame_header;
+        Error err;
+        if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
+            zig_unreachable();
+        }
         ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
         gen_param_types.append(get_llvm_type(g, ptr_type));
         param_di_types.append(get_llvm_di_type(g, ptr_type));
@@ -7150,12 +7158,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
     for (size_t i = 0; i < gen_param_types.length; i += 1) {
         assert(gen_param_types.items[i] != nullptr);
     }
-    if (fn != nullptr) {
-        fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
-                gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
-        fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
-        return;
-    }
+
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
     fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
@@ -7163,6 +7166,35 @@ void resolve_llvm_types_fn(CodeGen *g, ZigType *fn_type, ZigFn *fn) {
     fn_type->llvm_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
             LLVMStoreSizeOfType(g->target_data_ref, fn_type->llvm_type),
             LLVMABIAlignmentOfType(g->target_data_ref, fn_type->llvm_type), "");
+}
+
+void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
+    if (fn->raw_di_type != nullptr) return;
+
+    ZigType *fn_type = fn->type_entry;
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    bool cc_async = fn_type_id->cc == CallingConventionAsync;
+    bool inferred_async = fn->resume_blocks.length != 0;
+    bool is_async = cc_async || inferred_async;
+    if (!is_async) {
+        resolve_llvm_types_fn_type(g, fn_type);
+        fn->raw_type_ref = fn_type->data.fn.raw_type_ref;
+        fn->raw_di_type = fn_type->data.fn.raw_di_type;
+        return;
+    }
+
+    ZigType *gen_return_type = g->builtin_types.entry_usize;
+    ZigList<ZigLLVMDIType *> param_di_types = {};
+    // first "parameter" is return value
+    param_di_types.append(get_llvm_di_type(g, gen_return_type));
+
+    ZigType *frame_type = get_coro_frame_type(g, fn);
+    ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
+    LLVMTypeRef gen_param_type = get_llvm_type(g, ptr_type);
+    param_di_types.append(get_llvm_di_type(g, ptr_type));
+
+    fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type), &gen_param_type, 1, false);
+    fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
 }
 
 static void resolve_llvm_types_anyerror(CodeGen *g) {
@@ -7241,7 +7273,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
         case ZigTypeIdArray:
             return resolve_llvm_types_array(g, type);
         case ZigTypeIdFn:
-            return resolve_llvm_types_fn(g, type, nullptr);
+            return resolve_llvm_types_fn_type(g, type);
         case ZigTypeIdErrorSet: {
             if (type->llvm_di_type != nullptr) return;
 
