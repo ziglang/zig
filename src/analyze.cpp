@@ -3346,7 +3346,8 @@ static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace,
 
 static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope) {
     if (using_namespace->base.resolution == TldResolutionOk ||
-        using_namespace->base.resolution == TldResolutionInvalid)
+        using_namespace->base.resolution == TldResolutionInvalid ||
+        using_namespace->using_namespace_value != nullptr)
     {
         return;
     }

@@ -41,9 +41,11 @@ pub const Builder = struct {
     env_map: *BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
     install_prefix: ?[]const u8,
-    search_prefixes: ArrayList([]const u8),
+    dest_dir: ?[]const u8,
     lib_dir: ?[]const u8,
     exe_dir: ?[]const u8,
+    install_path: []const u8,
+    search_prefixes: ArrayList([]const u8),
     installed_files: ArrayList(InstalledFile),
     build_root: []const u8,
     cache_root: []const u8,
@@ -125,10 +127,11 @@ pub const Builder = struct {
             .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
             .default_step = undefined,
             .env_map = env_map,
-            .install_prefix = null,
             .search_prefixes = ArrayList([]const u8).init(allocator),
+            .install_prefix = null,
             .lib_dir = null,
             .exe_dir = null,
+            .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
                 .step = Step.initNoOp("install", allocator),
@@ -142,6 +145,7 @@ pub const Builder = struct {
             .is_release = false,
             .override_std_dir = null,
             .override_lib_dir = null,
+            .install_path = undefined,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -164,14 +168,19 @@ pub const Builder = struct {
     }
 
     fn resolveInstallPrefix(self: *Builder) void {
-        const prefix = if (self.install_prefix) |prefix| prefix else blk: {
-            const prefix = self.cache_root;
-            self.install_prefix = prefix;
-            break :blk prefix;
-        };
-
-        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ prefix, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ prefix, "bin" }) catch unreachable;
+        if (self.dest_dir) |dest_dir| {
+            const install_prefix = self.install_prefix orelse "/usr";
+            self.install_path = fs.path.join(self.allocator, [_][]const u8{ dest_dir, install_prefix }) catch unreachable;
+        } else {
+            const install_prefix = self.install_prefix orelse blk: {
+                const p = self.cache_root;
+                self.install_prefix = p;
+                break :blk p;
+            };
+            self.install_path = install_prefix;
+        }
+        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "lib" }) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "bin" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -884,7 +893,7 @@ pub const Builder = struct {
 
     fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
         const base_dir = switch (dir) {
-            .Prefix => self.install_prefix.?,
+            .Prefix => self.install_path,
             .Bin => self.exe_dir.?,
             .Lib => self.lib_dir.?,
         };

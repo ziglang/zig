@@ -2353,7 +2353,7 @@ pub fn attachSegfaultHandler() void {
 fn resetSegfaultHandler() void {
     if (windows.is_the_target) {
         if (windows_segfault_handle) |handle| {
-            assert(windows.kernel32.RemoveVectoredExceptionHandler() != 0);
+            assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;
         }
         return;
