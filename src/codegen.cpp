@@ -4981,7 +4981,7 @@ static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
     assert(frame_type->id == ZigTypeIdCoroFrame);
     ZigFn *fn = frame_type->data.frame.fn;
     LLVMValueRef fn_val = fn_llvm_value(g, fn);
-    LLVMBuildCall(g->builder, fn_val, &frame, 1, "");
+    ZigLLVMBuildCall(g->builder, fn_val, &frame, 1, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
     return nullptr;
 }
 
