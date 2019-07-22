@@ -7324,7 +7324,7 @@ static void define_builtin_values(CodeGen *g) {
         g->primitive_value_table.put(buf_create_from_str("false"), value);
     }
     {
-        assert(g->builtin_types.entry_bool != nullptr);
+        assert(g->builtin_types.entry_null != nullptr);
         ConstExprValue *value = create_const_vals(1);
         value->type = g->builtin_types.entry_null;
         value->special = ConstValSpecialStatic;
@@ -7332,7 +7332,7 @@ static void define_builtin_values(CodeGen *g) {
         g->primitive_value_table.put(buf_create_from_str("null"), value);
     }
     {
-        assert(g->builtin_types.entry_bool != nullptr);
+        assert(g->builtin_types.entry_undef != nullptr);
         ConstExprValue *value = create_const_vals(1);
         value->type = g->builtin_types.entry_undef;
         value->special = ConstValSpecialUndef;
