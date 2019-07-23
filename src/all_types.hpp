@@ -1342,7 +1342,6 @@ struct FnCall {
 };
 
 struct ZigFn {
-    CodeGen *codegen;
     LLVMValueRef llvm_value;
     const char *llvm_name;
     AstNode *proto_node;
@@ -1385,6 +1384,7 @@ struct ZigFn {
 
     AstNode *set_cold_node;
     const AstNode *inferred_async_node;
+    ZigFn *inferred_async_fn;
 
     ZigList<GlobalExport> export_list;
     ZigList<FnCall> call_list;
