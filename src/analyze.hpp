@@ -248,5 +248,6 @@ bool is_container(ZigType *type_entry);
 ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
+bool fn_is_async(ZigFn *fn);
 
 #endif

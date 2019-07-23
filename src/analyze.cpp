@@ -31,6 +31,11 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
 static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope);
 static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace, ScopeDecls *dest_decls_scope);
 
+// nullptr means not analyzed yet; this one means currently being analyzed
+static const AstNode *inferred_async_checking = reinterpret_cast<AstNode *>(0x1);
+// this one means analyzed and it's not async
+static const AstNode *inferred_async_none = reinterpret_cast<AstNode *>(0x2);
+
 static bool is_top_level_struct(ZigType *import) {
     return import->id == ZigTypeIdStruct && import->data.structure.root_struct != nullptr;
 }
@@ -1892,8 +1897,12 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     field_names.append("resume_index");
     field_types.append(g->builtin_types.entry_usize);
 
-    for (size_t arg_i = 0; arg_i < fn->type_entry->data.fn.fn_type_id.param_count; arg_i += 1) {
-        FnTypeParamInfo *param_info = &fn->type_entry->data.fn.fn_type_id.param_info[arg_i];
+    FnTypeId *fn_type_id = &fn->type_entry->data.fn.fn_type_id;
+    field_names.append("result");
+    field_types.append(fn_type_id->return_type);
+
+    for (size_t arg_i = 0; arg_i < fn_type_id->param_count; arg_i += 1) {
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[arg_i];
         AstNode *param_decl_node = get_param_decl_node(fn, arg_i);
         Buf *param_name;
         bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
@@ -2794,6 +2803,16 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
+        }
+
+        switch (fn_table_entry->type_entry->data.fn.fn_type_id.cc) {
+            case CallingConventionAsync:
+                fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
+                break;
+            case CallingConventionUnspecified:
+                break;
+            default:
+                fn_table_entry->inferred_async_node = inferred_async_none;
         }
 
         if (scope_is_root_decls(tld_fn->base.parent_scope) &&
@@ -3767,6 +3786,55 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
     return true;
 }
 
+static void resolve_async_fn_frame(CodeGen *g, ZigFn *fn) {
+    ZigType *frame_type = get_coro_frame_type(g, fn);
+    Error err;
+    if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
+        fn->anal_state = FnAnalStateInvalid;
+        return;
+    }
+}
+
+bool fn_is_async(ZigFn *fn) {
+    assert(fn->inferred_async_node != nullptr);
+    assert(fn->inferred_async_node != inferred_async_checking);
+    return fn->inferred_async_node != inferred_async_none;
+}
+
+// This function resolves functions being inferred async.
+static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
+    if (fn->inferred_async_node == inferred_async_checking) {
+        // TODO call graph cycle detected, disallow the recursion
+        fn->inferred_async_node = inferred_async_none;
+        return;
+    }
+    if (fn->inferred_async_node == inferred_async_none) {
+        return;
+    }
+    if (fn->inferred_async_node != nullptr) {
+        resolve_async_fn_frame(g, fn);
+        return;
+    }
+    fn->inferred_async_node = inferred_async_checking;
+    for (size_t i = 0; i < fn->call_list.length; i += 1) {
+        FnCall *call = &fn->call_list.at(i);
+        if (call->callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+            continue;
+        assert(call->callee->anal_state == FnAnalStateComplete);
+        analyze_fn_async(g, call->callee);
+        if (call->callee->anal_state == FnAnalStateInvalid) {
+            fn->anal_state = FnAnalStateInvalid;
+            return;
+        }
+        if (fn_is_async(call->callee)) {
+            fn->inferred_async_node = call->source_node;
+            resolve_async_fn_frame(g, fn);
+            return;
+        }
+    }
+    fn->inferred_async_node = inferred_async_none;
+}
+
 static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
@@ -3824,17 +3892,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_typ
         ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
-
     fn_table_entry->anal_state = FnAnalStateComplete;
-
-    if (fn_table_entry->resume_blocks.length != 0) {
-        ZigType *frame_type = get_coro_frame_type(g, fn_table_entry);
-        Error err;
-        if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
-            fn_table_entry->anal_state = FnAnalStateInvalid;
-            return;
-        }
-    }
 }
 
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
@@ -4003,6 +4061,16 @@ void semantic_analyze(CodeGen *g) {
             ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
             analyze_fn_body(g, fn_entry);
         }
+    }
+
+    if (g->errors.length != 0) {
+        return;
+    }
+
+    // second pass over functions for detecting async
+    for (g->fn_defs_index = 0; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
+        ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
+        analyze_fn_async(g, fn_entry);
     }
 }
 
@@ -7173,11 +7241,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     if (fn->raw_di_type != nullptr) return;
 
     ZigType *fn_type = fn->type_entry;
-    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    bool cc_async = fn_type_id->cc == CallingConventionAsync;
-    bool inferred_async = fn->resume_blocks.length != 0;
-    bool is_async = cc_async || inferred_async;
-    if (!is_async) {
+    if (!fn_is_async(fn)) {
         resolve_llvm_types_fn_type(g, fn_type);
         fn->raw_type_ref = fn_type->data.fn.raw_type_ref;
         fn->raw_di_type = fn_type->data.fn.raw_di_type;
@@ -7223,8 +7287,6 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
 }
 
 static void resolve_llvm_types_coro_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
-    if (frame_type->llvm_di_type != nullptr) return;
-
     resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status);
     frame_type->llvm_type = frame_type->data.frame.locals_struct->llvm_type;
     frame_type->llvm_di_type = frame_type->data.frame.locals_struct->llvm_di_type;

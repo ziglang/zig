@@ -1336,6 +1336,11 @@ struct GlobalExport {
     GlobalLinkageId linkage;
 };
 
+struct FnCall {
+    AstNode *source_node;
+    ZigFn *callee;
+};
+
 struct ZigFn {
     CodeGen *codegen;
     LLVMValueRef llvm_value;
@@ -1379,8 +1384,10 @@ struct ZigFn {
     AstNode *set_alignstack_node;
 
     AstNode *set_cold_node;
+    const AstNode *inferred_async_node;
 
     ZigList<GlobalExport> export_list;
+    ZigList<FnCall> call_list;
 
     LLVMValueRef valgrind_client_request_array;
     LLVMBasicBlockRef preamble_llvm_block;

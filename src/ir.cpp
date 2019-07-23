@@ -15383,6 +15383,13 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             zig_panic("TODO async call");
         }
 
+        if (!call_instruction->is_async) {
+            if (impl_fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
+                parent_fn_entry->inferred_async_node = fn_ref->source_node;
+            }
+            parent_fn_entry->call_list.append({call_instruction->base.source_node, impl_fn});
+        }
+
         IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
                 call_instruction->is_async, casted_new_stack, result_loc,
@@ -15456,6 +15463,15 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         ir_add_error(ira, &call_instruction->base,
             buf_sprintf("no-inline call of inline function"));
         return ira->codegen->invalid_instruction;
+    }
+
+    if (!call_instruction->is_async) {
+        if (fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
+            parent_fn_entry->inferred_async_node = fn_ref->source_node;
+        }
+        if (fn_entry != nullptr) {
+            parent_fn_entry->call_list.append({call_instruction->base.source_node, fn_entry});
+        }
     }
 
     if (call_instruction->is_async) {
@@ -24142,6 +24158,9 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     new_bb->resume_index = fn_entry->resume_blocks.length + 2;
 
     fn_entry->resume_blocks.append(new_bb);
+    if (fn_entry->inferred_async_node == nullptr) {
+        fn_entry->inferred_async_node = instruction->base.source_node;
+    }
 
     ir_push_resume_block(ira, old_dest_block);
 
