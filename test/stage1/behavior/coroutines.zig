@@ -47,6 +47,36 @@ test "suspend at end of function" {
     };
     S.doTheTest();
 }
+
+test "local variable in async function" {
+    const S = struct {
+        var x: i32 = 0;
+
+        fn doTheTest() void {
+            expect(x == 0);
+            const p = async add(1, 2);
+            expect(x == 0);
+            resume p;
+            expect(x == 0);
+            resume p;
+            expect(x == 0);
+            resume p;
+            expect(x == 3);
+        }
+
+        fn add(a: i32, b: i32) void {
+            var accum: i32 = 0;
+            suspend;
+            accum += a;
+            suspend;
+            accum += b;
+            suspend;
+            x = accum;
+        }
+    };
+    S.doTheTest();
+}
+
 //test "coroutine suspend, resume" {
 //    seq('a');
 //    const p = try async<allocator> testAsyncSeq();

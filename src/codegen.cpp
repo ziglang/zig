@@ -6174,6 +6174,7 @@ static void do_code_gen(CodeGen *g) {
         clear_debug_source_node(g);
 
         bool is_async = fn_is_async(fn_table_entry);
+        size_t async_var_index = coro_arg_start + (type_has_bits(fn_type_id->return_type) ? 1 : 0);
 
         if (want_sret || is_async) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
@@ -6206,25 +6207,27 @@ static void do_code_gen(CodeGen *g) {
             g->cur_err_ret_trace_val_stack = nullptr;
         }
 
-        // allocate temporary stack data
-        for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
-            IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
-            ZigType *ptr_type = instruction->base.value.type;
-            assert(ptr_type->id == ZigTypeIdPointer);
-            ZigType *child_type = ptr_type->data.pointer.child_type;
-            if (!type_has_bits(child_type))
-                continue;
-            if (instruction->base.ref_count == 0)
-                continue;
-            if (instruction->base.value.special != ConstValSpecialRuntime) {
-                if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
-                        ConstValSpecialRuntime)
-                {
+        if (!is_async) {
+            // allocate temporary stack data
+            for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
+                IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
+                ZigType *ptr_type = instruction->base.value.type;
+                assert(ptr_type->id == ZigTypeIdPointer);
+                ZigType *child_type = ptr_type->data.pointer.child_type;
+                if (!type_has_bits(child_type))
                     continue;
+                if (instruction->base.ref_count == 0)
+                    continue;
+                if (instruction->base.value.special != ConstValSpecialRuntime) {
+                    if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                            ConstValSpecialRuntime)
+                    {
+                        continue;
+                    }
                 }
+                instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
+                        get_ptr_align(g, ptr_type));
             }
-            instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
-                    get_ptr_align(g, ptr_type));
         }
 
         ZigType *import = get_scope_import(&fn_table_entry->fndef_scope->base);
@@ -6263,9 +6266,9 @@ static void do_code_gen(CodeGen *g) {
                 fn_walk_var.data.vars.var = var;
                 iter_function_params_c_abi(g, fn_table_entry->type_entry, &fn_walk_var, var->src_arg_index);
             } else if (is_async) {
-                size_t ret_1_or_0 = type_has_bits(fn_type_id->return_type) ? 1 : 0;
-                var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
-                        coro_arg_start + ret_1_or_0 + var_i, "");
+                var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, async_var_index,
+                        buf_ptr(&var->name));
+                async_var_index += 1;
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->data.structure.root_struct->di_file,
@@ -6296,6 +6299,29 @@ static void do_code_gen(CodeGen *g) {
                         get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index+1));
                 }
 
+            }
+        }
+
+        if (is_async) {
+            for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
+                IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
+                ZigType *ptr_type = instruction->base.value.type;
+                assert(ptr_type->id == ZigTypeIdPointer);
+                ZigType *child_type = ptr_type->data.pointer.child_type;
+                if (!type_has_bits(child_type))
+                    continue;
+                if (instruction->base.ref_count == 0)
+                    continue;
+                if (instruction->base.value.special != ConstValSpecialRuntime) {
+                    if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                            ConstValSpecialRuntime)
+                    {
+                        continue;
+                    }
+                }
+                instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, async_var_index,
+                        instruction->name_hint);
+                async_var_index += 1;
             }
         }
 

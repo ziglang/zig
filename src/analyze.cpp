@@ -1911,10 +1911,31 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         } else {
             param_name = buf_sprintf("arg%" ZIG_PRI_usize "", arg_i);
         }
-        ZigType *param_type = param_info[arg_i].type;
+        ZigType *param_type = param_info->type;
         field_names.append(buf_ptr(param_name));
         field_types.append(param_type);
     }
+
+    for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
+        IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
+        ZigType *ptr_type = instruction->base.value.type;
+        assert(ptr_type->id == ZigTypeIdPointer);
+        ZigType *child_type = ptr_type->data.pointer.child_type;
+        if (!type_has_bits(child_type))
+            continue;
+        if (instruction->base.ref_count == 0)
+            continue;
+        if (instruction->base.value.special != ConstValSpecialRuntime) {
+            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                    ConstValSpecialRuntime)
+            {
+                continue;
+            }
+        }
+        field_names.append(instruction->name_hint);
+        field_types.append(child_type);
+    }
+
 
     assert(field_names.length == field_types.length);
     frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
