@@ -989,7 +989,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
 }
 
 bool target_allows_addr_zero(const ZigTarget *target) {
-    return target->os == OsFreestanding;
+    return target->os == OsFreestanding || target->os == OsUefi;
 }
 
 const char *target_o_file_ext(const ZigTarget *target) {
@@ -1414,12 +1414,12 @@ bool target_supports_fpic(const ZigTarget *target) {
 }
 
 bool target_supports_stack_probing(const ZigTarget *target) {
-    return target->os != OsWindows && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
+    return target->os != OsWindows && target->os != OsUefi && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
 }
 
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
   // This function returns whether non-pic code is completely invalid on the given target.
-  return target->os == OsWindows || target_os_requires_libc(target->os) ||
+  return target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||
       (linking_libc && target_is_glibc(target));
 }
 
