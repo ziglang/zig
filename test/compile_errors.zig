@@ -6491,7 +6491,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var v: V = undefined;
         \\}
     ,
-        "tmp.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:2:26: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
     );
 
     cases.add("compileLog of tagged enum doesn't crash the compiler",

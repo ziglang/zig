@@ -22024,7 +22024,7 @@ static IrInstruction *ir_analyze_instruction_vector_type(IrAnalyze *ira, IrInstr
 
     if (!is_valid_vector_elem_type(elem_type)) {
         ir_add_error(ira, instruction->elem_type,
-            buf_sprintf("vector element type must be integer, float, or pointer; '%s' is invalid",
+            buf_sprintf("vector element type must be integer, float, bool, or pointer; '%s' is invalid",
                 buf_ptr(&elem_type->name)));
         return ira->codegen->invalid_instruction;
     }
