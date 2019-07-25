@@ -426,6 +426,9 @@ pub fn formatType(
             if (info.child == u8) {
                 return formatText(value, fmt, options, context, Errors, output);
             }
+            if (value.len == 0) {
+                return format(context, Errors, output, "[0]{}", @typeName(T.Child));
+            }
             return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
         },
         .Fn => {
