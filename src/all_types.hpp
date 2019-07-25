@@ -35,6 +35,7 @@ struct ConstExprValue;
 struct IrInstruction;
 struct IrInstructionCast;
 struct IrInstructionAllocaGen;
+struct IrInstructionCallGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -1336,11 +1337,6 @@ struct GlobalExport {
     GlobalLinkageId linkage;
 };
 
-struct FnCall {
-    AstNode *source_node;
-    ZigFn *callee;
-};
-
 struct ZigFn {
     LLVMValueRef llvm_value;
     const char *llvm_name;
@@ -1387,7 +1383,7 @@ struct ZigFn {
     ZigFn *inferred_async_fn;
 
     ZigList<GlobalExport> export_list;
-    ZigList<FnCall> call_list;
+    ZigList<IrInstructionCallGen *> call_list;
 
     LLVMValueRef valgrind_client_request_array;
     LLVMBasicBlockRef preamble_llvm_block;
@@ -2585,6 +2581,8 @@ struct IrInstructionCallGen {
     size_t arg_count;
     IrInstruction **args;
     IrInstruction *result_loc;
+    IrInstruction *frame_result_loc;
+    IrBasicBlock *resume_block;
 
     IrInstruction *new_stack;
     FnInline fn_inline;
@@ -3645,7 +3643,12 @@ static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
 static const size_t coro_resume_index_index = 0;
-static const size_t coro_arg_start = 1;
+static const size_t coro_fn_ptr_index = 1;
+static const size_t coro_awaiter_index = 2;
+static const size_t coro_arg_start = 3;
+
+// one for the GetSize block, one for the Entry block, resume blocks are indexed after that.
+static const size_t coro_extra_resume_block_count = 2;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

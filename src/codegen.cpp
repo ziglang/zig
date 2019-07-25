@@ -3324,13 +3324,16 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCallGen *instruction) {
     LLVMValueRef fn_val;
     ZigType *fn_type;
+    bool callee_is_async;
     if (instruction->fn_entry) {
         fn_val = fn_llvm_value(g, instruction->fn_entry);
         fn_type = instruction->fn_entry->type_entry;
+        callee_is_async = fn_is_async(instruction->fn_entry);
     } else {
         assert(instruction->fn_ref);
         fn_val = ir_llvm_value(g, instruction->fn_ref);
         fn_type = instruction->fn_ref->value.type;
+        callee_is_async = fn_type->data.fn.fn_type_id.cc == CallingConventionAsync;
     }
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -3345,17 +3348,47 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->llvm_type);
+    LLVMValueRef frame_result_loc;
+    LLVMValueRef awaiter_init_val;
+    LLVMValueRef ret_ptr;
     if (instruction->is_async) {
-        assert(result_loc != nullptr);
+        frame_result_loc = result_loc;
+        awaiter_init_val = zero;
+        if (ret_has_bits) {
+            ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start + 1, "");
+        }
+    } else if (callee_is_async) {
+        frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
+        awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr,
+                g->builtin_types.entry_usize->llvm_type, ""); // caller's own frame pointer
+        if (ret_has_bits) {
+            ret_ptr = result_loc;
+        }
+    }
+    if (instruction->is_async || callee_is_async) {
+        assert(frame_result_loc != nullptr);
         assert(instruction->fn_entry != nullptr);
-        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, result_loc, coro_resume_index_index, "");
-        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->llvm_type);
+        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_resume_index_index, "");
         LLVMBuildStore(g->builder, zero, resume_index_ptr);
+        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_fn_ptr_index, "");
+        LLVMValueRef bitcasted_fn_val = LLVMBuildBitCast(g->builder, fn_val,
+                LLVMGetElementType(LLVMTypeOf(fn_ptr_ptr)), "");
+        LLVMBuildStore(g->builder, bitcasted_fn_val, fn_ptr_ptr);
 
         if (prefix_arg_err_ret_stack) {
             zig_panic("TODO");
         }
-    } else {
+
+        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_awaiter_index, "");
+        LLVMBuildStore(g->builder, awaiter_init_val, awaiter_ptr);
+
+        if (ret_has_bits) {
+            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start, "");
+            LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
+        }
+    }
+    if (!instruction->is_async && !callee_is_async) {
         if (first_arg_ret) {
             gen_param_values.append(result_loc);
         }
@@ -3386,14 +3419,28 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
 
-    if (instruction->is_async) {
-        size_t ret_1_or_0 = type_has_bits(fn_type->data.fn.fn_type_id.return_type) ? 1 : 0;
+    if (instruction->is_async || callee_is_async) {
+        size_t ret_2_or_0 = type_has_bits(fn_type->data.fn.fn_type_id.return_type) ? 2 : 0;
         for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
-            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, result_loc,
-                    coro_arg_start + ret_1_or_0 + arg_i, "");
+            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                    coro_arg_start + ret_2_or_0 + arg_i, "");
             LLVMBuildStore(g->builder, gen_param_values.at(arg_i), arg_ptr);
         }
-        ZigLLVMBuildCall(g->builder, fn_val, &result_loc, 1, llvm_cc, fn_inline, "");
+    }
+    if (instruction->is_async) {
+        ZigLLVMBuildCall(g->builder, fn_val, &frame_result_loc, 1, llvm_cc, fn_inline, "");
+        return nullptr;
+    } else if (callee_is_async) {
+        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_resume_index_index, "");
+        LLVMValueRef new_resume_index = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
+                instruction->resume_block->resume_index, false);
+        LLVMBuildStore(g->builder, new_resume_index, resume_index_ptr);
+
+        LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, fn_val, &frame_result_loc, 1, llvm_cc, fn_inline, "");
+        ZigLLVMSetTailCall(call_inst);
+        LLVMBuildRet(g->builder, call_inst);
+
+        LLVMPositionBuilderAtEnd(g->builder, instruction->resume_block->llvm_block);
         return nullptr;
     }
 
@@ -6174,7 +6221,7 @@ static void do_code_gen(CodeGen *g) {
         clear_debug_source_node(g);
 
         bool is_async = fn_is_async(fn_table_entry);
-        size_t async_var_index = coro_arg_start + (type_has_bits(fn_type_id->return_type) ? 1 : 0);
+        size_t async_var_index = coro_arg_start + (type_has_bits(fn_type_id->return_type) ? 2 : 0);
 
         if (want_sret || is_async) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
@@ -6385,8 +6432,9 @@ static void do_code_gen(CodeGen *g) {
             LLVMAddCase(switch_instr, one, get_size_block);
 
             for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
-                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_i + 2, false);
-                LLVMAddCase(switch_instr, case_value, fn_table_entry->resume_blocks.at(resume_i)->llvm_block);
+                IrBasicBlock *resume_block = fn_table_entry->resume_blocks.at(resume_i);
+                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_block->resume_index, false);
+                LLVMAddCase(switch_instr, case_value, resume_block->llvm_block);
             }
         } else {
             // create debug variable declarations for parameters

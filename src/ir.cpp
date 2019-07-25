@@ -1385,7 +1385,7 @@ static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *s
     return &call_instruction->base;
 }
 
-static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+static IrInstructionCallGen *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_instruction,
         ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
         FnInline fn_inline, bool is_async, IrInstruction *new_stack,
         IrInstruction *result_loc, ZigType *return_type)
@@ -1408,7 +1408,7 @@ static IrInstruction *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_in
     if (new_stack != nullptr) ir_ref_instruction(new_stack, ira->new_irb.current_basic_block);
     if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
-    return &call_instruction->base;
+    return call_instruction;
 }
 
 static IrInstruction *ir_build_phi(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -14650,8 +14650,8 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
         return result_loc;
     }
-    return ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
-            casted_args, FnInlineAuto, true, nullptr, result_loc, frame_type);
+    return &ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
+            casted_args, FnInlineAuto, true, nullptr, result_loc, frame_type)->base;
 }
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
@@ -15387,15 +15387,16 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (impl_fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
                 parent_fn_entry->inferred_async_node = fn_ref->source_node;
             }
-            parent_fn_entry->call_list.append({call_instruction->base.source_node, impl_fn});
         }
 
-        IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
+        IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
                 call_instruction->is_async, casted_new_stack, result_loc,
                 impl_fn_type_id->return_type);
 
-        return ir_finish_anal(ira, new_call_instruction);
+        parent_fn_entry->call_list.append(new_call_instruction);
+
+        return ir_finish_anal(ira, &new_call_instruction->base);
     }
 
     ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
@@ -15469,9 +15470,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         if (fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
             parent_fn_entry->inferred_async_node = fn_ref->source_node;
         }
-        if (fn_entry != nullptr) {
-            parent_fn_entry->call_list.append({call_instruction->base.source_node, fn_entry});
-        }
     }
 
     if (call_instruction->is_async) {
@@ -15491,10 +15489,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         result_loc = nullptr;
     }
 
-    IrInstruction *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
+    IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, false, casted_new_stack,
             result_loc, return_type);
-    return ir_finish_anal(ira, new_call_instruction);
+    parent_fn_entry->call_list.append(new_call_instruction);
+    return ir_finish_anal(ira, &new_call_instruction->base);
 }
 
 static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction) {
@@ -24154,8 +24153,7 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
 
-    // +2 - one for the GetSize block, one for the Entry block, resume blocks are indexed after that.
-    new_bb->resume_index = fn_entry->resume_blocks.length + 2;
+    new_bb->resume_index = fn_entry->resume_blocks.length + coro_extra_resume_block_count;
 
     fn_entry->resume_blocks.append(new_bb);
     if (fn_entry->inferred_async_node == nullptr) {

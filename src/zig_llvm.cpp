@@ -898,6 +898,10 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
     return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
 }
 
+void ZigLLVMSetTailCall(LLVMValueRef Call) {
+  unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
+} 
+
 
 class MyOStream: public raw_ostream {
     public:

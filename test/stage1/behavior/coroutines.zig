@@ -77,6 +77,22 @@ test "local variable in async function" {
     S.doTheTest();
 }
 
+test "calling an inferred async function" {
+    const S = struct {
+        fn doTheTest() void {
+            const p = async first();
+        }
+
+        fn first() void {
+            other();
+        }
+        fn other() void {
+            suspend;
+        }
+    };
+    S.doTheTest();
+}
+
 //test "coroutine suspend, resume" {
 //    seq('a');
 //    const p = try async<allocator> testAsyncSeq();

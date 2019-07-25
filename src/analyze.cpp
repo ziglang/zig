@@ -1869,80 +1869,6 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
-    if (frame_type->data.frame.locals_struct != nullptr)
-        return ErrorNone;
-
-    ZigFn *fn = frame_type->data.frame.fn;
-    switch (fn->anal_state) {
-        case FnAnalStateInvalid:
-            return ErrorSemanticAnalyzeFail;
-        case FnAnalStateComplete:
-            break;
-        case FnAnalStateReady:
-            analyze_fn_body(g, fn);
-            if (fn->anal_state == FnAnalStateInvalid)
-                return ErrorSemanticAnalyzeFail;
-            break;
-        case FnAnalStateProbing:
-            add_node_error(g, fn->proto_node,
-                    buf_sprintf("cannot resolve '%s': function not fully analyzed yet",
-                        buf_ptr(&frame_type->name)));
-            return ErrorSemanticAnalyzeFail;
-    }
-    // TODO iterate over fn->alloca_gen_list
-    ZigList<ZigType *> field_types = {};
-    ZigList<const char *> field_names = {};
-
-    field_names.append("resume_index");
-    field_types.append(g->builtin_types.entry_usize);
-
-    FnTypeId *fn_type_id = &fn->type_entry->data.fn.fn_type_id;
-    field_names.append("result");
-    field_types.append(fn_type_id->return_type);
-
-    for (size_t arg_i = 0; arg_i < fn_type_id->param_count; arg_i += 1) {
-        FnTypeParamInfo *param_info = &fn_type_id->param_info[arg_i];
-        AstNode *param_decl_node = get_param_decl_node(fn, arg_i);
-        Buf *param_name;
-        bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
-        if (param_decl_node && !is_var_args) {
-            param_name = param_decl_node->data.param_decl.name;
-        } else {
-            param_name = buf_sprintf("arg%" ZIG_PRI_usize "", arg_i);
-        }
-        ZigType *param_type = param_info->type;
-        field_names.append(buf_ptr(param_name));
-        field_types.append(param_type);
-    }
-
-    for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
-        IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
-        ZigType *ptr_type = instruction->base.value.type;
-        assert(ptr_type->id == ZigTypeIdPointer);
-        ZigType *child_type = ptr_type->data.pointer.child_type;
-        if (!type_has_bits(child_type))
-            continue;
-        if (instruction->base.ref_count == 0)
-            continue;
-        if (instruction->base.value.special != ConstValSpecialRuntime) {
-            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
-                    ConstValSpecialRuntime)
-            {
-                continue;
-            }
-        }
-        field_names.append(instruction->name_hint);
-        field_types.append(child_type);
-    }
-
-
-    assert(field_names.length == field_types.length);
-    frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
-            field_names.items, field_types.items, field_names.length);
-    return ErrorNone;
-}
-
 static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
     // Only integer types are allowed by the C ABI
     if(ty->id != ZigTypeIdInt)
@@ -3861,18 +3787,24 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
     }
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
-        FnCall *call = &fn->call_list.at(i);
-        if (call->callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+        IrInstructionCallGen *call = fn->call_list.at(i);
+        ZigFn *callee = call->fn_entry;
+        if (callee == nullptr) {
+            // TODO function pointer call here, could be anything
             continue;
-        assert(call->callee->anal_state == FnAnalStateComplete);
-        analyze_fn_async(g, call->callee);
-        if (call->callee->anal_state == FnAnalStateInvalid) {
+        }
+
+        if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+            continue;
+        assert(callee->anal_state == FnAnalStateComplete);
+        analyze_fn_async(g, callee);
+        if (callee->anal_state == FnAnalStateInvalid) {
             fn->anal_state = FnAnalStateInvalid;
             return;
         }
-        if (fn_is_async(call->callee)) {
-            fn->inferred_async_node = call->source_node;
-            fn->inferred_async_fn = call->callee;
+        if (fn_is_async(callee)) {
+            fn->inferred_async_node = call->base.source_node;
+            fn->inferred_async_fn = callee;
             if (must_not_be_async) {
                 ErrorMsg *msg = add_node_error(g, fn->proto_node,
                     buf_sprintf("function with calling convention '%s' cannot be async",
@@ -5145,6 +5077,127 @@ ConstExprValue *create_const_vals(size_t count) {
 
 Error ensure_complete_type(CodeGen *g, ZigType *type_entry) {
     return type_resolve(g, type_entry, ResolveStatusSizeKnown);
+}
+
+static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
+    if (frame_type->data.frame.locals_struct != nullptr)
+        return ErrorNone;
+
+    ZigFn *fn = frame_type->data.frame.fn;
+    switch (fn->anal_state) {
+        case FnAnalStateInvalid:
+            return ErrorSemanticAnalyzeFail;
+        case FnAnalStateComplete:
+            break;
+        case FnAnalStateReady:
+            analyze_fn_body(g, fn);
+            if (fn->anal_state == FnAnalStateInvalid)
+                return ErrorSemanticAnalyzeFail;
+            break;
+        case FnAnalStateProbing:
+            add_node_error(g, fn->proto_node,
+                    buf_sprintf("cannot resolve '%s': function not fully analyzed yet",
+                        buf_ptr(&frame_type->name)));
+            return ErrorSemanticAnalyzeFail;
+    }
+
+    for (size_t i = 0; i < fn->call_list.length; i += 1) {
+        IrInstructionCallGen *call = fn->call_list.at(i);
+        ZigFn *callee = call->fn_entry;
+        assert(callee != nullptr);
+
+        analyze_fn_body(g, callee);
+        if (callee->anal_state == FnAnalStateInvalid) {
+            frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+        analyze_fn_async(g, callee);
+        if (!fn_is_async(callee))
+            continue;
+
+        IrBasicBlock *new_resume_block = allocate<IrBasicBlock>(1);
+        new_resume_block->name_hint = "CallResume";
+        new_resume_block->resume_index = fn->resume_blocks.length + coro_extra_resume_block_count;
+        fn->resume_blocks.append(new_resume_block);
+        call->resume_block = new_resume_block;
+        fn->analyzed_executable.basic_block_list.append(new_resume_block);
+
+        ZigType *callee_frame_type = get_coro_frame_type(g, callee);
+
+        IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
+        alloca_gen->base.id = IrInstructionIdAllocaGen;
+        alloca_gen->base.source_node = call->base.source_node;
+        alloca_gen->base.scope = call->base.scope;
+        alloca_gen->base.value.type = get_pointer_to_type(g, callee_frame_type, false);
+        alloca_gen->base.ref_count = 1;
+        alloca_gen->name_hint = "";
+        fn->alloca_gen_list.append(alloca_gen);
+        call->frame_result_loc = &alloca_gen->base;
+    }
+
+    ZigList<ZigType *> field_types = {};
+    ZigList<const char *> field_names = {};
+
+    field_names.append("resume_index");
+    field_types.append(g->builtin_types.entry_usize);
+
+    field_names.append("fn_ptr");
+    field_types.append(fn->type_entry);
+
+    field_names.append("awaiter");
+    field_types.append(g->builtin_types.entry_usize);
+
+    FnTypeId *fn_type_id = &fn->type_entry->data.fn.fn_type_id;
+    ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
+    field_names.append("result_ptr");
+    field_types.append(ptr_return_type);
+
+    field_names.append("result");
+    field_types.append(fn_type_id->return_type);
+
+    for (size_t arg_i = 0; arg_i < fn_type_id->param_count; arg_i += 1) {
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[arg_i];
+        AstNode *param_decl_node = get_param_decl_node(fn, arg_i);
+        Buf *param_name;
+        bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
+        if (param_decl_node && !is_var_args) {
+            param_name = param_decl_node->data.param_decl.name;
+        } else {
+            param_name = buf_sprintf("arg%" ZIG_PRI_usize "", arg_i);
+        }
+        ZigType *param_type = param_info->type;
+        field_names.append(buf_ptr(param_name));
+        field_types.append(param_type);
+    }
+
+    for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
+        IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
+        ZigType *ptr_type = instruction->base.value.type;
+        assert(ptr_type->id == ZigTypeIdPointer);
+        ZigType *child_type = ptr_type->data.pointer.child_type;
+        if (!type_has_bits(child_type))
+            continue;
+        if (instruction->base.ref_count == 0)
+            continue;
+        if (instruction->base.value.special != ConstValSpecialRuntime) {
+            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+                    ConstValSpecialRuntime)
+            {
+                continue;
+            }
+        }
+        field_names.append(instruction->name_hint);
+        field_types.append(child_type);
+    }
+
+
+    assert(field_names.length == field_types.length);
+    frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
+            field_names.items, field_types.items, field_names.length);
+    frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
+    frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
+    frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
+    return ErrorNone;
 }
 
 Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
@@ -7343,9 +7396,6 @@ static void resolve_llvm_types_coro_frame(CodeGen *g, ZigType *frame_type, Resol
     resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status);
     frame_type->llvm_type = frame_type->data.frame.locals_struct->llvm_type;
     frame_type->llvm_di_type = frame_type->data.frame.locals_struct->llvm_di_type;
-    frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
-    frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
-    frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
 }
 
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
