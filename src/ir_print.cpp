@@ -906,8 +906,14 @@ static void ir_print_frame_address(IrPrint *irp, IrInstructionFrameAddress *inst
     fprintf(irp->f, "@frameAddress()");
 }
 
-static void ir_print_handle(IrPrint *irp, IrInstructionHandle *instruction) {
-    fprintf(irp->f, "@handle()");
+static void ir_print_handle(IrPrint *irp, IrInstructionFrameHandle *instruction) {
+    fprintf(irp->f, "@frame()");
+}
+
+static void ir_print_frame_type(IrPrint *irp, IrInstructionFrameType *instruction) {
+    fprintf(irp->f, "@Frame(");
+    ir_print_other_instruction(irp, instruction->fn);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *instruction) {
@@ -1764,8 +1770,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
             ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
             break;
-        case IrInstructionIdHandle:
-            ir_print_handle(irp, (IrInstructionHandle *)instruction);
+        case IrInstructionIdFrameHandle:
+            ir_print_handle(irp, (IrInstructionFrameHandle *)instruction);
+            break;
+        case IrInstructionIdFrameType:
+            ir_print_frame_type(irp, (IrInstructionFrameType *)instruction);
             break;
         case IrInstructionIdAlignOf:
             ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);

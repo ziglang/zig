@@ -1435,8 +1435,6 @@ enum BuiltinFnId {
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
     BuiltinFnIdReturnAddress,
-    BuiltinFnIdFrameAddress,
-    BuiltinFnIdHandle,
     BuiltinFnIdEmbedFile,
     BuiltinFnIdCmpxchgWeak,
     BuiltinFnIdCmpxchgStrong,
@@ -1507,6 +1505,9 @@ enum BuiltinFnId {
     BuiltinFnIdAtomicLoad,
     BuiltinFnIdHasDecl,
     BuiltinFnIdUnionInit,
+    BuiltinFnIdFrameAddress,
+    BuiltinFnIdFrameType,
+    BuiltinFnIdFrameHandle,
 };
 
 struct BuiltinFnEntry {
@@ -2252,7 +2253,8 @@ enum IrInstructionId {
     IrInstructionIdBreakpoint,
     IrInstructionIdReturnAddress,
     IrInstructionIdFrameAddress,
-    IrInstructionIdHandle,
+    IrInstructionIdFrameHandle,
+    IrInstructionIdFrameType,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErrSrc,
@@ -3038,8 +3040,14 @@ struct IrInstructionFrameAddress {
     IrInstruction base;
 };
 
-struct IrInstructionHandle {
+struct IrInstructionFrameHandle {
     IrInstruction base;
+};
+
+struct IrInstructionFrameType {
+    IrInstruction base;
+
+    IrInstruction *fn;
 };
 
 enum IrOverflowOp {

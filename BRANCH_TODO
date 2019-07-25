@@ -1,0 +1,4 @@
+ * await
+ * await of a non async function
+ * async call on a non async function
+ * safety for resuming when it is awaiting

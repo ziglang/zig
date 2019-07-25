@@ -79,15 +79,23 @@ test "local variable in async function" {
 
 test "calling an inferred async function" {
     const S = struct {
+        var x: i32 = 1;
+        var other_frame: *@Frame(other) = undefined;
+
         fn doTheTest() void {
             const p = async first();
+            expect(x == 1);
+            resume other_frame.*;
+            expect(x == 2);
         }
 
         fn first() void {
             other();
         }
         fn other() void {
+            other_frame = @frame();
             suspend;
+            x += 1;
         }
     };
     S.doTheTest();

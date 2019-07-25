@@ -4457,10 +4457,8 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
     return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->llvm_type, "");
 }
 
-static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable,
-        IrInstructionHandle *instruction)
-{
-    zig_panic("TODO @handle() codegen");
+static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable, IrInstructionFrameHandle *instruction) {
+    return g->cur_ret_ptr;
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
@@ -5008,6 +5006,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdBitCastSrc:
         case IrInstructionIdTestErrSrc:
         case IrInstructionIdUnionInitNamedField:
+        case IrInstructionIdFrameType:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5086,8 +5085,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_return_address(g, executable, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
-        case IrInstructionIdHandle:
-            return ir_render_handle(g, executable, (IrInstructionHandle *)instruction);
+        case IrInstructionIdFrameHandle:
+            return ir_render_handle(g, executable, (IrInstructionFrameHandle *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErrGen:
@@ -6754,8 +6753,6 @@ static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char 
 static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
     create_builtin_fn(g, BuiltinFnIdReturnAddress, "returnAddress", 0);
-    create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
-    create_builtin_fn(g, BuiltinFnIdHandle, "handle", 0);
     create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
@@ -6856,6 +6853,9 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdThis, "This", 0);
     create_builtin_fn(g, BuiltinFnIdHasDecl, "hasDecl", 2);
     create_builtin_fn(g, BuiltinFnIdUnionInit, "unionInit", 3);
+    create_builtin_fn(g, BuiltinFnIdFrameHandle, "frame", 0);
+    create_builtin_fn(g, BuiltinFnIdFrameType, "Frame", 1);
+    create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
 }
 
 static const char *bool_to_str(bool b) {

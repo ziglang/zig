@@ -755,8 +755,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameAddress *) 
     return IrInstructionIdFrameAddress;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionHandle *) {
-    return IrInstructionIdHandle;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameHandle *) {
+    return IrInstructionIdFrameHandle;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameType *) {
+    return IrInstructionIdFrameType;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
@@ -2362,7 +2366,16 @@ static IrInstruction *ir_build_frame_address(IrBuilder *irb, Scope *scope, AstNo
 }
 
 static IrInstruction *ir_build_handle(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-    IrInstructionHandle *instruction = ir_build_instruction<IrInstructionHandle>(irb, scope, source_node);
+    IrInstructionFrameHandle *instruction = ir_build_instruction<IrInstructionFrameHandle>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_frame_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn) {
+    IrInstructionFrameType *instruction = ir_build_instruction<IrInstructionFrameType>(irb, scope, source_node);
+    instruction->fn = fn;
+
+    ir_ref_instruction(fn, irb->current_basic_block);
+
     return &instruction->base;
 }
 
@@ -3358,11 +3371,6 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
-static bool exec_is_async(IrExecutable *exec) {
-    ZigFn *fn_entry = exec_fn_entry(exec);
-    return fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
-}
-
 static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
     bool is_generated_code)
 {
@@ -4278,8 +4286,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         return irb->codegen->invalid_instruction;
     }
 
-    bool is_async = exec_is_async(irb->exec);
-
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
@@ -4902,16 +4908,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_lval_wrap(irb, scope, ir_build_return_address(irb, scope, node), lval, result_loc);
         case BuiltinFnIdFrameAddress:
             return ir_lval_wrap(irb, scope, ir_build_frame_address(irb, scope, node), lval, result_loc);
-        case BuiltinFnIdHandle:
+        case BuiltinFnIdFrameHandle:
             if (!irb->exec->fn_entry) {
                 add_node_error(irb->codegen, node, buf_sprintf("@handle() called outside of function definition"));
                 return irb->codegen->invalid_instruction;
             }
-            if (!is_async) {
-                add_node_error(irb->codegen, node, buf_sprintf("@handle() in non-async function"));
-                return irb->codegen->invalid_instruction;
-            }
             return ir_lval_wrap(irb, scope, ir_build_handle(irb, scope, node), lval, result_loc);
+        case BuiltinFnIdFrameType: {
+            AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+            IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+            if (arg0_value == irb->codegen->invalid_instruction)
+                return arg0_value;
+
+            IrInstruction *frame_type = ir_build_frame_type(irb, scope, node, arg0_value);
+            return ir_lval_wrap(irb, scope, frame_type, lval, result_loc);
+        }
         case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -21726,8 +21737,25 @@ static IrInstruction *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIns
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_handle(IrAnalyze *ira, IrInstructionHandle *instruction) {
-    zig_panic("TODO anlayze @handle()");
+static IrInstruction *ir_analyze_instruction_frame_handle(IrAnalyze *ira, IrInstructionFrameHandle *instruction) {
+    ZigFn *fn = exec_fn_entry(ira->new_irb.exec);
+    ir_assert(fn != nullptr, &instruction->base);
+
+    ZigType *frame_type = get_coro_frame_type(ira->codegen, fn);
+    ZigType *ptr_frame_type = get_pointer_to_type(ira->codegen, frame_type, false);
+
+    IrInstruction *result = ir_build_handle(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
+    result->value.type = ptr_frame_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_instruction_frame_type(IrAnalyze *ira, IrInstructionFrameType *instruction) {
+    ZigFn *fn = ir_resolve_fn(ira, instruction->fn->child);
+    if (fn == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    ZigType *ty = get_coro_frame_type(ira->codegen, fn);
+    return ir_const_type(ira, &instruction->base, ty);
 }
 
 static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
@@ -24355,8 +24383,10 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_return_address(ira, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_analyze_instruction_frame_address(ira, (IrInstructionFrameAddress *)instruction);
-        case IrInstructionIdHandle:
-            return ir_analyze_instruction_handle(ira, (IrInstructionHandle *)instruction);
+        case IrInstructionIdFrameHandle:
+            return ir_analyze_instruction_frame_handle(ira, (IrInstructionFrameHandle *)instruction);
+        case IrInstructionIdFrameType:
+            return ir_analyze_instruction_frame_type(ira, (IrInstructionFrameType *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
@@ -24650,7 +24680,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAlignOf:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
-        case IrInstructionIdHandle:
+        case IrInstructionIdFrameHandle:
+        case IrInstructionIdFrameType:
         case IrInstructionIdTestErrSrc:
         case IrInstructionIdTestErrGen:
         case IrInstructionIdFnProto:
