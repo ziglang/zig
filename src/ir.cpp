@@ -763,6 +763,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameType *) {
     return IrInstructionIdFrameType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameSizeSrc *) {
+    return IrInstructionIdFrameSizeSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameSizeGen *) {
+    return IrInstructionIdFrameSizeGen;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
@@ -2375,6 +2383,28 @@ static IrInstruction *ir_build_frame_type(IrBuilder *irb, Scope *scope, AstNode 
     instruction->fn = fn;
 
     ir_ref_instruction(fn, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_frame_size_src(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn) {
+    IrInstructionFrameSizeSrc *instruction = ir_build_instruction<IrInstructionFrameSizeSrc>(irb, scope, source_node);
+    instruction->fn = fn;
+
+    ir_ref_instruction(fn, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_frame_size_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn,
+        IrInstruction *frame_ptr)
+{
+    IrInstructionFrameSizeGen *instruction = ir_build_instruction<IrInstructionFrameSizeGen>(irb, scope, source_node);
+    instruction->fn = fn;
+    instruction->frame_ptr = frame_ptr;
+
+    ir_ref_instruction(fn, irb->current_basic_block);
+    ir_ref_instruction(frame_ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -4922,6 +4952,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
             IrInstruction *frame_type = ir_build_frame_type(irb, scope, node, arg0_value);
             return ir_lval_wrap(irb, scope, frame_type, lval, result_loc);
+        }
+        case BuiltinFnIdFrameSize: {
+            AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+            IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+            if (arg0_value == irb->codegen->invalid_instruction)
+                return arg0_value;
+
+            IrInstruction *frame_size = ir_build_frame_size_src(irb, scope, node, arg0_value);
+            return ir_lval_wrap(irb, scope, frame_size, lval, result_loc);
         }
         case BuiltinFnIdAlignOf:
             {
@@ -21758,6 +21797,28 @@ static IrInstruction *ir_analyze_instruction_frame_type(IrAnalyze *ira, IrInstru
     return ir_const_type(ira, &instruction->base, ty);
 }
 
+static IrInstruction *ir_analyze_instruction_frame_size(IrAnalyze *ira, IrInstructionFrameSizeSrc *instruction) {
+    IrInstruction *fn = instruction->fn->child;
+    if (type_is_invalid(fn->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (fn->value.type->id != ZigTypeIdFn) {
+        ir_add_error(ira, fn,
+                buf_sprintf("expected function, found '%s'", buf_ptr(&fn->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *frame_ptr = ir_resolve_result(ira, &instruction->base, no_result_loc(),
+            ira->codegen->builtin_types.entry_frame_header, nullptr, true, false);
+    if (frame_ptr != nullptr && (type_is_invalid(frame_ptr->value.type) || instr_is_unreachable(frame_ptr)))
+        return frame_ptr;
+
+    IrInstruction *result = ir_build_frame_size_gen(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, fn, frame_ptr);
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
     Error err;
     IrInstruction *type_value = instruction->type_value->child;
@@ -22346,10 +22407,6 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
         ir_add_error(ira, instruction->return_type,
             buf_sprintf("return type cannot be opaque"));
         return ira->codegen->invalid_instruction;
-    }
-
-    if (fn_type_id.cc == CallingConventionAsync) {
-        zig_panic("TODO");
     }
 
     return ir_const_type(ira, &instruction->base, get_fn_type(ira->codegen, &fn_type_id));
@@ -24237,6 +24294,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdSliceGen:
         case IrInstructionIdRefGen:
         case IrInstructionIdTestErrGen:
+        case IrInstructionIdFrameSizeGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -24387,6 +24445,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_frame_handle(ira, (IrInstructionFrameHandle *)instruction);
         case IrInstructionIdFrameType:
             return ir_analyze_instruction_frame_type(ira, (IrInstructionFrameType *)instruction);
+        case IrInstructionIdFrameSizeSrc:
+            return ir_analyze_instruction_frame_size(ira, (IrInstructionFrameSizeSrc *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
@@ -24682,6 +24742,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
         case IrInstructionIdFrameHandle:
         case IrInstructionIdFrameType:
+        case IrInstructionIdFrameSizeSrc:
+        case IrInstructionIdFrameSizeGen:
         case IrInstructionIdTestErrSrc:
         case IrInstructionIdTestErrGen:
         case IrInstructionIdFnProto:

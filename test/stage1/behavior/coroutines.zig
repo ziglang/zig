@@ -101,6 +101,32 @@ test "calling an inferred async function" {
     S.doTheTest();
 }
 
+test "@frameSize" {
+    const S = struct {
+        fn doTheTest() void {
+            {
+                var ptr = @ptrCast(async fn(i32) void, other);
+                const size = @frameSize(ptr);
+                expect(size == @sizeOf(@Frame(other)));
+            }
+            {
+                var ptr = @ptrCast(async fn() void, first);
+                const size = @frameSize(ptr);
+                expect(size == @sizeOf(@Frame(first)));
+            }
+        }
+
+        fn first() void {
+            other(1);
+        }
+        fn other(param: i32) void {
+            var local: i32 = undefined;
+            suspend;
+        }
+    };
+    S.doTheTest();
+}
+
 //test "coroutine suspend, resume" {
 //    seq('a');
 //    const p = try async<allocator> testAsyncSeq();

@@ -1508,6 +1508,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameAddress,
     BuiltinFnIdFrameType,
     BuiltinFnIdFrameHandle,
+    BuiltinFnIdFrameSize,
 };
 
 struct BuiltinFnEntry {
@@ -2255,6 +2256,8 @@ enum IrInstructionId {
     IrInstructionIdFrameAddress,
     IrInstructionIdFrameHandle,
     IrInstructionIdFrameType,
+    IrInstructionIdFrameSizeSrc,
+    IrInstructionIdFrameSizeGen,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErrSrc,
@@ -3048,6 +3051,19 @@ struct IrInstructionFrameType {
     IrInstruction base;
 
     IrInstruction *fn;
+};
+
+struct IrInstructionFrameSizeSrc {
+    IrInstruction base;
+
+    IrInstruction *fn;
+};
+
+struct IrInstructionFrameSizeGen {
+    IrInstruction base;
+
+    IrInstruction *fn;
+    IrInstruction *frame_ptr;
 };
 
 enum IrOverflowOp {

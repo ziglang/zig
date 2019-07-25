@@ -2,3 +2,4 @@
  * await of a non async function
  * async call on a non async function
  * safety for resuming when it is awaiting
+ * implicit cast of normal function to async function should be allowed when it is inferred to be async

@@ -916,6 +916,20 @@ static void ir_print_frame_type(IrPrint *irp, IrInstructionFrameType *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_frame_size_src(IrPrint *irp, IrInstructionFrameSizeSrc *instruction) {
+    fprintf(irp->f, "@frameSize(");
+    ir_print_other_instruction(irp, instruction->fn);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_frame_size_gen(IrPrint *irp, IrInstructionFrameSizeGen *instruction) {
+    fprintf(irp->f, "@frameSize(");
+    ir_print_other_instruction(irp, instruction->fn);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->frame_ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *instruction) {
     fprintf(irp->f, "@returnAddress()");
 }
@@ -1775,6 +1789,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFrameType:
             ir_print_frame_type(irp, (IrInstructionFrameType *)instruction);
+            break;
+        case IrInstructionIdFrameSizeSrc:
+            ir_print_frame_size_src(irp, (IrInstructionFrameSizeSrc *)instruction);
+            break;
+        case IrInstructionIdFrameSizeGen:
+            ir_print_frame_size_gen(irp, (IrInstructionFrameSizeGen *)instruction);
             break;
         case IrInstructionIdAlignOf:
             ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);

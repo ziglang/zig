@@ -4914,6 +4914,15 @@ static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutable *executable, IrInstructionFrameSizeGen *instruction) {
+    LLVMValueRef fn_val = ir_llvm_value(g, instruction->fn);
+    LLVMValueRef frame_ptr = ir_llvm_value(g, instruction->frame_ptr);
+    LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, frame_ptr, coro_resume_index_index, "");
+    LLVMValueRef one = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 1, false);
+    LLVMBuildStore(g->builder, one, resume_index_ptr);
+    return ZigLLVMBuildCall(g->builder, fn_val, &frame_ptr, 1, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5007,6 +5016,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTestErrSrc:
         case IrInstructionIdUnionInitNamedField:
         case IrInstructionIdFrameType:
+        case IrInstructionIdFrameSizeSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -5161,6 +5171,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_suspend_br(g, executable, (IrInstructionSuspendBr *)instruction);
         case IrInstructionIdCoroResume:
             return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdFrameSizeGen:
+            return ir_render_frame_size(g, executable, (IrInstructionFrameSizeGen *)instruction);
     }
     zig_unreachable();
 }
@@ -6856,6 +6868,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFrameHandle, "frame", 0);
     create_builtin_fn(g, BuiltinFnIdFrameType, "Frame", 1);
     create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
+    create_builtin_fn(g, BuiltinFnIdFrameSize, "frameSize", 1);
 }
 
 static const char *bool_to_str(bool b) {
