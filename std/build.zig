@@ -1802,7 +1802,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--bundle-compiler-rt");
         }
         if (self.disable_stack_probing) {
-            try zig_args.append("--disable-stack-probing");
+            try zig_args.append("-fno-stack-check");
         }
 
         switch (self.target) {
