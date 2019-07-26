@@ -3670,8 +3670,8 @@ static const size_t coro_fn_ptr_index = 1;
 static const size_t coro_awaiter_index = 2;
 static const size_t coro_arg_start = 3;
 
-// one for the GetSize block, one for the Entry block, resume blocks are indexed after that.
-static const size_t coro_extra_resume_block_count = 2;
+// one for the Entry block, resume blocks are indexed after that.
+static const size_t coro_extra_resume_block_count = 1;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

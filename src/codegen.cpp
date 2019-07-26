@@ -1995,7 +1995,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             LLVMBuildStore(g->builder, new_resume_index, resume_index_ptr);
         }
 
-        LLVMBuildRet(g->builder, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type));
+        LLVMBuildRetVoid(g->builder);
         return nullptr;
     }
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
@@ -3438,7 +3438,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
         LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, fn_val, &frame_result_loc, 1, llvm_cc, fn_inline, "");
         ZigLLVMSetTailCall(call_inst);
-        LLVMBuildRet(g->builder, call_inst);
+        LLVMBuildRetVoid(g->builder);
 
         LLVMPositionBuilderAtEnd(g->builder, instruction->resume_block->llvm_block);
         return nullptr;
@@ -4898,7 +4898,7 @@ static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable
 static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
         IrInstructionSuspendBr *instruction)
 {
-    LLVMBuildRet(g->builder, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type));
+    LLVMBuildRetVoid(g->builder);
     return nullptr;
 }
 
@@ -6426,26 +6426,16 @@ static void do_code_gen(CodeGen *g) {
             LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
             gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
 
-            LLVMBasicBlockRef get_size_block = LLVMAppendBasicBlock(g->cur_fn_val, "GetSize");
-            LLVMPositionBuilderAtEnd(g->builder, get_size_block);
-            assert(fn_table_entry->frame_type->abi_size != 0);
-            assert(fn_table_entry->frame_type->abi_size != SIZE_MAX);
-            LLVMBuildRet(g->builder, size_val);
-
             LLVMPositionBuilderAtEnd(g->builder, fn_table_entry->preamble_llvm_block);
             LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
                     coro_resume_index_index, "");
             LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
             // +1 - index 0 is reserved for the entry block
-            // +1 - index 1 is reserved for getting the size.
             LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block,
-                    fn_table_entry->resume_blocks.length + 2);
+                    fn_table_entry->resume_blocks.length + 1);
 
             LLVMValueRef zero = LLVMConstNull(usize_type_ref);
             LLVMAddCase(switch_instr, zero, executable->basic_block_list.at(0)->llvm_block);
-
-            LLVMValueRef one = LLVMConstInt(usize_type_ref, 1, false);
-            LLVMAddCase(switch_instr, one, get_size_block);
 
             for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
                 IrBasicBlock *resume_block = fn_table_entry->resume_blocks.at(resume_i);
