@@ -18815,6 +18815,21 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
                     buf_ptr(&container_type->name)));
             return ira->codegen->invalid_instruction;
         }
+    } else if (container_type->id == ZigTypeIdVector) {
+        if (buf_eql_str(field_name, "len")) {
+            bool ptr_is_const = true;
+            bool ptr_is_volatile = false;
+            return ir_get_const_ptr(ira, &field_ptr_instruction->base,
+                create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                    container_type->data.vector.len, false),
+                ira->codegen->builtin_types.entry_num_lit_int,
+                ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
+        } else {
+            ir_add_error(ira, &field_ptr_instruction->base,
+                buf_sprintf("type '%s' has no member called '%s'",
+                    buf_ptr(&container_type->name), buf_ptr(field_name)));
+            return ira->codegen->invalid_instruction;
+        }
     } else if (container_type->id == ZigTypeIdMetaType) {
         ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
         if (!container_ptr_val)
@@ -18831,9 +18846,24 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
         }
         ZigType *child_type = child_val->data.x_type;
 
-        if (type_is_invalid(child_type)) {
+        if (type_is_invalid(child_type))
             return ira->codegen->invalid_instruction;
-        } else if (is_container(child_type)) {
+
+        if (child_type->id == ZigTypeIdVector) {
+            if (buf_eql_str(field_name, "len")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_get_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.vector.len, false),
+                    ira->codegen->builtin_types.entry_num_lit_int,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
+            }
+            child_type = child_type->data.vector.elem_type;
+            // Fall through for field access of vector element meta types
+        }
+
+        if (is_container(child_type)) {
             if (child_type->id == ZigTypeIdEnum) {
                 if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
                     return ira->codegen->invalid_instruction;
