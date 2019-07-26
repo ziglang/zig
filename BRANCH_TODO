@@ -1,5 +1,14 @@
+ * reimplement @frameSize with Prefix Data
+ * reimplement with function splitting rather than switch
+ * add the `anyframe` type and `anyframe->T`
  * await
  * await of a non async function
+ * await in single-threaded mode
  * async call on a non async function
+ * @asyncCall with an async function pointer
+ * cancel
+ * defer and errdefer
  * safety for resuming when it is awaiting
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
+ * go over the commented out tests
+ * revive std.event.Loop

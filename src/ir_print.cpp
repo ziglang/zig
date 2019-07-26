@@ -925,8 +925,6 @@ static void ir_print_frame_size_src(IrPrint *irp, IrInstructionFrameSizeSrc *ins
 static void ir_print_frame_size_gen(IrPrint *irp, IrInstructionFrameSizeGen *instruction) {
     fprintf(irp->f, "@frameSize(");
     ir_print_other_instruction(irp, instruction->fn);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->frame_ptr);
     fprintf(irp->f, ")");
 }
 

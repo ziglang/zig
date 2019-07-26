@@ -3063,7 +3063,6 @@ struct IrInstructionFrameSizeGen {
     IrInstruction base;
 
     IrInstruction *fn;
-    IrInstruction *frame_ptr;
 };
 
 enum IrOverflowOp {

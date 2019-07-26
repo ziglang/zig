@@ -899,8 +899,12 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
 }
 
 void ZigLLVMSetTailCall(LLVMValueRef Call) {
-  unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
+    unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
 } 
+
+void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
+    unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
+}
 
 
 class MyOStream: public raw_ostream {

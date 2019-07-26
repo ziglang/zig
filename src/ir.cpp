@@ -2396,15 +2396,12 @@ static IrInstruction *ir_build_frame_size_src(IrBuilder *irb, Scope *scope, AstN
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_frame_size_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn,
-        IrInstruction *frame_ptr)
+static IrInstruction *ir_build_frame_size_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn)
 {
     IrInstructionFrameSizeGen *instruction = ir_build_instruction<IrInstructionFrameSizeGen>(irb, scope, source_node);
     instruction->fn = fn;
-    instruction->frame_ptr = frame_ptr;
 
     ir_ref_instruction(fn, irb->current_basic_block);
-    ir_ref_instruction(frame_ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -21808,13 +21805,8 @@ static IrInstruction *ir_analyze_instruction_frame_size(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *frame_ptr = ir_resolve_result(ira, &instruction->base, no_result_loc(),
-            ira->codegen->builtin_types.entry_frame_header, nullptr, true, false);
-    if (frame_ptr != nullptr && (type_is_invalid(frame_ptr->value.type) || instr_is_unreachable(frame_ptr)))
-        return frame_ptr;
-
     IrInstruction *result = ir_build_frame_size_gen(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, fn, frame_ptr);
+            instruction->base.source_node, fn);
     result->value.type = ira->codegen->builtin_types.entry_usize;
     return result;
 }

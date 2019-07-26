@@ -4914,13 +4914,16 @@ static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutable *executable, IrInstructionFrameSizeGen *instruction) {
+static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutable *executable,
+        IrInstructionFrameSizeGen *instruction)
+{
+    LLVMTypeRef usize_llvm_type = g->builtin_types.entry_usize->llvm_type;
+    LLVMTypeRef ptr_usize_llvm_type = LLVMPointerType(usize_llvm_type, 0);
     LLVMValueRef fn_val = ir_llvm_value(g, instruction->fn);
-    LLVMValueRef frame_ptr = ir_llvm_value(g, instruction->frame_ptr);
-    LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, frame_ptr, coro_resume_index_index, "");
-    LLVMValueRef one = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 1, false);
-    LLVMBuildStore(g->builder, one, resume_index_ptr);
-    return ZigLLVMBuildCall(g->builder, fn_val, &frame_ptr, 1, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
+    LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
+    LLVMValueRef negative_one = LLVMConstInt(LLVMInt32Type(), -1, true);
+    LLVMValueRef prefix_ptr = LLVMBuildInBoundsGEP(g->builder, casted_fn_val, &negative_one, 1, "");
+    return LLVMBuildLoad(g->builder, prefix_ptr, "");
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
@@ -6409,13 +6412,16 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (is_async) {
+            LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+            LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
+            ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
+
             if (!g->strip_debug_symbols) {
                 AstNode *source_node = fn_table_entry->proto_node;
                 ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
                         (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
             }
             IrExecutable *executable = &fn_table_entry->analyzed_executable;
-            LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
             LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
             gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
@@ -6424,7 +6430,6 @@ static void do_code_gen(CodeGen *g) {
             LLVMPositionBuilderAtEnd(g->builder, get_size_block);
             assert(fn_table_entry->frame_type->abi_size != 0);
             assert(fn_table_entry->frame_type->abi_size != SIZE_MAX);
-            LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
             LLVMBuildRet(g->builder, size_val);
 
             LLVMPositionBuilderAtEnd(g->builder, fn_table_entry->preamble_llvm_block);
