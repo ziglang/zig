@@ -471,6 +471,15 @@ static void ir_print_slice_type(IrPrint *irp, IrInstructionSliceType *instructio
     ir_print_other_instruction(irp, instruction->child_type);
 }
 
+static void ir_print_any_frame_type(IrPrint *irp, IrInstructionAnyFrameType *instruction) {
+    if (instruction->payload_type == nullptr) {
+        fprintf(irp->f, "anyframe");
+    } else {
+        fprintf(irp->f, "anyframe->");
+        ir_print_other_instruction(irp, instruction->payload_type);
+    }
+}
+
 static void ir_print_global_asm(IrPrint *irp, IrInstructionGlobalAsm *instruction) {
     fprintf(irp->f, "asm(\"%s\")", buf_ptr(instruction->asm_code));
 }
@@ -1628,6 +1637,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSliceType:
             ir_print_slice_type(irp, (IrInstructionSliceType *)instruction);
+            break;
+        case IrInstructionIdAnyFrameType:
+            ir_print_any_frame_type(irp, (IrInstructionAnyFrameType *)instruction);
             break;
         case IrInstructionIdGlobalAsm:
             ir_print_global_asm(irp, (IrInstructionGlobalAsm *)instruction);

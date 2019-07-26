@@ -259,6 +259,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Suspend";
         case NodeTypePointerType:
             return "PointerType";
+        case NodeTypeAnyFrameType:
+            return "AnyFrameType";
         case NodeTypeEnumLiteral:
             return "EnumLiteral";
     }
@@ -847,6 +849,14 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, node->data.inferred_array_type.child_type);
                 break;
             }
+        case NodeTypeAnyFrameType: {
+            fprintf(ar->f, "anyframe");
+            if (node->data.anyframe_type.payload_type != nullptr) {
+                fprintf(ar->f, "->");
+                render_node_grouped(ar, node->data.anyframe_type.payload_type);
+            }
+            break;
+        }
         case NodeTypeErrorType:
             fprintf(ar->f, "anyerror");
             break;

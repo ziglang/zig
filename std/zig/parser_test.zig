@@ -2111,12 +2111,12 @@ test "zig fmt: coroutines" {
         \\    suspend;
         \\    x += 1;
         \\    suspend;
-        \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
+        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
         \\test "coroutine suspend, resume, cancel" {
-        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    const p: anyframe = try async<std.debug.global_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}

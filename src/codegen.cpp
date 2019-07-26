@@ -4947,6 +4947,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetRuntimeSafety:
         case IrInstructionIdSetFloatMode:
         case IrInstructionIdArrayType:
+        case IrInstructionIdAnyFrameType:
         case IrInstructionIdSliceType:
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
@@ -5438,7 +5439,9 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                 return val;
             }
         case ZigTypeIdCoroFrame:
-            zig_panic("TODO bit pack a coroutine frame");
+            zig_panic("TODO bit pack an async function frame");
+        case ZigTypeIdAnyFrame:
+            zig_panic("TODO bit pack an anyframe");
     }
     zig_unreachable();
 }
@@ -5960,6 +5963,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case ZigTypeIdOpaque:
             zig_unreachable();
         case ZigTypeIdCoroFrame:
+            zig_panic("TODO");
+        case ZigTypeIdAnyFrame:
             zig_panic("TODO");
     }
     zig_unreachable();
@@ -7176,6 +7181,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "    ArgTuple: void,\n"
             "    Opaque: void,\n"
             "    Frame: void,\n"
+            "    AnyFrame: AnyFrame,\n"
             "    Vector: Vector,\n"
             "    EnumLiteral: void,\n"
             "\n\n"
@@ -7289,6 +7295,10 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        is_var_args: bool,\n"
             "        return_type: ?type,\n"
             "        args: []FnArg,\n"
+            "    };\n"
+            "\n"
+            "    pub const AnyFrame = struct {\n"
+            "        child: ?type,\n"
             "    };\n"
             "\n"
             "    pub const Vector = struct {\n"
@@ -8448,6 +8458,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
@@ -8632,6 +8643,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             zig_unreachable();
     }
 }
@@ -8800,7 +8812,9 @@ static void gen_h_file(CodeGen *g) {
             case ZigTypeIdFn:
             case ZigTypeIdVector:
             case ZigTypeIdCoroFrame:
+            case ZigTypeIdAnyFrame:
                 zig_unreachable();
+
             case ZigTypeIdEnum:
                 if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {
                     fprintf(out_h, "enum %s {\n", buf_ptr(type_h_name(type_entry)));

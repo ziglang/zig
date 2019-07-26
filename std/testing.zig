@@ -30,6 +30,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
         .ArgTuple,
         .Opaque,
         .Frame,
+        .AnyFrame,
         => @compileError("value of type " ++ @typeName(@typeOf(actual)) ++ " encountered"),
 
         .Undefined,

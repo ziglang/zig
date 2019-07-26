@@ -1201,7 +1201,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
-///      / KEYWORD_promise
+///      / KEYWORD_anyframe
 ///      / KEYWORD_true
 ///      / KEYWORD_undefined
 ///      / KEYWORD_unreachable
@@ -1256,11 +1256,11 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     }
     if (eatToken(it, .Keyword_false)) |token| return createLiteral(arena, Node.BoolLiteral, token);
     if (eatToken(it, .Keyword_null)) |token| return createLiteral(arena, Node.NullLiteral, token);
-    if (eatToken(it, .Keyword_promise)) |token| {
-        const node = try arena.create(Node.PromiseType);
-        node.* = Node.PromiseType{
-            .base = Node{ .id = .PromiseType },
-            .promise_token = token,
+    if (eatToken(it, .Keyword_anyframe)) |token| {
+        const node = try arena.create(Node.AnyFrameType);
+        node.* = Node.AnyFrameType{
+            .base = Node{ .id = .AnyFrameType },
+            .anyframe_token = token,
             .result = null,
         };
         return &node.base;
@@ -2194,7 +2194,7 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
 /// PrefixTypeOp
 ///     <- QUESTIONMARK
-///      / KEYWORD_promise MINUSRARROW
+///      / KEYWORD_anyframe MINUSRARROW
 ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
@@ -2209,20 +2209,20 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         return &node.base;
     }
 
-    // TODO: Returning a PromiseType instead of PrefixOp makes casting and setting .rhs or
+    // TODO: Returning a AnyFrameType instead of PrefixOp makes casting and setting .rhs or
     //       .return_type more difficult for the caller (see parsePrefixOpExpr helper).
-    //       Consider making the PromiseType a member of PrefixOp and add a
-    //       PrefixOp.PromiseType variant?
-    if (eatToken(it, .Keyword_promise)) |token| {
+    //       Consider making the AnyFrameType a member of PrefixOp and add a
+    //       PrefixOp.AnyFrameType variant?
+    if (eatToken(it, .Keyword_anyframe)) |token| {
         const arrow = eatToken(it, .Arrow) orelse {
             putBackToken(it, token);
             return null;
         };
-        const node = try arena.create(Node.PromiseType);
-        node.* = Node.PromiseType{
-            .base = Node{ .id = .PromiseType },
-            .promise_token = token,
-            .result = Node.PromiseType.Result{
+        const node = try arena.create(Node.AnyFrameType);
+        node.* = Node.AnyFrameType{
+            .base = Node{ .id = .AnyFrameType },
+            .anyframe_token = token,
+            .result = Node.AnyFrameType.Result{
                 .arrow_token = arrow,
                 .return_type = undefined, // set by caller
             },
@@ -2903,8 +2903,8 @@ fn parsePrefixOpExpr(
                         rightmost_op = rhs;
                     } else break;
                 },
-                .PromiseType => {
-                    const prom = rightmost_op.cast(Node.PromiseType).?;
+                .AnyFrameType => {
+                    const prom = rightmost_op.cast(Node.AnyFrameType).?;
                     if (try opParseFn(arena, it, tree)) |rhs| {
                         prom.result.?.return_type = rhs;
                         rightmost_op = rhs;
@@ -2922,8 +2922,8 @@ fn parsePrefixOpExpr(
                     .InvalidToken = AstError.InvalidToken{ .token = it.index },
                 });
             },
-            .PromiseType => {
-                const prom = rightmost_op.cast(Node.PromiseType).?;
+            .AnyFrameType => {
+                const prom = rightmost_op.cast(Node.AnyFrameType).?;
                 prom.result.?.return_type = try expectNode(arena, it, tree, childParseFn, AstError{
                     .InvalidToken = AstError.InvalidToken{ .token = it.index },
                 });

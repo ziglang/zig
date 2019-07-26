@@ -109,6 +109,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"align", TokenIdKeywordAlign},
     {"allowzero", TokenIdKeywordAllowZero},
     {"and", TokenIdKeywordAnd},
+    {"anyframe", TokenIdKeywordAnyFrame},
     {"asm", TokenIdKeywordAsm},
     {"async", TokenIdKeywordAsync},
     {"await", TokenIdKeywordAwait},
@@ -1533,6 +1534,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordCancel: return "cancel";
         case TokenIdKeywordAlign: return "align";
         case TokenIdKeywordAnd: return "and";
+        case TokenIdKeywordAnyFrame: return "anyframe";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordCatch: return "catch";

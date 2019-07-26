@@ -282,6 +282,9 @@ static AstNode *ast_parse_prefix_op_expr(
             case NodeTypeAwaitExpr:
                 right = &prefix->data.await_expr.expr;
                 break;
+            case NodeTypeAnyFrameType:
+                right = &prefix->data.anyframe_type.payload_type;
+                break;
             case NodeTypeArrayType:
                 right = &prefix->data.array_type.child_type;
                 break;
@@ -1640,6 +1643,10 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (null != nullptr)
         return ast_create_node(pc, NodeTypeNullLiteral, null);
 
+    Token *anyframe = eat_token_if(pc, TokenIdKeywordAnyFrame);
+    if (anyframe != nullptr)
+        return ast_create_node(pc, NodeTypeAnyFrameType, anyframe);
+
     Token *true_token = eat_token_if(pc, TokenIdKeywordTrue);
     if (true_token != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeBoolLiteral, true_token);
@@ -2510,7 +2517,7 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
 
 // PrefixTypeOp
 //     <- QUESTIONMARK
-//      / KEYWORD_promise MINUSRARROW
+//      / KEYWORD_anyframe MINUSRARROW
 //      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile)*
 //      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile)*
 static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
@@ -2519,6 +2526,16 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
         AstNode *res = ast_create_node(pc, NodeTypePrefixOpExpr, questionmark);
         res->data.prefix_op_expr.prefix_op = PrefixOpOptional;
         return res;
+    }
+
+    Token *anyframe = eat_token_if(pc, TokenIdKeywordAnyFrame);
+    if (anyframe != nullptr) {
+        if (eat_token_if(pc, TokenIdArrow) != nullptr) {
+            AstNode *res = ast_create_node(pc, NodeTypeAnyFrameType, anyframe);
+            return res;
+        }
+
+        put_back_token(pc);
     }
 
     AstNode *array = ast_parse_array_type_start(pc);
@@ -3004,6 +3021,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeInferredArrayType:
             visit_field(&node->data.array_type.child_type, visit, context);
+            break;
+        case NodeTypeAnyFrameType:
+            visit_field(&node->data.anyframe_type.payload_type, visit, context);
             break;
         case NodeTypeErrorType:
             // none

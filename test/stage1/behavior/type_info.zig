@@ -177,11 +177,11 @@ fn testUnion() void {
     expect(TypeId(typeinfo_info) == TypeId.Union);
     expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
-    expect(typeinfo_info.Union.fields.len == 25);
+    expect(typeinfo_info.Union.fields.len == 26);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 20);
+    expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -278,6 +278,25 @@ fn testVector() void {
     expect(TypeId(vec_info) == TypeId.Vector);
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
+}
+
+test "type info: anyframe and anyframe->T" {
+    testAnyFrame();
+    comptime testAnyFrame();
+}
+
+fn testAnyFrame() void {
+    {
+        const anyframe_info = @typeInfo(anyframe->i32);
+        expect(TypeId(anyframe_info) == .AnyFrame);
+        expect(anyframe_info.AnyFrame.child.? == i32);
+    }
+
+    {
+        const anyframe_info = @typeInfo(anyframe);
+        expect(TypeId(anyframe_info) == .AnyFrame);
+        expect(anyframe_info.AnyFrame.child == null);
+    }
 }
 
 test "type info: optional field unwrapping" {

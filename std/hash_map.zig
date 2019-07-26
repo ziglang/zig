@@ -540,6 +540,7 @@ pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type
         .Undefined,
         .ArgTuple,
         .Frame,
+        .AnyFrame,
         => @compileError("cannot hash this type"),
 
         .Void,

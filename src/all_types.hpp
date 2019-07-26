@@ -479,6 +479,7 @@ enum NodeType {
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
+    NodeTypeAnyFrameType,
     NodeTypeEnumLiteral,
 };
 
@@ -936,6 +937,10 @@ struct AstNodeSuspend {
     AstNode *block;
 };
 
+struct AstNodeAnyFrameType {
+    AstNode *payload_type; // can be NULL
+};
+
 struct AstNodeEnumLiteral {
     Token *period;
     Token *identifier;
@@ -1001,6 +1006,7 @@ struct AstNode {
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
+        AstNodeAnyFrameType anyframe_type;
         AstNodeEnumLiteral enum_literal;
     } data;
 };
@@ -1253,6 +1259,7 @@ enum ZigTypeId {
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdCoroFrame,
+    ZigTypeIdAnyFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
 };
@@ -1270,6 +1277,10 @@ struct ZigTypeOpaque {
 struct ZigTypeCoroFrame {
     ZigFn *fn;
     ZigType *locals_struct;
+};
+
+struct ZigTypeAnyFrame {
+    ZigType *result_type; // null if `anyframe` instead of `anyframe->T`
 };
 
 struct ZigType {
@@ -1298,11 +1309,13 @@ struct ZigType {
         ZigTypeVector vector;
         ZigTypeOpaque opaque;
         ZigTypeCoroFrame frame;
+        ZigTypeAnyFrame any_frame;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     ZigType *pointer_parent[2]; // [0 - mut, 1 - const]
     ZigType *optional_parent;
+    ZigType *any_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
@@ -1781,6 +1794,7 @@ struct CodeGen {
         ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_frame_header;
+        ZigType *entry_any_frame;
     } builtin_types;
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
@@ -2208,6 +2222,7 @@ enum IrInstructionId {
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
+    IrInstructionIdAnyFrameType,
     IrInstructionIdSliceType,
     IrInstructionIdGlobalAsm,
     IrInstructionIdAsm,
@@ -2707,6 +2722,12 @@ struct IrInstructionPtrType {
     bool is_const;
     bool is_volatile;
     bool is_allow_zero;
+};
+
+struct IrInstructionAnyFrameType {
+    IrInstruction base;
+
+    IrInstruction *payload_type;
 };
 
 struct IrInstructionSliceType {

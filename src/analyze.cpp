@@ -256,6 +256,7 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
+        case ZigTypeIdAnyFrame:
             return nullptr;
     }
     zig_unreachable();
@@ -322,6 +323,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
+        case ZigTypeIdAnyFrame:
             return true;
     }
     zig_unreachable();
@@ -352,6 +354,31 @@ static bool is_slice(ZigType *type) {
 
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
+}
+
+ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type) {
+    if (result_type != nullptr && result_type->any_frame_parent != nullptr) {
+        return result_type->any_frame_parent;
+    } else if (result_type == nullptr && g->builtin_types.entry_any_frame != nullptr) {
+        return g->builtin_types.entry_any_frame;
+    }
+
+    ZigType *entry = new_type_table_entry(ZigTypeIdAnyFrame);
+    entry->abi_size = g->builtin_types.entry_usize->abi_size;
+    entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+    entry->abi_align = g->builtin_types.entry_usize->abi_align;
+    entry->data.any_frame.result_type = result_type;
+    buf_init_from_str(&entry->name, "anyframe");
+    if (result_type != nullptr) {
+        buf_appendf(&entry->name, "->%s", buf_ptr(&result_type->name));
+    }
+
+    if (result_type != nullptr) {
+        result_type->any_frame_parent = entry;
+    } else if (result_type == nullptr) {
+        g->builtin_types.entry_any_frame = entry;
+    }
+    return entry;
 }
 
 static const char *ptr_len_to_star_str(PtrLen ptr_len) {
@@ -1080,6 +1107,7 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             add_node_error(g, source_node,
                     buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
                         buf_ptr(&type_entry->name)));
@@ -1169,6 +1197,7 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return false;
         case ZigTypeIdOpaque:
         case ZigTypeIdUnreachable:
@@ -1340,6 +1369,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdFn:
             case ZigTypeIdVector:
             case ZigTypeIdCoroFrame:
+            case ZigTypeIdAnyFrame:
                 switch (type_requires_comptime(g, type_entry)) {
                     case ReqCompTimeNo:
                         break;
@@ -1436,6 +1466,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdFn:
         case ZigTypeIdVector:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             switch (type_requires_comptime(g, fn_type_id.return_type)) {
                 case ReqCompTimeInvalid:
                     return g->builtin_types.entry_invalid;
@@ -2997,6 +3028,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeAwaitExpr:
         case NodeTypeSuspend:
         case NodeTypeEnumLiteral:
+        case NodeTypeAnyFrameType:
             zig_unreachable();
     }
 }
@@ -3049,6 +3081,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdBoundFn:
         case ZigTypeIdVector:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return type_entry;
     }
     zig_unreachable();
@@ -3550,6 +3583,7 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return false;
     }
     zig_unreachable();
@@ -3607,6 +3641,7 @@ Error resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             zig_unreachable();
     }
     zig_unreachable();
@@ -3615,11 +3650,13 @@ Error resolve_container_type(CodeGen *g, ZigType *type_entry) {
 ZigType *get_src_ptr_type(ZigType *type) {
     if (type->id == ZigTypeIdPointer) return type;
     if (type->id == ZigTypeIdFn) return type;
+    if (type->id == ZigTypeIdAnyFrame) return type;
     if (type->id == ZigTypeIdOptional) {
         if (type->data.maybe.child_type->id == ZigTypeIdPointer) {
             return type->data.maybe.child_type->data.pointer.allow_zero ? nullptr : type->data.maybe.child_type;
         }
         if (type->data.maybe.child_type->id == ZigTypeIdFn) return type->data.maybe.child_type;
+        if (type->data.maybe.child_type->id == ZigTypeIdAnyFrame) return type->data.maybe.child_type;
     }
     return nullptr;
 }
@@ -3635,6 +3672,13 @@ bool type_is_nonnull_ptr(ZigType *type) {
     return get_codegen_ptr_type(type) == type && !ptr_allows_addr_zero(type);
 }
 
+static uint32_t get_coro_frame_align_bytes(CodeGen *g) {
+    uint32_t a = g->pointer_size_bytes * 2;
+    // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
+    if (a < 8) a = 8;
+    return a;
+}
+
 uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     ZigType *ptr_type = get_src_ptr_type(type);
     if (ptr_type->id == ZigTypeIdPointer) {
@@ -3646,6 +3690,8 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         // when getting the alignment of `?extern fn() void`.
         // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+    } else if (ptr_type->id == ZigTypeIdAnyFrame) {
+        return get_coro_frame_align_bytes(g);
     } else {
         zig_unreachable();
     }
@@ -3656,6 +3702,8 @@ bool get_ptr_const(ZigType *type) {
     if (ptr_type->id == ZigTypeIdPointer) {
         return ptr_type->data.pointer.is_const;
     } else if (ptr_type->id == ZigTypeIdFn) {
+        return true;
+    } else if (ptr_type->id == ZigTypeIdAnyFrame) {
         return true;
     } else {
         zig_unreachable();
@@ -4153,6 +4201,7 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdFn:
         case ZigTypeIdEnum:
         case ZigTypeIdVector:
+        case ZigTypeIdAnyFrame:
              return false;
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
@@ -4404,6 +4453,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case ZigTypeIdCoroFrame:
             // TODO better hashing algorithm
             return 675741936;
+        case ZigTypeIdAnyFrame:
+            // TODO better hashing algorithm
+            return 3747294894;
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -4469,6 +4521,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return false;
 
         case ZigTypeIdPointer:
@@ -4541,6 +4594,7 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdPointer:
         case ZigTypeIdVector:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return true;
 
         case ZigTypeIdArray:
@@ -4673,6 +4727,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdFloat:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return OnePossibleValueNo;
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
@@ -4761,6 +4816,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             return ReqCompTimeNo;
     }
     zig_unreachable();
@@ -5433,6 +5489,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
             return true;
         case ZigTypeIdCoroFrame:
             zig_panic("TODO");
+        case ZigTypeIdAnyFrame:
+            zig_panic("TODO");
         case ZigTypeIdUndefined:
             zig_panic("TODO");
         case ZigTypeIdNull:
@@ -5786,7 +5844,11 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 return;
             }
         case ZigTypeIdCoroFrame:
-            buf_appendf(buf, "(TODO: coroutine frame value)");
+            buf_appendf(buf, "(TODO: async function frame value)");
+            return;
+
+        case ZigTypeIdAnyFrame:
+            buf_appendf(buf, "(TODO: anyframe value)");
             return;
 
     }
@@ -5836,6 +5898,7 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
@@ -5885,6 +5948,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdCoroFrame:
+        case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
             return a.data.error_union.err_set_type == b.data.error_union.err_set_type &&
@@ -6051,6 +6115,7 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdCoroFrame,
+    ZigTypeIdAnyFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
 };
@@ -6116,10 +6181,12 @@ size_t type_id_index(ZigType *entry) {
             return 21;
         case ZigTypeIdCoroFrame:
             return 22;
-        case ZigTypeIdVector:
+        case ZigTypeIdAnyFrame:
             return 23;
-        case ZigTypeIdEnumLiteral:
+        case ZigTypeIdVector:
             return 24;
+        case ZigTypeIdEnumLiteral:
+            return 25;
     }
     zig_unreachable();
 }
@@ -6178,6 +6245,8 @@ const char *type_id_name(ZigTypeId id) {
             return "Vector";
         case ZigTypeIdCoroFrame:
             return "Frame";
+        case ZigTypeIdAnyFrame:
+            return "AnyFrame";
     }
     zig_unreachable();
 }
@@ -7398,6 +7467,40 @@ static void resolve_llvm_types_coro_frame(CodeGen *g, ZigType *frame_type, Resol
     frame_type->llvm_di_type = frame_type->data.frame.locals_struct->llvm_di_type;
 }
 
+static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, ResolveStatus wanted_resolve_status) {
+    if (any_frame_type->llvm_di_type != nullptr) return;
+
+    ZigType *result_type = any_frame_type->data.any_frame.result_type;
+    Buf *name = buf_sprintf("(%s header)", buf_ptr(&any_frame_type->name));
+
+    ZigType *frame_header_type;
+    if (result_type == nullptr || !type_has_bits(result_type)) {
+        const char *field_names[] = {"resume_index", "fn_ptr", "awaiter"};
+        ZigType *field_types[] = {
+            g->builtin_types.entry_usize,
+            g->builtin_types.entry_usize,
+            g->builtin_types.entry_usize,
+        };
+        frame_header_type = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
+    } else {
+        ZigType *ptr_result_type = get_pointer_to_type(g, result_type, false);
+
+        const char *field_names[] = {"resume_index", "fn_ptr", "awaiter", "result_ptr", "result"};
+        ZigType *field_types[] = {
+            g->builtin_types.entry_usize,
+            g->builtin_types.entry_usize,
+            g->builtin_types.entry_usize,
+            ptr_result_type,
+            result_type,
+        };
+        frame_header_type = get_struct_type(g, buf_ptr(name), field_names, field_types, 5);
+    }
+
+    ZigType *ptr_type = get_pointer_to_type(g, frame_header_type, false);
+    any_frame_type->llvm_type = get_llvm_type(g, ptr_type);
+    any_frame_type->llvm_di_type = get_llvm_di_type(g, ptr_type);
+}
+
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
     assert(type->id == ZigTypeIdOpaque || type_is_resolved(type, ResolveStatusSizeKnown));
     assert(wanted_resolve_status > ResolveStatusSizeKnown);
@@ -7460,6 +7563,8 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
         }
         case ZigTypeIdCoroFrame:
             return resolve_llvm_types_coro_frame(g, type, wanted_resolve_status);
+        case ZigTypeIdAnyFrame:
+            return resolve_llvm_types_any_frame(g, type, wanted_resolve_status);
     }
     zig_unreachable();
 }
