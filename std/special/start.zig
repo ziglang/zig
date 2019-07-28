@@ -4,6 +4,7 @@ const root = @import("root");
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const uefi = std.os.uefi;
 
 var argc_ptr: [*]usize = undefined;
 
@@ -19,6 +20,8 @@ comptime {
         @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
     } else if (is_wasm and builtin.os == .freestanding) {
         @export("_start", wasm_freestanding_start, .Strong);
+    } else if (builtin.os == .uefi) {
+        @export("EfiMain", EfiMain, .Strong);
     } else {
         @export("_start", _start, .Strong);
     }
@@ -26,6 +29,29 @@ comptime {
 
 extern fn wasm_freestanding_start() void {
     _ = callMain();
+}
+
+extern fn EfiMain(handle: *uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
+    const bad_efi_main_ret = "expected return type of main to be 'void', 'noreturn', or 'usize'";
+    uefi.handle = handle;
+    uefi.system_table = system_table;
+
+    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
+        .NoReturn => {
+            root.main();
+        },
+        .Void => {
+            root.main();
+            return 0;
+        },
+        .Int => |info| {
+            if (info.bits != @typeInfo(usize).Int.bits) {
+                @compileError(bad_efi_main_ret);
+            }
+            return root.main();
+        },
+        else => @compileError(bad_efi_main_ret),
+    }
 }
 
 nakedcc fn _start() noreturn {
