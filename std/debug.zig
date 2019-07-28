@@ -375,7 +375,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     const obj_basename = fs.path.basename(mod.obj_file_name);
 
     var symbol_i: usize = 0;
-    const symbol_name = while (symbol_i != mod.symbols.len) {
+    const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
         const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
         if (prefix.RecordLen < 2)
             return error.InvalidDebugInfo;
@@ -858,8 +858,10 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const age = try pdb_stream.stream.readIntLittle(u32);
     var guid: [16]u8 = undefined;
     try pdb_stream.stream.readNoEof(guid[0..]);
+    if (version != 20000404) // VC70, only value observed by LLVM team
+        return error.UnknownPDBVersion;
     if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
-        return error.InvalidDebugInfo;
+        return error.PDBMismatch;
     // We validated the executable and pdb match.
 
     const string_table_index = str_tab_index: {
@@ -903,13 +905,18 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         return error.MissingDebugInfo;
     };
 
-    di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.InvalidDebugInfo;
+    di.pdb.string_table = di.pdb.getStreamById(string_table_index) orelse return error.MissingDebugInfo;
     di.pdb.dbi = di.pdb.getStream(pdb.StreamType.Dbi) orelse return error.MissingDebugInfo;
 
     const dbi = di.pdb.dbi;
 
     // Dbi Header
     const dbi_stream_header = try dbi.stream.readStruct(pdb.DbiStreamHeader);
+    if (dbi_stream_header.VersionHeader != 19990903) // V70, only value observed by LLVM team
+        return error.UnknownPDBVersion;
+    if (dbi_stream_header.Age != age)
+        return error.UnmatchingPDB;
+
     const mod_info_size = dbi_stream_header.ModInfoSize;
     const section_contrib_size = dbi_stream_header.SectionContributionSize;
 
