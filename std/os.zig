@@ -2053,6 +2053,22 @@ pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
     }
 }
 
+/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
+/// Otherwise use `access` or `accessC`.
+/// TODO currently this ignores `mode`.
+pub fn accessW(path: [*]const u16, mode: u32) windows.GetFileAttributesError!void {
+    const ret = try windows.GetFileAttributesW(path);
+    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    switch (windows.kernel32.GetLastError()) {
+        windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+        else => |err| return windows.unexpectedError(err),
+    }
+}
+
 pub const PipeError = error{
     SystemFdQuotaExceeded,
     ProcessFdQuotaExceeded,
