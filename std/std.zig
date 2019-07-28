@@ -105,6 +105,7 @@ test "std" {
     _ = @import("packed_int_array.zig");
     _ = @import("priority_queue.zig");
     _ = @import("rand.zig");
+    _ = @import("rb.zig");
     _ = @import("sort.zig");
     _ = @import("testing.zig");
     _ = @import("thread.zig");
