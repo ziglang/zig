@@ -13,6 +13,21 @@ test "cast bool to int" {
     nonConstCastBoolToInt(t, f);
 }
 
+test "bool vectors" {
+    const S = struct {
+        fn doTheTest() void {
+            var b: @Vector(4, bool) = [_]bool{true, false, true, false};
+            var i: @Vector(4, u1) = @boolToInt(b);
+            expect(i[0] == 1);
+            expect(i[1] == 0);
+            expect(i[2] == 1);
+            expect(i[3] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 fn nonConstCastBoolToInt(t: bool, f: bool) void {
     expect(@boolToInt(t) == @as(u32, 1));
     expect(@boolToInt(f) == @as(u32, 0));

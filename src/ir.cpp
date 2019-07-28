@@ -181,6 +181,7 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
         ZigType *ptr_type);
 static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *dest_type);
+static IrInstruction *ir_analyze_bool_to_int(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target);
 static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime, bool non_null_comptime);
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
@@ -22959,27 +22960,57 @@ static IrInstruction *ir_analyze_instruction_int_to_err(IrAnalyze *ira, IrInstru
     return ir_analyze_int_to_err(ira, &instruction->base, casted_target, ira->codegen->builtin_types.entry_global_error_set);
 }
 
+static IrInstruction *ir_analyze_bool_to_int(IrAnalyze *ira, IrInstruction *source_instr,
+    IrInstruction *target) {
+    ZigType *target_type = target->value.type;
+    bool is_vector = target_type->id == ZigTypeIdVector;
+    ZigType *scalar_type = is_vector ? target_type->data.vector.elem_type : target_type;
+
+    if (scalar_type->id != ZigTypeIdBool) {
+        ir_add_error(ira, target, buf_sprintf("expected bool, found '%s'",
+                    buf_ptr(&target_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *u1_type = get_int_type(ira->codegen, false, 1);
+    ZigType *result_type = u1_type;
+    if (is_vector) {
+        result_type = get_vector_type(ira->codegen, target_type->data.vector.len, u1_type);
+    }
+
+    if (instr_is_comptime(target)) {
+        if (is_vector) {
+            IrInstruction *result = ir_const_undef(ira, source_instr,
+                get_vector_type(ira->codegen, target_type->data.vector.len, u1_type));
+            result->value.data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(target_type->data.vector.len);
+            for (size_t i = 0; i < target_type->data.vector.len; i++) {
+                uint64_t is_true = target->value.data.x_array.data.s_none.elements[i].data.x_bool;
+                ConstExprValue *res = &result->value.data.x_array.data.s_none.elements[i];
+                bigint_init_unsigned(&res->data.x_bigint, is_true);
+                res->special = ConstValSpecialStatic;
+                res->type = u1_type;
+            }
+            result->value.special = ConstValSpecialStatic;
+            return result;
+        } else {
+            bool is_true;
+            if (!ir_resolve_bool(ira, target, &is_true))
+                return ira->codegen->invalid_instruction;
+
+            return ir_const_unsigned(ira, source_instr, is_true ? 1 : 0);
+        }
+    }
+
+    return ir_resolve_cast(ira, source_instr, target, result_type, CastOpBoolToInt);
+}
+
 static IrInstruction *ir_analyze_instruction_bool_to_int(IrAnalyze *ira, IrInstructionBoolToInt *instruction) {
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value.type->id != ZigTypeIdBool) {
-        ir_add_error(ira, instruction->target, buf_sprintf("expected bool, found '%s'",
-                    buf_ptr(&target->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (instr_is_comptime(target)) {
-        bool is_true;
-        if (!ir_resolve_bool(ira, target, &is_true))
-            return ira->codegen->invalid_instruction;
-
-        return ir_const_unsigned(ira, &instruction->base, is_true ? 1 : 0);
-    }
-
-    ZigType *u1_type = get_int_type(ira->codegen, false, 1);
-    return ir_resolve_cast(ira, &instruction->base, target, u1_type, CastOpBoolToInt);
+    return ir_analyze_bool_to_int(ira, &instruction->base, target);
 }
 
 static IrInstruction *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstructionIntType *instruction) {

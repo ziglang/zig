@@ -3076,6 +3076,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpNoCast:
         case CastOpNumLitToConcrete:
             zig_unreachable();
+        case CastOpBoolToInt: // LLVM doesn't have bools, they are integers
         case CastOpNoop:
             return expr_val;
         case CastOpIntToFloat: {
@@ -3127,10 +3128,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             }
             return result;
         }
-        case CastOpBoolToInt:
-            assert(wanted_type->id == ZigTypeIdInt);
-            assert(actual_type->id == ZigTypeIdBool);
-            return LLVMBuildZExt(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
         case CastOpErrSet:
             if (ir_want_runtime_safety(g, &cast_instruction->base)) {
                 add_error_range_check(g, wanted_type, g->err_tag_type, expr_val);

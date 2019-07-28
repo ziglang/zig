@@ -6716,12 +6716,13 @@ async fn func(y: *i32) void {
 
       {#header_open|@boolToInt#}
       <pre>{#syntax#}@boolToInt(value: bool) u1{#endsyntax#}</pre>
+      <pre>{#syntax#}@boolToInt(value: @Vector(_, bool)) @Vector(_, u1){#endsyntax#}</pre>
       <p>
       Converts {#syntax#}true{#endsyntax#} to {#syntax#}u1(1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
                   {#syntax#}u1(0){#endsyntax#}.
       </p>
       <p>
-      If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
+      If the value is known at compile-time, and is not a vector, the return type is {#syntax#}comptime_int{#endsyntax#}
           instead of {#syntax#}u1{#endsyntax#}.
       </p>
       {#header_close#}
