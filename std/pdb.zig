@@ -661,7 +661,6 @@ const MsfStream = struct {
     }
 
     fn read(self: *MsfStream, buffer: []u8) !usize {
-
         var block_id = @intCast(usize, self.pos / self.block_size);
         var block = self.blocks[block_id];
         var offset = self.pos % self.block_size;
@@ -671,11 +670,12 @@ const MsfStream = struct {
         const in = &file_stream.stream;
 
         var size: usize = 0;
-        for (buffer) |*byte| {
-            byte.* = try in.readByte();
-
-            offset += 1;
-            size += 1;
+        var rem_buffer = buffer;
+        while (size < buffer.len) {
+            const size_to_read = math.min(self.block_size - offset, rem_buffer.len);
+            size += try in.read(rem_buffer[0..size_to_read]);
+            rem_buffer = buffer[size..];
+            offset += size_to_read;
 
             // If we're at the end of a block, go to the next one.
             if (offset == self.block_size) {
@@ -686,8 +686,8 @@ const MsfStream = struct {
             }
         }
 
-        self.pos += size;
-        return size;
+        self.pos += buffer.len;
+        return buffer.len;
     }
 
     fn seekBy(self: *MsfStream, len: i64) !void {
