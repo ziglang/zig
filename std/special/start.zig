@@ -20,7 +20,7 @@ comptime {
     } else if (is_wasm and builtin.os == .freestanding) {
         @export("_start", wasm_freestanding_start, .Strong);
     } else {
-        @export("_start", _start, .Strong);
+        if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
     }
 }
 
