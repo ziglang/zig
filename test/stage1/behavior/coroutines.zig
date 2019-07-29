@@ -5,12 +5,17 @@ const expect = std.testing.expect;
 var global_x: i32 = 1;
 
 test "simple coroutine suspend and resume" {
-    const p = async simpleAsyncFn();
+    const frame = async simpleAsyncFn();
     expect(global_x == 2);
-    resume p;
+    resume frame;
     expect(global_x == 3);
+    const af: anyframe->void = &frame;
+    resume frame;
+    expect(global_x == 4);
 }
 fn simpleAsyncFn() void {
+    global_x += 1;
+    suspend;
     global_x += 1;
     suspend;
     global_x += 1;

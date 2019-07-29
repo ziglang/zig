@@ -1726,6 +1726,7 @@ struct CodeGen {
     LLVMValueRef err_name_table;
     LLVMValueRef safety_crash_err_fn;
     LLVMValueRef return_err_fn;
+    LLVMTypeRef async_fn_llvm_type;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;
@@ -1793,7 +1794,6 @@ struct CodeGen {
         ZigType *entry_global_error_set;
         ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
-        ZigType *entry_frame_header;
         ZigType *entry_any_frame;
     } builtin_types;
     ZigType *align_amt_type;

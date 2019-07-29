@@ -7764,7 +7764,7 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node)
 static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeResume);
 
-    IrInstruction *target_inst = ir_gen_node(irb, node->data.resume_expr.expr, scope);
+    IrInstruction *target_inst = ir_gen_node_extra(irb, node->data.resume_expr.expr, scope, LValPtr, nullptr);
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -10882,6 +10882,33 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
     return result;
 }
 
+static IrInstruction *ir_analyze_frame_ptr_to_anyframe(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *wanted_type)
+{
+    if (instr_is_comptime(value)) {
+        zig_panic("TODO comptime frame pointer");
+    }
+
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            wanted_type, value, CastOpBitCast);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_anyframe_to_anyframe(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *wanted_type)
+{
+    if (instr_is_comptime(value)) {
+        zig_panic("TODO comptime anyframe->T to anyframe");
+    }
+
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
+            wanted_type, value, CastOpBitCast);
+    result->value.type = wanted_type;
+    return result;
+}
+
+
 static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, ResultLoc *result_loc)
 {
@@ -11978,6 +12005,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
+    // *@Frame(func) to anyframe->T or anyframe
+    if (actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == ZigTypeIdCoroFrame && wanted_type->id == ZigTypeIdAnyFrame)
+    {
+        bool ok = true;
+        if (wanted_type->data.any_frame.result_type != nullptr) {
+            ZigFn *fn = actual_type->data.pointer.child_type->data.frame.fn;
+            ZigType *fn_return_type = fn->type_entry->data.fn.fn_type_id.return_type;
+            if (wanted_type->data.any_frame.result_type != fn_return_type) {
+                ok = false;
+            }
+        }
+        if (ok) {
+            return ir_analyze_frame_ptr_to_anyframe(ira, source_instr, value, wanted_type);
+        }
+    }
+
+    // anyframe->T to anyframe
+    if (actual_type->id == ZigTypeIdAnyFrame && actual_type->data.any_frame.result_type != nullptr &&
+        wanted_type->id == ZigTypeIdAnyFrame && wanted_type->data.any_frame.result_type == nullptr)
+    {
+        return ir_analyze_anyframe_to_anyframe(ira, source_instr, value, wanted_type);
+    }
 
     // cast from null literal to maybe type
     if (wanted_type->id == ZigTypeIdOptional &&
@@ -24323,17 +24373,27 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
 }
 
 static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstructionCoroResume *instruction) {
-    IrInstruction *frame = instruction->frame->child;
-    if (type_is_invalid(frame->value.type))
+    IrInstruction *frame_ptr = instruction->frame->child;
+    if (type_is_invalid(frame_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (frame->value.type->id != ZigTypeIdCoroFrame) {
-        ir_add_error(ira, instruction->frame,
-            buf_sprintf("expected frame, found '%s'", buf_ptr(&frame->value.type->name)));
-        return ira->codegen->invalid_instruction;
+    IrInstruction *frame;
+    if (frame_ptr->value.type->id == ZigTypeIdPointer &&
+        frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
+        frame_ptr->value.type->data.pointer.is_const &&
+        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdAnyFrame)
+    {
+        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
+    } else {
+        frame = frame_ptr;
     }
 
-    return ir_build_coro_resume(&ira->new_irb, instruction->base.scope, instruction->base.source_node, frame);
+    ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
+    IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
+    if (type_is_invalid(casted_frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_build_coro_resume(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_frame);
 }
 
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {

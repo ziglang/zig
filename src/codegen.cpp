@@ -4902,14 +4902,28 @@ static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMTypeRef async_fn_llvm_type(CodeGen *g) {
+    if (g->async_fn_llvm_type != nullptr)
+        return g->async_fn_llvm_type;
+
+    ZigType *anyframe_type = get_any_frame_type(g, nullptr);
+    LLVMTypeRef param_type = get_llvm_type(g, anyframe_type);
+    LLVMTypeRef return_type = LLVMVoidType();
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type, &param_type, 1, false);
+    g->async_fn_llvm_type = LLVMPointerType(fn_type, 0);
+
+    return g->async_fn_llvm_type;
+}
+
 static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
         IrInstructionCoroResume *instruction)
 {
     LLVMValueRef frame = ir_llvm_value(g, instruction->frame);
     ZigType *frame_type = instruction->frame->value.type;
-    assert(frame_type->id == ZigTypeIdCoroFrame);
-    ZigFn *fn = frame_type->data.frame.fn;
-    LLVMValueRef fn_val = fn_llvm_value(g, fn);
+    assert(frame_type->id == ZigTypeIdAnyFrame);
+    LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, frame, coro_fn_ptr_index, "");
+    LLVMValueRef uncasted_fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
+    LLVMValueRef fn_val = LLVMBuildIntToPtr(g->builder, uncasted_fn_val, async_fn_llvm_type(g), "");
     ZigLLVMBuildCall(g->builder, fn_val, &frame, 1, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
     return nullptr;
 }
@@ -6745,11 +6759,6 @@ static void define_builtin_types(CodeGen *g) {
         g->errors_by_index.append(nullptr);
 
         g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        const char *field_names[] = {"resume_index"};
-        ZigType *field_types[] = {g->builtin_types.entry_usize};
-        g->builtin_types.entry_frame_header = get_struct_type(g, "(frame header)", field_names, field_types, 1);
     }
 }
 

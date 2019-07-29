@@ -7348,19 +7348,13 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     if (is_async) {
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(1);
 
-        ZigType *frame_type = g->builtin_types.entry_frame_header;
-        Error err;
-        if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
-            zig_unreachable();
-        }
-        ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
-        gen_param_types.append(get_llvm_type(g, ptr_type));
-        param_di_types.append(get_llvm_di_type(g, ptr_type));
+        ZigType *frame_type = get_any_frame_type(g, fn_type_id->return_type);
+        gen_param_types.append(get_llvm_type(g, frame_type));
+        param_di_types.append(get_llvm_di_type(g, frame_type));
 
         fn_type->data.fn.gen_param_info[0].src_index = 0;
         fn_type->data.fn.gen_param_info[0].gen_index = 0;
-        fn_type->data.fn.gen_param_info[0].type = ptr_type;
-
+        fn_type->data.fn.gen_param_info[0].type = frame_type;
     } else {
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
