@@ -374,9 +374,10 @@ pub fn formatType(
                 return output(context, "{ ... }");
             }
             comptime var field_i = 0;
+            try output(context, "{");
             inline while (field_i < @memberCount(T)) : (field_i += 1) {
                 if (field_i == 0) {
-                    try output(context, "{ .");
+                    try output(context, " .");
                 } else {
                     try output(context, ", .");
                 }
@@ -1437,6 +1438,21 @@ test "struct.self-referential" {
     inst.a = &inst;
 
     try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", inst);
+}
+
+test "struct.zero-size" {
+    const A = struct {
+        fn foo() void {}
+    };
+    const B = struct {
+        a: A,
+        c: i32,
+    };
+
+    const a = A{};
+    const b = B{ .a = a, .c = 0 };
+
+    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", b);
 }
 
 test "bytes.hex" {
