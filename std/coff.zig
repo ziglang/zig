@@ -120,7 +120,15 @@ pub const Coff = struct {
 
     pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
         try self.loadSections();
-        const header = (self.getSection(".rdata") orelse return error.MissingCoffSection).header;
+        const header = blk: {
+            if (self.getSection(".buildid")) |section| {
+                break :blk section.header;
+            } else if (self.getSection(".rdata")) |section| {
+                break :blk section.header;
+            } else {
+                return error.MissingCoffSection;
+            }
+        };
 
         // The linker puts a chunk that contains the .pdb path right after the
         // debug_directory.
