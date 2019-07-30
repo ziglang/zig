@@ -235,25 +235,23 @@ pub const IPPROTO_RAW = 255;
 
 pub const TCP_NODELAY = 0x0001;
 
-// pub const IP_TTL = 4;
+pub const IP_TTL = 4;
 
-// pub const IP_MULTICAST_TTL = 10;
-// pub const IP_MULTICAST_LOOP = 11;
-// pub const IP_ADD_MEMBERSHIP = 12;
-// pub const IP_DROP_MEMBERSHIP = 13;
+pub const IP_MULTICAST_TTL = 10;
+pub const IP_MULTICAST_LOOP = 11;
+pub const IP_ADD_MEMBERSHIP = 12;
+pub const IP_DROP_MEMBERSHIP = 13;
 
-// pub const IPV6_MULTICAST_TTL = 10;
-// pub const IPV6_MULTICAST_LOOP = 11;
-// pub const IPV6_ADD_MEMBERSHIP = 12;
-// pub const IPV6_DROP_MEMBERSHIP = 13;
+pub const IPV6_MULTICAST_TTL = 10;
+pub const IPV6_MULTICAST_LOOP = 11;
+pub const IPV6_ADD_MEMBERSHIP = 12;
+pub const IPV6_DROP_MEMBERSHIP = 13;
 
-// pub const MSG_PEEK: c_int = 0x2;
-// pub const NI_MAXSERV = 32;
-// pub const NI_MAXHOST = 1025;
+pub const MSG_PEEK: c_int = 0x2;
+pub const NI_MAXSERV = 32;
+pub const NI_MAXHOST = 1025;
 
-// pub const ERROR_IO_PENDING = c_long(997);
-// pub const ERROR_NETNAME_DELETED = c_long(64);
-// pub const STATUS_PENDING = c_long(259);
+pub const STATUS_PENDING = c_long(259);
 
 pub const INVALID_SOCKET = ~SOCKET(0);
 
@@ -268,6 +266,8 @@ pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
 };
+
+pub const sockaddr_any = sockaddr_storage;
 
 pub const sockaddr_storage = extern struct {
     family: sa_family_t,

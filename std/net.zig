@@ -6,7 +6,7 @@ const mem = std.mem;
 const os = std.os;
 const system = os.system;
 
-pub const OsAddress = os.system.sockaddr_storage;
+pub const OsAddress = os.sockaddr_storage;
 
 pub const Address = struct {
     os_addr: OsAddress,
