@@ -30,6 +30,23 @@ test "vector wrap operators" {
     comptime S.doTheTest();
 }
 
+test "vector bin compares with mem.eql" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 30, 4 };
+            expect(mem.eql(bool, ([4]bool)(v == x), [4]bool{ false, false,  true, false}));
+            expect(mem.eql(bool, ([4]bool)(v != x), [4]bool{  true,  true, false,  true}));
+            expect(mem.eql(bool, ([4]bool)(v  < x), [4]bool{ false,  true, false, false}));
+            expect(mem.eql(bool, ([4]bool)(v  > x), [4]bool{  true, false, false,  true}));
+            expect(mem.eql(bool, ([4]bool)(v <= x), [4]bool{ false,  true,  true, false}));
+            expect(mem.eql(bool, ([4]bool)(v >= x), [4]bool{  true, false,  true,  true}));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
 test "vector int operators" {
     const S = struct {
         fn doTheTest() void {

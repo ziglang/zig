@@ -13092,6 +13092,59 @@ static bool optional_value_is_null(ConstExprValue *val) {
     }
 }
 
+static IrInstruction *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
+    ConstExprValue *op1_val, ConstExprValue *op2_val, IrInstructionBinOp *bin_op_instruction, IrBinOp op_id,
+    bool one_possible_value) {
+    if (op1_val->special == ConstValSpecialUndef ||
+        op2_val->special == ConstValSpecialUndef)
+        return ir_const_undef(ira, &bin_op_instruction->base, resolved_type);
+    if (resolved_type->id == ZigTypeIdComptimeFloat || resolved_type->id == ZigTypeIdFloat) {
+        if (float_is_nan(op1_val) || float_is_nan(op2_val)) {
+            return ir_const_bool(ira, &bin_op_instruction->base, op_id == IrBinOpCmpNotEq);
+        }
+        Cmp cmp_result = float_cmp(op1_val, op2_val);
+        bool answer = resolve_cmp_op_id(op_id, cmp_result);
+        return ir_const_bool(ira, &bin_op_instruction->base, answer);
+    } else if (resolved_type->id == ZigTypeIdComptimeInt || resolved_type->id == ZigTypeIdInt) {
+        Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
+        bool answer = resolve_cmp_op_id(op_id, cmp_result);
+        return ir_const_bool(ira, &bin_op_instruction->base, answer);
+    } else if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
+        if ((op1_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
+                op1_val->data.x_ptr.special == ConstPtrSpecialNull) &&
+            (op2_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
+                op2_val->data.x_ptr.special == ConstPtrSpecialNull))
+        {
+            uint64_t op1_addr = op1_val->data.x_ptr.special == ConstPtrSpecialNull ?
+                0 : op1_val->data.x_ptr.data.hard_coded_addr.addr;
+            uint64_t op2_addr = op2_val->data.x_ptr.special == ConstPtrSpecialNull ?
+                0 : op2_val->data.x_ptr.data.hard_coded_addr.addr;
+            Cmp cmp_result;
+            if (op1_addr > op2_addr) {
+                cmp_result = CmpGT;
+            } else if (op1_addr < op2_addr) {
+                cmp_result = CmpLT;
+            } else {
+                cmp_result = CmpEQ;
+            }
+            bool answer = resolve_cmp_op_id(op_id, cmp_result);
+            return ir_const_bool(ira, &bin_op_instruction->base, answer);
+        }
+    } else {
+        bool are_equal = one_possible_value || const_values_equal(ira->codegen, op1_val, op2_val);
+        bool answer;
+        if (op_id == IrBinOpCmpEq) {
+            answer = are_equal;
+        } else if (op_id == IrBinOpCmpNotEq) {
+            answer = !are_equal;
+        } else {
+            zig_unreachable();
+        }
+        return ir_const_bool(ira, &bin_op_instruction->base, answer);
+    }
+    zig_unreachable();
+}
+
 // Returns ErrorNotLazy when the value cannot be determined
 static Error lazy_cmp_zero(AstNode *source_node, ConstExprValue *val, Cmp *result) {
     Error err;
@@ -13427,7 +13480,8 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     }
 
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
-        {
+        // TODO do we need lazy values on vector comparisons?
+        if (resolved_type->id != ZigTypeIdVector) {
             // Before resolving the values, we special case comparisons against zero. These can often be done
             // without resolving lazy values, preventing potential dependency loops.
             Cmp op1_cmp_zero;
@@ -13477,51 +13531,22 @@ never_mind_just_calculate_it_normally:
         ConstExprValue *op2_val = one_possible_value ? &casted_op2->value : ir_resolve_const(ira, casted_op2, UndefBad);
         if (op2_val == nullptr)
             return ira->codegen->invalid_instruction;
+        if (resolved_type->id != ZigTypeIdVector)
+            return ir_evaluate_bin_op_cmp(ira, resolved_type, op1_val, op2_val, bin_op_instruction, op_id, one_possible_value);
+        IrInstruction *result = ir_const(ira, &bin_op_instruction->base,
+            get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
+        result->value.data.x_array.data.s_none.elements =
+            create_const_vals(resolved_type->data.vector.len);
 
-        if (resolved_type->id == ZigTypeIdComptimeFloat || resolved_type->id == ZigTypeIdFloat) {
-            if (float_is_nan(op1_val) || float_is_nan(op2_val)) {
-                return ir_const_bool(ira, &bin_op_instruction->base, op_id == IrBinOpCmpNotEq);
-            }
-            Cmp cmp_result = float_cmp(op1_val, op2_val);
-            bool answer = resolve_cmp_op_id(op_id, cmp_result);
-            return ir_const_bool(ira, &bin_op_instruction->base, answer);
-        } else if (resolved_type->id == ZigTypeIdComptimeInt || resolved_type->id == ZigTypeIdInt) {
-            Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
-            bool answer = resolve_cmp_op_id(op_id, cmp_result);
-            return ir_const_bool(ira, &bin_op_instruction->base, answer);
-        } else if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
-            if ((op1_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
-                    op1_val->data.x_ptr.special == ConstPtrSpecialNull) &&
-                (op2_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
-                    op2_val->data.x_ptr.special == ConstPtrSpecialNull))
-            {
-                uint64_t op1_addr = op1_val->data.x_ptr.special == ConstPtrSpecialNull ?
-                    0 : op1_val->data.x_ptr.data.hard_coded_addr.addr;
-                uint64_t op2_addr = op2_val->data.x_ptr.special == ConstPtrSpecialNull ?
-                    0 : op2_val->data.x_ptr.data.hard_coded_addr.addr;
-                Cmp cmp_result;
-                if (op1_addr > op2_addr) {
-                    cmp_result = CmpGT;
-                } else if (op1_addr < op2_addr) {
-                    cmp_result = CmpLT;
-                } else {
-                    cmp_result = CmpEQ;
-                }
-                bool answer = resolve_cmp_op_id(op_id, cmp_result);
-                return ir_const_bool(ira, &bin_op_instruction->base, answer);
-            }
-        } else {
-            bool are_equal = one_possible_value || const_values_equal(ira->codegen, op1_val, op2_val);
-            bool answer;
-            if (op_id == IrBinOpCmpEq) {
-                answer = are_equal;
-            } else if (op_id == IrBinOpCmpNotEq) {
-                answer = !are_equal;
-            } else {
-                zig_unreachable();
-            }
-            return ir_const_bool(ira, &bin_op_instruction->base, answer);
+        expand_undef_array(ira->codegen, &result->value);
+        for (size_t i = 0;i < resolved_type->data.vector.len;i++) {
+            IrInstruction *cur_res = ir_evaluate_bin_op_cmp(ira, resolved_type->data.vector.elem_type,
+                &op1_val->data.x_array.data.s_none.elements[i],
+                &op2_val->data.x_array.data.s_none.elements[i],
+                bin_op_instruction, op_id, one_possible_value);
+            copy_const_val(&result->value.data.x_array.data.s_none.elements[i], &cur_res->value, false);
         }
+        return result;
     }
 
     // some comparisons with unsigned numbers can be evaluated
@@ -13564,7 +13589,11 @@ never_mind_just_calculate_it_normally:
     IrInstruction *result = ir_build_bin_op(&ira->new_irb,
             bin_op_instruction->base.scope, bin_op_instruction->base.source_node,
             op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
-    result->value.type = ira->codegen->builtin_types.entry_bool;
+    if (resolved_type->id == ZigTypeIdVector)
+        result->value.type = get_vector_type(ira->codegen, resolved_type->data.vector.len,
+            ira->codegen->builtin_types.entry_bool);
+    else
+        result->value.type = ira->codegen->builtin_types.entry_bool;
     return result;
 }
 
