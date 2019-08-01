@@ -1119,6 +1119,9 @@ pub const Target = union(enum) {
     }
 
     pub fn libPrefix(self: Target) []const u8 {
+        if (self.isWasm()) {
+            return "";
+        }
         switch (self.getAbi()) {
             .msvc => return "",
             else => return "lib",
