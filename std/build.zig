@@ -805,11 +805,7 @@ pub const Builder = struct {
                     return name;
                 }
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
-                if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
-                    return real_path;
-                } else |_| {
-                    continue;
-                }
+                return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
         if (self.env_map.get("PATH")) |PATH| {
@@ -820,11 +816,7 @@ pub const Builder = struct {
                 var it = mem.tokenize(PATH, [_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                    if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
-                        return real_path;
-                    } else |_| {
-                        continue;
-                    }
+                    return fs.realpathAlloc(self.allocator, full_path) catch continue;
                 }
             }
         }
@@ -834,11 +826,7 @@ pub const Builder = struct {
             }
             for (paths) |path| {
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
-                    return real_path;
-                } else |_| {
-                    continue;
-                }
+                return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
         return error.FileNotFound;
