@@ -24380,7 +24380,6 @@ static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstr
     IrInstruction *frame;
     if (frame_ptr->value.type->id == ZigTypeIdPointer &&
         frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
-        frame_ptr->value.type->data.pointer.is_const &&
         frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdAnyFrame)
     {
         frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);

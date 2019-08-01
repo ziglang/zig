@@ -132,56 +132,55 @@ test "@frameSize" {
     S.doTheTest();
 }
 
-//test "coroutine suspend, resume" {
-//    seq('a');
-//    const p = try async<allocator> testAsyncSeq();
-//    seq('c');
-//    resume p;
-//    seq('f');
-//    cancel p;
-//    seq('g');
-//
-//    expect(std.mem.eql(u8, points, "abcdefg"));
-//}
-//async fn testAsyncSeq() void {
-//    defer seq('e');
-//
-//    seq('b');
-//    suspend;
-//    seq('d');
-//}
-//var points = [_]u8{0} ** "abcdefg".len;
-//var index: usize = 0;
-//
-//fn seq(c: u8) void {
-//    points[index] = c;
-//    index += 1;
-//}
-//
-//test "coroutine suspend with block" {
-//    const p = try async<allocator> testSuspendBlock();
-//    std.testing.expect(!result);
-//    resume a_promise;
-//    std.testing.expect(result);
-//    cancel p;
-//}
-//
-//var a_promise: promise = undefined;
-//var result = false;
-//async fn testSuspendBlock() void {
-//    suspend {
-//        comptime expect(@typeOf(@handle()) == promise->void);
-//        a_promise = @handle();
-//    }
-//
-//    //Test to make sure that @handle() works as advertised (issue #1296)
-//    //var our_handle: promise = @handle();
-//    expect(a_promise == @handle());
-//
-//    result = true;
-//}
-//
-//var await_a_promise: promise = undefined;
+test "coroutine suspend, resume" {
+    seq('a');
+    const p = async testAsyncSeq();
+    seq('c');
+    resume p;
+    seq('f');
+    // `cancel` is now a suspend point so it cannot be done here
+    seq('g');
+
+    expect(std.mem.eql(u8, points, "abcdefg"));
+}
+async fn testAsyncSeq() void {
+    defer seq('e');
+
+    seq('b');
+    suspend;
+    seq('d');
+}
+var points = [_]u8{0} ** "abcdefg".len;
+var index: usize = 0;
+
+fn seq(c: u8) void {
+    points[index] = c;
+    index += 1;
+}
+
+test "coroutine suspend with block" {
+    const p = async testSuspendBlock();
+    expect(!result);
+    resume a_promise;
+    expect(result);
+}
+
+var a_promise: anyframe = undefined;
+var result = false;
+async fn testSuspendBlock() void {
+    suspend {
+        comptime expect(@typeOf(@frame()) == *@Frame(testSuspendBlock));
+        a_promise = @frame();
+    }
+
+    // Test to make sure that @frame() works as advertised (issue #1296)
+    // var our_handle: anyframe = @frame();
+    expect(a_promise == anyframe(@frame()));
+
+    result = true;
+}
+
+//var await_a_promise: anyframe = undefined;
 //var await_final_result: i32 = 0;
 //
 //test "coroutine await" {
@@ -204,7 +203,7 @@ test "@frameSize" {
 //    await_seq('c');
 //    suspend {
 //        await_seq('d');
-//        await_a_promise = @handle();
+//        await_a_promise = @frame();
 //    }
 //    await_seq('g');
 //    return 1234;
@@ -314,14 +313,14 @@ test "@frameSize" {
 //    cancel p2;
 //}
 //
-//fn nonFailing() (promise->anyerror!void) {
+//fn nonFailing() (anyframe->anyerror!void) {
 //    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
 //}
 //async fn suspendThenFail() anyerror!void {
 //    suspend;
 //    return error.Fail;
 //}
-//async fn printTrace(p: promise->(anyerror!void)) void {
+//async fn printTrace(p: anyframe->(anyerror!void)) void {
 //    (await p) catch |e| {
 //        std.testing.expect(e == error.Fail);
 //        if (@errorReturnTrace()) |trace| {
@@ -343,7 +342,7 @@ test "@frameSize" {
 //}
 //async fn testBreakFromSuspend(my_result: *i32) void {
 //    suspend {
-//        resume @handle();
+//        resume @frame();
 //    }
 //    my_result.* += 1;
 //    suspend;

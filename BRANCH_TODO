@@ -6,7 +6,10 @@
  * cancel
  * defer and errdefer
  * safety for resuming when it is awaiting
+ * safety for double await
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
  * go over the commented out tests
  * revive std.event.Loop
  * @typeInfo for @Frame(func)
+ * peer type resolution of *@Frame(func) and anyframe
+ * peer type resolution of *@Frame(func) and anyframe->T when the return type matches
