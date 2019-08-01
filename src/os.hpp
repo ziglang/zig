@@ -11,6 +11,7 @@
 #include "list.hpp"
 #include "buffer.hpp"
 #include "error.hpp"
+#include "target.hpp"
 #include "zig_llvm.h"
 #include "windows_sdk.h"
 
@@ -151,6 +152,8 @@ Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname)
 Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
 Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 Error ATTRIBUTE_MUST_USE os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+
+bool ATTRIBUTE_MUST_USE os_is_cygwin_pty(int fd);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_shared_libs(ZigList<Buf *> &paths);
 

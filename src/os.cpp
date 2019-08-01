@@ -1125,29 +1125,27 @@ Error os_get_cwd(Buf *out_cwd) {
 #endif
 }
 
-#if defined(ZIG_OS_WINDOWS)
 #define is_wprefix(s, prefix) \
     (wcsncmp((s), (prefix), sizeof(prefix) / sizeof(WCHAR) - 1) == 0)
-static bool is_stderr_cyg_pty(void) {
-    HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-    if (stderr_handle == INVALID_HANDLE_VALUE)
+bool ATTRIBUTE_MUST_USE os_is_cygwin_pty(int fd) {
+#if defined(ZIG_OS_WINDOWS)
+    HANDLE handle = (HANDLE)_get_osfhandle(fd);
+    
+    // Cygwin/msys's pty is a pipe.
+    if (handle == INVALID_HANDLE_VALUE || GetFileType(handle) != FILE_TYPE_PIPE) {
         return false;
+    }
 
     int size = sizeof(FILE_NAME_INFO) + sizeof(WCHAR) * MAX_PATH;
-    FILE_NAME_INFO *nameinfo;
     WCHAR *p = NULL;
-
-    // Cygwin/msys's pty is a pipe.
-    if (GetFileType(stderr_handle) != FILE_TYPE_PIPE) {
-        return 0;
-    }
-    nameinfo = (FILE_NAME_INFO *)allocate<char>(size);
+    
+    FILE_NAME_INFO *nameinfo = (FILE_NAME_INFO *)allocate<char>(size);
     if (nameinfo == NULL) {
-        return 0;
+        return false;
     }
     // Check the name of the pipe:
     // '\{cygwin,msys}-XXXXXXXXXXXXXXXX-ptyN-{from,to}-master'
-    if (GetFileInformationByHandleEx(stderr_handle, FileNameInfo, nameinfo, size)) {
+    if (GetFileInformationByHandleEx(handle, FileNameInfo, nameinfo, size)) {
         nameinfo->FileName[nameinfo->FileNameLength / sizeof(WCHAR)] = L'\0';
         p = nameinfo->FileName;
         if (is_wprefix(p, L"\\cygwin-")) {      /* Cygwin */
@@ -1180,12 +1178,14 @@ static bool is_stderr_cyg_pty(void) {
     }
     free(nameinfo);
     return (p != NULL);
-}
+#else
+    return false
 #endif
+}
 
 bool os_stderr_tty(void) {
 #if defined(ZIG_OS_WINDOWS)
-    return _isatty(_fileno(stderr)) != 0 || is_stderr_cyg_pty();
+    return _isatty(_fileno(stderr)) != 0 || os_is_cygwin_pty(_fileno(stderr));
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
@@ -1486,7 +1486,7 @@ WORD original_console_attributes = FOREGROUND_RED|FOREGROUND_GREEN|FOREGROUND_BL
 
 void os_stderr_set_color(TermColor color) {
 #if defined(ZIG_OS_WINDOWS)
-    if (is_stderr_cyg_pty()) {
+    if (os_stderr_tty()) {
         set_color_posix(color);
         return;
     }
