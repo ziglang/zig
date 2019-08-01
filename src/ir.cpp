@@ -24735,10 +24735,11 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
                     operand_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
-        if (operand_type->data.integral.bit_count > ira->codegen->pointer_size_bytes * 8) {
+        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
+        if (operand_type->data.integral.bit_count > max_atomic_bits) {
             ir_add_error(ira, op,
-                buf_sprintf("expected integer type pointer size or smaller, found %" PRIu32 "-bit integer type",
-                    operand_type->data.integral.bit_count));
+                buf_sprintf("expected %" PRIu32 "-bit integer type or smaller, found %" PRIu32 "-bit integer type",
+                    max_atomic_bits, operand_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
         if (!is_power_of_2(operand_type->data.integral.bit_count)) {
