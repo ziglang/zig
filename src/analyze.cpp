@@ -5185,13 +5185,6 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        IrBasicBlock *new_resume_block = allocate<IrBasicBlock>(1);
-        new_resume_block->name_hint = "CallResume";
-        new_resume_block->split_llvm_fn = reinterpret_cast<LLVMValueRef>(0x1);
-        fn->resume_blocks.append(new_resume_block);
-        call->resume_block = new_resume_block;
-        fn->analyzed_executable.basic_block_list.append(new_resume_block);
-
         ZigType *callee_frame_type = get_coro_frame_type(g, callee);
 
         IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);

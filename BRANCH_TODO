@@ -1,5 +1,3 @@
- * fix @frameSize
- * fix calling an inferred async function
  * await
  * await of a non async function
  * await in single-threaded mode

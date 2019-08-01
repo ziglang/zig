@@ -2605,7 +2605,6 @@ struct IrInstructionCallGen {
     IrInstruction **args;
     IrInstruction *result_loc;
     IrInstruction *frame_result_loc;
-    IrBasicBlock *resume_block;
 
     IrInstruction *new_stack;
     FnInline fn_inline;
