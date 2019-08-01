@@ -805,7 +805,7 @@ pub const Builder = struct {
                     return name;
                 }
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
-                if (fs.path.real(self.allocator, full_path)) |real_path| {
+                if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
                     continue;
@@ -817,10 +817,10 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, []u8{fs.path.delimiter});
+                var it = mem.tokenize(PATH, [_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                    if (fs.path.real(self.allocator, full_path)) |real_path| {
+                    if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
                         return real_path;
                     } else |_| {
                         continue;
@@ -834,7 +834,7 @@ pub const Builder = struct {
             }
             for (paths) |path| {
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                if (fs.path.real(self.allocator, full_path)) |real_path| {
+                if (fs.realpathAlloc(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
                     continue;
@@ -903,6 +903,15 @@ pub const Builder = struct {
         ) catch unreachable;
     }
 };
+
+test "builder.findProgram compiles" {
+    //allocator: *Allocator,
+    //zig_exe: []const u8,
+    //build_root: []const u8,
+    //cache_root: []const u8,
+    const builder = try Builder.create(std.heap.direct_allocator, "zig", "zig-cache", "zig-cache");
+    _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
+}
 
 pub const Version = struct {
     major: u32,
