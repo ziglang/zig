@@ -1,4 +1,5 @@
- * make the anyframe type and anyframe->T type work with resume
+ * fix @frameSize
+ * fix calling an inferred async function
  * await
  * await of a non async function
  * await in single-threaded mode
@@ -10,5 +11,4 @@
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
  * go over the commented out tests
  * revive std.event.Loop
- * reimplement with function splitting rather than switch
  * @typeInfo for @Frame(func)

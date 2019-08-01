@@ -1726,7 +1726,7 @@ struct CodeGen {
     LLVMValueRef err_name_table;
     LLVMValueRef safety_crash_err_fn;
     LLVMValueRef return_err_fn;
-    LLVMTypeRef async_fn_llvm_type;
+    LLVMTypeRef anyframe_fn_type;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;
@@ -1795,7 +1795,9 @@ struct CodeGen {
         ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
+        ZigType *entry_async_fn;
     } builtin_types;
+
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
     ZigType *ptr_to_stack_trace_type;
@@ -1934,6 +1936,7 @@ struct ZigVar {
     ZigType *var_type;
     LLVMValueRef value_ref;
     IrInstruction *is_comptime;
+    IrInstruction *ptr_instruction;
     // which node is the declaration of the variable
     AstNode *decl_node;
     ZigLLVMDILocalVariable *di_loc_var;
@@ -2159,8 +2162,8 @@ struct IrBasicBlock {
     size_t ref_count;
     // index into the basic block list
     size_t index;
-    // for coroutines, the resume_index which corresponds to this block
-    size_t resume_index;
+    // for async functions, the split function which corresponds to this block
+    LLVMValueRef split_llvm_fn;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -3686,13 +3689,9 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
-static const size_t coro_resume_index_index = 0;
-static const size_t coro_fn_ptr_index = 1;
-static const size_t coro_awaiter_index = 2;
-static const size_t coro_arg_start = 3;
-
-// one for the Entry block, resume blocks are indexed after that.
-static const size_t coro_extra_resume_block_count = 1;
+static const size_t coro_fn_ptr_index = 0;
+static const size_t coro_awaiter_index = 1;
+static const size_t coro_arg_start = 2;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.
@@ -3719,6 +3718,7 @@ enum FnWalkId {
 
 struct FnWalkAttrs {
     ZigFn *fn;
+    LLVMValueRef llvm_fn;
     unsigned gen_i;
 };
 

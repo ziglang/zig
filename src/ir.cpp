@@ -3227,7 +3227,7 @@ static IrInstruction *ir_build_alloca_src(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstructionAllocaGen *ir_create_alloca_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+static IrInstructionAllocaGen *ir_build_alloca_gen(IrAnalyze *ira, IrInstruction *source_instruction,
         uint32_t align, const char *name_hint)
 {
     IrInstructionAllocaGen *instruction = ir_create_instruction<IrInstructionAllocaGen>(&ira->new_irb,
@@ -14351,7 +14351,7 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     ConstExprValue *pointee = create_const_vals(1);
     pointee->special = ConstValSpecialUndef;
 
-    IrInstructionAllocaGen *result = ir_create_alloca_gen(ira, source_inst, align, name_hint);
+    IrInstructionAllocaGen *result = ir_build_alloca_gen(ira, source_inst, align, name_hint);
     result->base.value.special = ConstValSpecialStatic;
     result->base.value.data.x_ptr.special = ConstPtrSpecialRef;
     result->base.value.data.x_ptr.mut = force_comptime ? ConstPtrMutComptimeVar : ConstPtrMutInfer;
@@ -14448,7 +14448,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return nullptr;
             }
             // need to return a result location and don't have one. use a stack allocation
-            IrInstructionAllocaGen *alloca_gen = ir_create_alloca_gen(ira, suspend_source_instr, 0, "");
+            IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
             if ((err = type_resolve(ira->codegen, value_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_instruction;
             alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
@@ -24357,7 +24357,7 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
 
-    new_bb->resume_index = fn_entry->resume_blocks.length + coro_extra_resume_block_count;
+    new_bb->split_llvm_fn = reinterpret_cast<LLVMValueRef>(0x1);
 
     fn_entry->resume_blocks.append(new_bb);
     if (fn_entry->inferred_async_node == nullptr) {
