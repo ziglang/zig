@@ -10791,6 +10791,30 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     }
 }
 
+static ConstExprValue* bigfloat_to_constval(ConstExprValue *out, BigFloat *in, uint32_t bit_count) {
+    assert(out->type->id == ZigTypeIdFloat);
+    assert(out->type->data.floating.bit_count == bit_count);
+    switch (bit_count) {
+    case 16:
+        out->data.x_f16 = bigfloat_to_f16(in);
+        break;
+    case 32:
+        out->data.x_f32 = bigfloat_to_f32(in);
+        break;
+    case 64:
+        out->data.x_f64 = bigfloat_to_f64(in);
+        break;
+    case 80:
+        zig_panic("TODO");
+    case 128:
+        out->data.x_f128 = bigfloat_to_f128(in);
+        break;
+    default:
+        zig_unreachable();
+    }
+    return out;
+}
+
 static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_instr,
         CastOp cast_op,
         ConstExprValue *other_val, ZigType *other_type,
@@ -10813,58 +10837,44 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
                 break;
             }
         case CastOpNumLitToConcrete:
+            const_val->type = new_type;
             if (other_val->type->id == ZigTypeIdComptimeFloat) {
-                assert(new_type->id == ZigTypeIdFloat);
-                switch (new_type->data.floating.bit_count) {
-                    case 16:
-                        const_val->data.x_f16 = bigfloat_to_f16(&other_val->data.x_bigfloat);
-                        break;
-                    case 32:
-                        const_val->data.x_f32 = bigfloat_to_f32(&other_val->data.x_bigfloat);
-                        break;
-                    case 64:
-                        const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
-                        break;
-                    case 80:
-                        zig_panic("TODO");
-                    case 128:
-                        const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
-                        break;
-                    default:
-                        zig_unreachable();
-                }
+                bigfloat_to_constval(const_val, &other_val->data.x_bigfloat, new_type->data.floating.bit_count);
             } else if (other_val->type->id == ZigTypeIdComptimeInt) {
                 bigint_init_bigint(&const_val->data.x_bigint, &other_val->data.x_bigint);
             } else {
                 zig_unreachable();
             }
-            const_val->type = new_type;
             break;
         case CastOpIntToFloat:
             {
-                assert(new_type->id == ZigTypeIdFloat);
+                bool is_vector = new_type->id == ZigTypeIdVector;
+                ZigType *new_scalar_type = is_vector ? new_type->data.vector.elem_type : new_type;
+                assert(new_scalar_type->id == ZigTypeIdFloat);
 
-                BigFloat bigfloat;
-                bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
-                switch (new_type->data.floating.bit_count) {
-                    case 16:
-                        const_val->data.x_f16 = bigfloat_to_f16(&bigfloat);
-                        break;
-                    case 32:
-                        const_val->data.x_f32 = bigfloat_to_f32(&bigfloat);
-                        break;
-                    case 64:
-                        const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
-                        break;
-                    case 80:
-                        zig_panic("TODO");
-                    case 128:
-                        const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
-                        break;
-                    default:
-                        zig_unreachable();
+                if (is_vector) {
+                    assert(other_val->type->id == ZigTypeIdVector);
+                    if (const_val->data.x_array.data.s_none.elements == nullptr) {
+                        const_val->data.x_array.data.s_none.elements =
+                            allocate<ConstExprValue>(const_val->type->data.vector.len);
+                    }
+                    for (uint32_t i = 0; i < new_type->data.vector.len; i++) {
+                        ConstExprValue *cur = &const_val->data.x_array.data.s_none.elements[i];
+                        BigFloat bigfloat;
+                        bigfloat_init_bigint(&bigfloat, &other_val->data.x_array.data.s_none.elements[i].data.x_bigint);
+                        cur->type = new_scalar_type;
+                        bigfloat_to_constval(cur, &bigfloat, new_scalar_type->data.floating.bit_count);
+                        cur->special = ConstValSpecialStatic;
+                    }
+                    const_val->special = ConstValSpecialStatic;
+                    const_val->type = new_type;
+                } else {
+                    BigFloat bigfloat;
+                    bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
+                    const_val->type = new_type;
+                    bigfloat_to_constval(const_val, &bigfloat, new_scalar_type->data.floating.bit_count);
+                    const_val->special = ConstValSpecialStatic;
                 }
-                const_val->special = ConstValSpecialStatic;
                 break;
             }
         case CastOpFloatToInt:
@@ -22560,15 +22570,55 @@ static IrInstruction *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstru
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
 
-    if (dest_type->id != ZigTypeIdFloat) {
+    bool dest_is_vector = dest_type->id == ZigTypeIdVector;
+    ZigType *scalar_dest_type = dest_is_vector ? dest_type->data.vector.elem_type : dest_type;
+
+    if (scalar_dest_type->id != ZigTypeIdFloat) {
         ir_add_error(ira, instruction->dest_type,
                 buf_sprintf("expected float type, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
+    uint32_t whole_bits;
+    switch (scalar_dest_type->data.floating.bit_count) {
+    case 16:
+        whole_bits = 10;
+        break;
+    case 32:
+        whole_bits = 23;
+        break;
+    case 64:
+        whole_bits = 52;
+        break;
+    case 80:
+        whole_bits = 63;
+        break;
+    case 128:
+        whole_bits = 112;
+        break;
+    default:
+        zig_unreachable();
+    };
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
+
+    bool is_vector = target->value.type->id == ZigTypeIdVector;
+    ZigType *scalar_type = is_vector ? target->value.type->data.vector.elem_type : target->value.type;
+
+    if (dest_is_vector && !is_vector) {
+        ir_add_error(ira, target,
+            buf_sprintf("cannot cast from scalar to vector"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (dest_is_vector && dest_type->data.vector.len != target->value.type->data.vector.len) {
+        ir_add_error(ira, target,
+            buf_sprintf("length mis-match; expected %" PRIu32 ", got %" PRIu32,
+                dest_type->data.vector.len,
+                target->value.type->data.vector.len));
+        return ira->codegen->invalid_instruction;
+    }
 
     if (target->value.type->id == ZigTypeIdComptimeInt ||
         target->value.type->id == ZigTypeIdComptimeFloat)
@@ -22586,13 +22636,31 @@ static IrInstruction *ir_analyze_instruction_float_cast(IrAnalyze *ira, IrInstru
         }
     }
 
-    if (target->value.type->id != ZigTypeIdFloat) {
+    ZigType *wanted_type = dest_type;
+    if (is_vector && !dest_is_vector) {
+        wanted_type = get_vector_type(ira->codegen, target->value.type->data.vector.len, wanted_type);
+    }
+
+    if (scalar_type->id == ZigTypeIdInt) {
+        uint32_t max_bits = whole_bits;
+        // We cannot subtract one bit from needed bits when signed,
+        // because of the edge condition of the minimum value.
+        if (scalar_type->data.integral.bit_count <= max_bits) {
+            return ir_resolve_cast(ira, &instruction->base, target, wanted_type, CastOpIntToFloat);
+        } else {
+            ir_add_error(ira, instruction->dest_type,
+                buf_sprintf("integer does not fit in float, maximum is %" PRIu32 " bits", whole_bits));
+            return ira->codegen->invalid_instruction;
+        }
+    }
+
+    if (scalar_type->id != ZigTypeIdFloat) {
         ir_add_error(ira, instruction->target, buf_sprintf("expected float type, found '%s'",
                     buf_ptr(&target->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    return ir_analyze_widen_or_shorten(ira, &instruction->base, target, dest_type);
+    return ir_analyze_widen_or_shorten(ira, &instruction->base, target, wanted_type);
 }
 
 static IrInstruction *ir_analyze_instruction_err_set_cast(IrAnalyze *ira, IrInstructionErrSetCast *instruction) {

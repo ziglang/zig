@@ -3078,13 +3078,20 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             zig_unreachable();
         case CastOpNoop:
             return expr_val;
-        case CastOpIntToFloat:
-            assert(actual_type->id == ZigTypeIdInt);
+        case CastOpIntToFloat: {
+            bool is_vector = actual_type->id == ZigTypeIdVector;
+            ZigType *actual_scalar_type = is_vector ? actual_type->data.vector.elem_type : actual_type;
+            assert(actual_scalar_type->id == ZigTypeIdInt);
+            if (is_vector) {
+                assert(wanted_type->id == ZigTypeIdVector);
+                assert(actual_type->data.vector.len == wanted_type->data.vector.len);
+            }
             if (actual_type->data.integral.is_signed) {
                 return LLVMBuildSIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
             } else {
                 return LLVMBuildUIToFP(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
             }
+        }
         case CastOpFloatToInt: {
             assert(wanted_type->id == ZigTypeIdInt);
             ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &cast_instruction->base));
