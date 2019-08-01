@@ -1507,7 +1507,7 @@ bool target_is_single_threaded(const ZigTarget *target) {
 static ZigLLVM_EnvironmentType target_get_win32_abi() {
     FILE* files[] = { stdin, stdout, stderr, nullptr };
     for (int i = 0; files[i] != nullptr; i++) {
-        if (os_is_cygwin_pty(_fileno(files[i]))) {
+        if (os_is_cygwin_pty(fileno(files[i]))) {
             return ZigLLVM_GNU;
         }
     }

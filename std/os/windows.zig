@@ -65,7 +65,7 @@ pub const CreateFileError = error{
     InvalidUtf8,
 
     /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
+    /// '*', '?', '"', '<', '>', '|', and '/' (when the ABI is not GNU)
     BadPathName,
 
     Unexpected,
@@ -831,8 +831,8 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     // disallow forward slashes in zig std lib file functions on Windows.
     for (s) |byte| {
         switch (byte) {
-            '/', '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => {},
+            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
+            else => if (builtin.abi == .msvc and byte == '/') return error.BadPathName,
         }
     }
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {
@@ -865,7 +865,6 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     }
     return error.Unexpected;
 }
-
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.

@@ -89,6 +89,11 @@ struct Termination {
 #define OsFile int
 #endif
 
+#if defined(ZIG_OS_WINDOWS)
+#undef fileno
+#define fileno _fileno
+#endif
+
 struct OsTimeStamp {
     uint64_t sec;
     uint64_t nsec;

@@ -1130,7 +1130,7 @@ Error os_get_cwd(Buf *out_cwd) {
 bool ATTRIBUTE_MUST_USE os_is_cygwin_pty(int fd) {
 #if defined(ZIG_OS_WINDOWS)
     HANDLE handle = (HANDLE)_get_osfhandle(fd);
-    
+
     // Cygwin/msys's pty is a pipe.
     if (handle == INVALID_HANDLE_VALUE || GetFileType(handle) != FILE_TYPE_PIPE) {
         return false;
@@ -1138,7 +1138,7 @@ bool ATTRIBUTE_MUST_USE os_is_cygwin_pty(int fd) {
 
     int size = sizeof(FILE_NAME_INFO) + sizeof(WCHAR) * MAX_PATH;
     WCHAR *p = NULL;
-    
+
     FILE_NAME_INFO *nameinfo = (FILE_NAME_INFO *)allocate<char>(size);
     if (nameinfo == NULL) {
         return false;
@@ -1179,13 +1179,13 @@ bool ATTRIBUTE_MUST_USE os_is_cygwin_pty(int fd) {
     free(nameinfo);
     return (p != NULL);
 #else
-    return false
+    return false;
 #endif
 }
 
 bool os_stderr_tty(void) {
 #if defined(ZIG_OS_WINDOWS)
-    return _isatty(_fileno(stderr)) != 0 || os_is_cygwin_pty(_fileno(stderr));
+    return _isatty(fileno(stderr)) != 0 || os_is_cygwin_pty(fileno(stderr));
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
