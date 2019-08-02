@@ -1131,9 +1131,18 @@ pub const S_IFWHT = 0o160000;
 pub const S_ISUID = 0o4000;
 pub const S_ISGID = 0o2000;
 pub const S_ISVTX = 0o1000;
+pub const S_IRWXU = 0o700;
 pub const S_IRUSR = 0o400;
 pub const S_IWUSR = 0o200;
 pub const S_IXUSR = 0o100;
+pub const S_IRWXG = 0o070;
+pub const S_IRGRP = 0o040;
+pub const S_IWGRP = 0o020;
+pub const S_IXGRP = 0o010;
+pub const S_IRWXO = 0o007;
+pub const S_IROTH = 0o004;
+pub const S_IWOTH = 0o002;
+pub const S_IXOTH = 0o001;
 
 pub fn S_ISFIFO(m: u32) bool {
     return m & S_IFMT == S_IFIFO;
