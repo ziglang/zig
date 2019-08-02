@@ -503,7 +503,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         // nothing to do
     } else if (type_is_nonnull_ptr(return_type)) {
         addLLVMAttr(llvm_fn, 0, "nonnull");
-    } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
+    } else if (!is_async && want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
         // Sret pointers must not be address 0
         addLLVMArgAttr(llvm_fn, 0, "nonnull");
         addLLVMArgAttr(llvm_fn, 0, "sret");
@@ -3241,8 +3241,13 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
 static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnPtr *instruction)
 {
-    src_assert(g->cur_ret_ptr != nullptr || !type_has_bits(instruction->base.value.type),
-            instruction->base.source_node);
+    if (!type_has_bits(instruction->base.value.type))
+        return nullptr;
+    src_assert(g->cur_ret_ptr != nullptr, instruction->base.source_node);
+    if (fn_is_async(g->cur_fn)) {
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_arg_start, "");
+        return LLVMBuildLoad(g->builder, ptr_ptr, "");
+    }
     return g->cur_ret_ptr;
 }
 
@@ -3506,12 +3511,24 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         if (ret_has_bits) {
             ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start + 1, "");
         }
+
+        // Use the result location which is inside the frame if this is an async call.
+        if (ret_has_bits) {
+            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start, "");
+            LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
+        }
     } else if (callee_is_async) {
         frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
         awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr,
                 g->builtin_types.entry_usize->llvm_type, ""); // caller's own frame pointer
         if (ret_has_bits) {
             ret_ptr = result_loc;
+        }
+
+        // Use the call instruction's result location.
+        if (ret_has_bits) {
+            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start, "");
+            LLVMBuildStore(g->builder, result_loc, ret_ptr_ptr);
         }
     }
     if (instruction->is_async || callee_is_async) {
@@ -3525,10 +3542,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_awaiter_index, "");
         LLVMBuildStore(g->builder, awaiter_init_val, awaiter_ptr);
 
-        if (ret_has_bits) {
-            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_arg_start, "");
-            LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
-        }
     }
     if (!instruction->is_async && !callee_is_async) {
         if (first_arg_ret) {

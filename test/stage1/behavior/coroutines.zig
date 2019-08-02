@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 var global_x: i32 = 1;
 
@@ -356,4 +357,45 @@ test "heap allocated async function frame" {
         }
     };
     try S.doTheTest();
+}
+
+test "async function call return value" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var pt = Point{.x = 10, .y = 11 };
+
+        fn doTheTest() void {
+            expectEqual(pt.x, 10);
+            expectEqual(pt.y, 11);
+            _ = async first();
+            expectEqual(pt.x, 10);
+            expectEqual(pt.y, 11);
+            resume frame;
+            expectEqual(pt.x, 1);
+            expectEqual(pt.y, 2);
+        }
+
+        fn first() void {
+            pt = second(1, 2);
+        }
+
+        fn second(x: i32, y: i32) Point {
+            return other(x, y);
+        }
+
+        fn other(x: i32, y: i32) Point {
+            frame = @frame();
+            suspend;
+            return Point{
+                .x = x,
+                .y = y,
+            };
+        }
+
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
+    };
+    S.doTheTest();
 }

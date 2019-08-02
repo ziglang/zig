@@ -1,3 +1,4 @@
+ * struct types as the return type of an async function. make sure it works with return result locations.
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
@@ -15,5 +16,6 @@
  * peer type resolution of *@Frame(func) and anyframe
  * peer type resolution of *@Frame(func) and anyframe->T when the return type matches
  * returning a value from within a suspend block
- * struct types as the return type of an async function. make sure it works with return result locations.
  * make resuming inside a suspend block, with nothing after it, a must-tail call.
+ * make sure there are safety tests for all the new safety features (search the new PanicFnId enum values)
+ * error return tracing
