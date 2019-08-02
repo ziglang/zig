@@ -1550,6 +1550,8 @@ enum PanicMsgId {
     PanicMsgIdFloatToInt,
     PanicMsgIdPtrCastNull,
     PanicMsgIdBadResume,
+    PanicMsgIdBadAwait,
+    PanicMsgIdBadReturn,
 
     PanicMsgIdCount,
 };
@@ -1795,7 +1797,6 @@ struct CodeGen {
         ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
-        ZigType *entry_async_fn;
     } builtin_types;
 
     ZigType *align_amt_type;
@@ -2348,6 +2349,7 @@ enum IrInstructionId {
     IrInstructionIdUnionInitNamedField,
     IrInstructionIdSuspendBegin,
     IrInstructionIdSuspendBr,
+    IrInstructionIdAwait,
     IrInstructionIdCoroResume,
 };
 
@@ -3598,6 +3600,12 @@ struct IrInstructionSuspendBr {
     IrInstruction base;
 
     IrBasicBlock *resume_block;
+};
+
+struct IrInstructionAwait {
+    IrInstruction base;
+
+    IrInstruction *frame;
 };
 
 struct IrInstructionCoroResume {

@@ -180,97 +180,85 @@ async fn testSuspendBlock() void {
     result = true;
 }
 
-//var await_a_promise: anyframe = undefined;
-//var await_final_result: i32 = 0;
-//
-//test "coroutine await" {
-//    await_seq('a');
-//    const p = async<allocator> await_amain() catch unreachable;
-//    await_seq('f');
-//    resume await_a_promise;
-//    await_seq('i');
-//    expect(await_final_result == 1234);
-//    expect(std.mem.eql(u8, await_points, "abcdefghi"));
-//}
-//async fn await_amain() void {
-//    await_seq('b');
-//    const p = async await_another() catch unreachable;
-//    await_seq('e');
-//    await_final_result = await p;
-//    await_seq('h');
-//}
-//async fn await_another() i32 {
-//    await_seq('c');
-//    suspend {
-//        await_seq('d');
-//        await_a_promise = @frame();
-//    }
-//    await_seq('g');
-//    return 1234;
-//}
-//
-//var await_points = [_]u8{0} ** "abcdefghi".len;
-//var await_seq_index: usize = 0;
-//
-//fn await_seq(c: u8) void {
-//    await_points[await_seq_index] = c;
-//    await_seq_index += 1;
-//}
-//
-//var early_final_result: i32 = 0;
-//
-//test "coroutine await early return" {
-//    early_seq('a');
-//    const p = async<allocator> early_amain() catch @panic("out of memory");
-//    early_seq('f');
-//    expect(early_final_result == 1234);
-//    expect(std.mem.eql(u8, early_points, "abcdef"));
-//}
-//async fn early_amain() void {
-//    early_seq('b');
-//    const p = async early_another() catch @panic("out of memory");
-//    early_seq('d');
-//    early_final_result = await p;
-//    early_seq('e');
-//}
-//async fn early_another() i32 {
-//    early_seq('c');
-//    return 1234;
-//}
-//
-//var early_points = [_]u8{0} ** "abcdef".len;
-//var early_seq_index: usize = 0;
-//
-//fn early_seq(c: u8) void {
-//    early_points[early_seq_index] = c;
-//    early_seq_index += 1;
-//}
-//
-//test "coro allocation failure" {
-//    var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
-//    if (async<&failing_allocator.allocator> asyncFuncThatNeverGetsRun()) {
-//        @panic("expected allocation failure");
-//    } else |err| switch (err) {
-//        error.OutOfMemory => {},
-//    }
-//}
-//async fn asyncFuncThatNeverGetsRun() void {
-//    @panic("coro frame allocation should fail");
-//}
-//
-//test "async function with dot syntax" {
-//    const S = struct {
-//        var y: i32 = 1;
-//        async fn foo() void {
-//            y += 1;
-//            suspend;
-//        }
-//    };
-//    const p = try async<allocator> S.foo();
-//    cancel p;
-//    expect(S.y == 2);
-//}
-//
+var await_a_promise: anyframe = undefined;
+var await_final_result: i32 = 0;
+
+test "coroutine await" {
+    await_seq('a');
+    const p = async await_amain();
+    await_seq('f');
+    resume await_a_promise;
+    await_seq('i');
+    expect(await_final_result == 1234);
+    expect(std.mem.eql(u8, await_points, "abcdefghi"));
+}
+async fn await_amain() void {
+    await_seq('b');
+    const p = async await_another();
+    await_seq('e');
+    await_final_result = await p;
+    await_seq('h');
+}
+async fn await_another() i32 {
+    await_seq('c');
+    suspend {
+        await_seq('d');
+        await_a_promise = @frame();
+    }
+    await_seq('g');
+    return 1234;
+}
+
+var await_points = [_]u8{0} ** "abcdefghi".len;
+var await_seq_index: usize = 0;
+
+fn await_seq(c: u8) void {
+    await_points[await_seq_index] = c;
+    await_seq_index += 1;
+}
+
+var early_final_result: i32 = 0;
+
+test "coroutine await early return" {
+    early_seq('a');
+    const p = async early_amain();
+    early_seq('f');
+    expect(early_final_result == 1234);
+    expect(std.mem.eql(u8, early_points, "abcdef"));
+}
+async fn early_amain() void {
+    early_seq('b');
+    const p = async early_another();
+    early_seq('d');
+    early_final_result = await p;
+    early_seq('e');
+}
+async fn early_another() i32 {
+    early_seq('c');
+    return 1234;
+}
+
+var early_points = [_]u8{0} ** "abcdef".len;
+var early_seq_index: usize = 0;
+
+fn early_seq(c: u8) void {
+    early_points[early_seq_index] = c;
+    early_seq_index += 1;
+}
+
+test "async function with dot syntax" {
+    const S = struct {
+        var y: i32 = 1;
+        async fn foo() void {
+            y += 1;
+            suspend;
+        }
+    };
+    const p = async S.foo();
+    // can't cancel in tests because they are non-async functions
+    expect(S.y == 2);
+}
+
 //test "async fn pointer in a struct field" {
 //    var data: i32 = 1;
 //    const Foo = struct {
@@ -287,18 +275,17 @@ async fn testSuspendBlock() void {
 //    y.* += 1;
 //    suspend;
 //}
-//
+
 //test "async fn with inferred error set" {
-//    const p = (async<allocator> failing()) catch unreachable;
+//    const p = async failing();
 //    resume p;
-//    cancel p;
 //}
 //
 //async fn failing() !void {
 //    suspend;
 //    return error.Fail;
 //}
-//
+
 //test "error return trace across suspend points - early return" {
 //    const p = nonFailing();
 //    resume p;
@@ -331,20 +318,18 @@ async fn testSuspendBlock() void {
 //        }
 //    };
 //}
-//
-//test "break from suspend" {
-//    var buf: [500]u8 = undefined;
-//    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-//    var my_result: i32 = 1;
-//    const p = try async<a> testBreakFromSuspend(&my_result);
-//    cancel p;
-//    std.testing.expect(my_result == 2);
-//}
-//async fn testBreakFromSuspend(my_result: *i32) void {
-//    suspend {
-//        resume @frame();
-//    }
-//    my_result.* += 1;
-//    suspend;
-//    my_result.* += 1;
-//}
+
+test "break from suspend" {
+    var my_result: i32 = 1;
+    const p = async testBreakFromSuspend(&my_result);
+    // can't cancel here
+    std.testing.expect(my_result == 2);
+}
+async fn testBreakFromSuspend(my_result: *i32) void {
+    suspend {
+        resume @frame();
+    }
+    my_result.* += 1;
+    suspend;
+    my_result.* += 1;
+}

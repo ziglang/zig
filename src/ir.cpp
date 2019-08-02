@@ -1052,6 +1052,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBr *) {
     return IrInstructionIdSuspendBr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAwait *) {
+    return IrInstructionIdAwait;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroResume *) {
     return IrInstructionIdCoroResume;
 }
@@ -3270,6 +3274,17 @@ static IrInstruction *ir_build_suspend_br(IrBuilder *irb, Scope *scope, AstNode 
     instruction->resume_block = resume_block;
 
     ir_ref_bb(resume_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_await(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *frame)
+{
+    IrInstructionAwait *instruction = ir_build_instruction<IrInstructionAwait>(irb, scope, source_node);
+    instruction->frame = frame;
+
+    ir_ref_instruction(frame, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -7774,11 +7789,26 @@ static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node)
 static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeAwaitExpr);
 
-    IrInstruction *target_inst = ir_gen_node(irb, node->data.await_expr.expr, scope);
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("await outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    ScopeSuspend *existing_suspend_scope = get_scope_suspend(scope);
+    if (existing_suspend_scope) {
+        if (!existing_suspend_scope->reported_err) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot await inside suspend block"));
+            add_error_note(irb->codegen, msg, existing_suspend_scope->base.source_node, buf_sprintf("suspend block here"));
+            existing_suspend_scope->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    IrInstruction *target_inst = ir_gen_node_extra(irb, node->data.await_expr.expr, scope, LValPtr, nullptr);
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    zig_panic("TODO ir_gen_await_expr");
+    return ir_build_await(irb, scope, node, target_inst);
 }
 
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -7787,15 +7817,6 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
     ZigFn *fn_entry = exec_fn_entry(irb->exec);
     if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("suspend outside function definition"));
-        return irb->codegen->invalid_instruction;
-    }
-    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
-    if (scope_defer_expr) {
-        if (!scope_defer_expr->reported_err) {
-            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside defer expression"));
-            add_error_note(irb->codegen, msg, scope_defer_expr->base.source_node, buf_sprintf("defer here"));
-            scope_defer_expr->reported_err = true;
-        }
         return irb->codegen->invalid_instruction;
     }
     ScopeSuspend *existing_suspend_scope = get_scope_suspend(parent_scope);
@@ -7808,7 +7829,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
         return irb->codegen->invalid_instruction;
     }
 
-    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "Resume");
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
 
     ir_build_suspend_begin(irb, parent_scope, node, resume_block);
     if (node->data.suspend.block != nullptr) {
@@ -24372,6 +24393,49 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     return ir_finish_anal(ira, result);
 }
 
+static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwait *instruction) {
+    IrInstruction *frame_ptr = instruction->frame->child;
+    if (type_is_invalid(frame_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *result_type;
+    IrInstruction *frame;
+    if (frame_ptr->value.type->id == ZigTypeIdPointer &&
+        frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
+        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdCoroFrame)
+    {
+        result_type = frame_ptr->value.type->data.pointer.child_type->data.frame.fn->type_entry->data.fn.fn_type_id.return_type;
+        frame = frame_ptr;
+    } else {
+        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
+        if (frame->value.type->id != ZigTypeIdAnyFrame ||
+            frame->value.type->data.any_frame.result_type == nullptr)
+        {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected anyframe->T, found '%s'", buf_ptr(&frame->value.type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+        result_type = frame->value.type->data.any_frame.result_type;
+    }
+
+    ZigType *any_frame_type = get_any_frame_type(ira->codegen, result_type);
+    IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
+    if (type_is_invalid(casted_frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ir_assert(fn_entry != nullptr, &instruction->base);
+
+    if (fn_entry->inferred_async_node == nullptr) {
+        fn_entry->inferred_async_node = instruction->base.source_node;
+    }
+
+    IrInstruction *result = ir_build_await(&ira->new_irb,
+            instruction->base.scope, instruction->base.source_node, frame);
+    result->value.type = result_type;
+    return ir_finish_anal(ira, result);
+}
+
 static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstructionCoroResume *instruction) {
     IrInstruction *frame_ptr = instruction->frame->child;
     if (type_is_invalid(frame_ptr->value.type))
@@ -24380,11 +24444,11 @@ static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstr
     IrInstruction *frame;
     if (frame_ptr->value.type->id == ZigTypeIdPointer &&
         frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
-        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdAnyFrame)
+        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdCoroFrame)
     {
-        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
-    } else {
         frame = frame_ptr;
+    } else {
+        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
     }
 
     ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
@@ -24691,6 +24755,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_suspend_br(ira, (IrInstructionSuspendBr *)instruction);
         case IrInstructionIdCoroResume:
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdAwait:
+            return ir_analyze_instruction_await(ira, (IrInstructionAwait *)instruction);
     }
     zig_unreachable();
 }
@@ -24826,6 +24892,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSuspendBegin:
         case IrInstructionIdSuspendBr:
         case IrInstructionIdCoroResume:
+        case IrInstructionIdAwait:
             return true;
 
         case IrInstructionIdPhi:

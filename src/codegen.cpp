@@ -873,6 +873,10 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("cast causes pointer to be null");
         case PanicMsgIdBadResume:
             return buf_create_from_str("invalid resume of async function");
+        case PanicMsgIdBadAwait:
+            return buf_create_from_str("async function awaited twice");
+        case PanicMsgIdBadReturn:
+            return buf_create_from_str("async function returned twice");
     }
     zig_unreachable();
 }
@@ -1991,14 +1995,66 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     if (fn_is_async(g->cur_fn)) {
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+        LLVMValueRef locals_ptr = g->cur_ret_ptr;
+        bool ret_type_has_bits = return_instruction->value != nullptr &&
+            type_has_bits(return_instruction->value->value.type);
+        ZigType *ret_type = ret_type_has_bits ? return_instruction->value->value.type : nullptr;
+
         if (ir_want_runtime_safety(g, &return_instruction->base)) {
-            LLVMValueRef locals_ptr = g->cur_ret_ptr;
             LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_fn_ptr_index, "");
             LLVMValueRef new_resume_fn = g->cur_fn->resume_blocks.last()->split_llvm_fn;
             LLVMBuildStore(g->builder, new_resume_fn, resume_index_ptr);
         }
 
+        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_awaiter_index, "");
+        LLVMValueRef result_ptr_as_usize;
+        if (ret_type_has_bits) {
+            LLVMValueRef result_ptr_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_arg_start, "");
+            LLVMValueRef result_ptr = LLVMBuildLoad(g->builder, result_ptr_ptr, "");
+            if (!handle_is_ptr(ret_type)) {
+                // It's a scalar, so it didn't get written to the result ptr. Do that now.
+                LLVMBuildStore(g->builder, ir_llvm_value(g, return_instruction->value), result_ptr);
+            }
+            result_ptr_as_usize = LLVMBuildPtrToInt(g->builder, result_ptr, usize_type_ref, "");
+        } else {
+            result_ptr_as_usize = LLVMGetUndef(usize_type_ref);
+        }
+        LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+        LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
+        LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr,
+                all_ones, LLVMAtomicOrderingSequentiallyConsistent, g->is_single_threaded);
+
+        LLVMBasicBlockRef bad_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadReturn");
+        LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");
+        LLVMBasicBlockRef resume_them_block = LLVMAppendBasicBlock(g->cur_fn_val, "ResumeThem");
+
+        LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, prev_val, resume_them_block, 2);
+
+        LLVMAddCase(switch_instr, zero, early_return_block);
+        LLVMAddCase(switch_instr, all_ones, bad_return_block);
+
+        // Something has gone horribly wrong, and this is an invalid second return.
+        LLVMPositionBuilderAtEnd(g->builder, bad_return_block);
+        gen_assertion(g, PanicMsgIdBadReturn, &return_instruction->base);
+
+        // The caller will deal with fetching the result - we're done.
+        LLVMPositionBuilderAtEnd(g->builder, early_return_block);
         LLVMBuildRetVoid(g->builder);
+
+        // We need to resume the caller by tail calling them.
+        LLVMPositionBuilderAtEnd(g->builder, resume_them_block);
+        ZigType *any_frame_type = get_any_frame_type(g, ret_type);
+        LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, prev_val,
+                get_llvm_type(g, any_frame_type), "");
+        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, their_frame_ptr, coro_fn_ptr_index, "");
+        LLVMValueRef awaiter_fn = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
+        LLVMValueRef args[] = {their_frame_ptr, result_ptr_as_usize};
+        LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, awaiter_fn, args, 2, LLVMFastCallConv,
+                ZigLLVM_FnInlineAuto, "");
+        ZigLLVMSetTailCall(call_inst);
+        LLVMBuildRetVoid(g->builder);
+
         return nullptr;
     }
     if (want_first_arg_sret(g, &g->cur_fn->type_entry->data.fn.fn_type_id)) {
@@ -3514,14 +3570,17 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
     }
     if (instruction->is_async) {
-        ZigLLVMBuildCall(g->builder, fn_val, &frame_result_loc, 1, llvm_cc, fn_inline, "");
+        LLVMValueRef args[] = {frame_result_loc, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type)};
+        ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, fn_inline, "");
         return nullptr;
     } else if (callee_is_async) {
+        ZigType *ptr_result_type = get_pointer_to_type(g, src_return_type, true);
         LLVMValueRef split_llvm_fn = make_fn_llvm_value(g, g->cur_fn);
         LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_fn_ptr_index, "");
         LLVMBuildStore(g->builder, split_llvm_fn, fn_ptr_ptr);
 
-        LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, fn_val, &frame_result_loc, 1, llvm_cc, fn_inline, "");
+        LLVMValueRef args[] = {frame_result_loc, LLVMGetUndef(g->builtin_types.entry_usize->llvm_type)};
+        LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, fn_inline, "");
         ZigLLVMSetTailCall(call_inst);
         LLVMBuildRetVoid(g->builder);
 
@@ -3530,7 +3589,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(split_llvm_fn, "CallResume");
         LLVMPositionBuilderAtEnd(g->builder, call_bb);
         render_async_var_decls(g, instruction->base.scope);
-        return nullptr;
+
+        if (type_has_bits(src_return_type)) {
+            LLVMValueRef spilled_result_ptr = LLVMGetParam(g->cur_fn_val, 1);
+            LLVMValueRef casted_spilled_result_ptr = LLVMBuildIntToPtr(g->builder, spilled_result_ptr,
+                    get_llvm_type(g, ptr_result_type), "");
+            return get_handle_value(g, casted_spilled_result_ptr, src_return_type, ptr_result_type);
+        } else {
+            return nullptr;
+        }
     }
 
     if (instruction->new_stack == nullptr) {
@@ -4829,7 +4896,7 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
     if (get_codegen_ptr_type(operand_type) == nullptr) {
-        return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, false);
+        return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, g->is_single_threaded);
     }
 
     // it's a pointer but we need to treat it as an int
@@ -4990,14 +5057,89 @@ static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
+static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInstructionAwait *instruction) {
+    LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
+    ZigType *result_type = instruction->base.value.type;
+    ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
+
+    // Prepare to be suspended
+    LLVMValueRef split_llvm_fn = make_fn_llvm_value(g, g->cur_fn);
+    LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_fn_ptr_index, "");
+    LLVMBuildStore(g->builder, split_llvm_fn, fn_ptr_ptr);
+
+    // At this point resuming the function will do the correct thing.
+    // This code is as if it is running inside the suspend block.
+
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+    // caller's own frame pointer
+    LLVMValueRef awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr, usize_type_ref, "");
+    LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_awaiter_index, "");
+    LLVMValueRef result_ptr_as_usize;
+    if (type_has_bits(result_type)) {
+        LLVMValueRef result_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_arg_start, "");
+        LLVMValueRef result_ptr = LLVMBuildLoad(g->builder, result_ptr_ptr, "");
+        result_ptr_as_usize = LLVMBuildPtrToInt(g->builder, result_ptr, usize_type_ref, "");
+    } else {
+        result_ptr_as_usize = LLVMGetUndef(usize_type_ref);
+    }
+    LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_init_val,
+            LLVMAtomicOrderingSequentiallyConsistent, g->is_single_threaded);
+
+    LLVMBasicBlockRef bad_await_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadAwait");
+    LLVMBasicBlockRef complete_suspend_block = LLVMAppendBasicBlock(g->cur_fn_val, "CompleteSuspend");
+    LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");
+
+    LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+    LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
+    LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, prev_val, bad_await_block, 2);
+
+    LLVMAddCase(switch_instr, zero, complete_suspend_block);
+    LLVMAddCase(switch_instr, all_ones, early_return_block);
+
+    // We discovered that another awaiter was already here.
+    LLVMPositionBuilderAtEnd(g->builder, bad_await_block);
+    gen_assertion(g, PanicMsgIdBadAwait, &instruction->base);
+
+    // Rely on the target to resume us from suspension.
+    LLVMPositionBuilderAtEnd(g->builder, complete_suspend_block);
+    LLVMBuildRetVoid(g->builder);
+
+    // The async function has already completed. So we use a tail call to resume ourselves.
+    LLVMPositionBuilderAtEnd(g->builder, early_return_block);
+    LLVMValueRef args[] = {g->cur_ret_ptr, result_ptr_as_usize};
+    LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, split_llvm_fn, args, 2, LLVMFastCallConv,
+            ZigLLVM_FnInlineAuto, "");
+    ZigLLVMSetTailCall(call_inst);
+    LLVMBuildRetVoid(g->builder);
+
+    g->cur_fn_val = split_llvm_fn;
+    g->cur_ret_ptr = LLVMGetParam(split_llvm_fn, 0);
+    LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(split_llvm_fn, "AwaitResume");
+    LLVMPositionBuilderAtEnd(g->builder, call_bb);
+    render_async_var_decls(g, instruction->base.scope);
+
+    if (type_has_bits(result_type)) {
+        LLVMValueRef spilled_result_ptr = LLVMGetParam(g->cur_fn_val, 1);
+        LLVMValueRef casted_spilled_result_ptr = LLVMBuildIntToPtr(g->builder, spilled_result_ptr,
+                get_llvm_type(g, ptr_result_type), "");
+        return get_handle_value(g, casted_spilled_result_ptr, result_type, ptr_result_type);
+    } else {
+        return nullptr;
+    }
+}
+
 static LLVMTypeRef anyframe_fn_type(CodeGen *g) {
     if (g->anyframe_fn_type != nullptr)
         return g->anyframe_fn_type;
 
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     ZigType *anyframe_type = get_any_frame_type(g, nullptr);
-    LLVMTypeRef param_type = get_llvm_type(g, anyframe_type);
     LLVMTypeRef return_type = LLVMVoidType();
-    LLVMTypeRef fn_type = LLVMFunctionType(return_type, &param_type, 1, false);
+    LLVMTypeRef param_types[] = {
+        get_llvm_type(g, anyframe_type),
+        usize_type_ref,
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type, param_types, 2, false);
     g->anyframe_fn_type = LLVMPointerType(fn_type, 0);
 
     return g->anyframe_fn_type;
@@ -5006,13 +5148,15 @@ static LLVMTypeRef anyframe_fn_type(CodeGen *g) {
 static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable,
         IrInstructionCoroResume *instruction)
 {
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef frame = ir_llvm_value(g, instruction->frame);
     ZigType *frame_type = instruction->frame->value.type;
     assert(frame_type->id == ZigTypeIdAnyFrame);
     LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, frame, coro_fn_ptr_index, "");
     LLVMValueRef uncasted_fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
     LLVMValueRef fn_val = LLVMBuildIntToPtr(g->builder, uncasted_fn_val, anyframe_fn_type(g), "");
-    ZigLLVMBuildCall(g->builder, fn_val, &frame, 1, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
+    LLVMValueRef args[] = {frame, LLVMGetUndef(usize_type_ref)};
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
     return nullptr;
 }
 
@@ -5279,6 +5423,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdFrameSizeGen:
             return ir_render_frame_size(g, executable, (IrInstructionFrameSizeGen *)instruction);
+        case IrInstructionIdAwait:
+            return ir_render_await(g, executable, (IrInstructionAwait *)instruction);
     }
     zig_unreachable();
 }

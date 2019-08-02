@@ -1149,9 +1149,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeSuspend:
             {
-                fprintf(ar->f, "suspend");
                 if (node->data.suspend.block != nullptr) {
+                    fprintf(ar->f, "suspend ");
                     render_node_grouped(ar, node->data.suspend.block);
+                } else {
+                    fprintf(ar->f, "suspend\n");
                 }
                 break;
             }

@@ -1,4 +1,5 @@
- * await
+ * compile error for error: expected anyframe->T, found 'anyframe'
+ * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
  * await in single-threaded mode
  * async call on a non async function
@@ -13,3 +14,6 @@
  * @typeInfo for @Frame(func)
  * peer type resolution of *@Frame(func) and anyframe
  * peer type resolution of *@Frame(func) and anyframe->T when the return type matches
+ * returning a value from within a suspend block
+ * struct types as the return type of an async function. make sure it works with return result locations.
+ * make resuming inside a suspend block, with nothing after it, a must-tail call.

@@ -3807,6 +3807,9 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     } else if (fn->inferred_async_node->type == NodeTypeSuspend) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("suspends here"));
+    } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
+        add_error_note(g, msg, fn->inferred_async_node,
+            buf_sprintf("await is a suspend point"));
     } else {
         zig_unreachable();
     }
@@ -7361,7 +7364,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         param_di_types.append(get_llvm_di_type(g, gen_type));
     }
     if (is_async) {
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(1);
+        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(2);
 
         ZigType *frame_type = get_any_frame_type(g, fn_type_id->return_type);
         gen_param_types.append(get_llvm_type(g, frame_type));
@@ -7370,6 +7373,13 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         fn_type->data.fn.gen_param_info[0].src_index = 0;
         fn_type->data.fn.gen_param_info[0].gen_index = 0;
         fn_type->data.fn.gen_param_info[0].type = frame_type;
+
+        gen_param_types.append(get_llvm_type(g, g->builtin_types.entry_usize));
+        param_di_types.append(get_llvm_di_type(g, g->builtin_types.entry_usize));
+
+        fn_type->data.fn.gen_param_info[1].src_index = 1;
+        fn_type->data.fn.gen_param_info[1].gen_index = 1;
+        fn_type->data.fn.gen_param_info[1].type = g->builtin_types.entry_usize;
     } else {
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
@@ -7434,15 +7444,21 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
 
     ZigType *gen_return_type = g->builtin_types.entry_void;
     ZigList<ZigLLVMDIType *> param_di_types = {};
+    ZigList<LLVMTypeRef> gen_param_types = {};
     // first "parameter" is return value
     param_di_types.append(get_llvm_di_type(g, gen_return_type));
 
     ZigType *frame_type = get_coro_frame_type(g, fn);
     ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
-    LLVMTypeRef gen_param_type = get_llvm_type(g, ptr_type);
+    gen_param_types.append(get_llvm_type(g, ptr_type));
     param_di_types.append(get_llvm_di_type(g, ptr_type));
 
-    fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type), &gen_param_type, 1, false);
+    // this parameter is used to pass the result pointer when await completes
+    gen_param_types.append(get_llvm_type(g, g->builtin_types.entry_usize));
+    param_di_types.append(get_llvm_di_type(g, g->builtin_types.entry_usize));
+
+    fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
+            gen_param_types.items, gen_param_types.length, false);
     fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
 }
 
@@ -7493,7 +7509,8 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
             8*g->pointer_size_bytes, 8*g->builtin_types.entry_usize->abi_align, buf_ptr(&any_frame_type->name));
 
     LLVMTypeRef llvm_void = LLVMVoidType();
-    LLVMTypeRef fn_type = LLVMFunctionType(llvm_void, &any_frame_type->llvm_type, 1, false);
+    LLVMTypeRef arg_types[] = {any_frame_type->llvm_type, g->builtin_types.entry_usize->llvm_type};
+    LLVMTypeRef fn_type = LLVMFunctionType(llvm_void, arg_types, 2, false);
     LLVMTypeRef usize_type_ref = get_llvm_type(g, g->builtin_types.entry_usize);
     ZigLLVMDIType *usize_di_type = get_llvm_di_type(g, g->builtin_types.entry_usize);
     ZigLLVMDIScope *compile_unit_scope = ZigLLVMCompileUnitToScope(g->compile_unit);

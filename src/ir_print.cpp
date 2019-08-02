@@ -1546,6 +1546,12 @@ static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_await(IrPrint *irp, IrInstructionAwait *instruction) {
+    fprintf(irp->f, "@await(");
+    ir_print_other_instruction(irp, instruction->frame);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -2024,6 +2030,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCoroResume:
             ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
+            break;
+        case IrInstructionIdAwait:
+            ir_print_await(irp, (IrInstructionAwait *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
