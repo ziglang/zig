@@ -1116,3 +1116,53 @@ pub const stack_t = extern struct {
     ss_size: isize,
     ss_flags: i32,
 };
+
+pub const S_IFMT = 0o170000;
+
+pub const S_IFIFO = 0o010000;
+pub const S_IFCHR = 0o020000;
+pub const S_IFDIR = 0o040000;
+pub const S_IFBLK = 0o060000;
+pub const S_IFREG = 0o100000;
+pub const S_IFLNK = 0o120000;
+pub const S_IFSOCK = 0o140000;
+pub const S_IFWHT = 0o160000;
+
+pub const S_ISUID = 0o4000;
+pub const S_ISGID = 0o2000;
+pub const S_ISVTX = 0o1000;
+pub const S_IRUSR = 0o400;
+pub const S_IWUSR = 0o200;
+pub const S_IXUSR = 0o100;
+
+pub fn S_ISFIFO(m: u32) bool {
+    return m & S_IFMT == S_IFIFO;
+}
+
+pub fn S_ISCHR(m: u32) bool {
+    return m & S_IFMT == S_IFCHR;
+}
+
+pub fn S_ISDIR(m: u32) bool {
+    return m & S_IFMT == S_IFDIR;
+}
+
+pub fn S_ISBLK(m: u32) bool {
+    return m & S_IFMT == S_IFBLK;
+}
+
+pub fn S_ISREG(m: u32) bool {
+    return m & S_IFMT == S_IFREG;
+}
+
+pub fn S_ISLNK(m: u32) bool {
+    return m & S_IFMT == S_IFLNK;
+}
+
+pub fn S_ISSOCK(m: u32) bool {
+    return m & S_IFMT == S_IFSOCK;
+}
+
+pub fn S_IWHT(m: u32) bool {
+    return m & S_IFMT == S_IFWHT;
+}

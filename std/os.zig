@@ -134,8 +134,8 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     defer close(fd);
 
     const st = try fstat(fd);
-    if (!S_ISCHR(st.mode)) {
-        return OpenError.Unexpected;
+    if (!system.S_ISCHR(st.mode)) {
+        return error.Unexpected;
     }
 
     const stream = &std.fs.File.openHandle(fd).inStream().stream;
