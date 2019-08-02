@@ -198,7 +198,7 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
 static IrInstruction *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *base_ptr, bool initializing);
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *ptr, IrInstruction *uncasted_value);
+        IrInstruction *ptr, IrInstruction *uncasted_value, bool allow_write_through_const);
 static IrInstruction *ir_gen_union_init_expr(IrBuilder *irb, Scope *scope, AstNode *source_node,
     IrInstruction *union_type, IrInstruction *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc);
@@ -1613,7 +1613,7 @@ static IrInstruction *ir_build_unreachable(IrBuilder *irb, Scope *scope, AstNode
     return &unreachable_instruction->base;
 }
 
-static IrInstruction *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstructionStorePtr *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *ptr, IrInstruction *value)
 {
     IrInstructionStorePtr *instruction = ir_build_instruction<IrInstructionStorePtr>(irb, scope, source_node);
@@ -1625,7 +1625,7 @@ static IrInstruction *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(value, irb->current_basic_block);
 
-    return &instruction->base;
+    return instruction;
 }
 
 static IrInstruction *ir_build_var_decl_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -6051,6 +6051,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = field_ptr;
+                result_loc_inst->base.allow_write_through_const = true;
                 ir_ref_instruction(field_ptr, irb->current_basic_block);
                 ir_build_reset_result(irb, scope, expr_node, &result_loc_inst->base);
 
@@ -6089,6 +6090,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = elem_ptr;
+                result_loc_inst->base.allow_write_through_const = true;
                 ir_ref_instruction(elem_ptr, irb->current_basic_block);
                 ir_build_reset_result(irb, scope, expr_node, &result_loc_inst->base);
 
@@ -6646,7 +6648,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end_and_append_block(irb, continue_block);
     IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one, false);
-    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val));
+    ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val)->allow_write_through_const = true;
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
     IrInstruction *else_result = nullptr;
@@ -14848,7 +14850,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             // instruction.
             assert(deref->value.special != ConstValSpecialRuntime);
             var_ptr->value.special = ConstValSpecialRuntime;
-            ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref);
+            ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref, false);
         }
 
         if (var_ptr->value.special == ConstValSpecialStatic && var->mem_slot_index != SIZE_MAX) {
@@ -15862,7 +15864,7 @@ no_mem_slot:
 }
 
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *ptr, IrInstruction *uncasted_value)
+        IrInstruction *ptr, IrInstruction *uncasted_value, bool allow_write_through_const)
 {
     assert(ptr->value.type->id == ZigTypeIdPointer);
 
@@ -15878,7 +15880,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
 
     ZigType *child_type = ptr->value.type->data.pointer.child_type;
 
-    if (ptr->value.type->data.pointer.is_const && !source_instr->is_gen) {
+    if (ptr->value.type->data.pointer.is_const && !allow_write_through_const) {
         ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
@@ -15957,10 +15959,9 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
             break;
     }
 
-    IrInstruction *result = ir_build_store_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
-        ptr, value);
-    result->value.type = ira->codegen->builtin_types.entry_void;
-    return result;
+    IrInstructionStorePtr *store_ptr = ir_build_store_ptr(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, ptr, value);
+    return &store_ptr->base;
 }
 
 static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction,
@@ -18283,7 +18284,7 @@ static IrInstruction *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    return ir_analyze_store_ptr(ira, &instruction->base, ptr, value);
+    return ir_analyze_store_ptr(ira, &instruction->base, ptr, value, instruction->allow_write_through_const);
 }
 
 static IrInstruction *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstructionLoadPtr *instruction) {
@@ -19691,7 +19692,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 
         IrInstruction *field_ptr = ir_analyze_struct_field_ptr(ira, instruction, field, result_loc,
                 container_type, true);
-        ir_analyze_store_ptr(ira, instruction, field_ptr, runtime_inst);
+        ir_analyze_store_ptr(ira, instruction, field_ptr, runtime_inst, false);
         if (instr_is_comptime(field_ptr) && field_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
             const_ptrs.append(field_ptr);
         } else {
@@ -19708,7 +19709,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
                 IrInstruction *field_result_loc = const_ptrs.at(i);
                 IrInstruction *deref = ir_get_deref(ira, field_result_loc, field_result_loc, nullptr);
                 field_result_loc->value.special = ConstValSpecialRuntime;
-                ir_analyze_store_ptr(ira, field_result_loc, field_result_loc, deref);
+                ir_analyze_store_ptr(ira, field_result_loc, field_result_loc, deref, false);
             }
         }
     }
@@ -19835,7 +19836,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
                 assert(elem_result_loc->value.special == ConstValSpecialStatic);
                 IrInstruction *deref = ir_get_deref(ira, elem_result_loc, elem_result_loc, nullptr);
                 elem_result_loc->value.special = ConstValSpecialRuntime;
-                ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref);
+                ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref, false);
             }
         }
     }
@@ -25418,7 +25419,8 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
             return result_loc;
 
         if (!was_written) {
-            IrInstruction *store_ptr = ir_analyze_store_ptr(ira, &instruction->base, result_loc, value);
+            IrInstruction *store_ptr = ir_analyze_store_ptr(ira, &instruction->base, result_loc, value,
+                    instruction->result_loc->allow_write_through_const);
             if (type_is_invalid(store_ptr->value.type)) {
                 return ira->codegen->invalid_instruction;
             }
