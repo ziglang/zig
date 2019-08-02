@@ -4001,12 +4001,20 @@ static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *no
 
 static IrInstruction *ir_gen_assign(IrBuilder *irb, Scope *scope, AstNode *node) {
     IrInstruction *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValPtr, nullptr);
-    IrInstruction *rvalue = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
-
-    if (lvalue == irb->codegen->invalid_instruction || rvalue == irb->codegen->invalid_instruction)
+    if (lvalue == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    ir_build_store_ptr(irb, scope, node, lvalue, rvalue);
+    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+    result_loc_inst->base.id = ResultLocIdInstruction;
+    result_loc_inst->base.source_instruction = lvalue;
+    ir_ref_instruction(lvalue, irb->current_basic_block);
+    ir_build_reset_result(irb, scope, node, &result_loc_inst->base);
+
+    IrInstruction *rvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op2, scope, LValNone,
+            &result_loc_inst->base);
+    if (rvalue == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
     return ir_build_const_void(irb, scope, node);
 }
 
@@ -17477,6 +17485,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     return result;
                 } else if (is_slice(array_type)) {
                     ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
+                    ir_assert(ptr_field != nullptr, &elem_ptr_instruction->base);
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
                         IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
                                 elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, false,
@@ -17663,7 +17672,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
                 return ira->codegen->invalid_instruction;
             if (type_is_invalid(struct_val->type))
                 return ira->codegen->invalid_instruction;
-            if (struct_val->special == ConstValSpecialUndef && initializing) {
+            if (initializing && struct_val->special == ConstValSpecialUndef) {
                 struct_val->data.x_struct.fields = create_const_vals(struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
                 for (size_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
@@ -18764,7 +18773,7 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
             if (optional_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
-            if (initializing && optional_val->special == ConstValSpecialUndef) {
+            if (initializing) {
                 switch (type_has_one_possible_value(ira->codegen, child_type)) {
                     case OnePossibleValueInvalid:
                         return ira->codegen->invalid_instruction;
@@ -23260,7 +23269,7 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
             ConstExprValue *err_union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_instruction;
-            if (err_union_val->special == ConstValSpecialUndef && initializing) {
+            if (initializing && err_union_val->special == ConstValSpecialUndef) {
                 ConstExprValue *vals = create_const_vals(2);
                 ConstExprValue *err_set_val = &vals[0];
                 ConstExprValue *payload_val = &vals[1];
