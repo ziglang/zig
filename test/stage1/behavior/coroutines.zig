@@ -333,3 +333,27 @@ async fn testBreakFromSuspend(my_result: *i32) void {
     suspend;
     my_result.* += 1;
 }
+
+test "heap allocated async function frame" {
+    const S = struct {
+        var x: i32 = 42;
+
+        fn doTheTest() !void {
+            const frame = try std.heap.direct_allocator.create(@Frame(someFunc));
+            defer std.heap.direct_allocator.destroy(frame);
+
+            expect(x == 42);
+            frame.* = async someFunc();
+            expect(x == 43);
+            resume frame;
+            expect(x == 44);
+        }
+
+        fn someFunc() void {
+            x += 1;
+            suspend;
+            x += 1;
+        }
+    };
+    try S.doTheTest();
+}
