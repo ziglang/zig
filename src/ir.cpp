@@ -189,7 +189,8 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
 static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime, bool non_null_comptime);
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
-        ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime, bool non_null_comptime);
+        ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime,
+        bool non_null_comptime, bool allow_discard);
 static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *base_ptr, bool safety_check_on, bool initializing);
 static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruction *source_instr,
@@ -11163,7 +11164,8 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
     }
 
     if (result_loc == nullptr) result_loc = no_result_loc();
-    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false);
+    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true,
+            false, true);
     if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
         return result_loc_inst;
     }
@@ -11623,7 +11625,7 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
     }
     IrInstruction *result_loc_inst = nullptr;
     if (result_loc != nullptr) {
-        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false);
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false, true);
         if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
             return result_loc_inst;
         }
@@ -11666,7 +11668,7 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
     IrInstruction *result_loc_inst;
     if (handle_is_ptr(wanted_type)) {
         if (result_loc == nullptr) result_loc = no_result_loc();
-        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false);
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false, true);
         if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
             return result_loc_inst;
         }
@@ -11751,7 +11753,7 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
     IrInstruction *result_loc_inst;
     if (handle_is_ptr(wanted_type)) {
         if (result_loc == nullptr) result_loc = no_result_loc();
-        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false);
+        result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false, true);
         if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
             return result_loc_inst;
         }
@@ -11824,7 +11826,8 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
 
     IrInstruction *result_loc;
     if (type_has_bits(ptr_type) && !handle_is_ptr(value->value.type)) {
-        result_loc = ir_resolve_result(ira, source_instruction, no_result_loc(), value->value.type, nullptr, true, false);
+        result_loc = ir_resolve_result(ira, source_instruction, no_result_loc(), value->value.type, nullptr, true,
+                false, true);
     } else {
         result_loc = nullptr;
     }
@@ -11868,7 +11871,8 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     if (!array_ptr) array_ptr = ir_get_ref(ira, source_instr, array, true, false);
 
     if (result_loc == nullptr) result_loc = no_result_loc();
-    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr, true, false);
+    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, wanted_type, nullptr,
+            true, false, true);
     if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
         return result_loc_inst;
     }
@@ -12524,7 +12528,8 @@ static IrInstruction *ir_analyze_vector_to_array(IrAnalyze *ira, IrInstruction *
     if (result_loc == nullptr) {
         result_loc = no_result_loc();
     }
-    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, array_type, nullptr, true, false);
+    IrInstruction *result_loc_inst = ir_resolve_result(ira, source_instr, result_loc, array_type, nullptr,
+            true, false, true);
     if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
         return result_loc_inst;
     }
@@ -13105,7 +13110,8 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
     IrInstruction *result_loc_inst;
     if (type_entry->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
         if (result_loc == nullptr) result_loc = no_result_loc();
-        result_loc_inst = ir_resolve_result(ira, source_instruction, result_loc, child_type, nullptr, true, false);
+        result_loc_inst = ir_resolve_result(ira, source_instruction, result_loc, child_type, nullptr,
+                true, false, true);
         if (type_is_invalid(result_loc_inst->value.type) || instr_is_unreachable(result_loc_inst)) {
             return result_loc_inst;
         }
@@ -15360,7 +15366,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
 
             if (peer_parent->peers.length == 1) {
                 IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
-                        value_type, value, force_runtime, non_null_comptime);
+                        value_type, value, force_runtime, non_null_comptime, true);
                 result_peer->suspend_pos.basic_block_index = SIZE_MAX;
                 result_peer->suspend_pos.instruction_index = SIZE_MAX;
                 if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
@@ -15380,7 +15386,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             if (peer_parent->skipped) {
                 if (non_null_comptime) {
                     return ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
-                            value_type, value, force_runtime, non_null_comptime);
+                            value_type, value, force_runtime, non_null_comptime, true);
                 }
                 return nullptr;
             }
@@ -15398,7 +15404,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
 
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
-                    peer_parent->resolved_type, nullptr, force_runtime, non_null_comptime);
+                    peer_parent->resolved_type, nullptr, force_runtime, non_null_comptime, true);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
                 parent_result_loc->value.type->id == ZigTypeIdUnreachable)
             {
@@ -15448,7 +15454,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
 
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
-                    dest_type, bitcasted_value, force_runtime, non_null_comptime);
+                    dest_type, bitcasted_value, force_runtime, non_null_comptime, true);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
                 parent_result_loc->value.type->id == ZigTypeIdUnreachable)
             {
@@ -15477,8 +15483,15 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
 
 static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc_pass1, ZigType *value_type, IrInstruction *value, bool force_runtime,
-        bool non_null_comptime)
+        bool non_null_comptime, bool allow_discard)
 {
+    if (!allow_discard && result_loc_pass1->id == ResultLocIdInstruction &&
+        instr_is_comptime(result_loc_pass1->source_instruction) &&
+        result_loc_pass1->source_instruction->value.type->id == ZigTypeIdPointer &&
+        result_loc_pass1->source_instruction->value.data.x_ptr.special == ConstPtrSpecialDiscard)
+    {
+        result_loc_pass1 = no_result_loc();
+    }
     IrInstruction *result_loc = ir_resolve_result_raw(ira, suspend_source_instr, result_loc_pass1, value_type,
             value, force_runtime, non_null_comptime);
     if (result_loc == nullptr || (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value.type)))
@@ -15533,7 +15546,7 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
     if (type_is_invalid(implicit_elem_type))
         return ira->codegen->invalid_instruction;
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            implicit_elem_type, nullptr, false, true);
+            implicit_elem_type, nullptr, false, true, true);
     if (result_loc != nullptr)
         return result_loc;
 
@@ -15542,7 +15555,7 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrIn
             instruction->result_loc->id == ResultLocIdReturn)
     {
         result_loc = ir_resolve_result(ira, &instruction->base, no_result_loc(),
-                implicit_elem_type, nullptr, false, true);
+                implicit_elem_type, nullptr, false, true, true);
         if (result_loc != nullptr &&
                 (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
         {
@@ -15631,7 +15644,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     ZigType *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
     IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, no_result_loc(),
-            async_return_type, nullptr, true, true);
+            async_return_type, nullptr, true, true, false);
     if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
         return result_loc;
     }
@@ -16390,7 +16403,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         IrInstruction *result_loc;
         if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-                    impl_fn_type_id->return_type, nullptr, true, true);
+                    impl_fn_type_id->return_type, nullptr, true, true, false);
             if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) ||
                         instr_is_unreachable(result_loc)))
             {
@@ -16512,7 +16525,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     IrInstruction *result_loc;
     if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
-                return_type, nullptr, true, true);
+                return_type, nullptr, true, true, false);
         if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
             return result_loc;
         }
@@ -17028,7 +17041,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
             // In case resolving the parent activates a suspend, do it now
             IrInstruction *parent_result_loc = ir_resolve_result(ira, &phi_instruction->base, peer_parent->parent,
-                    peer_parent->resolved_type, nullptr, false, false);
+                    peer_parent->resolved_type, nullptr, false, false, true);
             if (parent_result_loc != nullptr &&
                 (type_is_invalid(parent_result_loc->value.type) || instr_is_unreachable(parent_result_loc)))
             {
@@ -21541,7 +21554,7 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
     IrInstruction *result_loc;
     if (handle_is_ptr(result_type)) {
         result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-                result_type, nullptr, true, false);
+                result_type, nullptr, true, false, true);
         if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
             return result_loc;
         }
@@ -21798,7 +21811,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
     }
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            dest_slice_type, nullptr, true, false);
+            dest_slice_type, nullptr, true, false, true);
     if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
         return result_loc;
     }
@@ -21875,7 +21888,7 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
     }
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            dest_slice_type, nullptr, true, false);
+            dest_slice_type, nullptr, true, false, true);
     if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
         return result_loc;
     }
@@ -22617,7 +22630,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
     }
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            return_type, nullptr, true, false);
+            return_type, nullptr, true, false, true);
     if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
         return result_loc;
     }
@@ -25397,7 +25410,7 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
 
     bool was_written = instruction->result_loc->written;
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
-            value->value.type, value, false, false);
+            value->value.type, value, false, false, true);
     if (result_loc != nullptr) {
         if (type_is_invalid(result_loc->value.type))
             return ira->codegen->invalid_instruction;
@@ -25429,7 +25442,7 @@ static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInst
         return operand;
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base,
-            &instruction->result_loc_bit_cast->base, operand->value.type, operand, false, false);
+            &instruction->result_loc_bit_cast->base, operand->value.type, operand, false, false, true);
     if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
         return result_loc;
 
