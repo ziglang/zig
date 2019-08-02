@@ -2543,6 +2543,7 @@ struct IrInstructionLoadPtrGen {
 struct IrInstructionStorePtr {
     IrInstruction base;
 
+    bool allow_write_through_const;
     IrInstruction *ptr;
     IrInstruction *value;
 };
@@ -3707,6 +3708,7 @@ enum ResultLocId {
 struct ResultLoc {
     ResultLocId id;
     bool written;
+    bool allow_write_through_const;
     IrInstruction *resolved_loc; // result ptr 
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc

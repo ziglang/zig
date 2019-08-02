@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -90,3 +91,12 @@ test "cmpxchg with ptr" {
 //    expect(@cmpxchgStrong(u128, &x, 5678, 42, .SeqCst, .SeqCst) == null);
 //    expect(x == 42);
 //}
+
+test "cmpxchg with ignored result" {
+    var x: i32 = 1234;
+    var ptr = &x;
+
+    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
+
+    expectEqual(i32(5678), x);
+}
