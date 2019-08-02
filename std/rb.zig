@@ -93,7 +93,8 @@ pub const Node = struct {
         comptime {
             assert(@alignOf(*Node) >= 2);
         }
-        return @intToPtr(*Node, node.parent_and_color & ~mask);
+        const maybe_ptr = node.parent_and_color & ~mask;
+        return if (maybe_ptr == 0) null else @intToPtr(*Node, maybe_ptr);
     }
 
     fn setColor(node: *Node, color: Color) void {

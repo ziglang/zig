@@ -863,6 +863,71 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     zig_unreachable();
 }
 
+uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_UnknownArch:
+            zig_unreachable();
+
+        case ZigLLVM_avr:
+        case ZigLLVM_msp430:
+            return 16;
+
+        case ZigLLVM_arc:
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_le32:
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_ppc:
+        case ZigLLVM_r600:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_tce:
+        case ZigLLVM_tcele:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_x86:
+        case ZigLLVM_xcore:
+        case ZigLLVM_amdil:
+        case ZigLLVM_hsail:
+        case ZigLLVM_spir:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_lanai:
+        case ZigLLVM_shave:
+        case ZigLLVM_wasm32:
+        case ZigLLVM_renderscript32:
+            return 32;
+
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_le64:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_systemz:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_spir64:
+        case ZigLLVM_wasm64:
+        case ZigLLVM_renderscript64:
+            return 64;
+
+        case ZigLLVM_x86_64:
+            return 128;
+    }
+    zig_unreachable();
+}
+
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case OsFreestanding:
@@ -1693,3 +1758,4 @@ bool target_supports_libunwind(const ZigTarget *target) {
     }
     return true;
 }
+

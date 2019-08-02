@@ -4355,8 +4355,14 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
         return LLVMBuildSelect(g->builder, success_bit, LLVMConstNull(get_llvm_type(g, child_type)), payload_val, "");
     }
 
+    // When the cmpxchg is discarded, the result location will have no bits.
+    if (!type_has_bits(instruction->result_loc->value.type)) {
+        return nullptr;
+    }
+
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
-    assert(type_has_bits(child_type));
+    src_assert(result_loc != nullptr, instruction->base.source_node);
+    src_assert(type_has_bits(child_type), instruction->base.source_node);
 
     LLVMValueRef payload_val = LLVMBuildExtractValue(g->builder, result_val, 0, "");
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
