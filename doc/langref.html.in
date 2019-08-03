@@ -6330,6 +6330,22 @@ comptime {
       TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
       we can remove this restriction
       </p>
+      <p>
+      Supported operations:
+      </p>
+      <ul>
+        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified.</li>
+        <li>{#syntax#}.Add{#endsyntax#} - for integers, twos complement wraparound addition.
+            Also supports {#link|Floats#}.</li>
+        <li>{#syntax#}.Sub{#endsyntax#} - for integers, twos complement wraparound subtraction.
+            Also supports {#link|Floats#}.</li>
+        <li>{#syntax#}.And{#endsyntax#} - bitwise and</li>
+        <li>{#syntax#}.Nand{#endsyntax#} - bitwise nand</li>
+        <li>{#syntax#}.Or{#endsyntax#} - bitwise or</li>
+        <li>{#syntax#}.Xor{#endsyntax#} - bitwise xor</li>
+        <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
+        <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
+      </ul>
       {#header_close#}
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>

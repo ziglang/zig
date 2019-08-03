@@ -774,7 +774,7 @@ fn parseBoolAndExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         arena,
         it,
         tree,
-        SimpleBinOpParseFn(.Keyword_and, Node.InfixOp.Op.BoolAnd),
+        SimpleBinOpParseFn(.Keyword_and, .BoolAnd),
         parseCompareExpr,
         .Infinitely,
     );

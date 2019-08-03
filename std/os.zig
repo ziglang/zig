@@ -133,6 +133,11 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
+    const st = try fstat(fd);
+    if (!S_ISCHR(st.mode)) {
+        return error.NoDevice;
+    }
+
     const stream = &std.fs.File.openHandle(fd).inStream().stream;
     stream.readNoEof(buf) catch return error.Unexpected;
 }
@@ -2050,6 +2055,22 @@ pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
         EIO => return error.InputOutput,
         ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
+/// Otherwise use `access` or `accessC`.
+/// TODO currently this ignores `mode`.
+pub fn accessW(path: [*]const u16, mode: u32) windows.GetFileAttributesError!void {
+    const ret = try windows.GetFileAttributesW(path);
+    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    switch (windows.kernel32.GetLastError()) {
+        windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+        else => |err| return windows.unexpectedError(err),
     }
 }
 

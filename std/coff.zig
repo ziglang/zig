@@ -19,6 +19,7 @@ const IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10b;
 const IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
 
 const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
+const IMAGE_DEBUG_TYPE_CODEVIEW = 2;
 const DEBUG_DIRECTORY = 6;
 
 pub const CoffError = error{
@@ -28,6 +29,7 @@ pub const CoffError = error{
     MissingCoffSection,
 };
 
+// Official documentation of the format: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 pub const Coff = struct {
     in_file: File,
     allocator: *mem.Allocator,
@@ -120,16 +122,43 @@ pub const Coff = struct {
 
     pub fn getPdbPath(self: *Coff, buffer: []u8) !usize {
         try self.loadSections();
-        const header = (self.getSection(".rdata") orelse return error.MissingCoffSection).header;
 
-        // The linker puts a chunk that contains the .pdb path right after the
-        // debug_directory.
+        const header = blk: {
+            if (self.getSection(".buildid")) |section| {
+                break :blk section.header;
+            } else if (self.getSection(".rdata")) |section| {
+                break :blk section.header;
+            } else {
+                return error.MissingCoffSection;
+            }
+        };
+
         const debug_dir = &self.pe_header.data_directory[DEBUG_DIRECTORY];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
-        try self.in_file.seekTo(file_offset + debug_dir.size);
 
         var file_stream = self.in_file.inStream();
         const in = &file_stream.stream;
+        try self.in_file.seekTo(file_offset);
+
+        // Find the correct DebugDirectoryEntry, and where its data is stored.
+        // It can be in any section.
+        const debug_dir_entry_count = debug_dir.size / @sizeOf(DebugDirectoryEntry);
+        var i: u32 = 0;
+        blk: while (i < debug_dir_entry_count) : (i += 1) {
+            const debug_dir_entry = try in.readStruct(DebugDirectoryEntry);
+            if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
+                for (self.sections.toSlice()) |*section| {
+                    const section_start = section.header.virtual_address;
+                    const section_size = section.header.misc.virtual_size;
+                    const rva = debug_dir_entry.address_of_raw_data;
+                    const offset = rva - section_start;
+                    if (section_start <= rva and offset < section_size and debug_dir_entry.size_of_data <= section_size - offset) {
+                        try self.in_file.seekTo(section.header.pointer_to_raw_data + offset);
+                        break :blk;
+                    }
+                }
+            }
+        }
 
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try in.readNoEof(cv_signature[0..]);
@@ -141,7 +170,7 @@ pub const Coff = struct {
 
         // Finally read the null-terminated string.
         var byte = try in.readByte();
-        var i: usize = 0;
+        i = 0;
         while (byte != 0 and i < buffer.len) : (i += 1) {
             buffer[i] = byte;
             byte = try in.readByte();
@@ -170,7 +199,7 @@ pub const Coff = struct {
             try self.sections.append(Section{
                 .header = SectionHeader{
                     .name = name,
-                    .misc = SectionHeader.Misc{ .physical_address = try in.readIntLittle(u32) },
+                    .misc = SectionHeader.Misc{ .virtual_size = try in.readIntLittle(u32) },
                     .virtual_address = try in.readIntLittle(u32),
                     .size_of_raw_data = try in.readIntLittle(u32),
                     .pointer_to_raw_data = try in.readIntLittle(u32),
@@ -212,6 +241,17 @@ const OptionalHeader = struct {
 
     magic: u16,
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
+};
+
+const DebugDirectoryEntry = packed struct {
+    characteristiccs: u32,
+    time_date_stamp: u32,
+    major_version: u16,
+    minor_version: u16,
+    @"type": u32,
+    size_of_data: u32,
+    address_of_raw_data: u32,
+    pointer_to_raw_data: u32,
 };
 
 pub const Section = struct {

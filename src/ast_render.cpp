@@ -193,8 +193,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeUse:
-            return "Use";
+        case NodeTypeUsingNamespace:
+            return "UsingNamespace";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
         case NodeTypeNullLiteral:
@@ -319,6 +319,9 @@ static bool is_digit(uint8_t c) {
 }
 
 static bool is_printable(uint8_t c) {
+    if (c == 0) {
+        return false;
+    }
     static const uint8_t printables[] =
         " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.~`!@#$%^&*()_-+=\\{}[];'\"?/<>,:";
     for (size_t i = 0; i < array_length(printables); i += 1) {
@@ -337,20 +340,12 @@ static void string_literal_escape(Buf *source, Buf *dest) {
             buf_append_str(dest, "\\\"");
         } else if (c == '\\') {
             buf_append_str(dest, "\\\\");
-        } else if (c == '\a') {
-            buf_append_str(dest, "\\a");
-        } else if (c == '\b') {
-            buf_append_str(dest, "\\b");
-        } else if (c == '\f') {
-            buf_append_str(dest, "\\f");
         } else if (c == '\n') {
             buf_append_str(dest, "\\n");
         } else if (c == '\r') {
             buf_append_str(dest, "\\r");
         } else if (c == '\t') {
             buf_append_str(dest, "\\t");
-        } else if (c == '\v') {
-            buf_append_str(dest, "\\v");
         } else if (is_printable(c)) {
             buf_append_char(dest, c);
         } else {
@@ -630,7 +625,19 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeCharLiteral:
             {
                 uint8_t c = node->data.char_literal.value;
-                if (is_printable(c)) {
+                if (c == '\'') {
+                    fprintf(ar->f, "'\\''");
+                } else if (c == '\"') {
+                    fprintf(ar->f, "'\\\"'");
+                } else if (c == '\\') {
+                    fprintf(ar->f, "'\\\\'");
+                } else if (c == '\n') {
+                    fprintf(ar->f, "'\\n'");
+                } else if (c == '\r') {
+                    fprintf(ar->f, "'\\r'");
+                } else if (c == '\t') {
+                    fprintf(ar->f, "'\\t'");
+                } else if (is_printable(c)) {
                     fprintf(ar->f, "'%c'", c);
                 } else {
                     fprintf(ar->f, "'\\x%02x'", (int)c);
@@ -791,7 +798,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     AstNode *decls_node = node->data.container_decl.decls.at(decl_i);
                     render_node_grouped(ar, decls_node);
 
-                    if (decls_node->type == NodeTypeUse ||
+                    if (decls_node->type == NodeTypeUsingNamespace ||
                         decls_node->type == NodeTypeVariableDeclaration ||
                         decls_node->type == NodeTypeFnProto)
                     {
@@ -1170,7 +1177,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:
-        case NodeTypeUse:
+        case NodeTypeUsingNamespace:
             zig_panic("TODO more ast rendering");
     }
 }

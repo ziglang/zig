@@ -366,6 +366,7 @@ enum TldId {
     TldIdFn,
     TldIdContainer,
     TldIdCompTime,
+    TldIdUsingNamespace,
 };
 
 enum TldResolution {
@@ -413,6 +414,12 @@ struct TldCompTime {
     Tld base;
 };
 
+struct TldUsingNamespace {
+    Tld base;
+
+    ConstExprValue *using_namespace_value;
+};
+
 struct TypeEnumField {
     Buf *name;
     BigInt value;
@@ -453,7 +460,7 @@ enum NodeType {
     NodeTypeFieldAccessExpr,
     NodeTypePtrDeref,
     NodeTypeUnwrapOptional,
-    NodeTypeUse,
+    NodeTypeUsingNamespace,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
@@ -715,9 +722,6 @@ struct AstNodeArrayType {
 struct AstNodeUsingNamespace {
     VisibMod visib_mod;
     AstNode *expr;
-
-    TldResolution resolution;
-    ConstExprValue *using_namespace_value;
 };
 
 struct AstNodeIfBoolExpr {
@@ -1745,8 +1749,6 @@ struct CodeGen {
 
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
-    ZigList<AstNode *> use_queue;
-    size_t use_queue_index;
     ZigList<TimeEvent> timing_events;
     ZigList<AstNode *> tld_ref_source_node_stack;
     ZigList<ZigFn *> inline_fns;
@@ -2005,7 +2007,7 @@ struct ScopeDecls {
     Scope base;
 
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> decl_table;
-    ZigList<AstNode *> use_decls;
+    ZigList<TldUsingNamespace *> use_decls;
     AstNode *safety_set_node;
     AstNode *fast_math_set_node;
     ZigType *import;
@@ -2541,6 +2543,7 @@ struct IrInstructionLoadPtrGen {
 struct IrInstructionStorePtr {
     IrInstruction base;
 
+    bool allow_write_through_const;
     IrInstruction *ptr;
     IrInstruction *value;
 };
@@ -3705,6 +3708,7 @@ enum ResultLocId {
 struct ResultLoc {
     ResultLocId id;
     bool written;
+    bool allow_write_through_const;
     IrInstruction *resolved_loc; // result ptr 
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc

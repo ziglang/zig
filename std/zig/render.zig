@@ -2020,7 +2020,13 @@ fn renderTokenOffset(
 
                     const after_comment_token = tree.tokens.at(token_index + offset);
                     const next_line_indent = switch (after_comment_token.id) {
-                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => indent - indent_delta,
+                        Token.Id.RParen, Token.Id.RBrace, Token.Id.RBracket => blk: {
+                            if (indent > indent_delta) {
+                                break :blk indent - indent_delta;
+                            } else {
+                                break :blk 0;
+                            }
+                        },
                         else => indent,
                     };
                     try stream.writeByteNTimes(' ', next_line_indent);

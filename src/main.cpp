@@ -583,7 +583,7 @@ int main(int argc, char **argv) {
         }
 
         CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
-                BuildModeDebug, override_lib_dir, override_std_dir, nullptr, &full_cache_dir);
+                BuildModeDebug, override_lib_dir, override_std_dir, nullptr, &full_cache_dir, false);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -1011,7 +1011,7 @@ int main(int argc, char **argv) {
     }
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
-                out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr);
+                out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr, false);
         codegen_set_strip(g, strip);
         for (size_t i = 0; i < link_libs.length; i += 1) {
             LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
@@ -1115,7 +1115,7 @@ int main(int argc, char **argv) {
                 cache_dir_buf = buf_create_from_str(cache_dir);
             }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
-                    override_lib_dir, override_std_dir, libc, cache_dir_buf);
+                    override_lib_dir, override_std_dir, libc, cache_dir_buf, cmd == CmdTest);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;
@@ -1125,7 +1125,6 @@ int main(int argc, char **argv) {
             g->enable_time_report = timing_info;
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
-            codegen_set_is_test(g, cmd == CmdTest);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
             g->version_script_path = version_script; 

@@ -201,7 +201,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.OutOfMemory;
         \\}
     ,
-        "tmp.zig:2:7: error: error is discarded",
+        "tmp.zig:2:12: error: error is discarded",
     );
 
     cases.add(
@@ -234,7 +234,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "usingnamespace with wrong type",
-        \\use void;
+        \\usingnamespace void;
     ,
         "tmp.zig:1:1: error: expected struct, enum, or union; found 'void'",
     );
@@ -2740,7 +2740,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    3 = 3;
         \\}
     ,
-        "tmp.zig:2:7: error: cannot assign to constant",
+        "tmp.zig:2:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2750,7 +2750,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a = 4;
         \\}
     ,
-        "tmp.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2820,7 +2820,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(); }
     ,
-        "tmp.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -3883,7 +3883,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        "tmp.zig:6:24: error: unable to evaluate constant expression",
+        "tmp.zig:6:26: error: unable to evaluate constant expression",
         "tmp.zig:4:17: note: called from here",
     );
 
@@ -4133,7 +4133,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        "tmp.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:13: error: cannot assign to constant",
     );
 
     cases.add(
@@ -4143,7 +4143,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        "tmp.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:13: error: cannot assign to constant",
     );
 
     cases.add(
@@ -4291,7 +4291,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f.field = 0;
         \\}
     ,
-        "tmp.zig:6:13: error: cannot assign to constant",
+        "tmp.zig:6:15: error: cannot assign to constant",
     );
 
     cases.add(
