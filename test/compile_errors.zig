@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "runtime-known async function called",
+        \\export fn entry() void {
+        \\    var ptr = afunc;
+        \\    _ = ptr();
+        \\}
+        \\
+        \\async fn afunc() void {}
+    ,
+        "tmp.zig:3:12: error: function is not comptime-known; @asyncCall required",
+    );
+
+    cases.add(
         "runtime-known function called with async keyword",
         \\export fn entry() void {
         \\    var ptr = afunc;

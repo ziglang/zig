@@ -5177,7 +5177,11 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
         ZigFn *callee = call->fn_entry;
-        assert(callee != nullptr);
+        if (callee == nullptr) {
+            add_node_error(g, call->base.source_node,
+                buf_sprintf("function is not comptime-known; @asyncCall required"));
+            return ErrorSemanticAnalyzeFail;
+        }
 
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {
