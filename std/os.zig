@@ -135,7 +135,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 
     const st = try fstat(fd);
     if (!system.S_ISCHR(st.mode)) {
-        return error.Unexpected;
+        return error.NoDevice;
     }
 
     const stream = &std.fs.File.openHandle(fd).inStream().stream;
