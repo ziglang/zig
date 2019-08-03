@@ -1,4 +1,3 @@
- * struct types as the return type of an async function. make sure it works with return result locations.
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
@@ -19,3 +18,4 @@
  * make resuming inside a suspend block, with nothing after it, a must-tail call.
  * make sure there are safety tests for all the new safety features (search the new PanicFnId enum values)
  * error return tracing
+ * compile error for casting a function to a non-async function pointer, but then later it gets inferred to be an async function

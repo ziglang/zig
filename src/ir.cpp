@@ -14819,7 +14819,10 @@ static IrInstruction *ir_analyze_instruction_reset_result(IrAnalyze *ira, IrInst
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction, ZigFn *fn_entry,
         ZigType *fn_type, IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count)
 {
-    ir_assert(fn_entry != nullptr, &call_instruction->base);
+    if (fn_entry == nullptr) {
+        ir_add_error(ira, fn_ref, buf_sprintf("function is not comptime-known; @asyncCall required"));
+        return ira->codegen->invalid_instruction;
+    }
 
     ZigType *frame_type = get_coro_frame_type(ira->codegen, fn_entry);
     IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
