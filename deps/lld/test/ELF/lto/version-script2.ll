@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: echo "VER1 {};" > %t.script
 ; RUN: ld.lld %t.o -o %t.so -shared --version-script %t.script
-; RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
+; RUN: llvm-readobj --dyn-syms %t.so | FileCheck %s
 
 ; test that we have the correct version.
 ; CHECK: Name: foo@@VER1 (

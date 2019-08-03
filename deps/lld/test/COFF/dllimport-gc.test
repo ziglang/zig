@@ -6,11 +6,11 @@
 # RUN: yaml2obj < %s > %t.obj
 
 # RUN: lld-link /out:%t1.exe /entry:main %t.obj %t-oldname.obj %t.lib
-# RUN: llvm-readobj -coff-imports %t1.exe | FileCheck -check-prefix=REF %s
+# RUN: llvm-readobj --coff-imports %t1.exe | FileCheck -check-prefix=REF %s
 # REF-NOT: Symbol: exportfn1
 
 # RUN: lld-link /out:%t2.exe /entry:main %t.obj %t-oldname.obj %t.lib /opt:noref
-# RUN: llvm-readobj -coff-imports %t2.exe | FileCheck -check-prefix=NOREF %s
+# RUN: llvm-readobj --coff-imports %t2.exe | FileCheck -check-prefix=NOREF %s
 # NOREF: Symbol: exportfn1
 
 --- !COFF

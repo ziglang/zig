@@ -1,8 +1,8 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s
 # RUN: lld-link /debug /out:%t2.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t2.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t2.exe | FileCheck %s
 
 # CHECK: Name: .eh_fram (
 # CHECK: Name: .data_long_section_name

@@ -1,7 +1,7 @@
 # RUN: mkdir -p %t
 # RUN: yaml2obj -o %t/constant-export.obj %s
 # RUN: lld-link /machine:x86 /dll /entry:__CFConstantStringClassReference -out:%t/constant-export.dll %t/constant-export.obj
-# RUN: llvm-readobj -coff-exports %t/constant-export.lib | FileCheck %s
+# RUN: llvm-readobj --coff-exports %t/constant-export.lib | FileCheck %s
 
 # CHECK: Type: const
 # CHECK: Name type: noprefix

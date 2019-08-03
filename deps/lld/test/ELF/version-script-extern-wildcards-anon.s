@@ -12,7 +12,7 @@
 # RUN:       local: *; \
 # RUN:       }; ' > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck %s
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {

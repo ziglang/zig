@@ -7,10 +7,11 @@
 # RUN: ld.lld %t2.o -shared -o %t.so
 # RUN: ld.lld %t1.o %t.so -o %t.exe
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
-# RUN: llvm-readobj -dynamic-table -s -r -mips-plt-got %t.exe \
+# RUN: llvm-readobj --dynamic-table -S -r --mips-plt-got %t.exe \
 # RUN:   | FileCheck -check-prefix=REL %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: bar:
 # CHECK-NEXT:   20000:       0c 00 80 06     jal     131096 <loc>
 # CHECK-NEXT:   20004:       00 00 00 00     nop
@@ -24,7 +25,9 @@
 #
 # CHECK:      loc:
 # CHECK-NEXT:   20018:       00 00 00 00     nop
+# CHECK-EMPTY:
 # CHECK-NEXT: Disassembly of section .plt:
+# CHECK-EMPTY:
 # CHECK-NEXT: .plt:
 # CHECK-NEXT:   20020:       3c 1c 00 03     lui     $gp, 3
 # CHECK-NEXT:   20024:       8f 99 00 04     lw      $25, 4($gp)

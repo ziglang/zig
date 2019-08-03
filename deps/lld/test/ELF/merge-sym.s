@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t.so -shared
-// RUN: llvm-readobj -t -s %t.so | FileCheck %s
+// RUN: llvm-readobj --symbols -S %t.so | FileCheck %s
 
         .section        .rodata.cst4,"aM",@progbits,4
         .short 0
@@ -15,7 +15,7 @@ foo:
 // CHECK-NEXT:   SHF_ALLOC
 // CHECK-NEXT:   SHF_MERGE
 // CHECK-NEXT: ]
-// CHECK-NEXT: Address: 0x210
+// CHECK-NEXT: Address: 0x20D
 
 // CHECK:      Name: foo
-// CHECK-NEXT: Value: 0x212
+// CHECK-NEXT: Value: 0x20F

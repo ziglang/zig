@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/symbol-override.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld %t1.o %t2.so -o %t
-// RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
+// RUN: llvm-readobj --dyn-syms %t | FileCheck %s
 
 // CHECK:      DynamicSymbols [
 // CHECK-NEXT:   Symbol {

@@ -19,7 +19,7 @@
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t3 | FileCheck -check-prefix=CHECK-ARM -check-prefix=CHECK-PI-ARM %s
 // RUN: llvm-objdump -d -triple=thumbv7a-none-linux-gnueabi %t4 | FileCheck -check-prefix=CHECK-THUMB -check-prefix=CHECK-PI-PLT-THUMB %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t4 | FileCheck -check-prefix=CHECK-ARM -check-prefix=CHECK-PI-PLT-ARM %s
-// RUN: llvm-readobj -s -r %t4 | FileCheck -check-prefix=CHECK-DSO-REL %s
+// RUN: llvm-readobj -S -r %t4 | FileCheck -check-prefix=CHECK-DSO-REL %s
 
 // Test ARM Thumb Interworking
 // The file is linked and checked 3 times to check the following contexts
@@ -39,6 +39,7 @@ thumb_callee1:
  bx lr
 
 // CHECK-THUMB: Disassembly of section .R_ARM_JUMP24_callee_1:
+// CHECK-THUMB-EMPTY:
 // CHECK-THUMB: thumb_callee1:
 // CHECK-THUMB: 1000:       70 47   bx
  .section .R_ARM_THM_JUMP_callee_low, "ax", %progbits
@@ -79,6 +80,7 @@ arm_caller:
  bne arm_callee3
  bx lr
 // CHECK-ARM-ABS-ARM: Disassembly of section .arm_caller:
+// CHECK-ARM-ABS-ARM-EMPTY:
 // CHECK-ARM-ABS-ARM-NEXT: arm_caller:
 // CHECK-ARM-ABS-ARM-NEXT:     1300:       3e ff ff fa     blx     #-776 <thumb_callee1>
 // CHECK-ARM-ABS-ARM-NEXT:     1304:       3d ff ff fa     blx     #-780 <thumb_callee1>
@@ -107,6 +109,7 @@ arm_caller:
 // CHECK-ARM-ABS-ARM-NEXT:     1348:       1c ff 2f e1     bx      r12
 
 // CHECK-PI-ARM: Disassembly of section .arm_caller:
+// CHECK-PI-ARM-EMPTY:
 // CHECK-PI-ARM-NEXT: arm_caller:
 // CHECK-PI-ARM-NEXT:     1300:       3e ff ff fa     blx     #-776 <thumb_callee1>
 // CHECK-PI-ARM-NEXT:     1304:       3d ff ff fa     blx     #-780 <thumb_callee1>
@@ -140,6 +143,7 @@ arm_caller:
 
 // All PLT entries are ARM, no need for interworking thunks
 // CHECK-PI-ARM-PLT: Disassembly of section .arm_caller:
+// CHECK-PI-ARM-PLT-EMPTY:
 // CHECK-PI-ARM-PLT-NEXT: arm_caller:
 // 0x17e4 PLT(thumb_callee1)
 // CHECK-PI-ARM-PLT-NEXT:    1300:       37 01 00 eb     bl      #1244
@@ -184,6 +188,7 @@ thumb_caller:
  beq.w arm_callee2
  bne.w arm_callee3
 // CHECK-ABS-THUMB: Disassembly of section .thumb_caller:
+// CHECK-ABS-THUMB-EMPTY:
 // CHECK-ABS-THUMB-NEXT: thumb_caller:
 // CHECK-ABS-THUMB-NEXT:     1400:       ff f7 7e ee     blx     #-772
 // CHECK-ABS-THUMB-NEXT:     1404:       ff f7 7c ee     blx     #-776
@@ -210,6 +215,7 @@ thumb_caller:
 // CHECK-ABS-THUMB-NEXT:     143c:       60 47   bx      r12
 
 // CHECK-PI-THUMB: Disassembly of section .thumb_caller:
+// CHECK-PI-THUMB-EMPTY:
 // CHECK-PI-THUMB-NEXT: thumb_caller:
 // CHECK-PI-THUMB-NEXT:     1400:       ff f7 7e ee     blx     #-772
 // CHECK-PI-THUMB-NEXT:     1404:       ff f7 7c ee     blx     #-776
@@ -239,6 +245,7 @@ thumb_caller:
 // CHECK-PI-THUMB-NEXT:     1442:       60 47   bx      r12
 
 // CHECK-PI-THUMB-PLT: Disassembly of section .arm_caller:
+// CHECK-PI-THUMB-PLT-EMPTY:
 // CHECK-PI-THUMB-PLT-NEXT: thumb_caller:
 // 0x1400 + 4 + 0x410 = 0x1814 = PLT(arm_callee1)
 // CHECK-PI-THUMB-PLT-NEXT:    1400:    00 f0 08 ea     blx     #1040
@@ -286,6 +293,7 @@ thumb_callee2:
 thumb_callee3:
  bx lr
 // CHECK-THUMB:  Disassembly of section .R_ARM_JUMP24_callee_2:
+// CHECK-THUMB-EMPTY:
 // CHECK-THUMB-NEXT: thumb_callee2:
 // CHECK-THUMB-NEXT: 1500:       70 47   bx      lr
 // CHECK-THUMB: thumb_callee3:
@@ -303,6 +311,7 @@ arm_callee2:
 arm_callee3:
  bx lr
 // CHECK-ARM: Disassembly of section .R_ARM_THM_JUMP_callee_2:
+// CHECK-ARM-EMPTY:
 // CHECK-ARM-NEXT: arm_callee2:
 // CHECK-ARM-NEXT:     1600:     1e ff 2f e1     bx      lr
 // CHECK-ARM: arm_callee3:
@@ -321,6 +330,7 @@ _start:
 
 
 // CHECK-PI-ARM-PLT: Disassembly of section .plt:
+// CHECK-PI-ARM-PLT-EMPTY:
 // CHECK-PI-ARM-PLT-NEXT: .plt:
 // CHECK-PI-ARM-PLT-NEXT: 17b0:         04 e0 2d e5     str     lr, [sp, #-4]!
 // CHECK-PI-ARM-PLT-NEXT: 17b4:         04 e0 9f e5     ldr     lr, [pc, #4]

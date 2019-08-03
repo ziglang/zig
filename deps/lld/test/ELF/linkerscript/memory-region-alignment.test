@@ -17,7 +17,7 @@ SECTIONS {
 }
 
 # RUN: ld.lld %t.o -o %t --script %s
-# RUN: llvm-readobj -sections %t | FileCheck %s
+# RUN: llvm-readobj --sections %t | FileCheck %s
 
 # CHECK:        Name: .foo
 # CHECK-NEXT:   Type: SHT_PROGBITS

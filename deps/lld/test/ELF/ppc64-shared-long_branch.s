@@ -83,32 +83,32 @@ b:
 
 # Verify address of the callee
 # CALLEE_DUMP: callee:
-# CALLEE_DUMP:   10000:  {{.*}}  addis 2, 12, 515
+# CALLEE_DUMP:   10000:  {{.*}}  addis 2, 12, 514
 # CALLEE_DUMP:   10004:  {{.*}}  addi 2, 2, -32528
 # CALLEE_DUMP:   10008:  {{.*}}  addis 4, 2, 0
 
 # Verify the address of _start, and the call to the long-branch thunk.
 # CALLER_DUMP: _start:
-# CALLER_DUMP:   2010020:  {{.*}}  addis 2, 12, 3
+# CALLER_DUMP:   2010020:  {{.*}}  addis 2, 12, 2
 # CALLER_DUMP:   2010038:  {{.*}}  bl .+56
 
 # Verify the thunks contents: TOC-pointer + offset = .branch_lt[0]
-#                             0x20380F0   + 32552  = 0x2040018
+#                             0x20280F0   + 32560  = 0x2030020
 # CALLER_DUMP: __long_branch_callee:
 # CALLER_DUMP:   2010060:  {{.*}}  addis 12, 2, 0
-# CALLER_DUMP:   2010064:  {{.*}}  ld 12, 32552(12)
+# CALLER_DUMP:   2010064:  {{.*}}  ld 12, 32560(12)
 # CALLER_DUMP:   2010068:  {{.*}}  mtctr 12
 # CALLER_DUMP:   201006c:  {{.*}}  bctr
 
 # .got section is at address 0x20300f0 so TOC pointer points to 0x20400F0.
 # .plt section has a 2 entry header and a single entry for the long branch.
 #            [Nr] Name        Type            Address          Off     Size
-# SECTIONS:  [11] .got        PROGBITS        00000000020300f0 20300f0 000008
-# SECTIONS:  [13] .plt        NOBITS          0000000002040000 2030108 000018
-# SECTIONS:  [14] .branch_lt  NOBITS          0000000002040018 2030108 000008
+# SECTIONS:  [10] .got        PROGBITS        00000000020200f0 20200f0 000008
+# SECTIONS:  [13] .plt        NOBITS          0000000002030008 2030008 000018
+# SECTIONS:  [14] .branch_lt  NOBITS          0000000002030020 2030008 000008
 
 # There is a relative dynamic relocation for (.plt + 16 bytes), with a base
 # address equal to callees local entry point (0x10000 + 8).
 # DYNRELOC: Relocation section '.rela.dyn' at offset 0x{{[0-9a-f]+}} contains 3 entries:
 # DYNRELOC:    Offset             Info             Type               Symbol's Value
-# DYNRELOC:    0000000002040018   0000000000000016 R_PPC64_RELATIVE   10008
+# DYNRELOC:    0000000002030020   0000000000000016 R_PPC64_RELATIVE   10008

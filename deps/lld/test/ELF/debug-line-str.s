@@ -27,8 +27,7 @@
 main:
 .Lfunc_begin0:
  .file 0 "/home/path" "test.cpp" md5 0x8ed32099ab837bd13543fd3e8102739f
- .file 1 "test.cpp" md5 0x8ed32099ab837bd13543fd3e8102739f
- .loc 1 3 10 prologue_end
+ .loc 0 3 10 prologue_end
  jmp _Z3foov
 .Lfunc_end0:
 

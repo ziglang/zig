@@ -7,19 +7,19 @@
 ## Check exporting only one symbol.
 # RUN: echo "{ foo1; };" > %t.list
 # RUN: ld.lld --hash-style=sysv --dynamic-list %t.list %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck %s
 
 ## And now using quoted strings (the output is the same since it does
 ## use any wildcard character).
 # RUN: echo "{ \"foo1\"; };" > %t.list
 # RUN: ld.lld --hash-style=sysv --dynamic-list %t.list %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck %s
 
 ## And now using --export-dynamic-symbol.
 # RUN: ld.lld --hash-style=sysv --export-dynamic-symbol foo1 %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck %s
 # RUN: ld.lld --hash-style=sysv --export-dynamic-symbol=foo1 %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck %s
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {
@@ -46,11 +46,11 @@
 ## Now export all the foo1, foo2, and foo31 symbols
 # RUN: echo "{ foo1; foo2; foo31; };" > %t.list
 # RUN: ld.lld --hash-style=sysv --dynamic-list %t.list %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck -check-prefix=CHECK2 %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck -check-prefix=CHECK2 %s
 # RUN: echo "{ foo1; foo2; };" > %t1.list
 # RUN: echo "{ foo31; };" > %t2.list
 # RUN: ld.lld --hash-style=sysv --dynamic-list %t1.list --dynamic-list %t2.list %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck -check-prefix=CHECK2 %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck -check-prefix=CHECK2 %s
 
 # CHECK2:      DynamicSymbols [
 # CHECK2-NEXT:   Symbol {
@@ -96,11 +96,11 @@
 ## incomplete dynamic-list still exports everything.
 # RUN: echo "{ foo2; };" > %t.list
 # RUN: ld.lld --hash-style=sysv --dynamic-list %t.list --export-dynamic %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck -check-prefix=CHECK3 %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck -check-prefix=CHECK3 %s
 
 ## The same with --export-dynamic-symbol.
 # RUN: ld.lld --hash-style=sysv --export-dynamic-symbol=foo2 --export-dynamic %t %t2.so -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck -check-prefix=CHECK3 %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck -check-prefix=CHECK3 %s
 
 # CHECK3:      DynamicSymbols [
 # CHECK3-NEXT:   Symbol {

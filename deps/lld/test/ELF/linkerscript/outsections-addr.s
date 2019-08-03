@@ -7,7 +7,7 @@
 # RUN:   .ddd 0x5001 : { *(.ddd) } \
 # RUN: }" > %t.script
 # RUN: ld.lld %t --script %t.script -o %tout
-# RUN: llvm-readobj -s %tout | FileCheck %s
+# RUN: llvm-readobj -S %tout | FileCheck %s
 
 ## Check:
 ## 1) Simple constant as address.

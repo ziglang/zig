@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/tls-opt-gdie.s -o %t2.o
 // RUN: ld.lld %t2.o -o %t2.so -shared
 // RUN: ld.lld %t.o %t2.so -o %t.exe
-// RUN: llvm-readobj -s %t.exe | FileCheck %s
+// RUN: llvm-readobj -S %t.exe | FileCheck %s
 
 // CHECK-NOT: .plt
 

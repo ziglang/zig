@@ -31,6 +31,7 @@ low_target2:
  bl high_target2
 
 // CHECK: Disassembly of section .text_low:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:       94:        70 47   bx      lr
 // CHECK: low_target:
@@ -69,6 +70,7 @@ high_target2:
  bl low_target2
 
 // CHECK: Disassembly of section .text_high:
+// CHECK-EMPTY:
 // CHECK-NEXT: high_target:
 // CHECK-NEXT:  2000000:        00 f0 02 f8     bl      #4
 // CHECK-NEXT:  2000004:        00 f0 06 f8     bl      #12

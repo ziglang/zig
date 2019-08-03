@@ -29,5 +29,5 @@ Sections:
         Symbol:          _GLOBAL_OFFSET_TABLE_
         Type:            R_386_GOTPC
 Symbols:
-  Global:
-    - Name:            _GLOBAL_OFFSET_TABLE_
+  - Name:            _GLOBAL_OFFSET_TABLE_
+    Binding:         STB_GLOBAL

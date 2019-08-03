@@ -16,6 +16,7 @@ _start:
  bx lr
  .space 0x1000
 // CHECK1: Disassembly of section .text:
+// CHECK1-EMPTY:
 // CHECK1-NEXT:_start:
 // CHECK1-NEXT:   11000:       70 47   bx      lr
 // CHECK1-EMPTY:

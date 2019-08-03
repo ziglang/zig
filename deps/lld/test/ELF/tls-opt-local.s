@@ -8,6 +8,7 @@
 // NORELOC-NEXT: ]
 
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 // DISASM-NEXT: 201000: 48 c7 c0 f8 ff ff ff movq $-8, %rax
 // DISASM-NEXT: 201007: 49 c7 c7 f8 ff ff ff movq $-8, %r15

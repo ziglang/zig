@@ -7,7 +7,7 @@
 # RUN:          .sdata : { *(.sdata) } \
 # RUN:          .got  : { *(.got) } }" > %t.rel.script
 # RUN: ld.lld %t.o --script %t.rel.script -shared -o %t.so
-# RUN: llvm-readobj -s -t %t.so | FileCheck %s
+# RUN: llvm-readobj -S --symbols %t.so | FileCheck %s
 
   .text
   .global foo

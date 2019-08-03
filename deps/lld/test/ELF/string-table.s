@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 // RUN: ld.lld %t -o %t2
-// RUN: llvm-readobj -sections %t2 | FileCheck %s
+// RUN: llvm-readobj --sections %t2 | FileCheck %s
 
 .global _start
 _start:

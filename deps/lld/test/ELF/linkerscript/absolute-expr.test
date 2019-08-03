@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: echo ".global foo; foo = 0x123" | llvm-mc -filetype=obj -triple=x86_64-pc-linux - -o %t.o
 # RUN: ld.lld -o %t.so --script %s %t.o -shared
-# RUN: llvm-readobj -t %t.so | FileCheck %s
+# RUN: llvm-readobj --symbols %t.so | FileCheck %s
 
 SECTIONS {
   .text : {

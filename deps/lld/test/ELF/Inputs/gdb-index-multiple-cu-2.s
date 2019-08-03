@@ -31,7 +31,7 @@ _start:
 	.byte	0
 .Lcu_end0:
 
-# .debug_gnu_pubnames has just one set, associated with .Lcu_begin1 (CuIndex: 1)
+# .debug_gnu_pubnames has just one set, associated with .Lcu_begin1 (cuIndex: 1)
 .section .debug_gnu_pubnames,"",@progbits
 	.long	.LpubNames_end0 - .LpubNames_begin0
 .LpubNames_begin0:

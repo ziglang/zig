@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple x86_64-pc-win32 %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -guard:cf -dll -out:%t.dll -noentry
-# RUN: llvm-readobj -coff-load-config %t.dll | FileCheck %s --check-prefix=CHECK
+# RUN: llvm-readobj --coff-load-config %t.dll | FileCheck %s --check-prefix=CHECK
 
 # There should be a single entry in the table for the exported symbol.
 #

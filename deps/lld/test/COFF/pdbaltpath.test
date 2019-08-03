@@ -1,39 +1,39 @@
 # RUN: yaml2obj %p/Inputs/empty.yaml > %t.obj
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:hello.pdb
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix HELLO %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix HELLO %s
 # HELLO:       PDBFileName: hello.pdb
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:%_Pdb%
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix PDBVAR %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix PDBVAR %s
 # PDBVAR:       PDBFileName: pdbaltpath.test.tmp.pdb
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%_ExT%.pdb
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix EXTVAR %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix EXTVAR %s
 # EXTVAR:       PDBFileName: fooexe.pdb
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:%_PDB
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix NOCLOSE %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix NOCLOSE %s
 # NOCLOSE:       PDBFileName: %_PDB
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%_PDB
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix NOCLOSE2 %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix NOCLOSE2 %s
 # NOCLOSE2:       PDBFileName: foo%_PDB
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%_PDB%bar%_EXT
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix CLOSEONE %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix CLOSEONE %s
 # CLOSEONE:       PDBFileName: foopdbaltpath.test.tmp.pdbbar%_EXT
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%_PDB%bar%_EXT%
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix CLOSETWO %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix CLOSETWO %s
 # CLOSETWO:       PDBFileName: foopdbaltpath.test.tmp.pdbbarexe
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%_PDB%bar%_EXT%a
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix CLOSETWO2 %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix CLOSETWO2 %s
 # CLOSETWO2:       PDBFileName: foopdbaltpath.test.tmp.pdbbarexea
 
 # RUN: lld-link /entry:main %t.obj /out:%t.exe /debug /pdbaltpath:foo%FoO%bar%r%a 2>&1 | FileCheck --check-prefix UNKNOWN-WARN %s
-# RUN: llvm-readobj -coff-debug-directory %t.exe | FileCheck --check-prefix ENVVARS %s
+# RUN: llvm-readobj --coff-debug-directory %t.exe | FileCheck --check-prefix ENVVARS %s
 # UNKNOWN-WARN: only %_PDB% and %_EXT% supported in /pdbaltpath:, keeping %FoO% as literal
 # UNKNOWN-WARN: only %_PDB% and %_EXT% supported in /pdbaltpath:, keeping %r% as literal
 # ENVVARS:       PDBFileName: foo%FoO%bar%r%a

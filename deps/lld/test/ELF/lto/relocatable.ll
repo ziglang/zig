@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: ld.lld %t1.o -r -o %t
-; RUN: llvm-readobj -symbols %t | FileCheck %s
+; RUN: llvm-readobj --symbols %t | FileCheck %s
 
 ; CHECK:       Symbols [
 ; CHECK-NEXT:   Symbol {
@@ -71,3 +71,5 @@ define void @foo() {
 define internal void @bar() {
   ret void
 }
+
+declare i32 @baz(...)

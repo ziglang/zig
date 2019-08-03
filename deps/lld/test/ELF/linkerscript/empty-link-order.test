@@ -11,7 +11,7 @@ SECTIONS {
 # RUN: ld.lld %t.o -o %t --script %s
 
 ## Check we do not crash and do not set SHF_LINK_ORDER flag for .foo
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 # CHECK:      Section {
 # CHECK:       Index:
 # CHECK:       Name: .foo

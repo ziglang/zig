@@ -2,7 +2,7 @@
 # RUN: echo '.section .bar, "aw"' \
 # RUN:   | llvm-mc -filetype=obj -triple=x86_64-unknown-linux - -o %t.o
 # RUN: ld.lld -o %t -T %s %t.o -shared
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 
 SECTIONS {
   foo = 123;

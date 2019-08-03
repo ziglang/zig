@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux -save-temp-labels %s -o %t
 // RUN: ld.lld -discard-locals %t -o %t2
-// RUN: llvm-readobj -s -sd -t %t2 | FileCheck %s
+// RUN: llvm-readobj -S --section-data --symbols %t2 | FileCheck %s
 
 .global _start
 _start:

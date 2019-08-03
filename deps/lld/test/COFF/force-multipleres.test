@@ -1,0 +1,21 @@
+// Check that lld-link rejects duplicate resources, unless
+// /force or /force:multipleres is passed.
+// The input was generated with the following command, using the original Windows
+// rc.exe:
+// > rc /fo id.res /nologo id.rc
+// > rc /fo name.res /nologo name.rc
+
+RUN: rm -rf %t.dir
+RUN: mkdir %t.dir
+RUN: cp %S/Inputs/id.res %t.dir/id1.res
+RUN: cp %S/Inputs/id.res %t.dir/id2.res
+
+RUN: not lld-link /machine:x64 /nodefaultlib /noentry /dll %t.dir/id1.res %t.dir/id2.res 2>&1 | \
+RUN:     FileCheck -check-prefix=ERR %s
+ERR: error: duplicate resource: type STRINGTABLE (ID 6)/name ID 3/language 1033, in {{.*}}id1.res and in {{.*}}id2.res
+
+RUN: lld-link /force /machine:x64 /nodefaultlib /noentry /dll %t.dir/id1.res %t.dir/id2.res 2>&1 | \
+RUN:     FileCheck -check-prefix=WARN %s
+RUN: lld-link /force:multipleres /machine:x64 /nodefaultlib /noentry /dll %t.dir/id1.res %t.dir/id2.res 2>&1 | \
+RUN:     FileCheck -check-prefix=WARN %s
+WARN: warning: duplicate resource: type STRINGTABLE (ID 6)/name ID 3/language 1033, in {{.*}}id1.res and in {{.*}}id2.res

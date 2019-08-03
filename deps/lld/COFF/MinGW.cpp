@@ -1,9 +1,8 @@
 //===- MinGW.cpp ----------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,62 +18,8 @@ using namespace lld::coff;
 using namespace llvm;
 using namespace llvm::COFF;
 
-void AutoExporter::initSymbolExcludes() {
-  ExcludeSymbolPrefixes = {
-      // Import symbols
-      "__imp_",
-      "__IMPORT_DESCRIPTOR_",
-      // Extra import symbols from GNU import libraries
-      "__nm_",
-      // C++ symbols
-      "__rtti_",
-      "__builtin_",
-      // Artifical symbols such as .refptr
-      ".",
-  };
-  ExcludeSymbolSuffixes = {
-      "_iname",
-      "_NULL_THUNK_DATA",
-  };
-  if (Config->Machine == I386) {
-    ExcludeSymbols = {
-        "__NULL_IMPORT_DESCRIPTOR",
-        "__pei386_runtime_relocator",
-        "_do_pseudo_reloc",
-        "_impure_ptr",
-        "__impure_ptr",
-        "__fmode",
-        "_environ",
-        "___dso_handle",
-        // These are the MinGW names that differ from the standard
-        // ones (lacking an extra underscore).
-        "_DllMain@12",
-        "_DllEntryPoint@12",
-        "_DllMainCRTStartup@12",
-    };
-    ExcludeSymbolPrefixes.insert("__head_");
-  } else {
-    ExcludeSymbols = {
-        "__NULL_IMPORT_DESCRIPTOR",
-        "_pei386_runtime_relocator",
-        "do_pseudo_reloc",
-        "impure_ptr",
-        "_impure_ptr",
-        "_fmode",
-        "environ",
-        "__dso_handle",
-        // These are the MinGW names that differ from the standard
-        // ones (lacking an extra underscore).
-        "DllMain",
-        "DllEntryPoint",
-        "DllMainCRTStartup",
-    };
-    ExcludeSymbolPrefixes.insert("_head_");
-  }
-}
-
 AutoExporter::AutoExporter() {
-  ExcludeLibs = {
+  excludeLibs = {
       "libgcc",
       "libgcc_s",
       "libstdc++",
@@ -95,82 +40,127 @@ AutoExporter::AutoExporter() {
       "libmsvcrt",
       "libucrtbase",
   };
-  ExcludeObjects = {
-      "crt0.o",
-      "crt1.o",
-      "crt1u.o",
-      "crt2.o",
-      "crt2u.o",
-      "dllcrt1.o",
-      "dllcrt2.o",
-      "gcrt0.o",
-      "gcrt1.o",
-      "gcrt2.o",
-      "crtbegin.o",
-      "crtend.o",
+
+  excludeObjects = {
+      "crt0.o",    "crt1.o",  "crt1u.o", "crt2.o",  "crt2u.o",    "dllcrt1.o",
+      "dllcrt2.o", "gcrt0.o", "gcrt1.o", "gcrt2.o", "crtbegin.o", "crtend.o",
   };
+
+  excludeSymbolPrefixes = {
+      // Import symbols
+      "__imp_",
+      "__IMPORT_DESCRIPTOR_",
+      // Extra import symbols from GNU import libraries
+      "__nm_",
+      // C++ symbols
+      "__rtti_",
+      "__builtin_",
+      // Artifical symbols such as .refptr
+      ".",
+  };
+
+  excludeSymbolSuffixes = {
+      "_iname",
+      "_NULL_THUNK_DATA",
+  };
+
+  if (config->machine == I386) {
+    excludeSymbols = {
+        "__NULL_IMPORT_DESCRIPTOR",
+        "__pei386_runtime_relocator",
+        "_do_pseudo_reloc",
+        "_impure_ptr",
+        "__impure_ptr",
+        "__fmode",
+        "_environ",
+        "___dso_handle",
+        // These are the MinGW names that differ from the standard
+        // ones (lacking an extra underscore).
+        "_DllMain@12",
+        "_DllEntryPoint@12",
+        "_DllMainCRTStartup@12",
+    };
+    excludeSymbolPrefixes.insert("__head_");
+  } else {
+    excludeSymbols = {
+        "__NULL_IMPORT_DESCRIPTOR",
+        "_pei386_runtime_relocator",
+        "do_pseudo_reloc",
+        "impure_ptr",
+        "_impure_ptr",
+        "_fmode",
+        "environ",
+        "__dso_handle",
+        // These are the MinGW names that differ from the standard
+        // ones (lacking an extra underscore).
+        "DllMain",
+        "DllEntryPoint",
+        "DllMainCRTStartup",
+    };
+    excludeSymbolPrefixes.insert("_head_");
+  }
 }
 
-void AutoExporter::addWholeArchive(StringRef Path) {
-  StringRef LibName = sys::path::filename(Path);
+void AutoExporter::addWholeArchive(StringRef path) {
+  StringRef libName = sys::path::filename(path);
   // Drop the file extension, to match the processing below.
-  LibName = LibName.substr(0, LibName.rfind('.'));
-  ExcludeLibs.erase(LibName);
+  libName = libName.substr(0, libName.rfind('.'));
+  excludeLibs.erase(libName);
 }
 
-bool AutoExporter::shouldExport(Defined *Sym) const {
-  if (!Sym || !Sym->isLive() || !Sym->getChunk())
+bool AutoExporter::shouldExport(Defined *sym) const {
+  if (!sym || !sym->isLive() || !sym->getChunk())
     return false;
 
   // Only allow the symbol kinds that make sense to export; in particular,
   // disallow import symbols.
-  if (!isa<DefinedRegular>(Sym) && !isa<DefinedCommon>(Sym))
+  if (!isa<DefinedRegular>(sym) && !isa<DefinedCommon>(sym))
     return false;
-  if (ExcludeSymbols.count(Sym->getName()))
+  if (excludeSymbols.count(sym->getName()))
     return false;
 
-  for (StringRef Prefix : ExcludeSymbolPrefixes.keys())
-    if (Sym->getName().startswith(Prefix))
+  for (StringRef prefix : excludeSymbolPrefixes.keys())
+    if (sym->getName().startswith(prefix))
       return false;
-  for (StringRef Suffix : ExcludeSymbolSuffixes.keys())
-    if (Sym->getName().endswith(Suffix))
+  for (StringRef suffix : excludeSymbolSuffixes.keys())
+    if (sym->getName().endswith(suffix))
       return false;
 
   // If a corresponding __imp_ symbol exists and is defined, don't export it.
-  if (Symtab->find(("__imp_" + Sym->getName()).str()))
+  if (symtab->find(("__imp_" + sym->getName()).str()))
     return false;
 
   // Check that file is non-null before dereferencing it, symbols not
   // originating in regular object files probably shouldn't be exported.
-  if (!Sym->getFile())
+  if (!sym->getFile())
     return false;
 
-  StringRef LibName = sys::path::filename(Sym->getFile()->ParentName);
+  StringRef libName = sys::path::filename(sym->getFile()->parentName);
 
   // Drop the file extension.
-  LibName = LibName.substr(0, LibName.rfind('.'));
-  if (!LibName.empty())
-    return !ExcludeLibs.count(LibName);
+  libName = libName.substr(0, libName.rfind('.'));
+  if (!libName.empty())
+    return !excludeLibs.count(libName);
 
-  StringRef FileName = sys::path::filename(Sym->getFile()->getName());
-  return !ExcludeObjects.count(FileName);
+  StringRef fileName = sys::path::filename(sym->getFile()->getName());
+  return !excludeObjects.count(fileName);
 }
 
-void coff::writeDefFile(StringRef Name) {
-  std::error_code EC;
-  raw_fd_ostream OS(Name, EC, sys::fs::F_None);
-  if (EC)
-    fatal("cannot open " + Name + ": " + EC.message());
+void coff::writeDefFile(StringRef name) {
+  std::error_code ec;
+  raw_fd_ostream os(name, ec, sys::fs::F_None);
+  if (ec)
+    fatal("cannot open " + name + ": " + ec.message());
 
-  OS << "EXPORTS\n";
-  for (Export &E : Config->Exports) {
-    OS << "    " << E.ExportName << " "
-       << "@" << E.Ordinal;
-    if (auto *Def = dyn_cast_or_null<Defined>(E.Sym)) {
-      if (Def && Def->getChunk() &&
-          !(Def->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
-        OS << " DATA";
+  os << "EXPORTS\n";
+  for (Export &e : config->exports) {
+    os << "    " << e.exportName << " "
+       << "@" << e.ordinal;
+    if (auto *def = dyn_cast_or_null<Defined>(e.sym)) {
+      if (def && def->getChunk() &&
+          !(def->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
+        os << " DATA";
     }
-    OS << "\n";
+    os << "\n";
   }
 }

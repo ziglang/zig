@@ -13,7 +13,7 @@ SECTIONS {
 }
 
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT: Idx Name          Size     VMA              Type
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .aaa          00000008 0000000000010000 DATA
 # CHECK-NEXT:   2 .bbb          00000008 0000000000011000 DATA
@@ -25,7 +25,7 @@ SECTIONS {
 # RUN: llvm-objdump -section-headers %t4 | FileCheck %s -check-prefix=ZERO
 
 # ZERO:      Sections:
-# ZERO-NEXT: Idx Name          Size      Address         Type
+# ZERO-NEXT: Idx Name          Size     VMA              Type
 # ZERO-NEXT:   0               00000000 0000000000000000
 # ZERO-NEXT:   1 .aaa          00000008 0000000000000123 DATA
 

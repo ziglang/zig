@@ -1,12 +1,12 @@
 # RUN: yaml2obj %s > %t.obj
 # RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj
-# RUN: llvm-readobj -sections %t.dll | FileCheck %s
+# RUN: llvm-readobj --sections %t.dll | FileCheck %s
 # RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj /section:.foo,rwe
-# RUN: llvm-readobj -sections %t.dll | FileCheck --check-prefix=SECTION %s
+# RUN: llvm-readobj --sections %t.dll | FileCheck --check-prefix=SECTION %s
 # RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj /merge:.foo=.bar
-# RUN: llvm-readobj -sections -section-data %t.dll | FileCheck --check-prefix=MERGE %s
+# RUN: llvm-readobj --sections --section-data %t.dll | FileCheck --check-prefix=MERGE %s
 # RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj /merge:.foo=.bar /section:.foo,rwe
-# RUN: llvm-readobj -sections %t.dll | FileCheck --check-prefix=MERGE-SECTION %s
+# RUN: llvm-readobj --sections %t.dll | FileCheck --check-prefix=MERGE-SECTION %s
 
 # CHECK: Name: .foo
 # CHECK: Characteristics [

@@ -3,10 +3,10 @@
 # RUN: llvm-mc -triple=x86_64-windows-msvc %S/Inputs/associative-comdat-2.s -filetype=obj -o %t2.obj
 
 # RUN: lld-link -entry:main %t1.obj %t2.obj -out:%t.gc.exe
-# RUN: llvm-readobj -sections %t.gc.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.gc.exe | FileCheck %s
 
 # RUN: lld-link -entry:main %t1.obj %t2.obj -opt:noref -out:%t.nogc.exe
-# RUN: llvm-readobj -sections %t.nogc.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.nogc.exe | FileCheck %s
 
 # CHECK: Sections [
 # CHECK:   Section {

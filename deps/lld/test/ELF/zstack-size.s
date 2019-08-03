@@ -1,13 +1,13 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld -z stack-size=0x1000 %t -o %t1
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s -check-prefix=CHECK1
+# RUN: llvm-readobj -l %t1 | FileCheck %s -check-prefix=CHECK1
 
 # RUN: ld.lld -z stack-size=0 %t -o %t2
-# RUN: llvm-readobj -program-headers %t2 | FileCheck %s -check-prefix=CHECK2
+# RUN: llvm-readobj -l %t2 | FileCheck %s -check-prefix=CHECK2
 
 # RUN: ld.lld -z stack-size=0x2000 -z stack-size=0x1000 %t -o %t3
-# RUN: llvm-readobj -program-headers %t3 | FileCheck %s -check-prefix=CHECK1
+# RUN: llvm-readobj -l %t3 | FileCheck %s -check-prefix=CHECK1
 
 .global _start
 _start:

@@ -7,7 +7,7 @@
 # RUN: llvm-ar rcs %t-implib.a %t-dabcdh.o %t-dabcds00000.o %t-dabcdt.o
 # RUN: lld-link -lldmingw -dll -out:%t.dll -entry:main -subsystem:console \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib %t-implib.a -include:func
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix=EXPORT %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix=EXPORT %s
 
 # Check that only the single normal symbol was exported, none of the symbols
 # from the import library.

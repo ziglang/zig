@@ -4,6 +4,7 @@
 # RUN: llvm-objdump -triple=thumbv7a-linux-gnueabi -d %t | FileCheck %s
 
 # CHECK: Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT:_start:
 # CHECK-NEXT:    11000:       ff e7   b       #-2
 
@@ -33,18 +34,16 @@ Sections:
         Type:            R_ARM_THM_JUMP11
 
 Symbols:
- Global:
-   - Type:             STT_FUNC
-     Name:             _start
-     Value:            1
-     Section:          .text
- Local:
-   - Type:             STT_NOTYPE
-     Name:             "$t"
-     Section:          .text
-     Value:            0
- Weak:
-   - Type:             STT_NOTYPE
-     Name:             undefined_weak
-     Value:            0
-
+  - Type:             STT_NOTYPE
+    Name:             "$t"
+    Section:          .text
+    Value:            0
+  - Type:             STT_FUNC
+    Name:             _start
+    Value:            1
+    Section:          .text
+    Binding:          STB_GLOBAL
+  - Type:             STT_NOTYPE
+    Name:             undefined_weak
+    Value:            0
+    Binding:          STB_WEAK

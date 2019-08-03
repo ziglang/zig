@@ -6,14 +6,14 @@
 
 # RUN: echo "SECTIONS { foo = 1; }" > %t1.script
 # RUN: ld.lld -o %t1.exe --script %t1.script %tar.a %t.o
-# RUN: llvm-readobj -symbols %t1.exe | FileCheck %s
+# RUN: llvm-readobj --symbols %t1.exe | FileCheck %s
 # CHECK-NOT: bar
 # CHECK:     foo
 # CHECK-NOT: bar
 
 # RUN: echo "SECTIONS { zed = foo; }" > %t2.script
 # RUN: ld.lld -o %t2.exe --script %t2.script %tar.a %t.o
-# RUN: llvm-readobj -symbols %t2.exe | FileCheck %s --check-prefix=SYMS
+# RUN: llvm-readobj --symbols %t2.exe | FileCheck %s --check-prefix=SYMS
 # SYMS: bar
 # SYMS: foo
 

@@ -5,7 +5,7 @@
 
 // By default, the .bss section is the latest section of the data segment.
 // RUN: ld.lld %t.o -o %t
-// RUN: llvm-readobj -sections -symbols %t | FileCheck %s --check-prefix=DEFAULT
+// RUN: llvm-readobj --sections --symbols %t | FileCheck %s --check-prefix=DEFAULT
 
 // DEFAULT: Sections [
 // DEFAULT:     Name: .bss

@@ -50,9 +50,12 @@ callee_high:
 callee_high_far = 0x180d
 
 // CHECK: Disassembly of section .R_ARM_PC11_1:
+// CHECK-EMPTY:
 // CHECK-NEXT: callee_low:
 // CHECK-NEXT:    1000:       70 47   bx      lr
+// CHECK-EMPTY:
 // CHECK-NEXT: Disassembly of section .caller:
+// CHECK-EMPTY:
 // CHECK-NEXT: callers:
 // 1004 - 0x800 (2048) + 4 = 0x808 = callee_low_far
 // CHECK-NEXT:    1004:       00 e4   b       #-2048
@@ -64,10 +67,14 @@ callee_high_far = 0x180d
 // CHECK-NEXT:    100a:       ff e3   b       #2046
 // CHECK-NEXT:    100c:       70 47   bx      lr
 // CHECK-NEXT:    100e:       00 bf   nop
+// CHECK-EMPTY:
 // CHECK-NEXT: Disassembly of section .R_ARM_PC11_2:
+// CHECK-EMPTY:
 // CHECK-NEXT: callee_high:
 // CHECK-NEXT:    1010:       70 47   bx      lr
+// CHECK-EMPTY:
 // CHECK-NEXT: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:    1014:       ff f7 f6 ff     bl      #-20
 // CHECK-NEXT:    1018:       70 47   bx      lr

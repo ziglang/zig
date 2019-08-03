@@ -12,8 +12,8 @@
 # output SymbolCount: 0 (and dumpbin.exe would error out with "invalid file
 # or disk full, cannot seek to 0x1602").
 
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
-# CHECK: SymbolCount: 199
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck %s
+# CHECK: SymbolCount: 197
 
 .global main
 .text

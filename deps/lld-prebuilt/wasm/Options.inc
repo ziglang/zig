@@ -27,11 +27,15 @@ PREFIX(prefix_1, {"--" COMMA "-" COMMA nullptr})
 
 OPTION(prefix_0, "<input>", INPUT, Input, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_0, "<unknown>", UNKNOWN, Unknown, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "active-segments", active_segments, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Force segments to be active (default with unshared memory)", nullptr, nullptr)
 OPTION(prefix_1, "allow-undefined-file=", allow_undefined_file, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Allow symbols listed in <file> to be undefined in linked binary", nullptr, nullptr)
 OPTION(prefix_2, "allow-undefined-file", allow_undefined_file_s, Separate, INVALID, allow_undefined_file, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "allow-undefined", allow_undefined, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Allow undefined symbols in linked binary", nullptr, nullptr)
+OPTION(prefix_1, "check-features", check_features, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Check feature compatibility of linked objects (default)", nullptr, nullptr)
 OPTION(prefix_1, "color-diagnostics=", color_diagnostics_eq, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Use colors in diagnostics; one of 'always', 'never', 'auto'", nullptr, nullptr)
 OPTION(prefix_1, "color-diagnostics", color_diagnostics, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -41,6 +45,8 @@ OPTION(prefix_1, "compress-relocations", compress_relocations, Flag, INVALID, IN
 OPTION(prefix_1, "demangle", demangle, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Demangle symbol names", nullptr, nullptr)
 OPTION(prefix_1, "disable-verify", disable_verify, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "emit-relocs", emit_relocs, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Generate relocations in output", nullptr, nullptr)
 OPTION(prefix_1, "entry=", anonymous_1, Joined, INVALID, entry, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "entry", entry, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Name of entry point symbol", "<entry>", nullptr)
@@ -60,6 +66,8 @@ OPTION(prefix_2, "E", anonymous_2, Flag, INVALID, export_dynamic, nullptr, 0, 0,
 OPTION(prefix_2, "e", anonymous_0, JoinedOrSeparate, INVALID, entry, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "fatal-warnings", fatal_warnings, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Treat warnings as errors", nullptr, nullptr)
+OPTION(prefix_1, "features=", features, CommaJoined, INVALID, INVALID, nullptr, 0, 0,
+       "Comma-separated used features, inferred from input objects by default.", nullptr, nullptr)
 OPTION(prefix_1, "gc-sections", gc_sections, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Enable garbage collection of unused sections", nullptr, nullptr)
 OPTION(prefix_1, "global-base=", global_base, Joined, INVALID, INVALID, nullptr, 0, 0,
@@ -88,6 +96,8 @@ OPTION(prefix_1, "merge-data-segments", merge_data_segments, Flag, INVALID, INVA
 OPTION(prefix_1, "mllvm", mllvm, Separate, INVALID, INVALID, nullptr, 0, 0,
        "Options to pass to LLVM", nullptr, nullptr)
 OPTION(prefix_2, "m", anonymous_4, Flag, INVALID, max_memory, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "no-check-features", no_check_features, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Ignore feature compatibility of linked objects", nullptr, nullptr)
 OPTION(prefix_1, "no-color-diagnostics", no_color_diagnostics, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not use colors in diagnostics", nullptr, nullptr)
 OPTION(prefix_1, "no-demangle", no_demangle, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -113,12 +123,17 @@ OPTION(prefix_2, "O", O, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
        "Optimize output file size", nullptr, nullptr)
 OPTION(prefix_2, "o", o, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
        "Path to file to write output", "<path>", nullptr)
+OPTION(prefix_1, "passive-segments", passive_segments, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Force segments to be passive (default with shared memory)", nullptr, nullptr)
 OPTION(prefix_1, "pie", pie, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Create a position independent executable", nullptr, nullptr)
 OPTION(prefix_1, "print-gc-sections", print_gc_sections, Flag, INVALID, INVALID, nullptr, 0, 0,
        "List removed unused sections", nullptr, nullptr)
 OPTION(prefix_1, "relocatable", relocatable, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Create relocatable object file", nullptr, nullptr)
+OPTION(prefix_1, "reproduce=", reproduce_eq, Joined, INVALID, reproduce, nullptr, 0, 0,
+       "Dump linker invocation and input files for debugging", nullptr, nullptr)
+OPTION(prefix_1, "reproduce", reproduce, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "r", anonymous_5, Flag, INVALID, relocatable, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "save-temps", save_temps, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "shared-memory", shared_memory, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -144,10 +159,17 @@ OPTION(prefix_1, "thinlto-jobs=", thinlto_jobs, Joined, INVALID, INVALID, nullpt
        "Number of ThinLTO jobs", nullptr, nullptr)
 OPTION(prefix_1, "threads", threads, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Run the linker multi-threaded", nullptr, nullptr)
+OPTION(prefix_1, "trace-symbol=", trace_symbol_eq, Joined, INVALID, trace_symbol, nullptr, 0, 0,
+       "Trace references to symbols", nullptr, nullptr)
+OPTION(prefix_1, "trace-symbol", trace_symbol, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "trace", trace, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Print the names of the input files", nullptr, nullptr)
+OPTION(prefix_2, "t", anonymous_8, Flag, INVALID, trace, nullptr, 0, 0,
+       "Alias for --trace", nullptr, nullptr)
 OPTION(prefix_1, "undefined=", undefined_eq, Joined, INVALID, undefined, nullptr, 0, 0,
        "Force undefined symbol during linking", nullptr, nullptr)
 OPTION(prefix_1, "undefined", undefined, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_2, "u", anonymous_8, JoinedOrSeparate, INVALID, undefined, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "u", anonymous_10, JoinedOrSeparate, INVALID, undefined, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "verbose", verbose, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Verbose mode", nullptr, nullptr)
 OPTION(prefix_1, "version", version, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -156,6 +178,11 @@ OPTION(prefix_2, "v", v, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Display the version number", nullptr, nullptr)
 OPTION(prefix_1, "whole-archive", whole_archive, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Force load of all members in a static library", nullptr, nullptr)
+OPTION(prefix_1, "wrap=", wrap_eq, Joined, INVALID, wrap, nullptr, 0, 0,
+       "Use wrapper functions for symbol", "<symbol>=<symbol>", nullptr)
+OPTION(prefix_1, "wrap", wrap, Separate, INVALID, INVALID, nullptr, 0, 0, nullptr, "<symbol>=<symbol>", nullptr)
+OPTION(prefix_2, "y", anonymous_9, JoinedOrSeparate, INVALID, trace_symbol, nullptr, 0, 0,
+       "Alias for --trace-symbol", nullptr, nullptr)
 OPTION(prefix_2, "z", z, JoinedOrSeparate, INVALID, INVALID, nullptr, 0, 0,
        "Linker option extensions", "<option>", nullptr)
 #endif // OPTION

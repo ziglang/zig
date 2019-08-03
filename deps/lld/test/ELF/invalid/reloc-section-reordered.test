@@ -28,3 +28,7 @@ Sections:
     Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
     AddressAlign:    0x04
     Content:         "FFFFFFFFFFFFFFFF"
+Symbols:
+  - Name:    .text
+    Type:    STT_SECTION
+    Section: .text

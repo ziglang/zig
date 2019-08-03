@@ -1,11 +1,11 @@
 # REQUIRES: x86, zlib
 
 # RUN: llvm-mc -compress-debug-sections=zlib-gnu -filetype=obj -triple=x86_64-unknown-linux %s -o %t1
-# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=GNU %s
+# RUN: llvm-readobj --sections %t1 | FileCheck -check-prefix=GNU %s
 # GNU: Name: .zdebug_str
 
 # RUN: ld.lld %t1 -o %t2 -r
-# RUN: llvm-readobj -sections -section-data %t2 | FileCheck %s
+# RUN: llvm-readobj --sections --section-data %t2 | FileCheck %s
 
 ## Check we uncompress section and remove ".z" prefix specific for zlib-gnu compression.
 # CHECK:      Section {

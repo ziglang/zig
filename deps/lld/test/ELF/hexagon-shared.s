@@ -25,22 +25,22 @@ jumpr r0
 # R_HEX_GOT_16_X
 r0 = add(r1,##bar@GOT)
 
-# PLT: { immext(#65472
-# PLT: r28 = add(pc,##65488) }
+# PLT: { immext(#131008
+# PLT: r28 = add(pc,##131024) }
 # PLT: { r14 -= add(r28,#16)
 # PLT: r15 = memw(r28+#8)
 # PLT: r28 = memw(r28+#4) }
 # PLT: { r14 = asr(r14,#2)
 # PLT: jumpr r28 }
 # PLT: { trap0(#219) }
-# PLT: immext(#65472)
-# PLT: r14 = add(pc,##65472) }
+# PLT: immext(#131008)
+# PLT: r14 = add(pc,##131008) }
 # PLT: r28 = memw(r14+#0) }
 # PLT: jumpr r28 }
 
-# TEXT:  10000: 00 00 02 00 00020000
+# TEXT:  10000: 00 00 01 00 00010000
 # TEXT: { 	call 0x10050 }
-# TEXT: r0 = add(r1,##65664) }
+# TEXT: r0 = add(r1,##-65408) }
 
 # GOT: .got:
-# GOT: 30080:	00 00 00 00 00000000 <unknown>
+# GOT: 20080:	00 00 00 00 00000000 <unknown>

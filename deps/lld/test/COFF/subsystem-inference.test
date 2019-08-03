@@ -1,18 +1,22 @@
 # RUN: sed -e s/ENTRYNAME/main/ %s | yaml2obj > %t.obj
 # RUN: lld-link /out:%t.exe %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=MAIN %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=MAIN %s
+# RUN: lld-link /out:%t.exe %t.obj /subsystem:default,6.0
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=MAIN %s
 
 # RUN: sed s/ENTRYNAME/wmain/ %s | yaml2obj > %t.obj
 # RUN: lld-link /out:%t.exe %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=WMAIN %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=WMAIN %s
 
 # RUN: sed s/ENTRYNAME/WinMain/ %s | yaml2obj > %t.obj
 # RUN: lld-link /out:%t.exe %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=WINMAIN %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=WINMAIN %s
+# RUN: lld-link /out:%t.exe %t.obj /subsystem:default,6.0
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=WINMAIN %s
 
 # RUN: sed s/ENTRYNAME/wWinMain/ %s | yaml2obj > %t.obj
 # RUN: lld-link /out:%t.exe %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=WWINMAIN %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=WWINMAIN %s
 
 # MAIN:     Subsystem: IMAGE_SUBSYSTEM_WINDOWS_CUI
 # WMAIN:    Subsystem: IMAGE_SUBSYSTEM_WINDOWS_CUI

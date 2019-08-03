@@ -48,9 +48,9 @@ CHECK-NEXT:             module = 2, sum name = 0, offset = 120
 CHECK-NEXT:       128 | S_PROCREF [size = 20] `foo`
 CHECK-NEXT:             module = 1, sum name = 0, offset = 208
 CHECK-NEXT:       104 | S_GDATA32 [size = 24] `global`
-CHECK-NEXT:             type = 0x0074 (int), addr = 0000:0000
+CHECK-NEXT:             type = 0x0074 (int), addr = 0003:0000
 CHECK-NEXT:       168 | S_GDATA32 [size = 24] `global`
-CHECK-NEXT:             type = 0x0074 (int), addr = 0000:0000
+CHECK-NEXT:             type = 0x0074 (int), addr = 0003:0000
 
 CHECK:                           Symbols
 CHECK: ============================================================

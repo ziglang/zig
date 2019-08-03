@@ -3,12 +3,12 @@
 # RUN: echo fn1 > %t.order
 # RUN: echo fn2 >> %t.order
 
-# RUN: lld-link -entry:fn1 -subsystem:console -opt:noref %t.obj \
+# RUN: lld-link -safeseh:no -entry:fn1 -subsystem:console -opt:noref %t.obj \
 # RUN:   -lldmap:- -out:%t.exe -order:@%t.order | FileCheck %s
 # CHECK: fn1
 # CHECK: fn2
 
-# RUN: lld-link -entry:fn1 -subsystem:console -opt:noref %t.obj \
+# RUN: lld-link -safeseh:no -entry:fn1 -subsystem:console -opt:noref %t.obj \
 # RUN:   -lldmap:- -out:%t.exe | FileCheck -check-prefix=DEFAULT %s
 # DEFAULT: fn2
 # DEFAULT: fn1

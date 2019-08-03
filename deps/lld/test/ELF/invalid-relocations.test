@@ -17,7 +17,7 @@ Sections:
         Symbol:          lulz
         Type:            R_X86_64_PC32
 Symbols:
-  Global:
-    - Name:            lulz
+  - Name:            lulz
+    Binding:         STB_GLOBAL
 
 # CHECK: invalid relocated section index

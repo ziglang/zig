@@ -1,0 +1,29 @@
+# RUN: yaml2obj %s -o %t1.o
+# RUN: not ld.lld %t1.o -o %t 2>&1 | FileCheck %s
+# CHECK: error: {{.*}}1.o: multiple relocation sections to one section are not supported
+
+## The file has two relocation sections referring to a single target section.
+## Multiple relocation sections to one section are not supported, check we report this case.
+
+--- !ELF
+FileHeader:
+  Class:     ELFCLASS64
+  Data:      ELFDATA2LSB
+  Type:      ET_REL
+  Machine:   EM_X86_64
+Sections:
+  - Name:    .text
+    Type:    SHT_PROGBITS
+    Flags:   [ SHF_ALLOC, SHF_EXECINSTR ]
+  - Name:    .rela.text1
+    Type:    SHT_RELA
+    Link:    .symtab
+    Info:    .text
+  - Name:    .rela.text2
+    Type:    SHT_RELA
+    Link:    .symtab
+    Info:    .text
+Symbols:
+  - Name:    .text
+    Type:    STT_SECTION
+    Section: .text

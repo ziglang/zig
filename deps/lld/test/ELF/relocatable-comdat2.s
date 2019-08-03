@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld -r %t.o -o %t
-# RUN: llvm-readobj -elf-section-groups -s %t | FileCheck %s
+# RUN: llvm-readobj --elf-section-groups -S %t | FileCheck %s
 
 ## Check .foo was not merged.
 # CHECK: Sections [

@@ -43,6 +43,7 @@ _start:
 // the first of the pre-created ThunkSections.
  bl tfunc16
 // CHECK1: Disassembly of section .text:
+// CHECK1-EMPTY:
 // CHECK1-NEXT: _start:
 // CHECK1-NEXT:   100000:       ff f0 fe ff     bl      #1048572
 // CHECK1-NEXT:   100004:       ff f3 fc d7     bl      #16777208

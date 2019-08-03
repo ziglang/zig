@@ -3,7 +3,7 @@
 # uses Elf_Rela
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux %s -o %t-rela.o
-# RUN: llvm-readobj -h -s -section-data -relocations %t-rela.o | FileCheck -check-prefix INPUT-RELA %s
+# RUN: llvm-readobj -h -S --section-data -r %t-rela.o | FileCheck -check-prefix INPUT-RELA %s
 # INPUT-RELA:  ElfHeader {
 # INPUT-RELA:     Class: 64-bit
 # INPUT-RELA:     DataEncoding: BigEndian
@@ -21,7 +21,7 @@
 # Previously the addend to the dynamic relocation in the .data section was not copied if
 # the input file used RELA and the output uses REL. Check that it works now:
 # RUN: ld.lld -shared -o %t.so %t-rela.o  -verbose
-# RUN: llvm-readobj -h -s -section-data -relocations %t.so | FileCheck -check-prefix RELA-TO-REL %s
+# RUN: llvm-readobj -h -S --section-data -r %t.so | FileCheck -check-prefix RELA-TO-REL %s
 # RELA-TO-REL:  ElfHeader {
 # RELA-TO-REL:    Class: 64-bit
 # RELA-TO-REL:    DataEncoding: BigEndian

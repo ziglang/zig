@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/relocatable-ehframe.s -o %t2.o
 # RUN: ld.lld -r %t1.o %t2.o -o %t
-# RUN: llvm-readobj -r -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -r -S --section-data %t | FileCheck %s
 
 # CHECK:      Name: .strtab
 # CHECK-NEXT: Type: SHT_STRTAB

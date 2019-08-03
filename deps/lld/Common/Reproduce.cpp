@@ -1,9 +1,8 @@
 //===- Reproduce.cpp - Utilities for creating reproducers -----------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,45 +21,41 @@ using namespace llvm::sys;
 // assuming that the current directory is "/home/john/bar".
 // Returned string is a forward slash separated path even on Windows to avoid
 // a mess with backslash-as-escape and backslash-as-path-separator.
-std::string lld::relativeToRoot(StringRef Path) {
-  SmallString<128> Abs = Path;
-  if (fs::make_absolute(Abs))
-    return Path;
-  path::remove_dots(Abs, /*remove_dot_dot=*/true);
+std::string lld::relativeToRoot(StringRef path) {
+  SmallString<128> abs = path;
+  if (fs::make_absolute(abs))
+    return path;
+  path::remove_dots(abs, /*remove_dot_dot=*/true);
 
   // This is Windows specific. root_name() returns a drive letter
   // (e.g. "c:") or a UNC name (//net). We want to keep it as part
   // of the result.
-  SmallString<128> Res;
-  StringRef Root = path::root_name(Abs);
-  if (Root.endswith(":"))
-    Res = Root.drop_back();
-  else if (Root.startswith("//"))
-    Res = Root.substr(2);
+  SmallString<128> res;
+  StringRef root = path::root_name(abs);
+  if (root.endswith(":"))
+    res = root.drop_back();
+  else if (root.startswith("//"))
+    res = root.substr(2);
 
-  path::append(Res, path::relative_path(Abs));
-  return path::convert_to_slash(Res);
+  path::append(res, path::relative_path(abs));
+  return path::convert_to_slash(res);
 }
 
 // Quote a given string if it contains a space character.
-std::string lld::quote(StringRef S) {
-  if (S.contains(' '))
-    return ("\"" + S + "\"").str();
-  return S;
+std::string lld::quote(StringRef s) {
+  if (s.contains(' '))
+    return ("\"" + s + "\"").str();
+  return s;
 }
 
-std::string lld::rewritePath(StringRef S) {
-  if (fs::exists(S))
-    return relativeToRoot(S);
-  return S;
-}
-
-std::string lld::toString(const opt::Arg &Arg) {
-  std::string K = Arg.getSpelling();
-  if (Arg.getNumValues() == 0)
-    return K;
-  std::string V = quote(Arg.getValue());
-  if (Arg.getOption().getRenderStyle() == opt::Option::RenderJoinedStyle)
-    return K + V;
-  return K + " " + V;
+// Converts an Arg to a string representation suitable for a response file.
+// To show an Arg in a diagnostic, use Arg::getAsString() instead.
+std::string lld::toString(const opt::Arg &arg) {
+  std::string k = arg.getSpelling();
+  if (arg.getNumValues() == 0)
+    return k;
+  std::string v = quote(arg.getValue());
+  if (arg.getOption().getRenderStyle() == opt::Option::RenderJoinedStyle)
+    return k + v;
+  return k + " " + v;
 }

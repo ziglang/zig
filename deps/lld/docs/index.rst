@@ -106,7 +106,7 @@ build that tree. You need `cmake` and of course a C++ compiler.
 
 .. code-block:: console
 
-  $ git clone https://github.com/llvm-project/llvm-project-20170507 llvm-project
+  $ git clone https://github.com/llvm/llvm-project llvm-project
   $ mkdir build
   $ cd build
   $ cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS=lld -DCMAKE_INSTALL_PREFIX=/usr/local ../llvm-project/llvm
@@ -174,4 +174,5 @@ document soon.
    WebAssembly
    windows_support
    missingkeyfunction
+   Partitions
    ReleaseNotes

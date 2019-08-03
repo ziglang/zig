@@ -3,11 +3,11 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t2.o
 
 // RUN: ld.lld %t1.o %t2.o -o %t
-// RUN: llvm-readobj -arm-attributes %t | FileCheck %s
+// RUN: llvm-readobj --arm-attributes %t | FileCheck %s
 // RUN: ld.lld %t1.o %t2.o -shared -o %t2
-// RUN: llvm-readobj -arm-attributes %t2 | FileCheck %s
+// RUN: llvm-readobj --arm-attributes %t2 | FileCheck %s
 // RUN: ld.lld %t1.o %t2.o -r -o %t3
-// RUN: llvm-readobj -arm-attributes %t3 | FileCheck %s
+// RUN: llvm-readobj --arm-attributes %t3 | FileCheck %s
 
 // Check that we retain only 1 SHT_ARM_ATTRIBUTES section. At present we do not
 // try and merge or use the contents of SHT_ARM_ATTRIBUTES sections. We just

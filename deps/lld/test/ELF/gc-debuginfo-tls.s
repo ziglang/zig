@@ -2,8 +2,8 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o --gc-sections -shared -o %t1
 # RUN: ld.lld %t.o -shared -o %t2
-# RUN: llvm-readobj -symbols %t1 | FileCheck %s --check-prefix=GC
-# RUN: llvm-readobj -symbols %t2 | FileCheck %s --check-prefix=NOGC
+# RUN: llvm-readobj --symbols %t1 | FileCheck %s --check-prefix=GC
+# RUN: llvm-readobj --symbols %t2 | FileCheck %s --check-prefix=NOGC
 
 # NOGC:      Symbol {
 # NOGC:        Name: patatino

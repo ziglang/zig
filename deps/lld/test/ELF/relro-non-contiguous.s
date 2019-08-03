@@ -3,12 +3,12 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/copy-in-shared.s -o %t2.o
 // RUN: ld.lld -shared %t.o %t2.o -o %t.so
 
-// Place the .got.plt (non relro) immediately after .dynamic. This is the
-// reverse order of the non-linker script case. The linker created .bss.rel.ro
-// section will be placed after .got.plt causing the relro to be non-contiguous.
+// Separate RelRo sections .dynamic .bss.rel.ro with non RelRo .got.plt.
+// This causes the RelRo sections to be non-contiguous.
 // RUN: echo "SECTIONS { \
 // RUN: .dynamic : { *(.dynamic) } \
 // RUN: .got.plt : { *(.got.plt) } \
+// RUN: .bss.rel.ro : { *(.bss.rel.o) } \
 // RUN: } " > %t.script
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t3.o
 

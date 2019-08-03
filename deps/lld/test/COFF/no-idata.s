@@ -3,7 +3,7 @@
 # RUN: llvm-mc -triple=x86_64-windows-gnu %s -filetype=obj -o %t.obj
 # RUN: lld-link -out:%t.exe -entry:main -subsystem:console %t.obj
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=DUMP %s
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=DIRECTORY %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=DIRECTORY %s
 
         .text
         .global main

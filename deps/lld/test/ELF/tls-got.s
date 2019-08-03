@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/tls-got.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld --hash-style=sysv -e main %t1.o %t2.so -o %t3
-// RUN: llvm-readobj -s -r %t3 | FileCheck %s
+// RUN: llvm-readobj -S -r %t3 | FileCheck %s
 // RUN: llvm-objdump -d %t3 | FileCheck --check-prefix=DISASM %s
 
 // CHECK:      Section {
@@ -15,7 +15,7 @@
 // CHECK-NEXT:   SHF_WRITE
 // CHECK-NEXT: ]
 // CHECK-NEXT: Address: [[ADDR:.*]]
-// CHECK-NEXT: Offset: 0x20B0
+// CHECK-NEXT: Offset: 0x20C0
 // CHECK-NEXT: Size: 16
 // CHECK-NEXT: Link: 0
 // CHECK-NEXT: Info: 0
@@ -25,23 +25,24 @@
 
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section (4) .rela.dyn {
-// CHECK-NEXT:     0x2020B8 R_X86_64_TPOFF64 tls0 0x0
-// CHECK-NEXT:     0x2020B0 R_X86_64_TPOFF64 tls1 0x0
+// CHECK-NEXT:     0x2020C8 R_X86_64_TPOFF64 tls0 0x0
+// CHECK-NEXT:     [[ADDR]] R_X86_64_TPOFF64 tls1 0x0
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 
-//0x201000 + 4265 + 7 = 0x2020B0
-//0x20100A + 4263 + 7 = 0x2020B8
-//0x201014 + 4253 + 7 = 0x2020B8
-//DISASM:      Disassembly of section .text:
-//DISASM-NEXT: main:
-//DISASM-NEXT: 201000: 48 8b 05 a9 10 00 00 movq 4265(%rip), %rax
-//DISASM-NEXT: 201007: 64 8b 00 movl %fs:(%rax), %eax
-//DISASM-NEXT: 20100a: 48 8b 05 a7 10 00 00 movq 4263(%rip), %rax
-//DISASM-NEXT: 201011: 64 8b 00 movl %fs:(%rax), %eax
-//DISASM-NEXT: 201014: 48 8b 05 9d 10 00 00 movq 4253(%rip), %rax
-//DISASM-NEXT: 20101b: 64 8b 00 movl %fs:(%rax), %eax
-//DISASM-NEXT: 20101e: c3 retq
+// 0x201000 + 4281 + 7 = 0x2020C0
+// 0x20100A + 4279 + 7 = 0x2020C8
+// 0x201014 + 4269 + 7 = 0x2020C8
+// DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
+// DISASM-NEXT: main:
+// DISASM-NEXT: 201000: {{.*}} movq 4281(%rip), %rax
+// DISASM-NEXT: 201007: {{.*}} movl %fs:(%rax), %eax
+// DISASM-NEXT: 20100a: {{.*}} movq 4279(%rip), %rax
+// DISASM-NEXT: 201011: {{.*}} movl %fs:(%rax), %eax
+// DISASM-NEXT: 201014: {{.*}} movq 4269(%rip), %rax
+// DISASM-NEXT: 20101b: {{.*}} movl %fs:(%rax), %eax
+// DISASM-NEXT: 20101e: {{.*}} retq
 
 .section .tdata,"awT",@progbits
 

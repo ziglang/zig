@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/at2.s -o %t.o
 # RUN: ld.lld -o %t.exe %t.o --script %s
-# RUN: llvm-readobj -program-headers %t.exe | FileCheck %s
+# RUN: llvm-readobj -l %t.exe | FileCheck %s
 # RUN: llvm-objdump -section-headers %t.exe | FileCheck %s --check-prefix=SECTIONS
 
 MEMORY {
@@ -48,7 +48,7 @@ SECTIONS {
 # CHECK-NEXT:   }
 
 # SECTIONS:      Sections:
-# SECTIONS-NEXT: Idx Name          Size      Address
+# SECTIONS-NEXT: Idx Name          Size     VMA
 # SECTIONS-NEXT:   0               00000000 0000000000000000
 # SECTIONS-NEXT:   1 .foo1         00000008 0000000000002000
 # SECTIONS-NEXT:   2 .foo2         00000008 0000000000002008

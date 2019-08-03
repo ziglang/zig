@@ -25,6 +25,7 @@ entry:
 
 declare hidden void @externCtor()
 declare hidden void @externDtor()
+declare hidden void @__wasm_call_ctors()
 
 define i32 @__cxa_atexit(i32 %func, i32 %arg, i32 %dso_handle) {
   ret i32 0
@@ -32,6 +33,7 @@ define i32 @__cxa_atexit(i32 %func, i32 %arg, i32 %dso_handle) {
 
 define hidden void @_start() {
 entry:
+  call void @__wasm_call_ctors();
   ret void
 }
 
@@ -75,7 +77,7 @@ entry:
 ; CHECK-NEXT:         Body:            10031004100A100F1012100F10141003100C100F10161001100E0B
 ; CHECK:            - Index:           22
 ; CHECK-NEXT:         Locals:
-; CHECK-NEXT:         Body:            024041868080800041004180888080001087808080000D000F0B00000B
+; CHECK-NEXT:         Body:            02404186808080004100418088808000108780808000450D0000000B0B
 ; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            name
 ; CHECK-NEXT:     FunctionNames:
@@ -127,202 +129,22 @@ entry:
 ; CHECK-NEXT:         Name:            .Lregister_call_dtors.2002
 ; CHECK-NEXT: ...
 
-
 ; RUN: wasm-ld -r %t.o %t.global-ctor-dtor.o -o %t.reloc.wasm
-; RUN: obj2yaml %t.reloc.wasm | FileCheck -check-prefix=RELOC %s
+; RUN: llvm-readobj --symbols --sections %t.reloc.wasm | FileCheck -check-prefix=RELOC %s
 
-; RELOC:          SymbolTable:
-; RELOC-NEXT:       - Index:           0
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            func1
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        2
-; RELOC-NEXT:       - Index:           1
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            func2
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        3
-; RELOC-NEXT:       - Index:           2
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            func3
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        4
-; RELOC-NEXT:       - Index:           3
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            func4
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        5
-; RELOC-NEXT:       - Index:           4
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            __cxa_atexit
-; RELOC-NEXT:         Flags:           [  ]
-; RELOC-NEXT:         Function:        6
-; RELOC-NEXT:       - Index:           5
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            _start
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        7
-; RELOC-NEXT:       - Index:           6
-; RELOC-NEXT:         Kind:            DATA
-; RELOC-NEXT:         Name:            __dso_handle
-; RELOC-NEXT:         Flags:           [ BINDING_WEAK, VISIBILITY_HIDDEN, UNDEFINED ]
-; RELOC-NEXT:       - Index:           7
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            externDtor
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN, UNDEFINED ]
-; RELOC-NEXT:         Function:        0
-; RELOC-NEXT:       - Index:           8
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            externCtor
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN, UNDEFINED ]
-; RELOC-NEXT:         Function:        1
-; RELOC-NEXT:       - Index:           9
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            myctor
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        14
-; RELOC-NEXT:       - Index:           10
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            mydtor
-; RELOC-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
-; RELOC-NEXT:         Function:        15
-; RELOC-NEXT:       - Index:           11
-; RELOC-NEXT:         Kind:            GLOBAL
-; RELOC-NEXT:         Name:            __stack_pointer
-; RELOC-NEXT:         Flags:           [ UNDEFINED ]
-; RELOC-NEXT:         Global:          0
-; RELOC-NEXT:       - Index:           12
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.101
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        8
-; RELOC-NEXT:       - Index:           13
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.101
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        9
-; RELOC-NEXT:       - Index:           14
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.1001
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        10
-; RELOC-NEXT:       - Index:           15
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.1001
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        11
-; RELOC-NEXT:       - Index:           16
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.4000
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        12
-; RELOC-NEXT:       - Index:           17
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.4000
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        13
-; RELOC-NEXT:       - Index:           18
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.101
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        16
-; RELOC-NEXT:       - Index:           19
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.101
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        17
-; RELOC-NEXT:       - Index:           20
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.202
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        18
-; RELOC-NEXT:       - Index:           21
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.202
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        19
-; RELOC-NEXT:       - Index:           22
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lcall_dtors.2002
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        20
-; RELOC-NEXT:       - Index:           23
-; RELOC-NEXT:         Kind:            FUNCTION
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.2002
-; RELOC-NEXT:         Flags:           [ BINDING_LOCAL ]
-; RELOC-NEXT:         Function:        21
-; RELOC-NEXT:     InitFunctions:   
-; RELOC-NEXT:       - Priority:        101
-; RELOC-NEXT:         Symbol:          0
-; RELOC-NEXT:       - Priority:        101
-; RELOC-NEXT:         Symbol:          1
-; RELOC-NEXT:       - Priority:        101
-; RELOC-NEXT:         Symbol:          13
-; RELOC-NEXT:       - Priority:        101
-; RELOC-NEXT:         Symbol:          9
-; RELOC-NEXT:       - Priority:        101
-; RELOC-NEXT:         Symbol:          19
-; RELOC-NEXT:       - Priority:        202
-; RELOC-NEXT:         Symbol:          9
-; RELOC-NEXT:       - Priority:        202
-; RELOC-NEXT:         Symbol:          21
-; RELOC-NEXT:       - Priority:        1001
-; RELOC-NEXT:         Symbol:          0
-; RELOC-NEXT:       - Priority:        1001
-; RELOC-NEXT:         Symbol:          15
-; RELOC-NEXT:       - Priority:        2002
-; RELOC-NEXT:         Symbol:          9
-; RELOC-NEXT:       - Priority:        2002
-; RELOC-NEXT:         Symbol:          23
-; RELOC-NEXT:       - Priority:        4000
-; RELOC-NEXT:         Symbol:          8
-; RELOC-NEXT:       - Priority:        4000
-; RELOC-NEXT:         Symbol:          17
-; RELOC-NEXT:   - Type:            CUSTOM
-; RELOC-NEXT:     Name:            name
-; RELOC-NEXT:     FunctionNames:   
-; RELOC-NEXT:       - Index:           0
-; RELOC-NEXT:         Name:            externDtor
-; RELOC-NEXT:       - Index:           1
-; RELOC-NEXT:         Name:            externCtor
-; RELOC-NEXT:       - Index:           2
-; RELOC-NEXT:         Name:            func1
-; RELOC-NEXT:       - Index:           3
-; RELOC-NEXT:         Name:            func2
-; RELOC-NEXT:       - Index:           4
-; RELOC-NEXT:         Name:            func3
-; RELOC-NEXT:       - Index:           5
-; RELOC-NEXT:         Name:            func4
-; RELOC-NEXT:       - Index:           6
-; RELOC-NEXT:         Name:            __cxa_atexit
-; RELOC-NEXT:       - Index:           7
-; RELOC-NEXT:         Name:            _start
-; RELOC-NEXT:       - Index:           8
-; RELOC-NEXT:         Name:            .Lcall_dtors.101
-; RELOC-NEXT:       - Index:           9
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.101
-; RELOC-NEXT:       - Index:           10
-; RELOC-NEXT:         Name:            .Lcall_dtors.1001
-; RELOC-NEXT:       - Index:           11
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.1001
-; RELOC-NEXT:       - Index:           12
-; RELOC-NEXT:         Name:            .Lcall_dtors.4000
-; RELOC-NEXT:       - Index:           13
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.4000
-; RELOC-NEXT:       - Index:           14
-; RELOC-NEXT:         Name:            myctor
-; RELOC-NEXT:       - Index:           15
-; RELOC-NEXT:         Name:            mydtor
-; RELOC-NEXT:       - Index:           16
-; RELOC-NEXT:         Name:            .Lcall_dtors.101
-; RELOC-NEXT:       - Index:           17
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.101
-; RELOC-NEXT:       - Index:           18
-; RELOC-NEXT:         Name:            .Lcall_dtors.202
-; RELOC-NEXT:       - Index:           19
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.202
-; RELOC-NEXT:       - Index:           20
-; RELOC-NEXT:         Name:            .Lcall_dtors.2002
-; RELOC-NEXT:       - Index:           21
-; RELOC-NEXT:         Name:            .Lregister_call_dtors.2002
-; RELOC-NEXT: ...
+; RELOC:       Name: linking
+; RELOC-NEXT:  InitFunctions [
+; RELOC-NEXT:    0 (priority=101)
+; RELOC-NEXT:    1 (priority=101)
+; RELOC-NEXT:    14 (priority=101)
+; RELOC-NEXT:    10 (priority=101)
+; RELOC-NEXT:    20 (priority=101)
+; RELOC-NEXT:    10 (priority=202)
+; RELOC-NEXT:    22 (priority=202)
+; RELOC-NEXT:    0 (priority=1001)
+; RELOC-NEXT:    16 (priority=1001)
+; RELOC-NEXT:    10 (priority=2002)
+; RELOC-NEXT:    24 (priority=2002)
+; RELOC-NEXT:    9 (priority=4000)
+; RELOC-NEXT:    18 (priority=4000)
+; RELOC-NEXT:  ]

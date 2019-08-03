@@ -9,6 +9,7 @@
 # RUN: llvm-objdump -d %t.so | FileCheck -check-prefix=SO %s
 
 # OBJ:      Disassembly of section .text:
+# OBJ-EMPTY:
 # OBJ-NEXT: .text:
 # OBJ-NEXT:        0:       8f 99 00 00     lw      $25, 0($gp)
 # OBJ-NEXT:                         00000000:  R_MIPS_GOT16 .data
@@ -20,6 +21,7 @@
 # OBJ-NEXT:                         00000014:  R_MIPS_LO16  .data
 
 # SO:      Disassembly of section .text:
+# SO-EMPTY:
 # SO-NEXT: .text:
 # SO-NEXT:    10000:       8f 99 80 18     lw      $25, -32744($gp)
 # SO-NEXT:    10004:       27 24 00 00     addiu   $4, $25, 0

@@ -1,5 +1,5 @@
 # RUN: ld64.lld -arch x86_64 %s -o %t %p/Inputs/x86_64/libSystem.yaml
-# RUN: llvm-readobj -sections -section-data %t | FileCheck %s
+# RUN: llvm-readobj --sections --section-data %t | FileCheck %s
 
 --- !native
 defined-atoms:

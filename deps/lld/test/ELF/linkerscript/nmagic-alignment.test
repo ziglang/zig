@@ -1,0 +1,85 @@
+# REQUIRES: x86
+
+# Test that mimics a use case of -n to produce a kernel mapped shared-object
+# in a non paged context. We specifically want to test:
+# - We can allocate the headers into the first program header (via PHDRS)
+# typically -n does not allocate headers.
+# - The alignment of the .text section is not page aligned.
+
+# RUN: echo ".text; .globl foo; foo: nop" > %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %t.s -o %t.o
+# RUN: ld.lld %t.o -o %t.so --shared --hash-style=sysv --script %s
+# RUN: llvm-readobj --program-headers %t.so | FileCheck %s
+# RUN: ld.lld %t.o -o %t2.so --shared --hash-style=sysv -n --script %s
+# RUN: llvm-readobj --program-headers %t2.so | FileCheck %s --check-prefix=CHECK-N
+
+SECTIONS {
+ . = 0x0 + SIZEOF_HEADERS;
+ .hash : { *(.hash) } :text
+ .dynsym : { *(.dynsym) }
+ .dynstr : { *(.dynstr) }
+ . = ALIGN(4);
+ .text : { *(.text*) }
+ .dynamic : { *(.dynamic) } :text :dynamic
+}
+
+PHDRS {
+ text PT_LOAD FLAGS(5) FILEHDR PHDRS;
+ dynamic PT_DYNAMIC FLAGS(4);
+}
+
+# CHECK: ProgramHeaders [
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_LOAD
+# CHECK-NEXT:     Offset: 0x0
+# CHECK-NEXT:     VirtualAddress: 0x0
+# CHECK-NEXT:     PhysicalAddress: 0x0
+# CHECK-NEXT:     FileSize:
+# CHECK-NEXT:     MemSize:
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:       PF_X
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment: 4096
+# CHECK-NEXT:   }
+# CHECK-NEXT:   ProgramHeader {
+# CHECK-NEXT:     Type: PT_DYNAMIC
+# CHECK-NEXT:     Offset: 0x108
+# CHECK-NEXT:     VirtualAddress: 0x108
+# CHECK-NEXT:     PhysicalAddress: 0x108
+# CHECK-NEXT:     FileSize:
+# CHECK-NEXT:     MemSize:
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       PF_R
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Alignment: 8
+# CHECK-NEXT:   }
+# CHECK-NEXT: ]
+
+# CHECK-N: ProgramHeaders [
+# CHECK-N-NEXT:   ProgramHeader {
+# CHECK-N-NEXT:     Type: PT_LOAD
+# CHECK-N-NEXT:     Offset: 0x0
+# CHECK-N-NEXT:     VirtualAddress: 0x0
+# CHECK-N-NEXT:     PhysicalAddress: 0x0
+# CHECK-N-NEXT:     FileSize: 360
+# CHECK-N-NEXT:     MemSize: 360
+# CHECK-N-NEXT:     Flags [
+# CHECK-N-NEXT:       PF_R
+# CHECK-N-NEXT:       PF_X
+# CHECK-N-NEXT:     ]
+# CHECK-N-NEXT:     Alignment: 8
+# CHECK-N-NEXT:   }
+# CHECK-N-NEXT:   ProgramHeader {
+# CHECK-N-NEXT:     Type: PT_DYNAMIC
+# CHECK-N-NEXT:     Offset: 0x108
+# CHECK-N-NEXT:     VirtualAddress: 0x108
+# CHECK-N-NEXT:     PhysicalAddress: 0x108
+# CHECK-N-NEXT:     FileSize:
+# CHECK-N-NEXT:     MemSize:
+# CHECK-N-NEXT:     Flags [
+# CHECK-N-NEXT:       PF_R
+# CHECK-N-NEXT:     ]
+# CHECK-N-NEXT:     Alignment: 8
+# CHECK-N-NEXT:   }
+# CHECK-N-NEXT: ]

@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: llvm-mc -triple=x86_64-pc-linux %p/Inputs/common.s -o %t2.o -filetype=obj
 ; RUN: ld.lld %t1.o %t2.o -o %t.so -shared
-; RUN: llvm-readobj -s -t %t.so | FileCheck %s
+; RUN: llvm-readobj -S --symbols %t.so | FileCheck %s
 
 ; CHECK:      Name: .bss
 ; CHECK-NEXT: Type: SHT_NOBITS

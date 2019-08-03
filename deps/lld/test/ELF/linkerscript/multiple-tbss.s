@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "SECTIONS { }" > %t.script
 # RUN: ld.lld -T %t.script %t.o -o %t
-# RUN: llvm-readobj -l -s %t | FileCheck %s
+# RUN: llvm-readobj -S -l %t | FileCheck %s
 
 # CHECK:        Name: .tbss
 # CHECK-NEXT:   Type: SHT_NOBITS

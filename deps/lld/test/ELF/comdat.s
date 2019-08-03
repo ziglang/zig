@@ -1,9 +1,9 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/comdat.s -o %t2.o
-// RUN: ld.lld -shared %t.o %t.o %t2.o -o %t
+// RUN: ld.lld -shared %t.o %t2.o -o %t
 // RUN: llvm-objdump -d %t | FileCheck %s
-// RUN: llvm-readobj -s -t %t | FileCheck --check-prefix=READ %s
+// RUN: llvm-readobj -S --symbols %t | FileCheck --check-prefix=READ %s
 
 // Check that we don't crash with --gc-section and that we print a list of
 // reclaimed sections on stderr.
@@ -19,6 +19,7 @@ foo:
         nop
 
 // CHECK: Disassembly of section .text2:
+// CHECK-EMPTY:
 // CHECK-NEXT: foo:
 // CHECK-NEXT:   1000: {{.*}}  nop
 // CHECK-NOT: nop
@@ -27,11 +28,10 @@ foo:
         call foo
 
 // CHECK: Disassembly of section bar:
+// CHECK-EMPTY:
 // CHECK-NEXT: bar:
 // 0x1000 - 0x1001 - 5 = -6
-// 0      - 0x1006 - 5 = -4107
 // CHECK-NEXT:   1001:	{{.*}}  callq  -6
-// CHECK-NEXT:   1006:	{{.*}}  callq  -4107
 
         .section .text3,"axG",@progbits,zed,comdat,unique,0
 

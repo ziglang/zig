@@ -6,7 +6,7 @@
 // RUN: ld.lld --hash-style=sysv -shared %t1 %t2 -o %t3
 // RUN: llvm-objdump -triple=thumbv7a-none-linux-gnueabi -d %t3 | FileCheck -check-prefix=DSOTHUMB %s
 // RUN: llvm-objdump -triple=armv7a-none-linux-gnueabi -d %t3 | FileCheck -check-prefix=DSOARM %s
-// RUN: llvm-readobj -s -r %t3 | FileCheck -check-prefix=DSOREL %s
+// RUN: llvm-readobj -S -r %t3 | FileCheck -check-prefix=DSOREL %s
 //
 // Test PLT entry generation
  .syntax unified
@@ -24,6 +24,7 @@ _start:
 
 // Executable, expect no PLT
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: func1:
 // CHECK-NEXT:   11000: 70 47   bx      lr
 // CHECK: func2:
@@ -43,6 +44,7 @@ _start:
 // .text is Thumb and .plt is ARM, llvm-objdump can currently only disassemble
 // as ARM or Thumb. Work around by disassembling twice.
 // DSOTHUMB: Disassembly of section .text:
+// DSOTHUMB-EMPTY:
 // DSOTHUMB-NEXT: func1:
 // DSOTHUMB-NEXT:     1000:     70 47   bx      lr
 // DSOTHUMB: func2:
@@ -58,11 +60,12 @@ _start:
 // 0x1010 + 0x4C + 4 = 0x1060 = PLT func3
 // DSOTHUMB-NEXT:     1010:     00 f0 26 e8     blx     #76
 // DSOARM: Disassembly of section .plt:
+// DSOARM-EMPTY:
 // DSOARM-NEXT: $a:
 // DSOARM-NEXT:     1020:       04 e0 2d e5     str     lr, [sp, #-4]!
-// (0x1024 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfdc) = 0x2008 = .got.plt[3]
+// (0x1024 + 8) + (0 RoR 12) + 4096 + (0xfdc) = 0x3008 = .got.plt[3]
 // DSOARM-NEXT:     1024:       00 e6 8f e2     add     lr, pc, #0, #12
-// DSOARM-NEXT:     1028:       00 ea 8e e2     add     lr, lr, #0, #20
+// DSOARM-NEXT:     1028:       01 ea 8e e2     add     lr, lr, #4096
 // DSOARM-NEXT:     102c:       dc ff be e5     ldr     pc, [lr, #4060]!
 // DSOARM: $d:
 
@@ -71,23 +74,23 @@ _start:
 // DSOARM-NEXT:     1038:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM-NEXT:     103c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// (0x1040 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfc4) = 0x200c
+// (0x1040 + 8) + (0 RoR 12) + 4096 + (0xfc4) = 0x300c
 // DSOARM-NEXT:     1040:       00 c6 8f e2     add     r12, pc, #0, #12
-// DSOARM-NEXT:     1044:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1044:       01 ca 8c e2     add     r12, r12, #4096
 // DSOARM-NEXT:     1048:       c4 ff bc e5     ldr     pc, [r12, #4036]!
 // DSOARM: $d:
 // DSOARM-NEXT:     104c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// (0x1050 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfb8) = 0x2010
+// (0x1050 + 8) + (0 RoR 12) + 4096 + (0xfb8) = 0x3010
 // DSOARM-NEXT:     1050:       00 c6 8f e2     add     r12, pc, #0, #12
-// DSOARM-NEXT:     1054:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1054:       01 ca 8c e2     add     r12, r12, #4096
 // DSOARM-NEXT:     1058:       b8 ff bc e5     ldr     pc, [r12, #4024]!
 // DSOARM: $d:
 // DSOARM-NEXT:     105c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// (0x1060 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfac) = 0x2014
+// (0x1060 + 8) + (0 RoR 12) + 4096 + (0xfac) = 0x3014
 // DSOARM-NEXT:     1060:       00 c6 8f e2     add     r12, pc, #0, #12
-// DSOARM-NEXT:     1064:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1064:       01 ca 8c e2     add     r12, r12, #4096
 // DSOARM-NEXT:     1068:       ac ff bc e5     ldr     pc, [r12, #4012]!
 // DSOARM: $d:
 // DSOARM-NEXT:     106c:       d4 d4 d4 d4     .word   0xd4d4d4d4
@@ -98,7 +101,7 @@ _start:
 // DSOREL-NEXT:      SHF_ALLOC
 // DSOREL-NEXT:      SHF_WRITE
 // DSOREL-NEXT:    ]
-// DSOREL-NEXT:    Address: 0x2000
+// DSOREL-NEXT:    Address: 0x3000
 // DSOREL-NEXT:    Offset:
 // DSOREL-NEXT:    Size: 24
 // DSOREL-NEXT:    Link:
@@ -107,6 +110,6 @@ _start:
 // DSOREL-NEXT:    EntrySize:
 // DSOREL:  Relocations [
 // DSOREL-NEXT:  Section (4) .rel.plt {
-// DSOREL-NEXT:    0x200C R_ARM_JUMP_SLOT func1 0x0
-// DSOREL-NEXT:    0x2010 R_ARM_JUMP_SLOT func2 0x0
-// DSOREL-NEXT:    0x2014 R_ARM_JUMP_SLOT func3 0x0
+// DSOREL-NEXT:    0x300C R_ARM_JUMP_SLOT func1 0x0
+// DSOREL-NEXT:    0x3010 R_ARM_JUMP_SLOT func2 0x0
+// DSOREL-NEXT:    0x3014 R_ARM_JUMP_SLOT func3 0x0

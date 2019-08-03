@@ -7,13 +7,13 @@
 # RUN:   | FileCheck %s --check-prefix=GOTDATA
 
 # GOT:     Sections:
-# GOT:      8  .got.plt     00000020 00000000000000e0 DATA
-# GOT:      10 .got         00000008 00000000000001d0 DATA
-# GOTDATA:     Contents of section .got.plt:
-# GOTDATA-NEXT:  00e0 00010000 00000000 00000000 00000000
-# GOTDATA-NEXT:  00f0 00000000 00000000 d6000000 00000000
-# GOTDATA-NEXT: Contents of section .got:
-# GOTDATA-NEXT:  01d0 00000000 00000000
+# GOT:       9 .got         00000008 00000000000001b0 DATA
+# GOT:      10 .got.plt     00000020 00000000000001b8 DATA
+# GOTDATA:      Contents of section .got:
+# GOTDATA-NEXT:  01b0 00000000 00000000
+# GOTDATA-NEXT: Contents of section .got.plt:
+# GOTDATA-NEXT:  01b8 e0000000 00000000 00000000 00000000
+# GOTDATA-NEXT:  01c8 00000000 00000000 d6000000 00000000
 
 # RUN: echo "SECTIONS { .mygot : { *(.got) *(.got.plt) } }" > %t1.script
 # RUN: ld.lld --hash-style=sysv -shared %t.o -o %t1.out --script %t1.script

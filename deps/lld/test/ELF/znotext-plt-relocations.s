@@ -16,5 +16,6 @@
 
 .text
 _start:
-callq atexit
+.byte 0xe8
+.long atexit - . - 4
 .quad foo

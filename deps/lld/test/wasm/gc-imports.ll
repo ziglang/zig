@@ -43,10 +43,8 @@ entry:
 ; CHECK-NEXT:       - Index:           0
 ; CHECK-NEXT:         Name:            used_undef_function
 ; CHECK-NEXT:       - Index:           1
-; CHECK-NEXT:         Name:            __wasm_call_ctors
-; CHECK-NEXT:       - Index:           2
 ; CHECK-NEXT:         Name:            _start
-; CHECK-NEXT:       - Index:           3
+; CHECK-NEXT:       - Index:           2
 ; CHECK-NEXT:         Name:            use_undef_global
 ; CHECK-NEXT: ...
 

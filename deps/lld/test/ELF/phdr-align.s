@@ -7,7 +7,7 @@
 # RUN:  .data : { *(.data) } \
 # RUN:  .text : { *(.text) } }" > %t.script
 # RUN: ld.lld %t.o --script %t.script -o %t
-# RUN: llvm-readobj -sections -symbols %t | FileCheck %s
+# RUN: llvm-readobj --sections --symbols %t | FileCheck %s
 
 # CHECK:      Sections [
 # CHECK-NEXT:  Section {

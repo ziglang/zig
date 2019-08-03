@@ -1,0 +1,16 @@
+## If an object contains a symbol with a broken (too large) st_shndx,
+## check we report it.
+
+# RUN: yaml2obj %s -o %t1.o
+# RUN: not ld.lld %t1.o -o %t 2>&1 | FileCheck %s
+# CHECK: {{.*}}1.o: invalid section index: 256
+
+!ELF
+FileHeader:
+  Class:    ELFCLASS32
+  Data:     ELFDATA2LSB
+  Type:     ET_REL
+  Machine:  EM_386
+Symbols:
+  - Name:   foo
+    Index:  0x100

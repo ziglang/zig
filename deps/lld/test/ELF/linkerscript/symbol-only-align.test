@@ -1,0 +1,35 @@
+# REQUIRES: x86
+# RUN: echo '.text; ret; .data; .quad 0' > %t.s
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o -shared
+# RUN: llvm-readelf -S --symbols -l %t | FileCheck %s
+
+PHDRS {
+  text PT_LOAD FLAGS(0x5);
+  data PT_LOAD FLAGS(0x6);
+}
+
+SECTIONS {
+  . = SIZEOF_HEADERS;
+  .text : { *(.text) } : text
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
+  foo : { __start_foo = .; *(foo); __end_foo = .; } : data
+  .data : { *(.data) }
+  .dynamic : { *(.dynamic) }
+}
+
+## Check that foo, the symbol only section, has the expected aligned address and
+## file offset. Also check that the section's symbols and the data segment's
+## offset and addresses match.
+
+# CHECK: Section Headers
+# CHECK:      foo   PROGBITS 0000000000[[ADDR:[0-9a-f]*]] [[ADDR]]
+# CHECK-NEXT: .data PROGBITS 0000000000[[ADDR]] [[ADDR]]
+
+# CHECK: Symbol table
+# CHECK: 0000000000[[ADDR]] 0 NOTYPE GLOBAL DEFAULT {{[0-9]+}} __start_foo
+# CHECK: 0000000000[[ADDR]] 0 NOTYPE GLOBAL DEFAULT {{[0-9]+}} __end_foo
+
+# CHECK: Program Headers
+# CHECK:      LOAD
+# CHECK-NEXT: LOAD 0x[[ADDR]] 0x0000000000[[ADDR]] 0x0000000000[[ADDR]]

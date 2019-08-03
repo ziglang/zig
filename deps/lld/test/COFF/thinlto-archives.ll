@@ -13,10 +13,10 @@
 
 ; CHECK: {{/thinlto-archives/main.obj$}}
 ; CHECK: {{^-r=.*/thinlto-archives/main.obj,main,px$}}
-; CHECK: {{/thinlto-archives/a.libbar.obj$}}
-; CHECK-NEXT: {{^-r=.*/thinlto-archives/a.libbar.obj,foo,p$}}
-; CHECK-NEXT: {{/thinlto-archives/b.libbar.obj$}}
-; CHECK-NEXT: {{^-r=.*/thinlto-archives/b.libbar.obj,bar,p$}}
+; CHECK: {{/thinlto-archives/a.libbar.obj[0-9]+$}}
+; CHECK-NEXT: {{^-r=.*/thinlto-archives/a.libbar.obj[0-9]+,foo,p$}}
+; CHECK-NEXT: {{/thinlto-archives/b.libbar.obj[0-9]+$}}
+; CHECK-NEXT: {{^-r=.*/thinlto-archives/b.libbar.obj[0-9]+,bar,p$}}
 
 target datalayout = "e-m:w-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-pc-windows-msvc"

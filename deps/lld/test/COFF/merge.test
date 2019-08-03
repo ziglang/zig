@@ -1,11 +1,11 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /merge:.foo=.abc /merge:.bar=.def %t.obj /debug
-# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /merge:.foo=.bar /merge:.bar=.abc %t.obj /debug
-# RUN: llvm-readobj -sections %t.exe | FileCheck --check-prefix=CHECK2 %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck --check-prefix=CHECK2 %s
 
 # RUN: not lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /merge:.rsrc=.foo %t.obj /debug 2>&1 | FileCheck --check-prefix=NO-RSRC %s

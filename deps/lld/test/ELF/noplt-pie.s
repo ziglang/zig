@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t2.so
 # RUN: ld.lld --hash-style=sysv %t1.o %t2.so -o %t.out
-# RUN: llvm-readobj -s -r %t.out | FileCheck %s
+# RUN: llvm-readobj -S -r %t.out | FileCheck %s
 
 # CHECK: Section {
 # CHECK-NOT: Name: .plt

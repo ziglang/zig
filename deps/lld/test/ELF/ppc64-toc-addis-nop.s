@@ -1,16 +1,16 @@
 # REQUIRES: ppc
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
-# RUN: llvm-readelf -relocations --wide %t.o | FileCheck --check-prefix=InputRelocs %s
+# RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %p/Inputs/shared-ppc64.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t2.so
 #
 # RUN: ld.lld  %t2.so %t.o -o %t
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
+# RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=Dis %s
 #
 # RUN: ld.lld --no-toc-optimize %t2.so %t.o -o %t
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=NoOpt %s
+# RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=NoOpt %s
 
 # InputRelocs:  Relocation section '.rela.text'
 # InputRelocs:   R_PPC64_TOC16_HA
@@ -35,7 +35,7 @@ bytes:
         addis 4, 2, byteSt@toc@ha
         stb   3,    byteSt@toc@l(4)
         blr
-# Dis-LABEL: bytes
+# Dis-LABEL: bytes:
 # Dis-NEXT:   addis
 # Dis-NEXT:   addi
 # Dis-NEXT:   nop
@@ -44,7 +44,7 @@ bytes:
 # Dis-NEXT:   stb   3, 32625(2)
 # Dis-NEXT:   blr
 
-# NoOpt-LABEL: bytes
+# NoOpt-LABEL: bytes:
 # NoOpt-NEXT:     addis
 # NoOpt-NEXT:     addi
 # NoOpt-NEXT:     addis 3, 2, 0
@@ -69,7 +69,7 @@ halfs:
         addis 5, 2, halfSt@toc@ha
         sth   4,    halfSt@toc@l(5)
         blr
-# Dis-LABEL: halfs
+# Dis-LABEL: halfs:
 # Dis-NEXT:   addis
 # Dis-NEXT:   addi
 # Dis-NEXT:   nop
@@ -80,7 +80,7 @@ halfs:
 # Dis-NEXT:   sth 4, 32628(2)
 # Dis-NEXT:   blr
 
-# NoOpt-LABEL: halfs
+# NoOpt-LABEL: halfs:
 # NoOpt-NEXT:   addis
 # NoOpt-NEXT:   addi
 # NoOpt-NEXT:   addis 3, 2, 0
@@ -178,7 +178,7 @@ vec_dq:
         stxv  3,    vecSt@toc@l(3)
         blr
 
-# Dis-LABEL: vec_dq
+# Dis-LABEL: vec_dq:
 # Dis-NEXT:    addis
 # Dis-NEXT:    addi
 # Dis-NEXT:    nop
@@ -187,7 +187,7 @@ vec_dq:
 # Dis-NEXT:    stxv 3, 32672(2)
 # Dis-NEXT:    blr
 
-# NoOpt-LABEL: vec_dq
+# NoOpt-LABEL: vec_dq:
 # NoOpt-NEXT:    addis
 # NoOpt-NEXT:    addi
 # NoOpt-NEXT:    addis 3, 2, 0
@@ -214,7 +214,7 @@ vec_ds:
         addis  3, 2, vecSt@toc@ha
         stxssp 3,    vecSt@toc@l(3)
         blr
-# Dis-LABEL: vec_ds
+# Dis-LABEL: vec_ds:
 # Dis-NEXT:   addis
 # Dis-NEXT:   addi
 # Dis-NEXT:   nop
@@ -227,7 +227,7 @@ vec_ds:
 # Dis-NEXT:   stxssp 3, 32672(2)
 # Dis-NEXT:   blr
 
-# NoOpt-LABEL: vec_ds
+# NoOpt-LABEL: vec_ds:
 # NoOpt-NEXT:   addis
 # NoOpt-NEXT:   addi
 # NoOpt-NEXT:   addis 3, 2, 0

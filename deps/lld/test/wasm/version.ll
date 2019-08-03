@@ -1,6 +1,6 @@
 ; RUN: llc -filetype=obj %s -o %t.o
 ; RUN: wasm-ld -o %t.wasm %t.o
-; RUN: llvm-readobj -file-headers %t.wasm | FileCheck %s
+; RUN: llvm-readobj --file-headers %t.wasm | FileCheck %s
 
 target triple = "wasm32-unknown-unknown"
 

@@ -1,0 +1,5 @@
+RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.o
+
+; Verify we can parse large integers such as when we ask for 2G of total
+; memory.
+RUN: wasm-ld %t.o -o %t.wasm --max-memory=2147483648

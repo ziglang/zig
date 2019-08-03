@@ -25,7 +25,7 @@ _start:
 // CHECK-NEXT: 201000 ffffffff 00000080
 
 // RUN: not ld.lld -z max-page-size=4096 %t.o %t255.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW1
-// OVERFLOW1: relocation R_AARCH64_PREL32 out of range: -2147483649 is not in [-2147483648, 2147483647]
+// OVERFLOW1: relocation R_AARCH64_PREL32 out of range: -2147483649 is not in [-2147483648, 4294967295]
 
 // RUN: not ld.lld -z max-page-size=4096 %t.o %t257.o -o %t2 2>&1 | FileCheck %s --check-prefix=OVERFLOW2
-// OVERFLOW2: relocation R_AARCH64_PREL32 out of range: 4294967296 is not in [-2147483648, 2147483647]
+// OVERFLOW2: relocation R_AARCH64_PREL32 out of range: 4294967296 is not in [-2147483648, 4294967295]

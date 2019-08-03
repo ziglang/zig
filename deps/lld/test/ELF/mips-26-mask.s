@@ -6,6 +6,7 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK:      __start:
 # CHECK-NEXT:   20000:       0e 00 80 00     jal     134348800
 

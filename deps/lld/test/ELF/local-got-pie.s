@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: ld.lld --hash-style=sysv %t.o -o %t -pie
-// RUN: llvm-readobj -s -r -d %t | FileCheck %s
+// RUN: llvm-readobj -S -r -d %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
 .globl _start
@@ -15,6 +15,7 @@ foo:
 
 // 0x20B0 - 1001 - 5 = 4266
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 // DISASM-NEXT:   1000: {{.*}} callq 4267
 // DISASM:      foo:

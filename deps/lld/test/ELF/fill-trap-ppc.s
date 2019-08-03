@@ -2,12 +2,12 @@
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.ppc64le
-# RUN: llvm-readobj -program-headers %t.ppc64le | FileCheck %s
+# RUN: llvm-readobj -l %t.ppc64le | FileCheck %s
 # RUN: od -Ax -t x1 -N16 -j0x10ff0 %t.ppc64le | FileCheck %s -check-prefix=LE
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t.ppc64
-# RUN: llvm-readobj -program-headers %t.ppc64 | FileCheck %s
+# RUN: llvm-readobj -l %t.ppc64 | FileCheck %s
 # RUN: od -Ax -t x1 -N16 -j0x10ff0 %t.ppc64 | FileCheck %s -check-prefix=BE
 
 # CHECK: ProgramHeader {

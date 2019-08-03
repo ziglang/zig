@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t --icf=all --ignore-data-address-equality --print-icf-sections | FileCheck -allow-empty --check-prefix=NOICF %s
-# RUN: llvm-readobj -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 # Check that merge synthetic sections are not merged by ICF.
 
@@ -19,7 +19,7 @@
 # CHECK-NEXT: Size: 16
 # CHECK-NEXT: Link:
 # CHECK-NEXT: Info:
-# CHECK-NEXT: AddressAlignment: 8
+# CHECK-NEXT: AddressAlignment: 1
 # CHECK-NEXT: EntrySize: 0
 # CHECK-NEXT: SectionData (
 # CHECK-NEXT:   0000: 67452301 10325476 67452301 10325476

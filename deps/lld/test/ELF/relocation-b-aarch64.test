@@ -8,6 +8,7 @@
 # immediate. We use this property to overwrite instructions with a branch.
 
 # CHECK: Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: foo:
 # CHECK-NEXT:    210000:        01 00 00 14     b       #4
 # CHECK: bar:
@@ -37,12 +38,11 @@ Sections:
         Type:            R_AARCH64_JUMP26
 
 Symbols:
- Local:
-   - Type:             STT_FUNC
-     Section:          .text
-     Name:             foo
-     Value:            0
-   - Type:             STT_FUNC
-     Section:          .text
-     Name:             bar
-     Value:            4
+  - Type:             STT_FUNC
+    Section:          .text
+    Name:             foo
+    Value:            0
+  - Type:             STT_FUNC
+    Section:          .text
+    Name:             bar
+    Value:            4

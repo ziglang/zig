@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 # RUN: ld.lld -r %t1.o -o %t
-# RUN: llvm-readobj -file-headers -sections -program-headers -symbols -r %t | FileCheck %s
+# RUN: llvm-readobj --file-headers --sections -l --symbols -r %t | FileCheck %s
 
 ## We check here that .bss does not occupy the space in file.
 ## If it would, the SectionHeaderOffset would have offset about 5 megabytes.

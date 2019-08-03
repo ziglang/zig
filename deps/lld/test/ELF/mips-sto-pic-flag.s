@@ -7,7 +7,7 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
 # RUN:   %p/Inputs/mips-pic.s -o %t-pic.o
 # RUN: ld.lld -r %t-npic.o %t-pic.o -o %t-rel.o
-# RUN: llvm-readobj -t %t-rel.o | FileCheck %s
+# RUN: llvm-readobj --symbols %t-rel.o | FileCheck %s
 
 # CHECK:      Symbol {
 # CHECK:        Name: main

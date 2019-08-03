@@ -4,14 +4,15 @@
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=TEXT %s
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /include:ExitProcess
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=TEXT %s
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
 
 TEXT: Disassembly of section .text:
+TEXT-EMPTY:
 TEXT-NEXT: .text:
 TEXT-NEXT: subq    $40, %rsp
 TEXT-NEXT: movq    $0, %rcx
@@ -37,7 +38,7 @@ IMPORT-NEXT: }
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /merge:.rdata=.text \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /include:ExitProcess
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=MERGE %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=MERGE %s
 
 MERGE:      Import {
 MERGE-NEXT:   Name: std64.dll

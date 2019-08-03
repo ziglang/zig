@@ -33,7 +33,6 @@ Sections:
     Info:            .text.foo
     Relocations:
       - Offset:          0x0000000000000000
-        Symbol:          ''
         Type:            R_X86_64_NONE
   - Name:            .rela.text.bar
     Type:            SHT_RELA
@@ -44,9 +43,9 @@ Sections:
         Symbol:          zed
         Type:            R_X86_64_64
 Symbols:
-  Global:
-    - Name:     zed
-      Type:     STT_FUNC
-      Section:  .text
-      Value:    0x0
-      Size:     8
+  - Name:     zed
+    Type:     STT_FUNC
+    Section:  .text
+    Value:    0x0
+    Size:     8
+    Binding:  STB_GLOBAL

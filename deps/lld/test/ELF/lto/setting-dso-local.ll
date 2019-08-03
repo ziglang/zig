@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: not ld.lld -o %t %t1.o 2>&1 | FileCheck %s
 
-; CHECK: undefined symbol: foobar
+; CHECK: undefined hidden symbol: foobar
 
 ; We used to crash setting foobar to non-dso_local
 

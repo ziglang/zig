@@ -4,9 +4,9 @@
 ; RUN: llvm-ar rcs %t.a %t1.o
 ; RUN: llvm-as %s -o %t2.o
 ; RUN: ld.lld %t2.o %t.a -o %t3 -shared
-; RUN: llvm-readobj -t %t3 | FileCheck %s
+; RUN: llvm-readobj --symbols %t3 | FileCheck %s
 ; RUN: ld.lld %t2.o --whole-archive %t.a -o %t3 -shared
-; RUN: llvm-readobj -t %t3 | FileCheck %s
+; RUN: llvm-readobj --symbols %t3 | FileCheck %s
 
 ; CHECK:      Name: g (
 ; CHECK-NEXT: Value:

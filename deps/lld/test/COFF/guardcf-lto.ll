@@ -9,7 +9,7 @@
 
 ; RUN: llvm-as %s -o %t.bc
 ; RUN: lld-link -entry:main -guard:cf -dll %t.bc %t.lib %t.ldcfg.obj -out:%t.dll
-; RUN: llvm-readobj -coff-load-config %t.dll | FileCheck %s
+; RUN: llvm-readobj --coff-load-config %t.dll | FileCheck %s
 
 ; There must be *two* entries in the table: DLL entry point, and my_handler.
 

@@ -1,0 +1,36 @@
+## If an object contains a common symbol with zero alignment,
+## check we report it.
+# RUN: yaml2obj -docnum=1 %s -o %t1.o
+# RUN: not ld.lld %t1.o -o %t 2>&1 | FileCheck %s
+# CHECK: common symbol 'bar' has invalid alignment: 0
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Symbols:
+  - Name:            bar
+    Type:            STT_FUNC
+    Index:           SHN_COMMON
+    Binding:         STB_GLOBAL
+
+## If an object contains a common symbol with alignment greater
+## than UINT32_MAX, check we report it.
+# RUN: yaml2obj -docnum=2 %s -o %t2.o
+# RUN: not ld.lld %t2.o -o %t 2>&1 | FileCheck %s --check-prefix=BIG
+# BIG: common symbol 'bar' has invalid alignment: 271644049215
+
+--- !ELF
+FileHeader:      
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Symbols:
+  - Name:            bar
+    Type:            STT_FUNC
+    Index:           SHN_COMMON
+    Value:           0x0000003F3F3F3F3F
+    Binding:         STB_GLOBAL

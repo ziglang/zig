@@ -3,7 +3,7 @@
 # RUN: yaml2obj %s -o %t.o
 # RUN: ld.lld %t.o -o %t.so -shared
 # RUN: llvm-objdump -d %t.so | FileCheck %s
-# RUN: llvm-readobj -relocations %t.so | FileCheck -check-prefix=REL %s
+# RUN: llvm-readobj -r %t.so | FileCheck -check-prefix=REL %s
 
 # REQUIRES: mips
 
@@ -38,15 +38,14 @@ Sections:
         Type:    R_MIPS_JALR
 
 Symbols:
-  Local:
-    - Name:     T1
-      Type:     STT_FUNC
-      Section:  .text
-      Value:    0
-      Size:     4
-  Global:
-    - Name:     __start
-      Type:     STT_FUNC
-      Section:  .text
-      Value:    0
-      Size:     4
+  - Name:     T1
+    Type:     STT_FUNC
+    Section:  .text
+    Value:    0
+    Size:     4
+  - Name:     __start
+    Type:     STT_FUNC
+    Section:  .text
+    Value:    0
+    Size:     4
+    Binding:  STB_GLOBAL

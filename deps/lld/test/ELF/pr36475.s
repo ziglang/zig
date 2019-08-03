@@ -10,7 +10,7 @@
 # RUN: echo " .got.plt : { BYTE(42); *(.got); } : ph_data" >> %t.script
 # RUN: echo "}" >> %t.script
 # RUN: ld.lld -T %t.script %t.o -o %t.elf
-# RUN: llvm-readobj -l -elf-output-style=GNU %t.elf | FileCheck %s
+# RUN: llvm-readelf -l %t.elf | FileCheck %s
 
 # CHECK: Section to Segment mapping:
 # CHECK-NEXT: Segment Sections...

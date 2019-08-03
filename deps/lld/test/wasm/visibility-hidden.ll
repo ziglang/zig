@@ -43,21 +43,15 @@ entry:
 ; CHECK-NEXT:       - Name:            memory
 ; CHECK-NEXT:         Kind:            MEMORY
 ; CHECK-NEXT:         Index:           0
-; CHECK-NEXT:       - Name:            __heap_base
-; CHECK-NEXT:         Kind:            GLOBAL
-; CHECK-NEXT:         Index:           1
-; CHECK-NEXT:       - Name:            __data_end
-; CHECK-NEXT:         Kind:            GLOBAL
-; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:       - Name:            objectDefault
 ; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           2
+; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:       - Name:            _start
 ; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           3
+; CHECK-NEXT:         Index:           2
 ; CHECK-NEXT:       - Name:            archiveDefault
 ; CHECK-NEXT:         Kind:            FUNCTION
-; CHECK-NEXT:         Index:           5
+; CHECK-NEXT:         Index:           4
 ; CHECK-NEXT:   - Type:
 
 
@@ -66,13 +60,7 @@ entry:
 ; NO-DEFAULT-NEXT:       - Name:            memory
 ; NO-DEFAULT-NEXT:         Kind:            MEMORY
 ; NO-DEFAULT-NEXT:         Index:           0
-; NO-DEFAULT-NEXT:       - Name:            __heap_base
-; NO-DEFAULT-NEXT:         Kind:            GLOBAL
-; NO-DEFAULT-NEXT:         Index:           1
-; NO-DEFAULT-NEXT:       - Name:            __data_end
-; NO-DEFAULT-NEXT:         Kind:            GLOBAL
-; NO-DEFAULT-NEXT:         Index:           2
 ; NO-DEFAULT-NEXT:       - Name:            _start
 ; NO-DEFAULT-NEXT:         Kind:            FUNCTION
-; NO-DEFAULT-NEXT:         Index:           3
+; NO-DEFAULT-NEXT:         Index:           2
 ; NO-DEFAULT-NEXT:   - Type:

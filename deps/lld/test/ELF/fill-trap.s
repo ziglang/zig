@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2
-# RUN: llvm-readobj -program-headers %t2 | FileCheck %s
+# RUN: llvm-readobj -l %t2 | FileCheck %s
 # RUN: od -Ax -x -N16 -j0x1ff0 %t2 | FileCheck %s -check-prefix=FILL
 
 # CHECK: ProgramHeader {

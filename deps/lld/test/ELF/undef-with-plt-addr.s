@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/undef-with-plt-addr.s -o %t2.o
 // RUN: ld.lld %t2.o -o %t2.so -shared
 // RUN: ld.lld %t.o %t2.so -o %t3
-// RUN: llvm-readobj -t -s -r %t3 | FileCheck %s
+// RUN: llvm-readobj --symbols -S -r %t3 | FileCheck %s
 
 // Test that -z nocopyreloc doesn't prevent the plt hack.
 // RUN: ld.lld %t.o %t2.so -o %t3 -z nocopyreloc
@@ -25,10 +25,10 @@ movabsq	$set_data, %rax
 // CHECK-NEXT: Address: 0x201010
 
 // CHECK:      Section ({{.*}}) .rela.dyn {
-// CHECK-NEXT:   0x202000 R_X86_64_64 foo 0x0
+// CHECK-NEXT:   0x203000 R_X86_64_64 foo 0x0
 // CHECK-NEXT: }
 // CHECK-NEXT: Section ({{.*}}) .rela.plt {
-// CHECK-NEXT:   0x202020 R_X86_64_JUMP_SLOT set_data 0x0
+// CHECK-NEXT:   0x203020 R_X86_64_JUMP_SLOT set_data 0x0
 // CHECK-NEXT: }
 
 // CHECK:      Name: foo

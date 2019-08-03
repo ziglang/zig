@@ -88,6 +88,7 @@ else()
     set(EMBEDDED_LLD_LIB_SOURCES
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Args.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/ErrorHandler.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/Common/Filesystem.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Memory.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Reproduce.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/Common/Strings.cpp"
@@ -148,7 +149,6 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
-        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Filesystem.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
@@ -171,6 +171,7 @@ else()
     set(EMBEDDED_LLD_COFF_SOURCES
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Chunks.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DLL.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DebugTypes.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Driver.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DriverUtils.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF/ICF.cpp"
@@ -194,8 +195,10 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/LTO.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/MarkLive.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/OutputSections.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Relocations.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SymbolTable.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Symbols.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/wasm/SyntheticSections.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
     )

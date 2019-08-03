@@ -3,7 +3,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
-# RUN: llvm-readobj -s %t.so | FileCheck %s
+# RUN: llvm-readobj -S %t.so | FileCheck %s
 
   .text
   nop

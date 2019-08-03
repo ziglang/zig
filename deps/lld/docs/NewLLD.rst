@@ -307,3 +307,11 @@ Glossary
   On Unix, your program is generally not guaranteed to be safe with ICF,
   although large programs happen to work correctly.
   LLD works fine with ICF for example.
+
+Other Info
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   missingkeyfunction

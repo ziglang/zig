@@ -34,11 +34,11 @@
 #   lui     $gp,%hi(%neg(%gp_rel(foo)))
 
 # RUN: ld.lld -r -o %t-32.r %S/Inputs/mips-gp0-non-zero.o
-# RUN: llvm-readobj -mips-reginfo %t-32.r | FileCheck --check-prefix=GPVAL %s
+# RUN: llvm-readobj --mips-reginfo %t-32.r | FileCheck --check-prefix=GPVAL %s
 # RUN: llvm-objdump -s %t-32.r | FileCheck --check-prefix=ADDEND32 %s
 
 # RUN: ld.lld -r -o %t-64.r %S/Inputs/mips-n64-gp0-non-zero.o
-# RUN: llvm-readobj -mips-options %t-64.r | FileCheck --check-prefix=GPVAL %s
+# RUN: llvm-readobj --mips-options %t-64.r | FileCheck --check-prefix=GPVAL %s
 # RUN: llvm-readobj -r %S/Inputs/mips-n64-gp0-non-zero.o %t-64.r \
 # RUN:   | FileCheck --check-prefix=ADDEND64 %s
 

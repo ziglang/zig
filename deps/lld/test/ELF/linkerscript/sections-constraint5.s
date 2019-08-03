@@ -6,7 +6,7 @@
 # RUN:       }" > %t.script
 
 # RUN: ld.lld -o %t -T %t.script %t.o
-# RUN: llvm-readobj -s -t %t | FileCheck %s
+# RUN: llvm-readobj -S --symbols %t | FileCheck %s
 
 # CHECK: Sections [
 # CHECK:      Name: bar

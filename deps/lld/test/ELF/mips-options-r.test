@@ -11,7 +11,7 @@
 # % as -mabi=64 -mips64r2 t.s
 
 # RUN: ld.lld -r %p/Inputs/mips-options.o -o %t.o
-# RUN: llvm-readobj -s %t.o | FileCheck %s
+# RUN: llvm-readobj -S %t.o | FileCheck %s
 
 # REQUIRES: mips
 

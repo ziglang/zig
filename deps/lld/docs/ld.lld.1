@@ -1,9 +1,10 @@
-.\" This file is distributed under the University of Illinois Open Source
-.\" License. See LICENSE.TXT for details.
+.\" Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+.\" See https://llvm.org/LICENSE.txt for license information.
+.\" SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 .\"
 .\" This man page documents only lld's ELF linking support, obtained originally
 .\" from FreeBSD.
-.Dd September 26, 2018
+.Dd May 12, 2019
 .Dt LD.LLD 1
 .Os
 .Sh NAME
@@ -45,6 +46,9 @@ as a native linker as well as a cross linker.
 .It Fl -allow-multiple-definition
 Do not error if a symbol is defined multiple times.
 The first definition will be used.
+.It Fl -allow-shlib-undefined
+Allow unresolved references in shared libraries.
+This option is enabled by default when linking a shared library.
 .It Fl -apply-dynamic-relocs
 Apply link-time values for dynamic relocations.
 .It Fl -as-needed
@@ -178,6 +182,8 @@ Set the
 field to the specified value.
 .It Fl -fini Ns = Ns Ar symbol
 Specify a finalizer function.
+.It Fl -force-bti
+Force enable AArch64 BTI instruction in PLT, warn if Input ELF file does not have GNU_PROPERTY_AARCH64_FEATURE_1_BTI property.
 .It Fl -format Ns = Ns Ar input-format , Fl b Ar input-format
 Specify the format of the inputs following this option.
 .Ar input-format
@@ -213,6 +219,15 @@ Enable identical code folding.
 Enable safe identical code folding.
 .It Fl -icf Ns = Ns Cm none
 Disable identical code folding.
+.It Fl -ignore-data-address-equality
+Ignore address equality of data. C/C++ requires each data to have a unique
+address. This option allows lld to do unsafe optimization that breaks the
+requirement: create copies of read-only data or merge two or more read-only data
+that happen to have the same value.
+.It Fl -ignore-function-address-equality
+Ignore address equality of functions. This option allows non-PIC calls to a
+function with non-default visibility in a shared object. The function may have
+different addresses within the executable and within the shared object.
 .It Fl -image-base Ns = Ns Ar value
 Set the base address to
 .Ar value .
@@ -241,6 +256,11 @@ Set target emulation.
 .It Fl -Map Ns = Ns Ar file , Fl M Ar file
 Print a link map to
 .Ar file .
+.It Fl -nmagic , Fl n
+Do not page align sections, link against static libraries.
+.It Fl -no-allow-shlib-undefined
+Do not allow unresolved references in shared libraries.
+This option is enabled by default when linking an executable.
 .It Fl -no-as-needed
 Always set
 .Dv DT_NEEDED
@@ -259,6 +279,12 @@ section.
 Disable garbage collection of unused sections.
 .It Fl -no-gnu-unique
 Disable STB_GNU_UNIQUE symbol binding.
+.It Fl -no-merge-exidx-entries
+Disable merging .ARM.exidx entries.
+.It Fl -no-nmagic
+Page align sections.
+.It Fl -no-omagic
+Do not set the text data sections to be writable, page align sections.
 .It Fl -no-rosegment
 Do not put read-only non-executable sections in their own segment.
 .It Fl -no-threads
@@ -267,9 +293,11 @@ Do not run the linker multi-threaded.
 Report version scripts that refer undefined symbols.
 .It Fl -no-undefined
 Report unresolved symbols even if the linker is creating a shared library.
+.It Fl -no-warn-symbol-ordering
+Do not warn about problems with the symbol ordering file or call graph profile.
 .It Fl -no-whole-archive
 Restores the default behavior of loading archive members.
-.It Fl -no-pie
+.It Fl -no-pie , Fl -no-pic-executable
 Do not create a position independent executable.
 .It Fl -noinhibit-exec
 Retain the executable output file whenever it is still usable.
@@ -305,15 +333,62 @@ is
 .Cm binary ,
 which produces output with no ELF header.
 .It Fl -omagic , Fl N
-Set the text and data sections to be readable and writable.
+Set the text and data sections to be readable and writable, do not page align sections, link against static libraries.
 .It Fl -opt-remarks-filename Ar file
 Write optimization remarks in YAML format to
 .Ar file .
+.It Fl -opt-remarks-passes Ar pass-regex
+Filter optimization remarks by only allowing the passes matching
+.Ar pass-regex .
 .It Fl -opt-remarks-with-hotness
 Include hotness information in the optimization remarks file.
+.It Fl -orphan-handling Ns = Ns Ar mode
+Control how orphan sections are handled. An orphan section is one not
+specifically mentioned in a linker script.
+.Ar mode
+may be:
+.Pp
+.Bl -tag -width 2n -compact
+.It Cm place
+Place orphan sections in suitable output sections.
+.It Cm warn
+Place orphan sections as for
+.Cm place
+and also report a warning.
+.It Cm error
+Place orphan sections as for
+.Cm place
+and also report an error.
+.El
+.Pp
+.Cm place
+is the default.
+.It Fl -pack-dyn-relocs Ns = Ns Ar format
+Pack dynamic relocations in the given format.
+.Ar format
+may be:
+.Pp
+.Bl -tag -width 2n -compact
+.It Cm none
+Don't pack. Dynamic relocations are encoded in SHT_REL(A).
+.It Cm android
+Pack dynamic relocations in SHT_ANDROID_REL(A).
+.It Cm relr
+Pack relative relocations in SHT_RELR, and the rest of dynamic relocations in SHT_REL(A).
+.It Cm android+relr
+Pack relative relocations in SHT_RELR, and the rest of dynamic relocations in SHT_ANDROID_REL(A).
+.El
+.Pp
+.Cm none
+is the default. If
+.Fl -use-android-relr-tags
+is specified, use SHT_ANDROID_RELR instead of SHT_RELR.
+.Pp
+.It Fl -pac-plt
+AArch64 only, use pointer authentication in PLT.
 .It Fl -pic-veneer
 Always generate position independent thunks.
-.It Fl -pie
+.It Fl -pie , Fl -pic-executable
 Create a position independent executable.
 .It Fl -print-gc-sections
 List removed unused sections.
@@ -358,6 +433,8 @@ Set
 .Dv DT_SONAME
 to
 .Ar value .
+.It Fl -sort-common
+This option is ignored for GNU compatibility.
 .It Fl -sort-section Ns = Ns Ar value
 Specifies sections sorting rule when linkerscript is used.
 .It Fl -start-lib
@@ -427,11 +504,27 @@ Print the names of the input files.
 Trace references to
 .Ar symbol .
 .It Fl -undefined Ns = Ns Ar symbol , Fl u Ar symbol
-Force
+If
 .Ar symbol
-to be an undefined symbol during linking.
+is not defined after symbol resolution, and there's a static library
+that contains an object file defining the symbol, load the member
+to include the object file in the output file.
+.It Fl -undefined-glob Ns = Ns Ar pattern
+Synonym for
+.Fl -undefined ,
+except that it takes a glob pattern. In a glob pattern,
+.Cm *
+matches zero or more characters,
+.Cm ?
+matches any single character, and
+.Cm [...]
+matches the characters within brackets. All symbols that match
+a given pattern are handled as if they were given as arguments of
+.Fl -undefined .
 .It Fl -unresolved-symbols Ns = Ns Ar value
 Determine how to handle unresolved symbols.
+.It Fl -use-android-relr-tags
+Use SHT_ANDROID_RELR / DT_ANDROID_RELR* tags instead of SHT_RELR / DT_RELR*.
 .It Fl v
 Display the version number and proceed with linking if object files are
 specified.
@@ -479,6 +572,14 @@ Sets the
 .Dv DYNAMIC
 section.
 Different loaders can decide how to handle this flag on their own.
+.It Cm ifunc-noplt
+Do not emit PLT entries for ifunc symbols.
+Instead, emit text relocations referencing the resolver.
+This is an experimental optimization and only suitable for standalone
+environments where text relocations do not have the usual drawbacks.
+This option must be combined with the
+.Fl z Li notext
+option.
 .It Cm initfirst
 Sets the
 .Dv DF_1_INITFIRST

@@ -1,0 +1,47 @@
+# REQUIRES: arm
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: llvm-objdump -s %t.obj | FileCheck %s -check-prefix BEFORE
+# RUN: lld-link /entry:function /subsystem:console /out:%t.exe %t.obj
+# RUN: llvm-objdump -s %t.exe | FileCheck %s -check-prefix AFTER
+
+# BEFORE: Contents of section .text:
+# BEFORE:    0000 704700bf 01000000 01000000
+
+# AFTER: Contents of section .text:
+# AFTER:   401000 704700bf faffffff f50f0000
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARMNT
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_16BIT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     704700BF0100000001000000
+    Relocations:
+      - VirtualAddress:  4
+        SymbolName:      function
+        Type:            IMAGE_REL_ARM_REL32
+      - VirtualAddress:  8
+        SymbolName:      data
+        Type:            IMAGE_REL_ARM_REL32
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     00
+symbols:
+  - Name:            function
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

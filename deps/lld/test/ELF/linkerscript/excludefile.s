@@ -10,6 +10,7 @@
 # RUN: llvm-objdump -d %t | FileCheck %s
 
 # CHECK: Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK: _start:
 # CHECK-NEXT: :       48 c7 c0 3c 00 00 00    movq    $60, %rax
 # CHECK-NEXT: :       48 c7 c7 2a 00 00 00    movq    $42, %rdi
@@ -30,6 +31,7 @@
 # RUN: llvm-objdump -d %t4 | FileCheck %s --check-prefix=EXCLUDE
 
 # EXCLUDE: Disassembly of section .patatino:
+# EXCLUDE-EMPTY:
 # EXCLUDE: _start:
 # EXCLUDE-NEXT: :       48 c7 c0 3c 00 00 00    movq    $60, %rax
 # EXCLUDE-NEXT: :       48 c7 c7 2a 00 00 00    movq    $42, %rdi
@@ -39,6 +41,7 @@
 # EXCLUDE-NEXT: :       90      nop
 # EXCLUDE-NEXT: :       90      nop
 # EXCLUDE: Disassembly of section .text:
+# EXCLUDE-EMPTY:
 # EXCLUDE: tomato:
 # EXCLUDE-NEXT: :       b8 01 00 00 00  movl    $1, %eax
 

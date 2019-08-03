@@ -3,9 +3,9 @@ RUN: yaml2obj %p/Inputs/generic.yaml > %t.obj
 RUN: lld-link %t.obj /debug /Brepro /entry:main /nodefaultlib /out:%t.1.exe
 RUN: lld-link %t.obj /debug /Brepro /entry:main /nodefaultlib /out:%t.2.exe
 RUN: lld-link %t.obj /debug /timestamp:0 /entry:main /nodefaultlib /out:%t.3.exe
-RUN: llvm-readobj -file-headers -coff-debug-directory %t.1.exe | FileCheck %s --check-prefix=HASH
-RUN: llvm-readobj -file-headers -coff-debug-directory %t.2.exe | FileCheck %s --check-prefix=HASH
-RUN: llvm-readobj -file-headers -coff-debug-directory %t.3.exe | FileCheck %s --check-prefix=ZERO
+RUN: llvm-readobj --file-headers --coff-debug-directory %t.1.exe | FileCheck %s --check-prefix=HASH
+RUN: llvm-readobj --file-headers --coff-debug-directory %t.2.exe | FileCheck %s --check-prefix=HASH
+RUN: llvm-readobj --file-headers --coff-debug-directory %t.3.exe | FileCheck %s --check-prefix=ZERO
 
 HASH: ImageFileHeader {
 HASH: TimeDateStamp: [[STAMP:.*]]

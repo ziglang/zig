@@ -4,7 +4,7 @@
 # RUN: lld-link -dll -entry:f -out:%t.dll -implib:%t.lib %tobject.obj
 # RUN: llvm-mc -filetype=obj -triple=x86_64-windows-msvc -o %tmain.obj %s
 # RUN: lld-link -entry:main -out:%t.exe -opt:ref -debug:dwarf %tmain.obj %t.lib
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck %s
 
 # CHECK-NOT: Symbol: f
 

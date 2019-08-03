@@ -42,7 +42,7 @@ t3_ff8_ldr:
         ret
 
 // CHECK3: t3_ff8_ldr:
-// CHECK3-NEXT:    211ff8:       60 00 04 f0     adrp    x0, #134279168
+// CHECK3-NEXT:    211ff8:       e0 00 04 f0     adrp    x0, #134344704
 // CHECK3-NEXT:    211ffc:       21 00 40 f9     ldr     x1, [x1]
 // CHECK3-NEXT:    212000:       02 08 80 15     b       #100671496
 // CHECK3-NEXT:    212004:       c0 03 5f d6     ret
@@ -63,7 +63,7 @@ t3_ff8_str:
         ret
 
 // CHECK4: t3_ff8_str:
-// CHECK4-NEXT:  4213ff8:       60 00 02 b0     adrp    x0, #67162112
+// CHECK4-NEXT:  4213ff8:       e0 00 02 b0     adrp    x0, #67227648
 // CHECK4-NEXT:  4213ffc:       21 00 40 f9     ldr     x1, [x1]
 // CHECK4-NEXT:  4214000:       04 00 80 14     b       #33554448
 // CHECK4-NEXT:  4214004:       c0 03 5f d6     ret
@@ -102,7 +102,7 @@ t3_ffc_ldr:
         ret
 
 // CHECK7: t3_ffc_ldr:
-// CHECK7-NEXT:  8211ffc:       60 00 00 f0     adrp    x0, #61440
+// CHECK7-NEXT:  8211ffc:       e0 00 00 f0     adrp    x0, #126976
 // CHECK7-NEXT:  8212000:       21 00 40 f9     ldr     x1, [x1]
 // CHECK7-NEXT:  8212004:       02 00 00 14     b       #8
 // CHECK7-NEXT:  8212008:       c0 03 5f d6     ret

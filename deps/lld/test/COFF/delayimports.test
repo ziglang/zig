@@ -1,8 +1,8 @@
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /delayload:STD64.DLL \
 # RUN:   /alternatename:__delayLoadHelper2=main
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
-# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
 
 IMPORT:      DelayImport {
 IMPORT-NEXT:   Name: std64.dll
@@ -18,11 +18,11 @@ IMPORT-NEXT:     Address: 0x140001066
 IMPORT-NEXT:   }
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol:  (50)
-IMPORT-NEXT:     Address: 0x1400010BD
+IMPORT-NEXT:     Address: 0x140001072
 IMPORT-NEXT:   }
 IMPORT-NEXT:   Import {
 IMPORT-NEXT:     Symbol: MessageBoxA (0)
-IMPORT-NEXT:     Address: 0x140001114
+IMPORT-NEXT:     Address: 0x14000107E
 IMPORT-NEXT:   }
 IMPORT-NEXT: }
 

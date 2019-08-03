@@ -5,7 +5,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux -o %t.o %s
 # RUN: ld.lld --section-start .rodata=0x27FFC -shared -o %t.so %t.o
-# RUN: llvm-readobj -t -mips-plt-got %t.so | FileCheck %s
+# RUN: llvm-readobj --symbols --mips-plt-got %t.so | FileCheck %s
 
 # CHECK:       Name: bar
 # CHECK-NEXT:  Value: 0x28000

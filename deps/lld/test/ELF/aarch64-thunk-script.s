@@ -26,6 +26,7 @@ high_target:
  ret
 
 // CHECK: Disassembly of section .text_low:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:     2000:       02 00 00 94     bl      #8
 // CHECK-NEXT:     2004:       c0 03 5f d6     ret
@@ -36,6 +37,7 @@ high_target:
 // CHECK-NEXT:     2010:       00 20 00 08     .word   0x08002000
 // CHECK-NEXT:     2014:       00 00 00 00     .word   0x00000000
 // CHECK: Disassembly of section .text_high:
+// CHECK-EMPTY:
 // CHECK-NEXT: high_target:
 // CHECK-NEXT:  8002000:       00 00 00 96     bl      #-134217728
 // CHECK-NEXT:  8002004:       c0 03 5f d6     ret

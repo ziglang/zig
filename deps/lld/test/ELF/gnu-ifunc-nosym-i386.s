@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
-// RUN: llvm-readobj -symbols %tout | FileCheck %s
+// RUN: llvm-readobj --symbols %tout | FileCheck %s
 
 // Check that no __rel_iplt_end/__rel_iplt_start
 // appear in symtab if there is no references to them.

@@ -13,6 +13,7 @@
 # 0x201011 + 7 - 23 = 0x201001
 # 0x201018 + 7 - 30 = 0x201001
 # DISASM:      Disassembly of section .text:
+# DISASM-EMPTY:
 # DISASM-NEXT: foo:
 # DISASM-NEXT:   201000: 90 nop
 # DISASM:      hid:

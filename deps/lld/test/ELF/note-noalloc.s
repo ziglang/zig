@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t -shared
-// RUN: llvm-readobj -program-headers -sections %t | FileCheck %s
+// RUN: llvm-readobj -l --sections %t | FileCheck %s
 
 // PR37361: A note without SHF_ALLOC should not be included into a PT_NOTE program header.
 

@@ -1,6 +1,6 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple=i386-pc-win32 -filetype=obj -o %t.obj %s
-# RUN: lld-link /subsystem:console /debug /nodefaultlib /entry:foo /out:%t.exe /pdb:%t.pdb %t.obj
+# RUN: lld-link -safeseh:no /subsystem:console /debug /nodefaultlib /entry:foo /out:%t.exe /pdb:%t.pdb %t.obj
 # RUN: llvm-pdbutil dump -fpo %t.pdb | FileCheck %s
 
 # CHECK:                         Old FPO Data

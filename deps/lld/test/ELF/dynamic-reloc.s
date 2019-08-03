@@ -4,7 +4,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/dynamic-reloc.s -o %t3.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld --hash-style=sysv %t.o %t3.o %t2.so -o %t
-// RUN: llvm-readobj -dynamic-table -r --expand-relocs -s %t | FileCheck %s
+// RUN: llvm-readobj --dynamic-table -r --expand-relocs -S %t | FileCheck %s
 
 // CHECK:      Index: 1
 // CHECK-NEXT: Name: .dynsym
@@ -18,7 +18,7 @@
 // CHECK-NEXT: Offset:
 // CHECK-NEXT: Size: [[RELASIZE:.*]]
 // CHECK-NEXT: Link: 1
-// CHECK-NEXT: Info: 7
+// CHECK-NEXT: Info: 8
 // CHECK-NEXT: AddressAlignment: 8
 // CHECK-NEXT: EntrySize: 24
 
@@ -33,7 +33,7 @@
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section ({{.*}}) .rela.plt {
 // CHECK-NEXT:     Relocation {
-// CHECK-NEXT:       Offset: 0x202018
+// CHECK-NEXT:       Offset: 0x203018
 // CHECK-NEXT:       Type: R_X86_64_JUMP_SLOT
 // CHECK-NEXT:       Symbol: bar
 // CHECK-NEXT:       Addend: 0x0

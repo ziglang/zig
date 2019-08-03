@@ -1,5 +1,5 @@
 # RUN: yaml2obj %s -o %t.obj
-# RUN: lld-link -debug -entry:main -out:%t.exe -pdb:%t.pdb %t.obj
+# RUN: lld-link -safeseh:no -debug -entry:main -out:%t.exe -pdb:%t.pdb %t.obj
 # RUN: llvm-pdbutil dump -globals %t.pdb | FileCheck %s
 
 # There is an S_GDATA32 symbol record with .secrel32 and .secidx relocations in

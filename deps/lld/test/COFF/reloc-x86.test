@@ -1,6 +1,6 @@
 # REQUIRES: x86
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /out:%t.exe /entry:main /base:0x400000 %t.obj
+# RUN: lld-link -safeseh:no /out:%t.exe /entry:main /base:0x400000 %t.obj
 # RUN: llvm-objdump -d %t.exe | FileCheck %s
 
 # CHECK: .text:

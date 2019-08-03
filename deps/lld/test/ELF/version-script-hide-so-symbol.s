@@ -4,7 +4,7 @@
 # RUN: ld.lld -shared %t.o -o %t2.so
 # RUN: echo "{ local: *; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o %t2.so -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck %s
 
 # The symbol foo must be hidden. This matches bfd and gold and is
 # required to make it possible for a c++ library to hide its own

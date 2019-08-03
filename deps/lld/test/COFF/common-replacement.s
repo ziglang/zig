@@ -5,7 +5,7 @@
 
 # RUN: lld-link -lldmingw -entry:main %t1.obj %t2.obj -out:%t.exe -verbose 2>&1 \
 # RUN:   | FileCheck -check-prefix VERBOSE %s
-# RUN: llvm-readobj -s %t.exe | FileCheck -check-prefix SECTIONS %s
+# RUN: llvm-readobj -S %t.exe | FileCheck -check-prefix SECTIONS %s
 
 # VERBOSE: -aligncomm:"foo",2
 

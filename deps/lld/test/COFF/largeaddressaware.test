@@ -1,7 +1,7 @@
 # RUN: yaml2obj < %p/Inputs/hello32.yaml > %t.obj
-# RUN: lld-link %t.obj %p/Inputs/std32.lib /subsystem:console \
+# RUN: lld-link -safeseh:no %t.obj %p/Inputs/std32.lib /subsystem:console \
 # RUN:   /entry:main@0 /out:%t.exe /largeaddressaware
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=HEADER %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=HEADER %s
 
 HEADER:      Format: COFF-i386
 HEADER-NEXT: Arch: i386

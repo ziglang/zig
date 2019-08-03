@@ -24,6 +24,7 @@ loc:
   .gpword(loc)                                # R_MIPS_GPREL32
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:    20000:  3c 1c 00 01  lui     $gp, 1
 #                                                  ^-- 0x20000 - 0x37ff0

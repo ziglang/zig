@@ -4,7 +4,7 @@
 # RUN: %p/Inputs/lazy-bind-x86_64.yaml  %p/Inputs/lazy-bind-x86_64-2.yaml \
 # RUN: %p/Inputs/lazy-bind-x86_64-3.yaml -o %t  \
 # RUN:   %p/Inputs/x86_64/libSystem.yaml
-# RUN: llvm-objdump -lazy-bind %t | FileCheck %s
+# RUN: llvm-objdump -macho -lazy-bind %t | FileCheck %s
 # RUN: llvm-nm -m %t | FileCheck --check-prefix=CHECK-NM %s
 # RUN: llvm-objdump -disassemble %t | FileCheck --check-prefix=CHECK-HELPERS %s
 # RUN: llvm-objdump -private-headers %t | FileCheck --check-prefix=CHECK-DYLIBS %s

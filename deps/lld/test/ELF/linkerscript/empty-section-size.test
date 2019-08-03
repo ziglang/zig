@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
 # RUN: ld.lld %t.o --script %s -o %t1
-# RUN: llvm-readobj -symbols %t1 | FileCheck %s
+# RUN: llvm-readobj --symbols %t1 | FileCheck %s
 
 ## We had a bug when LLD increased the size of the output section even
 ## if it was empty. That happened because of empty synthetic sections included.

@@ -4,7 +4,7 @@
 # RUN: not ld.lld %t.o %t2.o -o %t.so -shared 2>&1 | FileCheck %s
 # RUN: not ld.lld %t2.o %t.o -o %t.so -shared 2>&1 | FileCheck %s
 
-# CHECK: error: undefined symbol: foo
+# CHECK: error: undefined protected symbol: foo
 
 .data
 .quad foo

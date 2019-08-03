@@ -5,7 +5,7 @@
 // RUN:  .note.b : AT(0x2000) { *(.note.b) } \
 // RUN: }" > %t.script
 // RUN: ld.lld %t.o --script %t.script -o %t
-// RUN: llvm-readobj -program-headers %t | FileCheck %s
+// RUN: llvm-readobj -l %t | FileCheck %s
 
 // CHECK:      Type: PT_NOTE
 // CHECK-NEXT: Offset: 0x1000

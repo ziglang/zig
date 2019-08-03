@@ -8,6 +8,7 @@
 // RUN: llvm-objdump -d -triple=i386-pc-linux-code16 %t | FileCheck %s
 
 // CHECK:        Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:     7000:       e9 fe 1f        jmp     8190
 //                            0x1 + 0x9000 - 0x7003 == 8190

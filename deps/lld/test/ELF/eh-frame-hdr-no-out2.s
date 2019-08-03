@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld --eh-frame-hdr %t.o -o %t
-// RUN: llvm-readobj -s -program-headers %t | FileCheck %s --check-prefix=NOHDR
+// RUN: llvm-readobj -S -l %t | FileCheck %s --check-prefix=NOHDR
 
 .section foo,"ax",@progbits
  nop

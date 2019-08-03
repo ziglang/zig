@@ -1,7 +1,7 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /opt:noref /entry:main \
 # RUN:   %t.obj %p/Inputs/imports-mangle.lib
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck %s
 
 # CHECK: Import {
 # CHECK:   Symbol: sym4 (0)

@@ -54,6 +54,7 @@ f3:
 // Check default no linker script order.
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK: _start:
 // CHECK-NEXT:    11000:       1e ff 2f e1     bx      lr
 // CHECK: f1:
@@ -67,12 +68,15 @@ f3:
 // CHECK: func5:
 // CHECK-NEXT:    11014:       1e ff 2f e1     bx      lr
 // CHECK: Disassembly of section .func1:
+// CHECK-EMPTY:
 // CHECK-NEXT: func1:
 // CHECK-NEXT:    11018:       1e ff 2f e1     bx      lr
 // CHECK: Disassembly of section .func2:
+// CHECK-EMPTY:
 // CHECK-NEXT: func2:
 // CHECK-NEXT:    1101c:       1e ff 2f e1     bx      lr
 // CHECK: Disassembly of section .func3:
+// CHECK-EMPTY:
 // CHECK-NEXT: func3:
 // CHECK-NEXT:    11020:       1e ff 2f e1     bx      lr
 
@@ -128,6 +132,7 @@ f3:
 // the .text section but before the orphan sections
 
 // CHECK-SCRIPT: Disassembly of section .text:
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: func4:
 // CHECK-SCRIPT-NEXT:    11000:       1e ff 2f e1     bx      lr
 // CHECK-SCRIPT:      func5:
@@ -140,13 +145,19 @@ f3:
 // CHECK-SCRIPT-NEXT:    11010:       1e ff 2f e1     bx      lr
 // CHECK-SCRIPT:      f3:
 // CHECK-SCRIPT-NEXT:    11014:       1e ff 2f e1     bx      lr
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: Disassembly of section .func1:
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: func1:
 // CHECK-SCRIPT-NEXT:    11018:       1e ff 2f e1     bx      lr
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: Disassembly of section .func2:
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: func2:
 // CHECK-SCRIPT-NEXT:    1101c:       1e ff 2f e1     bx      lr
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: Disassembly of section .func3:
+// CHECK-SCRIPT-EMPTY:
 // CHECK-SCRIPT-NEXT: func3:
 // CHECK-SCRIPT-NEXT:    11020:       1e ff 2f e1     bx      lr
 

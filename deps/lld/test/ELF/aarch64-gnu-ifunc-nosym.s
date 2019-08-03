@@ -1,7 +1,7 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-none-linux-gnu %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
-// RUN: llvm-readobj -symbols %tout | FileCheck %s
+// RUN: llvm-readobj --symbols %tout | FileCheck %s
 
 // Check that no __rela_iplt_end/__rela_iplt_start
 // appear in symtab if there is no references to them.

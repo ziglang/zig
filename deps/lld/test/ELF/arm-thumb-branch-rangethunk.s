@@ -17,6 +17,7 @@ _start:
  beq.w too_far3
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:    20000:       00 f0 04 f8     bl      #8
 // CHECK-NEXT:    20004:       00 f0 07 b8     b.w     #14 <__Thumbv7ABSLongThunk_too_far2>

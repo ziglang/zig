@@ -1,0 +1,10 @@
+# RUN: yaml2obj < %p/Inputs/pdb1.yaml > %t1.obj
+# RUN: yaml2obj < %p/Inputs/pdb2.yaml > %t2.obj
+# RUN: rm -f %t.dll %t.pdb
+# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll \
+# RUN:   /entry:main /nodefaultlib %t1.obj %t2.obj
+
+# RUN: llvm-pdbutil dump -types -type-extras %t.pdb | FileCheck %s
+
+CHECK:      Hash Key Size: 4
+CHECK-NEXT: Num Hash Buckets: 262143

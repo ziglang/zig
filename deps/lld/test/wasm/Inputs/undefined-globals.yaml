@@ -27,7 +27,7 @@ Sections:
         Locals:
         Body:            2381808080000B
     Relocations:
-      - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
+      - Type:            R_WASM_GLOBAL_INDEX_LEB
         Index:           1
         Offset:          0x00000004
   - Type:            CUSTOM

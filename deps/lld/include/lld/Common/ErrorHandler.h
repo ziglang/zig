@@ -1,9 +1,8 @@
 //===- ErrorHandler.h -------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -83,74 +82,75 @@ namespace lld {
 
 class ErrorHandler {
 public:
-  uint64_t ErrorCount = 0;
-  uint64_t ErrorLimit = 20;
-  StringRef ErrorLimitExceededMsg = "too many errors emitted, stopping now";
-  StringRef LogName = "lld";
-  llvm::raw_ostream *ErrorOS = &llvm::errs();
-  bool ColorDiagnostics = llvm::errs().has_colors();
-  bool ExitEarly = true;
-  bool FatalWarnings = false;
-  bool Verbose = false;
+  uint64_t errorCount = 0;
+  uint64_t errorLimit = 20;
+  StringRef errorLimitExceededMsg = "too many errors emitted, stopping now";
+  StringRef logName = "lld";
+  llvm::raw_ostream *errorOS = &llvm::errs();
+  bool colorDiagnostics = llvm::errs().has_colors();
+  bool exitEarly = true;
+  bool fatalWarnings = false;
+  bool verbose = false;
+  bool vsDiagnostics = false;
 
-  void error(const Twine &Msg);
-  LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &Msg);
-  void log(const Twine &Msg);
-  void message(const Twine &Msg);
-  void warn(const Twine &Msg);
+  void error(const Twine &msg);
+  LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &msg);
+  void log(const Twine &msg);
+  void message(const Twine &msg);
+  void warn(const Twine &msg);
 
-  std::unique_ptr<llvm::FileOutputBuffer> OutputBuffer;
+  std::unique_ptr<llvm::FileOutputBuffer> outputBuffer;
 
 private:
-  void print(StringRef S, raw_ostream::Colors C);
+  void printHeader(StringRef s, raw_ostream::Colors c, const Twine &msg);
 };
 
 /// Returns the default error handler.
 ErrorHandler &errorHandler();
 
-inline void error(const Twine &Msg) { errorHandler().error(Msg); }
-inline LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &Msg) {
-  errorHandler().fatal(Msg);
+inline void error(const Twine &msg) { errorHandler().error(msg); }
+inline LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &msg) {
+  errorHandler().fatal(msg);
 }
-inline void log(const Twine &Msg) { errorHandler().log(Msg); }
-inline void message(const Twine &Msg) { errorHandler().message(Msg); }
-inline void warn(const Twine &Msg) { errorHandler().warn(Msg); }
-inline uint64_t errorCount() { return errorHandler().ErrorCount; }
+inline void log(const Twine &msg) { errorHandler().log(msg); }
+inline void message(const Twine &msg) { errorHandler().message(msg); }
+inline void warn(const Twine &msg) { errorHandler().warn(msg); }
+inline uint64_t errorCount() { return errorHandler().errorCount; }
 
-LLVM_ATTRIBUTE_NORETURN void exitLld(int Val);
+LLVM_ATTRIBUTE_NORETURN void exitLld(int val);
 
-void diagnosticHandler(const llvm::DiagnosticInfo &DI);
-void checkError(Error E);
+void diagnosticHandler(const llvm::DiagnosticInfo &di);
+void checkError(Error e);
 
 // check functions are convenient functions to strip errors
 // from error-or-value objects.
-template <class T> T check(ErrorOr<T> E) {
-  if (auto EC = E.getError())
-    fatal(EC.message());
-  return std::move(*E);
+template <class T> T check(ErrorOr<T> e) {
+  if (auto ec = e.getError())
+    fatal(ec.message());
+  return std::move(*e);
 }
 
-template <class T> T check(Expected<T> E) {
-  if (!E)
-    fatal(llvm::toString(E.takeError()));
-  return std::move(*E);
-}
-
-template <class T>
-T check2(ErrorOr<T> E, llvm::function_ref<std::string()> Prefix) {
-  if (auto EC = E.getError())
-    fatal(Prefix() + ": " + EC.message());
-  return std::move(*E);
+template <class T> T check(Expected<T> e) {
+  if (!e)
+    fatal(llvm::toString(e.takeError()));
+  return std::move(*e);
 }
 
 template <class T>
-T check2(Expected<T> E, llvm::function_ref<std::string()> Prefix) {
-  if (!E)
-    fatal(Prefix() + ": " + toString(E.takeError()));
-  return std::move(*E);
+T check2(ErrorOr<T> e, llvm::function_ref<std::string()> prefix) {
+  if (auto ec = e.getError())
+    fatal(prefix() + ": " + ec.message());
+  return std::move(*e);
 }
 
-inline std::string toString(const Twine &S) { return S.str(); }
+template <class T>
+T check2(Expected<T> e, llvm::function_ref<std::string()> prefix) {
+  if (!e)
+    fatal(prefix() + ": " + toString(e.takeError()));
+  return std::move(*e);
+}
+
+inline std::string toString(const Twine &s) { return s.str(); }
 
 // To evaluate the second argument lazily, we use C macro.
 #define CHECK(E, S) check2((E), [&] { return toString(S); })

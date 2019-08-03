@@ -27,6 +27,7 @@
 # REPORT-NEXT: <internal>:(.dynamic) is being placed in '.dynamic'
 # REPORT-NEXT: <internal>:(.dynstr) is being placed in '.dynstr'
 # REPORT-NEXT: <internal>:(.rela.dyn) is being placed in '.rela.dyn'
+# REPORT-NEXT: <internal>:(.eh_frame) is being placed in '.eh_frame'
 # REPORT-NEXT: <internal>:(.got) is being placed in '.got'
 # REPORT-NEXT: <internal>:(.got.plt) is being placed in '.got.plt'
 # REPORT-NEXT: <internal>:(.got.plt) is being placed in '.got.plt'
@@ -34,9 +35,8 @@
 # REPORT-NEXT: <internal>:(.rela.plt) is being placed in '.rela.plt'
 # REPORT-NEXT: <internal>:(.plt) is being placed in '.plt'
 # REPORT-NEXT: <internal>:(.plt) is being placed in '.plt'
-# REPORT-NEXT: <internal>:(.eh_frame) is being placed in '.eh_frame'
 # REPORT-NEXT: <internal>:(.symtab) is being placed in '.symtab'
-# REPORT-NEXT: <internal>:(.symtab_shndxr) is being placed in '.symtab_shndxr'
+# REPORT-NEXT: <internal>:(.symtab_shndx) is being placed in '.symtab_shndx'
 # REPORT-NEXT: <internal>:(.shstrtab) is being placed in '.shstrtab'
 # REPORT-NEXT: <internal>:(.strtab) is being placed in '.strtab'
 

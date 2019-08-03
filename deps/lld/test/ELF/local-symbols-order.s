@@ -5,7 +5,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 
 # RUN: ld.lld -o %t %t1.o %t2.o --emit-relocs
-# RUN: llvm-readobj -symbols -sections -elf-output-style=GNU %t | FileCheck %s
+# RUN: llvm-readelf --symbols --sections %t | FileCheck %s
 
 ## Check we sort local symbols to match the following order: 
 ## file1, local1, section1, hidden1, file2, local2, section2, hidden2 ...

@@ -1,0 +1,71 @@
+RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.o
+
+RUN: wasm-ld --export=__global_base --export=__data_end --allow-undefined -o %t.wasm %t.o
+RUN: obj2yaml %t.wasm | FileCheck %s  -check-prefix=CHECK-1024
+CHECK-1024:       - Type:            GLOBAL
+CHECK-1024-NEXT:    Globals:
+CHECK-1024-NEXT:      - Index:           0
+CHECK-1024-NEXT:        Type:            I32
+CHECK-1024-NEXT:        Mutable:         true
+CHECK-1024-NEXT:        InitExpr:
+CHECK-1024-NEXT:          Opcode:          I32_CONST
+CHECK-1024-NEXT:          Value:           66560
+CHECK-1024-NEXT:      - Index:           1
+CHECK-1024-NEXT:        Type:            I32
+CHECK-1024-NEXT:        Mutable:         false
+CHECK-1024-NEXT:        InitExpr:
+CHECK-1024-NEXT:          Opcode:          I32_CONST
+CHECK-1024-NEXT:          Value:           1024
+CHECK-1024-NEXT:      - Index:           2
+CHECK-1024-NEXT:        Type:            I32
+CHECK-1024-NEXT:        Mutable:         false
+CHECK-1024-NEXT:        InitExpr:
+CHECK-1024-NEXT:          Opcode:          I32_CONST
+CHECK-1024-NEXT:          Value:           1024
+
+CHECK-1024:       - Type:            EXPORT
+CHECK-1024-NEXT:    Exports:
+CHECK-1024-NEXT:      - Name:            memory
+CHECK-1024-NEXT:        Kind:            MEMORY
+CHECK-1024-NEXT:        Index:           0
+CHECK-1024-NEXT:      - Name:            __data_end
+CHECK-1024-NEXT:        Kind:            GLOBAL
+CHECK-1024-NEXT:        Index:           1
+CHECK-1024-NEXT:      - Name:            __global_base
+CHECK-1024-NEXT:        Kind:            GLOBAL
+CHECK-1024-NEXT:        Index:           2
+
+RUN: wasm-ld --export=__global_base --export=__data_end --allow-undefined --global-base=16777216 -o %t.wasm %t.o
+RUN: obj2yaml %t.wasm | FileCheck %s  -check-prefix=CHECK-16777216
+CHECK-16777216:       - Type:            GLOBAL
+CHECK-16777216-NEXT:    Globals:
+CHECK-16777216-NEXT:      - Index:           0
+CHECK-16777216-NEXT:        Type:            I32
+CHECK-16777216-NEXT:        Mutable:         true
+CHECK-16777216-NEXT:        InitExpr:
+CHECK-16777216-NEXT:          Opcode:          I32_CONST
+CHECK-16777216-NEXT:          Value:           16842752
+CHECK-16777216-NEXT:      - Index:           1
+CHECK-16777216-NEXT:        Type:            I32
+CHECK-16777216-NEXT:        Mutable:         false
+CHECK-16777216-NEXT:        InitExpr:
+CHECK-16777216-NEXT:          Opcode:          I32_CONST
+CHECK-16777216-NEXT:          Value:           16777216
+CHECK-16777216-NEXT:      - Index:           2
+CHECK-16777216-NEXT:        Type:            I32
+CHECK-16777216-NEXT:        Mutable:         false
+CHECK-16777216-NEXT:        InitExpr:
+CHECK-16777216-NEXT:          Opcode:          I32_CONST
+CHECK-16777216-NEXT:          Value:           16777216
+
+CHECK-16777216:       - Type:            EXPORT
+CHECK-16777216-NEXT:    Exports:
+CHECK-16777216-NEXT:      - Name:            memory
+CHECK-16777216-NEXT:        Kind:            MEMORY
+CHECK-16777216-NEXT:        Index:           0
+CHECK-16777216-NEXT:      - Name:            __data_end
+CHECK-16777216-NEXT:        Kind:            GLOBAL
+CHECK-16777216-NEXT:        Index:           1
+CHECK-16777216-NEXT:      - Name:            __global_base
+CHECK-16777216-NEXT:        Kind:            GLOBAL
+CHECK-16777216-NEXT:        Index:           2

@@ -6,6 +6,7 @@
 ## Check that we are able to GC non-allocatable metadata sections without crash.
 
 # CHECK:      Disassembly of section .stack_sizes:
+# CHECK-EMPTY:
 # CHECK-NEXT:   .stack_sizes:
 # CHECK-NEXT:    01
 

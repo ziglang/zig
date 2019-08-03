@@ -2,9 +2,9 @@
 # RUN: llvm-mc %s -triple x86_64-windows-msvc -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -dll -noentry -out:%t.dll -merge:.xdata=.xdata 2>&1 \
 # RUN:     | FileCheck %s --check-prefix=WARN
-# RUN: llvm-readobj -sections %t.dll | FileCheck %s --check-prefix=XDATA
+# RUN: llvm-readobj --sections %t.dll | FileCheck %s --check-prefix=XDATA
 # RUN: lld-link %t.obj -dll -noentry -out:%t.dll
-# RUN: llvm-readobj -sections %t.dll | FileCheck %s --check-prefix=RDATA
+# RUN: llvm-readobj --sections %t.dll | FileCheck %s --check-prefix=RDATA
 
 # There shouldn't be much xdata, because all three .pdata entries (12 bytes
 # each) should use the same .xdata unwind info.

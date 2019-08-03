@@ -34,6 +34,7 @@ _start:
 // Section
  bl tfunc33
 // CHECK1: Disassembly of section .text:
+// CHECK1-EMPTY:
 // CHECK1-NEXT: tfunc00:
 // CHECK1-NEXT:    80000:       70 47   bx      lr
 // CHECK1-NEXT:    80002:       7f f3 ff d7     bl      #16252926

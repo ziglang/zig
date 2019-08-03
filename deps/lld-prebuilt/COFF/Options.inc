@@ -13,9 +13,8 @@
 #define COMMA ,
 PREFIX(prefix_0, {nullptr})
 PREFIX(prefix_2, {"--" COMMA nullptr})
-PREFIX(prefix_3, {"/" COMMA "-" COMMA nullptr})
-PREFIX(prefix_1, {"/" COMMA "-" COMMA "-?" COMMA nullptr})
-PREFIX(prefix_4, {"/?" COMMA "-?" COMMA nullptr})
+PREFIX(prefix_1, {"/" COMMA "-" COMMA "/?" COMMA "-?" COMMA nullptr})
+PREFIX(prefix_3, {"/??" COMMA "-??" COMMA "/?" COMMA "-?" COMMA nullptr})
 #undef COMMA
 #endif // PREFIX
 
@@ -61,13 +60,17 @@ OPTION(prefix_1, "debugtype:", debugtype, Joined, INVALID, INVALID, nullptr, 0, 
        "Debug Info Options", nullptr, nullptr)
 OPTION(prefix_1, "debug", debug, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Embed a symbol table in the image", nullptr, nullptr)
-OPTION(prefix_3, "def:", deffile, Joined, INVALID, INVALID, nullptr, 0, 0,
+OPTION(prefix_1, "def:", deffile, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Use module-definition file", nullptr, nullptr)
 OPTION(prefix_1, "defaultlib:", defaultlib, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Add the library to the list of input files", nullptr, nullptr)
 OPTION(prefix_1, "delay:", delay, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "delayload:", delayload, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Delay loaded DLL name", nullptr, nullptr)
+OPTION(prefix_1, "demangle:no", demangle_no, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Do not demangle symbols in output", nullptr, nullptr)
+OPTION(prefix_1, "demangle", demangle, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Demangle symbols in output (default)", nullptr, nullptr)
 OPTION(prefix_1, "disallowlib:", disallowlib, Joined, INVALID, nodefaultlib, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "dll", dll, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Create a DLL", nullptr, nullptr)
@@ -83,22 +86,29 @@ OPTION(prefix_1, "entry:", entry, Joined, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_1, "errorlimit:", errorlimit, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Maximum number of errors to emit before stopping (0 = no limit)", nullptr, nullptr)
 OPTION(prefix_1, "errorreport:", errorreport, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "exclude-all-symbols", exclude_all_symbols, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "export-all-symbols", export_all_symbols, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "export:", export, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Export a function", nullptr, nullptr)
 OPTION(prefix_1, "failifmismatch:", failifmismatch, Joined, INVALID, INVALID, nullptr, 0, 0,
        "", nullptr, nullptr)
 OPTION(prefix_1, "fastfail", fastfail, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "filealign:", filealign, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "Section alignment in the output file", nullptr, nullptr)
 OPTION(prefix_1, "fixed:no", fixed_no, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Enable base relocations (default)", nullptr, nullptr)
 OPTION(prefix_1, "fixed", fixed, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Disable base relocations", nullptr, nullptr)
+OPTION(prefix_1, "force:multipleres", force_multipleres, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Allow multiply defined resources when creating executables", nullptr, nullptr)
 OPTION(prefix_1, "force:multiple", force_multiple, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Allow multiply defined symbols when creating executables", nullptr, nullptr)
 OPTION(prefix_1, "force:unresolved", force_unresolved, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Allow undefined symbols when creating executables", nullptr, nullptr)
 OPTION(prefix_1, "force", force, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Allow undefined and multiply defined symbols when creating executables", nullptr, nullptr)
+OPTION(prefix_1, "functionpadmin:", functionpadmin_opt, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "Prepares an image for hotpatching", nullptr, nullptr)
 OPTION(prefix_1, "functionpadmin", functionpadmin, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "guard:", guard, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Control flow guard", nullptr, nullptr)
@@ -116,8 +126,10 @@ OPTION(prefix_1, "ignore:", ignore, Joined, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_1, "ignoreidl", ignoreidl, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "implib:", implib, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Import library name", nullptr, nullptr)
-OPTION(prefix_3, "include:", incl, Joined, INVALID, INVALID, nullptr, 0, 0,
+OPTION(prefix_1, "include:", incl, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Force symbol to be added to symbol table as undefined one", nullptr, nullptr)
+OPTION(prefix_1, "includeoptional:", include_optional, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "Add symbol as undefined, but allow it to remain undefined", nullptr, nullptr)
 OPTION(prefix_1, "incremental:no", incremental_no, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Overwrite import library even if contents are unchanged", nullptr, nullptr)
 OPTION(prefix_1, "incremental", incremental, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -141,7 +153,7 @@ OPTION(prefix_1, "lldltocache:", lldltocache, Joined, INVALID, INVALID, nullptr,
        "Path to ThinLTO cached object file directory", nullptr, nullptr)
 OPTION(prefix_1, "lldltocachepolicy:", lldltocachepolicy, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Pruning policy for the ThinLTO cache", nullptr, nullptr)
-OPTION(prefix_3, "lldmap:", lldmap_file, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "lldmap:", lldmap_file, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "lldmap", lldmap, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "lldmingw", lldmingw, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "lldsavetemps", lldsavetemps, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -186,7 +198,7 @@ OPTION(prefix_1, "order:", order, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Put functions in order", nullptr, nullptr)
 OPTION(prefix_1, "out:", out, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Path to file to write output", nullptr, nullptr)
-OPTION(prefix_3, "output-def:", output_def, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "output-def:", output_def, Joined, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "pdb:", pdb, Joined, INVALID, INVALID, nullptr, 0, 0,
        "PDB file path", nullptr, nullptr)
 OPTION(prefix_1, "pdbaltpath:", pdbaltpath, Joined, INVALID, INVALID, nullptr, 0, 0,
@@ -208,8 +220,27 @@ OPTION(prefix_1, "stub:", stub, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Specify DOS stub file", nullptr, nullptr)
 OPTION(prefix_1, "subsystem:", subsystem, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Specify subsystem", nullptr, nullptr)
-OPTION(prefix_1, "swaprun:cd", swaprun_cd, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
-OPTION(prefix_1, "swaprun:net", swaprun_net, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "summary", summary, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_1, "swaprun:cd", swaprun_cd, Flag, INVALID, swaprun, "cd\0", 0, 0,
+       "Make loader run output binary from swap instead of from CD", nullptr, nullptr)
+OPTION(prefix_1, "swaprun:net", swaprun_net, Flag, INVALID, swaprun, "net\0", 0, 0,
+       "Make loader run output binary from swap instead of from network", nullptr, nullptr)
+OPTION(prefix_1, "swaprun:", swaprun, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "Comma-separated list of 'cd' or 'net'", nullptr, nullptr)
+OPTION(prefix_1, "thinlto-emit-imports-files", thinlto_emit_imports_files, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Emit .imports files with -thinlto-index-only", nullptr, nullptr)
+OPTION(prefix_1, "thinlto-index-only:", thinlto_index_only_arg, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "-thinlto-index-only and also write native module names to file", nullptr, nullptr)
+OPTION(prefix_1, "thinlto-index-only", thinlto_index_only, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Instead of linking, emit ThinLTO index files", nullptr, nullptr)
+OPTION(prefix_1, "thinlto-object-suffix-replace:", thinlto_object_suffix_replace, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "'old;new' replace old suffix with new suffix in ThinLTO index", nullptr, nullptr)
+OPTION(prefix_1, "thinlto-prefix-replace:", thinlto_prefix_replace, Joined, INVALID, INVALID, nullptr, 0, 0,
+       "'old;new' replace old prefix with new prefix in ThinLTO outputs", nullptr, nullptr)
+OPTION(prefix_1, "threads:no", threads_no, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Do not run the linker multi-threaded", nullptr, nullptr)
+OPTION(prefix_1, "threads", threads, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Run the linker multi-threaded (default)", nullptr, nullptr)
 OPTION(prefix_1, "throwingnew", throwingnew, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_1, "timestamp:", timestamp, Joined, INVALID, INVALID, nullptr, 0, 0,
        "Specify the PE header timestamp", nullptr, nullptr)
@@ -233,7 +264,7 @@ OPTION(prefix_1, "WX:no", WX_no, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Don't treat warnings as errors", nullptr, nullptr)
 OPTION(prefix_1, "WX", WX, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Treat warnings as errors", nullptr, nullptr)
-OPTION(prefix_4, "", help_q, Flag, INVALID, help, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_3, "", help_q, Flag, INVALID, help, nullptr, 0, 0, nullptr, nullptr, nullptr)
 #endif // OPTION
 
 #ifdef OPTTABLE_ARG_INIT

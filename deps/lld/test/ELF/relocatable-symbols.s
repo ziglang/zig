@@ -3,7 +3,7 @@
 # RUN: ld.lld -r %t -o %tout
 # RUN: llvm-objdump -d %tout | FileCheck -check-prefix=DISASM %s
 # RUN: llvm-readobj -r %t | FileCheck -check-prefix=RELOC %s
-# RUN: llvm-readobj -symbols -r %tout | FileCheck -check-prefix=SYMBOL %s
+# RUN: llvm-readobj --symbols -r %tout | FileCheck -check-prefix=SYMBOL %s
 
 # DISASM:      _start:
 # DISASM-NEXT:   0: {{.*}} callq 0
@@ -18,12 +18,16 @@
 # DISASM-NEXT:  2d: {{.*}} callq 0
 # DISASM-NEXT:  32: {{.*}} callq 0
 # DISASM-NEXT:  37: {{.*}} callq 0
+# DISASM-EMPTY:
 # DISASM-NEXT: Disassembly of section foo:
+# DISASM-EMPTY:
 # DISASM-NEXT: foo:
 # DISASM-NEXT:  0: 90 nop
 # DISASM-NEXT:  1: 90 nop
 # DISASM-NEXT:  2: 90 nop
+# DISASM-EMPTY:
 # DISASM-NEXT: Disassembly of section bar:
+# DISASM-EMPTY:
 # DISASM-NEXT: bar:
 # DISASM-NEXT:  0: 90 nop
 # DISASM-NEXT:  1: 90 nop

@@ -7,15 +7,15 @@
 # CHECK-NEXT: >>>               {{.*}}line-error.yaml.tmp.obj:(caller22)
 
 --- !COFF
-header:          
+header:
   Machine:         IMAGE_FILE_MACHINE_AMD64
   Characteristics: [  ]
-sections:        
+sections:
   - Name:            .text
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
     SectionData:     488B0500000000488B51284881C2D80000004889C148FF2500000000
-    Relocations:     
+    Relocations:
       - VirtualAddress:  3
         SymbolName:      function
         Type:            IMAGE_REL_AMD64_REL32
@@ -23,54 +23,54 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
     SectionData:     488B0500000000488B51084881C2D80000004889C148FF2500000000
-    Relocations:     
+    Relocations:
       - VirtualAddress:  3
         SymbolName:      function
         Type:            IMAGE_REL_AMD64_REL32
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    Subsections:     
+    Subsections:
       - !FileChecksums
-        Checksums:       
+        Checksums:
           - FileName:        'E:\file.cpp'
             Kind:            MD5
             Checksum:        D72EDEF8B8E50C364A330F9CB3CD904B
       - !StringTable
-        Strings:         
+        Strings:
           - 'E:\file.cpp'
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    Subsections:     
+    Subsections:
       - !Lines
         CodeSize:        28
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
         Blocks:          []
-    Relocations:     
+    Relocations:
       - VirtualAddress:  12
         SymbolName:      caller1
         Type:            IMAGE_REL_AMD64_SECREL
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
-    Subsections:     
+    Subsections:
       - !Lines
         CodeSize:        28
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:          
+        Blocks:
           - FileName:        'E:\file.cpp'
-            Lines:           
+            Lines:
               - Offset:          11
                 LineStart:       1935
                 IsStatement:     false
                 EndDelta:        0
             Columns:         []
-    Relocations:     
+    Relocations:
       - VirtualAddress:  12
         SymbolName:      caller22
         Type:            IMAGE_REL_AMD64_SECREL
@@ -81,7 +81,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          28
       NumberOfRelocations: 2
       NumberOfLinenumbers: 0
@@ -93,14 +93,14 @@ symbols:
     SectionNumber:   1
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
-    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL    
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
   - Name:            .text
     Value:           0
     SectionNumber:   2
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          28
       NumberOfRelocations: 2
       NumberOfLinenumbers: 0
@@ -112,14 +112,14 @@ symbols:
     SectionNumber:   2
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
-    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL    
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
   - Name:            '.debug$S'
     Value:           0
     SectionNumber:   3
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          767204
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -131,7 +131,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          296
       NumberOfRelocations: 1
       NumberOfLinenumbers: 0
@@ -144,7 +144,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          276
       NumberOfRelocations: 1
       NumberOfLinenumbers: 0

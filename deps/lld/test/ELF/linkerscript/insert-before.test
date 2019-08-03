@@ -16,7 +16,7 @@ SECTIONS {
 # RUN: ld.lld %t1.o -o %t1 --script %p/Inputs/insert-after.script --script %s
 # RUN: llvm-objdump -section-headers %t1 | FileCheck %s
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT: Idx Name          Size     VMA         Type
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .foo.text     00000008 0000000000000000 TEXT
 # CHECK-NEXT:   2 .text         00000008 0000000000000008 TEXT

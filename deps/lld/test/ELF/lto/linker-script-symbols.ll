@@ -3,8 +3,9 @@
 ; RUN: echo "foo = bar;" > %t.script
 
 ; RUN: ld.lld %t.o -o %t2 --script %t.script -save-temps
-; RUN: llvm-readobj -symbols %t2.lto.o | FileCheck %s
+; RUN: llvm-readobj --symbols %t2.lto.o | FileCheck %s
 
+; CHECK: Symbols [
 ; CHECK-NOT:  zed
 ; CHECK:      Symbol {
 ; CHECK:        Name: bar

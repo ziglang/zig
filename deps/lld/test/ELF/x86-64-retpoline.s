@@ -7,9 +7,10 @@
 // RUN: llvm-objdump -d -s %t.exe | FileCheck %s
 
 // CHECK:      Disassembly of section .plt:
+// CHECK-EMPTY:
 // CHECK-NEXT: .plt:
-// CHECK-NEXT: 1010:       ff 35 f2 0f 00 00       pushq   4082(%rip)
-// CHECK-NEXT: 1016:       4c 8b 1d f3 0f 00 00    movq    4083(%rip), %r11
+// CHECK-NEXT: 1010:       ff 35 f2 1f 00 00       pushq   8178(%rip)
+// CHECK-NEXT: 1016:       4c 8b 1d f3 1f 00 00    movq    8179(%rip), %r11
 // CHECK-NEXT: 101d:       e8 0e 00 00 00  callq   14 <.plt+0x20>
 // CHECK-NEXT: 1022:       f3 90   pause
 // CHECK-NEXT: 1024:       0f ae e8        lfence
@@ -34,7 +35,7 @@
 // CHECK-NEXT: 103d:       cc      int3
 // CHECK-NEXT: 103e:       cc      int3
 // CHECK-NEXT: 103f:       cc      int3
-// CHECK-NEXT: 1040:       4c 8b 1d d1 0f 00 00    movq    4049(%rip), %r11
+// CHECK-NEXT: 1040:       4c 8b 1d d1 1f 00 00    movq    8145(%rip), %r11
 // CHECK-NEXT: 1047:       e8 e4 ff ff ff  callq   -28 <.plt+0x20>
 // CHECK-NEXT: 104c:       e9 d1 ff ff ff  jmp     -47 <.plt+0x12>
 // CHECK-NEXT: 1051:       68 00 00 00 00  pushq   $0
@@ -44,7 +45,7 @@
 // CHECK-NEXT: 105d:       cc      int3
 // CHECK-NEXT: 105e:       cc      int3
 // CHECK-NEXT: 105f:       cc      int3
-// CHECK-NEXT: 1060:       4c 8b 1d b9 0f 00 00    movq    4025(%rip), %r11
+// CHECK-NEXT: 1060:       4c 8b 1d b9 1f 00 00    movq    8121(%rip), %r11
 // CHECK-NEXT: 1067:       e8 c4 ff ff ff  callq   -60 <.plt+0x20>
 // CHECK-NEXT: 106c:       e9 b1 ff ff ff  jmp     -79 <.plt+0x12>
 // CHECK-NEXT: 1071:       68 01 00 00 00  pushq   $1
@@ -56,9 +57,9 @@
 // CHECK-NEXT: 107f:       cc      int3
 
 // CHECK:      Contents of section .got.plt:
-// CHECK-NEXT: 2000 00300000 00000000 00000000 00000000
-// CHECK-NEXT: 2010 00000000 00000000 51100000 00000000
-// CHECK-NEXT: 2020 71100000 00000000
+// CHECK-NEXT: 3000 00200000 00000000 00000000 00000000
+// CHECK-NEXT: 3010 00000000 00000000 51100000 00000000
+// CHECK-NEXT: 3020 71100000 00000000
 
 .global _start
 _start:

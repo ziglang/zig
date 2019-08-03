@@ -4,7 +4,7 @@
 // RUN: echo "v1 {}; v2 {};" > %t.ver
 // RUN: ld.lld %t1.o -shared -soname t1.so --version-script=%t.ver -o %t1.so
 // RUN: ld.lld %t.o %t1.so -o %t
-// RUN: llvm-readobj -t %t | FileCheck %s
+// RUN: llvm-readobj --symbols %t | FileCheck %s
 
 .global _start
 _start:

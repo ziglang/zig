@@ -1,9 +1,8 @@
 //===- AMDGPU.cpp ---------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,62 +25,63 @@ class AMDGPU final : public TargetInfo {
 public:
   AMDGPU();
   uint32_t calcEFlags() const override;
-  void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
-  RelExpr getRelExpr(RelType Type, const Symbol &S,
-                     const uint8_t *Loc) const override;
+  void relocateOne(uint8_t *loc, RelType type, uint64_t val) const override;
+  RelExpr getRelExpr(RelType type, const Symbol &s,
+                     const uint8_t *loc) const override;
+  RelType getDynRel(RelType type) const override;
 };
 } // namespace
 
 AMDGPU::AMDGPU() {
-  RelativeRel = R_AMDGPU_RELATIVE64;
-  GotRel = R_AMDGPU_ABS64;
-  NoneRel = R_AMDGPU_NONE;
-  GotEntrySize = 8;
+  relativeRel = R_AMDGPU_RELATIVE64;
+  gotRel = R_AMDGPU_ABS64;
+  noneRel = R_AMDGPU_NONE;
+  symbolicRel = R_AMDGPU_ABS64;
 }
 
-static uint32_t getEFlags(InputFile *File) {
-  return cast<ObjFile<ELF64LE>>(File)->getObj().getHeader()->e_flags;
+static uint32_t getEFlags(InputFile *file) {
+  return cast<ObjFile<ELF64LE>>(file)->getObj().getHeader()->e_flags;
 }
 
 uint32_t AMDGPU::calcEFlags() const {
-  assert(!ObjectFiles.empty());
-  uint32_t Ret = getEFlags(ObjectFiles[0]);
+  assert(!objectFiles.empty());
+  uint32_t ret = getEFlags(objectFiles[0]);
 
   // Verify that all input files have the same e_flags.
-  for (InputFile *F : makeArrayRef(ObjectFiles).slice(1)) {
-    if (Ret == getEFlags(F))
+  for (InputFile *f : makeArrayRef(objectFiles).slice(1)) {
+    if (ret == getEFlags(f))
       continue;
-    error("incompatible e_flags: " + toString(F));
+    error("incompatible e_flags: " + toString(f));
     return 0;
   }
-  return Ret;
+  return ret;
 }
 
-void AMDGPU::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
-  switch (Type) {
+void AMDGPU::relocateOne(uint8_t *loc, RelType type, uint64_t val) const {
+  switch (type) {
   case R_AMDGPU_ABS32:
   case R_AMDGPU_GOTPCREL:
   case R_AMDGPU_GOTPCREL32_LO:
   case R_AMDGPU_REL32:
   case R_AMDGPU_REL32_LO:
-    write32le(Loc, Val);
+    write32le(loc, val);
     break;
   case R_AMDGPU_ABS64:
   case R_AMDGPU_REL64:
-    write64le(Loc, Val);
+    write64le(loc, val);
     break;
   case R_AMDGPU_GOTPCREL32_HI:
   case R_AMDGPU_REL32_HI:
-    write32le(Loc, Val >> 32);
+    write32le(loc, val >> 32);
     break;
   default:
-    error(getErrorLocation(Loc) + "unrecognized reloc " + Twine(Type));
+    llvm_unreachable("unknown relocation");
   }
 }
 
-RelExpr AMDGPU::getRelExpr(RelType Type, const Symbol &S,
-                           const uint8_t *Loc) const {
-  switch (Type) {
+RelExpr AMDGPU::getRelExpr(RelType type, const Symbol &s,
+                           const uint8_t *loc) const {
+  switch (type) {
   case R_AMDGPU_ABS32:
   case R_AMDGPU_ABS64:
     return R_ABS;
@@ -95,11 +95,19 @@ RelExpr AMDGPU::getRelExpr(RelType Type, const Symbol &S,
   case R_AMDGPU_GOTPCREL32_HI:
     return R_GOT_PC;
   default:
-    return R_INVALID;
+    error(getErrorLocation(loc) + "unknown relocation (" + Twine(type) +
+          ") against symbol " + toString(s));
+    return R_NONE;
   }
 }
 
+RelType AMDGPU::getDynRel(RelType type) const {
+  if (type == R_AMDGPU_ABS64)
+    return type;
+  return R_AMDGPU_NONE;
+}
+
 TargetInfo *elf::getAMDGPUTargetInfo() {
-  static AMDGPU Target;
-  return &Target;
+  static AMDGPU target;
+  return &target;
 }

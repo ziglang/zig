@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %tout
-# RUN: llvm-readobj -sections %tout | FileCheck %s
+# RUN: llvm-readobj --sections %tout | FileCheck %s
 
 # Check that sections are laid out in the correct order.
 
@@ -32,6 +32,7 @@ _start:
 // For non-executable and non-writable sections, PROGBITS appear after others.
 // CHECK: Name: a
 // CHECK: Name: b
+
 // CHECK: Name: c
 // CHECK: Name: d
 
@@ -40,12 +41,12 @@ _start:
 // CHECK: Name: k
 // CHECK: Name: l
 
-// Writable sections appear before TLS and other relro sections.
-// CHECK: Name: i
-
 // TLS sections are only sorted on NOBITS.
 // CHECK: Name: e
 // CHECK: Name: g
+
+// Writable sections appear after TLS and other relro sections.
+// CHECK: Name: i
 
 // CHECK: Name: j
 

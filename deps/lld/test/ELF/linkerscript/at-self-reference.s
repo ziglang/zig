@@ -6,7 +6,7 @@
 # RUN:  .bbb : AT(ADDR(.bbb)) { *(.bbb) } \
 # RUN: }" > %t.script
 # RUN: ld.lld %t --script %t.script -o %t2
-# RUN: llvm-readobj -program-headers %t2 | FileCheck %s
+# RUN: llvm-readobj -l %t2 | FileCheck %s
 
 # CHECK:      ProgramHeaders [
 # CHECK-NEXT:  ProgramHeader {

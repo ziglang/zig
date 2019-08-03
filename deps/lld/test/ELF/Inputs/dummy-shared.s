@@ -1,0 +1,2 @@
+.globl bar
+bar:

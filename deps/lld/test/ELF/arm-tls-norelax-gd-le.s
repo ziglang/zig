@@ -33,7 +33,7 @@ x:
 
 // CHECK:       Contents of section .got:
 // Module index is always 1 for executable
-// CHECK-NEXT:  13060 01000000 00000000
+// CHECK-NEXT:  12060 01000000 00000000
 
 
 // Without any definition of __tls_get_addr we get an error

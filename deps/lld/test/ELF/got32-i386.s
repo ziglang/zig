@@ -16,7 +16,7 @@ _start:
 # CHECK:       _start:
 # CHECK-NEXT:   401001: 8b 1d {{.*}}  movl 4202496, %ebx
 # CHECK: Sections:
-# CHECK:  Name Size     Address
+# CHECK:  Name Size     VMA
 # CHECK:  .got 00000004 0000000000402000
 
 # RUN: not ld.lld %t.o -o %t -pie 2>&1 | FileCheck %s --check-prefix=ERR

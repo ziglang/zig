@@ -14,7 +14,7 @@
 
 ## Check we place .text into first defined memory region with appropriate flags.
 # CHECK: Sections:
-# CHECK: Idx Name  Size      Address
+# CHECK: Idx Name  Size     VMA
 # CHECK:   0       00000000 0000000000000000
 # CHECK:   1 .text 00000001 0000000000001000
 

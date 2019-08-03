@@ -1,16 +1,18 @@
 # REQUIRES: ppc
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
-# RUN: llvm-readobj -relocations %t.o | FileCheck -check-prefix=RELOCS-LE %s
-# RUN: ld.lld %t.o -o %t2
-# RUN: llvm-objdump -D %t2 | FileCheck %s
-# RUN: llvm-objdump -D %t2 | FileCheck -check-prefix=CHECK-LE %s
+# RUN: llvm-readobj -r %t.o | FileCheck -check-prefix=RELOCS-LE %s
+# RUN: ld.lld %t.o -o %t
+# RUN: llvm-nm %t | FileCheck --check-prefix=NM %s
+# RUN: llvm-readelf -x .got %t | FileCheck --check-prefix=HEX-LE %s
+# RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=CHECK %s
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
-# RUN: llvm-readobj -relocations %t.o | FileCheck -check-prefix=RELOCS-BE %s
-# RUN: ld.lld %t.o -o %t2
-# RUN: llvm-objdump -D %t2 | FileCheck %s
-# RUN: llvm-objdump -D %t2 | FileCheck -check-prefix=CHECK-BE %s
+# RUN: llvm-readobj -r %t.o | FileCheck -check-prefix=RELOCS-BE %s
+# RUN: ld.lld %t.o -o %t
+# RUN: llvm-nm %t | FileCheck --check-prefix=NM %s
+# RUN: llvm-readelf -x .got %t | FileCheck --check-prefix=HEX-BE %s
+# RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=CHECK %s
 
 # Make sure we calculate the offset correctly for a toc-relative access to a
 # global variable as described by the PPC64 Elf V2 abi.
@@ -57,26 +59,19 @@ _start:
 # RELOCS-BE:          0xA R_PPC64_TOC16_HA global_a 0x0
 # RELOCS-BE:          0xE R_PPC64_TOC16_LO global_a 0x0
 
-# Want to check _start for the values used to build the offset from the TOC base
-# to global_a. The .TOC. symbol is expected at address 0x10030000, and the
-# TOC base is address-of(.TOC.) + 0x8000.  The expected offset is:
-# 0x10020000(global_a) - 0x10038000(Toc base) = -0x18000(Offset)
-# which gets materialized into r3 as ((-1 << 16) - 32768).
+# The .TOC. symbol represents the TOC base address: .got + 0x8000 = 0x10028000,
+# which is stored in the first entry of .got
+# NM: 0000000010028000 d .TOC.
+# NM: 0000000010030000 D global_a
+# HEX-LE:     section '.got':
+# HEX-LE-NEXT: 0x10020000 00800210 00000000
+# HEX-BE:     section '.got':
+# HEX-BE-NEXT: 0x10020000 00000000 10028000
 
-# CHECK:      Disassembly of section .text:
-# CHECK-NEXT: _start:
-# CHECK:      10010008:       {{.*}}     addis 3, 2, -1
-# CHECK-NEXT: 1001000c:       {{.*}}     addi 3, 3, -32768
-
-# CHECK:      Disassembly of section .data:
-# CHECK-NEXT: global_a:
-# CHECK-NEXT: 10020000:       {{.*}}
-
-# CHECK-LE:      Disassembly of section .got:
-# CHECK-LE-NEXT: .got:
-# CHECK-LE-NEXT: 10030000:       00 80 03 10
-
-# CHECK-BE:      Disassembly of section .got:
-# CHECK-BE-NEXT: .got:
-# CHECK-BE-NEXT: 10030000:       00 00 00 00
-# CHECK-BE-NEXT: 10030004:       10 03 80 00
+# r2 stores the TOC base address. To access global_a with r3, it
+# computes the address with TOC plus an offset.
+# The offset global_a - .TOC. = 0x10030000 - 0x10028000 = 0x8000
+# gets materialized as (1 << 16) - 32768.
+# CHECK:      _start:
+# CHECK:      10010008:       addis 3, 2, 1
+# CHECK-NEXT: 1001000c:       addi 3, 3, -32768

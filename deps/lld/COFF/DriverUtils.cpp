@@ -1,9 +1,8 @@
 //===- DriverUtils.cpp ----------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -48,104 +47,78 @@ const uint16_t RT_MANIFEST = 24;
 
 class Executor {
 public:
-  explicit Executor(StringRef S) : Prog(Saver.save(S)) {}
-  void add(StringRef S) { Args.push_back(Saver.save(S)); }
-  void add(std::string &S) { Args.push_back(Saver.save(S)); }
-  void add(Twine S) { Args.push_back(Saver.save(S)); }
-  void add(const char *S) { Args.push_back(Saver.save(S)); }
+  explicit Executor(StringRef s) : prog(saver.save(s)) {}
+  void add(StringRef s) { args.push_back(saver.save(s)); }
+  void add(std::string &s) { args.push_back(saver.save(s)); }
+  void add(Twine s) { args.push_back(saver.save(s)); }
+  void add(const char *s) { args.push_back(saver.save(s)); }
 
   void run() {
-    ErrorOr<std::string> ExeOrErr = sys::findProgramByName(Prog);
-    if (auto EC = ExeOrErr.getError())
-      fatal("unable to find " + Prog + " in PATH: " + EC.message());
-    StringRef Exe = Saver.save(*ExeOrErr);
-    Args.insert(Args.begin(), Exe);
+    ErrorOr<std::string> exeOrErr = sys::findProgramByName(prog);
+    if (auto ec = exeOrErr.getError())
+      fatal("unable to find " + prog + " in PATH: " + ec.message());
+    StringRef exe = saver.save(*exeOrErr);
+    args.insert(args.begin(), exe);
 
-    if (sys::ExecuteAndWait(Args[0], Args) != 0)
+    if (sys::ExecuteAndWait(args[0], args) != 0)
       fatal("ExecuteAndWait failed: " +
-            llvm::join(Args.begin(), Args.end(), " "));
+            llvm::join(args.begin(), args.end(), " "));
   }
 
 private:
-  StringRef Prog;
-  std::vector<StringRef> Args;
+  StringRef prog;
+  std::vector<StringRef> args;
 };
 
 } // anonymous namespace
 
-// Returns /machine's value.
-MachineTypes getMachineType(StringRef S) {
-  MachineTypes MT = StringSwitch<MachineTypes>(S.lower())
-                        .Cases("x64", "amd64", AMD64)
-                        .Cases("x86", "i386", I386)
-                        .Case("arm", ARMNT)
-                        .Case("arm64", ARM64)
-                        .Default(IMAGE_FILE_MACHINE_UNKNOWN);
-  if (MT != IMAGE_FILE_MACHINE_UNKNOWN)
-    return MT;
-  fatal("unknown /machine argument: " + S);
-}
-
-StringRef machineToStr(MachineTypes MT) {
-  switch (MT) {
-  case ARMNT:
-    return "arm";
-  case ARM64:
-    return "arm64";
-  case AMD64:
-    return "x64";
-  case I386:
-    return "x86";
-  default:
-    llvm_unreachable("unknown machine type");
-  }
-}
-
 // Parses a string in the form of "<integer>[,<integer>]".
-void parseNumbers(StringRef Arg, uint64_t *Addr, uint64_t *Size) {
-  StringRef S1, S2;
-  std::tie(S1, S2) = Arg.split(',');
-  if (S1.getAsInteger(0, *Addr))
-    fatal("invalid number: " + S1);
-  if (Size && !S2.empty() && S2.getAsInteger(0, *Size))
-    fatal("invalid number: " + S2);
+void parseNumbers(StringRef arg, uint64_t *addr, uint64_t *size) {
+  StringRef s1, s2;
+  std::tie(s1, s2) = arg.split(',');
+  if (s1.getAsInteger(0, *addr))
+    fatal("invalid number: " + s1);
+  if (size && !s2.empty() && s2.getAsInteger(0, *size))
+    fatal("invalid number: " + s2);
 }
 
 // Parses a string in the form of "<integer>[.<integer>]".
 // If second number is not present, Minor is set to 0.
-void parseVersion(StringRef Arg, uint32_t *Major, uint32_t *Minor) {
-  StringRef S1, S2;
-  std::tie(S1, S2) = Arg.split('.');
-  if (S1.getAsInteger(0, *Major))
-    fatal("invalid number: " + S1);
-  *Minor = 0;
-  if (!S2.empty() && S2.getAsInteger(0, *Minor))
-    fatal("invalid number: " + S2);
+void parseVersion(StringRef arg, uint32_t *major, uint32_t *minor) {
+  StringRef s1, s2;
+  std::tie(s1, s2) = arg.split('.');
+  if (s1.getAsInteger(0, *major))
+    fatal("invalid number: " + s1);
+  *minor = 0;
+  if (!s2.empty() && s2.getAsInteger(0, *minor))
+    fatal("invalid number: " + s2);
 }
 
-void parseGuard(StringRef FullArg) {
-  SmallVector<StringRef, 1> SplitArgs;
-  FullArg.split(SplitArgs, ",");
-  for (StringRef Arg : SplitArgs) {
-    if (Arg.equals_lower("no"))
-      Config->GuardCF = GuardCFLevel::Off;
-    else if (Arg.equals_lower("nolongjmp"))
-      Config->GuardCF = GuardCFLevel::NoLongJmp;
-    else if (Arg.equals_lower("cf") || Arg.equals_lower("longjmp"))
-      Config->GuardCF = GuardCFLevel::Full;
+void parseGuard(StringRef fullArg) {
+  SmallVector<StringRef, 1> splitArgs;
+  fullArg.split(splitArgs, ",");
+  for (StringRef arg : splitArgs) {
+    if (arg.equals_lower("no"))
+      config->guardCF = GuardCFLevel::Off;
+    else if (arg.equals_lower("nolongjmp"))
+      config->guardCF = GuardCFLevel::NoLongJmp;
+    else if (arg.equals_lower("cf") || arg.equals_lower("longjmp"))
+      config->guardCF = GuardCFLevel::Full;
     else
-      fatal("invalid argument to /guard: " + Arg);
+      fatal("invalid argument to /guard: " + arg);
   }
 }
 
 // Parses a string in the form of "<subsystem>[,<integer>[.<integer>]]".
-void parseSubsystem(StringRef Arg, WindowsSubsystem *Sys, uint32_t *Major,
-                    uint32_t *Minor) {
-  StringRef SysStr, Ver;
-  std::tie(SysStr, Ver) = Arg.split(',');
-  *Sys = StringSwitch<WindowsSubsystem>(SysStr.lower())
+void parseSubsystem(StringRef arg, WindowsSubsystem *sys, uint32_t *major,
+                    uint32_t *minor) {
+  StringRef sysStr, ver;
+  std::tie(sysStr, ver) = arg.split(',');
+  std::string sysStrLower = sysStr.lower();
+  *sys = StringSwitch<WindowsSubsystem>(sysStrLower)
     .Case("boot_application", IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION)
     .Case("console", IMAGE_SUBSYSTEM_WINDOWS_CUI)
+    .Case("default", IMAGE_SUBSYSTEM_UNKNOWN)
     .Case("efi_application", IMAGE_SUBSYSTEM_EFI_APPLICATION)
     .Case("efi_boot_service_driver", IMAGE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER)
     .Case("efi_rom", IMAGE_SUBSYSTEM_EFI_ROM)
@@ -154,175 +127,217 @@ void parseSubsystem(StringRef Arg, WindowsSubsystem *Sys, uint32_t *Major,
     .Case("posix", IMAGE_SUBSYSTEM_POSIX_CUI)
     .Case("windows", IMAGE_SUBSYSTEM_WINDOWS_GUI)
     .Default(IMAGE_SUBSYSTEM_UNKNOWN);
-  if (*Sys == IMAGE_SUBSYSTEM_UNKNOWN)
-    fatal("unknown subsystem: " + SysStr);
-  if (!Ver.empty())
-    parseVersion(Ver, Major, Minor);
+  if (*sys == IMAGE_SUBSYSTEM_UNKNOWN && sysStrLower != "default")
+    fatal("unknown subsystem: " + sysStr);
+  if (!ver.empty())
+    parseVersion(ver, major, minor);
 }
 
 // Parse a string of the form of "<from>=<to>".
 // Results are directly written to Config.
-void parseAlternateName(StringRef S) {
-  StringRef From, To;
-  std::tie(From, To) = S.split('=');
-  if (From.empty() || To.empty())
-    fatal("/alternatename: invalid argument: " + S);
-  auto It = Config->AlternateNames.find(From);
-  if (It != Config->AlternateNames.end() && It->second != To)
-    fatal("/alternatename: conflicts: " + S);
-  Config->AlternateNames.insert(It, std::make_pair(From, To));
+void parseAlternateName(StringRef s) {
+  StringRef from, to;
+  std::tie(from, to) = s.split('=');
+  if (from.empty() || to.empty())
+    fatal("/alternatename: invalid argument: " + s);
+  auto it = config->alternateNames.find(from);
+  if (it != config->alternateNames.end() && it->second != to)
+    fatal("/alternatename: conflicts: " + s);
+  config->alternateNames.insert(it, std::make_pair(from, to));
 }
 
 // Parse a string of the form of "<from>=<to>".
 // Results are directly written to Config.
-void parseMerge(StringRef S) {
-  StringRef From, To;
-  std::tie(From, To) = S.split('=');
-  if (From.empty() || To.empty())
-    fatal("/merge: invalid argument: " + S);
-  if (From == ".rsrc" || To == ".rsrc")
+void parseMerge(StringRef s) {
+  StringRef from, to;
+  std::tie(from, to) = s.split('=');
+  if (from.empty() || to.empty())
+    fatal("/merge: invalid argument: " + s);
+  if (from == ".rsrc" || to == ".rsrc")
     fatal("/merge: cannot merge '.rsrc' with any section");
-  if (From == ".reloc" || To == ".reloc")
+  if (from == ".reloc" || to == ".reloc")
     fatal("/merge: cannot merge '.reloc' with any section");
-  auto Pair = Config->Merge.insert(std::make_pair(From, To));
-  bool Inserted = Pair.second;
-  if (!Inserted) {
-    StringRef Existing = Pair.first->second;
-    if (Existing != To)
-      warn(S + ": already merged into " + Existing);
+  auto pair = config->merge.insert(std::make_pair(from, to));
+  bool inserted = pair.second;
+  if (!inserted) {
+    StringRef existing = pair.first->second;
+    if (existing != to)
+      warn(s + ": already merged into " + existing);
   }
 }
 
-static uint32_t parseSectionAttributes(StringRef S) {
-  uint32_t Ret = 0;
-  for (char C : S.lower()) {
-    switch (C) {
+static uint32_t parseSectionAttributes(StringRef s) {
+  uint32_t ret = 0;
+  for (char c : s.lower()) {
+    switch (c) {
     case 'd':
-      Ret |= IMAGE_SCN_MEM_DISCARDABLE;
+      ret |= IMAGE_SCN_MEM_DISCARDABLE;
       break;
     case 'e':
-      Ret |= IMAGE_SCN_MEM_EXECUTE;
+      ret |= IMAGE_SCN_MEM_EXECUTE;
       break;
     case 'k':
-      Ret |= IMAGE_SCN_MEM_NOT_CACHED;
+      ret |= IMAGE_SCN_MEM_NOT_CACHED;
       break;
     case 'p':
-      Ret |= IMAGE_SCN_MEM_NOT_PAGED;
+      ret |= IMAGE_SCN_MEM_NOT_PAGED;
       break;
     case 'r':
-      Ret |= IMAGE_SCN_MEM_READ;
+      ret |= IMAGE_SCN_MEM_READ;
       break;
     case 's':
-      Ret |= IMAGE_SCN_MEM_SHARED;
+      ret |= IMAGE_SCN_MEM_SHARED;
       break;
     case 'w':
-      Ret |= IMAGE_SCN_MEM_WRITE;
+      ret |= IMAGE_SCN_MEM_WRITE;
       break;
     default:
-      fatal("/section: invalid argument: " + S);
+      fatal("/section: invalid argument: " + s);
     }
   }
-  return Ret;
+  return ret;
 }
 
 // Parses /section option argument.
-void parseSection(StringRef S) {
-  StringRef Name, Attrs;
-  std::tie(Name, Attrs) = S.split(',');
-  if (Name.empty() || Attrs.empty())
-    fatal("/section: invalid argument: " + S);
-  Config->Section[Name] = parseSectionAttributes(Attrs);
+void parseSection(StringRef s) {
+  StringRef name, attrs;
+  std::tie(name, attrs) = s.split(',');
+  if (name.empty() || attrs.empty())
+    fatal("/section: invalid argument: " + s);
+  config->section[name] = parseSectionAttributes(attrs);
 }
 
 // Parses /aligncomm option argument.
-void parseAligncomm(StringRef S) {
-  StringRef Name, Align;
-  std::tie(Name, Align) = S.split(',');
-  if (Name.empty() || Align.empty()) {
-    error("/aligncomm: invalid argument: " + S);
+void parseAligncomm(StringRef s) {
+  StringRef name, align;
+  std::tie(name, align) = s.split(',');
+  if (name.empty() || align.empty()) {
+    error("/aligncomm: invalid argument: " + s);
     return;
   }
-  int V;
-  if (Align.getAsInteger(0, V)) {
-    error("/aligncomm: invalid argument: " + S);
+  int v;
+  if (align.getAsInteger(0, v)) {
+    error("/aligncomm: invalid argument: " + s);
     return;
   }
-  Config->AlignComm[Name] = std::max(Config->AlignComm[Name], 1 << V);
+  config->alignComm[name] = std::max(config->alignComm[name], 1 << v);
+}
+
+// Parses /functionpadmin option argument.
+void parseFunctionPadMin(llvm::opt::Arg *a, llvm::COFF::MachineTypes machine) {
+  StringRef arg = a->getNumValues() ? a->getValue() : "";
+  if (!arg.empty()) {
+    // Optional padding in bytes is given.
+    if (arg.getAsInteger(0, config->functionPadMin))
+      error("/functionpadmin: invalid argument: " + arg);
+    return;
+  }
+  // No optional argument given.
+  // Set default padding based on machine, similar to link.exe.
+  // There is no default padding for ARM platforms.
+  if (machine == I386) {
+    config->functionPadMin = 5;
+  } else if (machine == AMD64) {
+    config->functionPadMin = 6;
+  } else {
+    error("/functionpadmin: invalid argument for this machine: " + arg);
+  }
 }
 
 // Parses a string in the form of "EMBED[,=<integer>]|NO".
 // Results are directly written to Config.
-void parseManifest(StringRef Arg) {
-  if (Arg.equals_lower("no")) {
-    Config->Manifest = Configuration::No;
+void parseManifest(StringRef arg) {
+  if (arg.equals_lower("no")) {
+    config->manifest = Configuration::No;
     return;
   }
-  if (!Arg.startswith_lower("embed"))
-    fatal("invalid option " + Arg);
-  Config->Manifest = Configuration::Embed;
-  Arg = Arg.substr(strlen("embed"));
-  if (Arg.empty())
+  if (!arg.startswith_lower("embed"))
+    fatal("invalid option " + arg);
+  config->manifest = Configuration::Embed;
+  arg = arg.substr(strlen("embed"));
+  if (arg.empty())
     return;
-  if (!Arg.startswith_lower(",id="))
-    fatal("invalid option " + Arg);
-  Arg = Arg.substr(strlen(",id="));
-  if (Arg.getAsInteger(0, Config->ManifestID))
-    fatal("invalid option " + Arg);
+  if (!arg.startswith_lower(",id="))
+    fatal("invalid option " + arg);
+  arg = arg.substr(strlen(",id="));
+  if (arg.getAsInteger(0, config->manifestID))
+    fatal("invalid option " + arg);
 }
 
 // Parses a string in the form of "level=<string>|uiAccess=<string>|NO".
 // Results are directly written to Config.
-void parseManifestUAC(StringRef Arg) {
-  if (Arg.equals_lower("no")) {
-    Config->ManifestUAC = false;
+void parseManifestUAC(StringRef arg) {
+  if (arg.equals_lower("no")) {
+    config->manifestUAC = false;
     return;
   }
   for (;;) {
-    Arg = Arg.ltrim();
-    if (Arg.empty())
+    arg = arg.ltrim();
+    if (arg.empty())
       return;
-    if (Arg.startswith_lower("level=")) {
-      Arg = Arg.substr(strlen("level="));
-      std::tie(Config->ManifestLevel, Arg) = Arg.split(" ");
+    if (arg.startswith_lower("level=")) {
+      arg = arg.substr(strlen("level="));
+      std::tie(config->manifestLevel, arg) = arg.split(" ");
       continue;
     }
-    if (Arg.startswith_lower("uiaccess=")) {
-      Arg = Arg.substr(strlen("uiaccess="));
-      std::tie(Config->ManifestUIAccess, Arg) = Arg.split(" ");
+    if (arg.startswith_lower("uiaccess=")) {
+      arg = arg.substr(strlen("uiaccess="));
+      std::tie(config->manifestUIAccess, arg) = arg.split(" ");
       continue;
     }
-    fatal("invalid option " + Arg);
+    fatal("invalid option " + arg);
   }
+}
+
+// Parses a string in the form of "cd|net[,(cd|net)]*"
+// Results are directly written to Config.
+void parseSwaprun(StringRef arg) {
+  do {
+    StringRef swaprun, newArg;
+    std::tie(swaprun, newArg) = arg.split(',');
+    if (swaprun.equals_lower("cd"))
+      config->swaprunCD = true;
+    else if (swaprun.equals_lower("net"))
+      config->swaprunNet = true;
+    else if (swaprun.empty())
+      error("/swaprun: missing argument");
+    else
+      error("/swaprun: invalid argument: " + swaprun);
+    // To catch trailing commas, e.g. `/spawrun:cd,`
+    if (newArg.empty() && arg.endswith(","))
+      error("/swaprun: missing argument");
+    arg = newArg;
+  } while (!arg.empty());
 }
 
 // An RAII temporary file class that automatically removes a temporary file.
 namespace {
 class TemporaryFile {
 public:
-  TemporaryFile(StringRef Prefix, StringRef Extn, StringRef Contents = "") {
-    SmallString<128> S;
-    if (auto EC = sys::fs::createTemporaryFile("lld-" + Prefix, Extn, S))
-      fatal("cannot create a temporary file: " + EC.message());
-    Path = S.str();
+  TemporaryFile(StringRef prefix, StringRef extn, StringRef contents = "") {
+    SmallString<128> s;
+    if (auto ec = sys::fs::createTemporaryFile("lld-" + prefix, extn, s))
+      fatal("cannot create a temporary file: " + ec.message());
+    path = s.str();
 
-    if (!Contents.empty()) {
-      std::error_code EC;
-      raw_fd_ostream OS(Path, EC, sys::fs::F_None);
-      if (EC)
-        fatal("failed to open " + Path + ": " + EC.message());
-      OS << Contents;
+    if (!contents.empty()) {
+      std::error_code ec;
+      raw_fd_ostream os(path, ec, sys::fs::F_None);
+      if (ec)
+        fatal("failed to open " + path + ": " + ec.message());
+      os << contents;
     }
   }
 
-  TemporaryFile(TemporaryFile &&Obj) {
-    std::swap(Path, Obj.Path);
+  TemporaryFile(TemporaryFile &&obj) {
+    std::swap(path, obj.path);
   }
 
   ~TemporaryFile() {
-    if (Path.empty())
+    if (path.empty())
       return;
-    if (sys::fs::remove(Path))
-      fatal("failed to remove " + Path);
+    if (sys::fs::remove(path))
+      fatal("failed to remove " + path);
   }
 
   // Returns a memory buffer of this temporary file.
@@ -330,387 +345,390 @@ public:
   // so it is safe to remove the file immediately after this function
   // is called (you cannot remove an opened file on Windows.)
   std::unique_ptr<MemoryBuffer> getMemoryBuffer() {
-    // IsVolatileSize=true forces MemoryBuffer to not use mmap().
-    return CHECK(MemoryBuffer::getFile(Path, /*FileSize=*/-1,
+    // IsVolatile=true forces MemoryBuffer to not use mmap().
+    return CHECK(MemoryBuffer::getFile(path, /*FileSize=*/-1,
                                        /*RequiresNullTerminator=*/false,
-                                       /*IsVolatileSize=*/true),
-                 "could not open " + Path);
+                                       /*IsVolatile=*/true),
+                 "could not open " + path);
   }
 
-  std::string Path;
+  std::string path;
 };
 }
 
 static std::string createDefaultXml() {
-  std::string Ret;
-  raw_string_ostream OS(Ret);
+  std::string ret;
+  raw_string_ostream os(ret);
 
   // Emit the XML. Note that we do *not* verify that the XML attributes are
   // syntactically correct. This is intentional for link.exe compatibility.
-  OS << "<?xml version=\"1.0\" standalone=\"yes\"?>\n"
+  os << "<?xml version=\"1.0\" standalone=\"yes\"?>\n"
      << "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\"\n"
      << "          manifestVersion=\"1.0\">\n";
-  if (Config->ManifestUAC) {
-    OS << "  <trustInfo>\n"
+  if (config->manifestUAC) {
+    os << "  <trustInfo>\n"
        << "    <security>\n"
        << "      <requestedPrivileges>\n"
-       << "         <requestedExecutionLevel level=" << Config->ManifestLevel
-       << " uiAccess=" << Config->ManifestUIAccess << "/>\n"
+       << "         <requestedExecutionLevel level=" << config->manifestLevel
+       << " uiAccess=" << config->manifestUIAccess << "/>\n"
        << "      </requestedPrivileges>\n"
        << "    </security>\n"
        << "  </trustInfo>\n";
   }
-  if (!Config->ManifestDependency.empty()) {
-    OS << "  <dependency>\n"
+  if (!config->manifestDependency.empty()) {
+    os << "  <dependency>\n"
        << "    <dependentAssembly>\n"
-       << "      <assemblyIdentity " << Config->ManifestDependency << " />\n"
+       << "      <assemblyIdentity " << config->manifestDependency << " />\n"
        << "    </dependentAssembly>\n"
        << "  </dependency>\n";
   }
-  OS << "</assembly>\n";
-  return OS.str();
+  os << "</assembly>\n";
+  return os.str();
 }
 
-static std::string createManifestXmlWithInternalMt(StringRef DefaultXml) {
-  std::unique_ptr<MemoryBuffer> DefaultXmlCopy =
-      MemoryBuffer::getMemBufferCopy(DefaultXml);
+static std::string createManifestXmlWithInternalMt(StringRef defaultXml) {
+  std::unique_ptr<MemoryBuffer> defaultXmlCopy =
+      MemoryBuffer::getMemBufferCopy(defaultXml);
 
-  windows_manifest::WindowsManifestMerger Merger;
-  if (auto E = Merger.merge(*DefaultXmlCopy.get()))
+  windows_manifest::WindowsManifestMerger merger;
+  if (auto e = merger.merge(*defaultXmlCopy.get()))
     fatal("internal manifest tool failed on default xml: " +
-          toString(std::move(E)));
+          toString(std::move(e)));
 
-  for (StringRef Filename : Config->ManifestInput) {
-    std::unique_ptr<MemoryBuffer> Manifest =
-        check(MemoryBuffer::getFile(Filename));
-    if (auto E = Merger.merge(*Manifest.get()))
-      fatal("internal manifest tool failed on file " + Filename + ": " +
-            toString(std::move(E)));
+  for (StringRef filename : config->manifestInput) {
+    std::unique_ptr<MemoryBuffer> manifest =
+        check(MemoryBuffer::getFile(filename));
+    if (auto e = merger.merge(*manifest.get()))
+      fatal("internal manifest tool failed on file " + filename + ": " +
+            toString(std::move(e)));
   }
 
-  return Merger.getMergedManifest().get()->getBuffer();
+  return merger.getMergedManifest().get()->getBuffer();
 }
 
-static std::string createManifestXmlWithExternalMt(StringRef DefaultXml) {
+static std::string createManifestXmlWithExternalMt(StringRef defaultXml) {
   // Create the default manifest file as a temporary file.
   TemporaryFile Default("defaultxml", "manifest");
-  std::error_code EC;
-  raw_fd_ostream OS(Default.Path, EC, sys::fs::F_Text);
-  if (EC)
-    fatal("failed to open " + Default.Path + ": " + EC.message());
-  OS << DefaultXml;
-  OS.close();
+  std::error_code ec;
+  raw_fd_ostream os(Default.path, ec, sys::fs::F_Text);
+  if (ec)
+    fatal("failed to open " + Default.path + ": " + ec.message());
+  os << defaultXml;
+  os.close();
 
   // Merge user-supplied manifests if they are given.  Since libxml2 is not
   // enabled, we must shell out to Microsoft's mt.exe tool.
-  TemporaryFile User("user", "manifest");
+  TemporaryFile user("user", "manifest");
 
-  Executor E("mt.exe");
-  E.add("/manifest");
-  E.add(Default.Path);
-  for (StringRef Filename : Config->ManifestInput) {
-    E.add("/manifest");
-    E.add(Filename);
+  Executor e("mt.exe");
+  e.add("/manifest");
+  e.add(Default.path);
+  for (StringRef filename : config->manifestInput) {
+    e.add("/manifest");
+    e.add(filename);
   }
-  E.add("/nologo");
-  E.add("/out:" + StringRef(User.Path));
-  E.run();
+  e.add("/nologo");
+  e.add("/out:" + StringRef(user.path));
+  e.run();
 
-  return CHECK(MemoryBuffer::getFile(User.Path), "could not open " + User.Path)
+  return CHECK(MemoryBuffer::getFile(user.path), "could not open " + user.path)
       .get()
       ->getBuffer();
 }
 
 static std::string createManifestXml() {
-  std::string DefaultXml = createDefaultXml();
-  if (Config->ManifestInput.empty())
-    return DefaultXml;
+  std::string defaultXml = createDefaultXml();
+  if (config->manifestInput.empty())
+    return defaultXml;
 
   if (windows_manifest::isAvailable())
-    return createManifestXmlWithInternalMt(DefaultXml);
+    return createManifestXmlWithInternalMt(defaultXml);
 
-  return createManifestXmlWithExternalMt(DefaultXml);
+  return createManifestXmlWithExternalMt(defaultXml);
 }
 
 static std::unique_ptr<WritableMemoryBuffer>
-createMemoryBufferForManifestRes(size_t ManifestSize) {
-  size_t ResSize = alignTo(
+createMemoryBufferForManifestRes(size_t manifestSize) {
+  size_t resSize = alignTo(
       object::WIN_RES_MAGIC_SIZE + object::WIN_RES_NULL_ENTRY_SIZE +
           sizeof(object::WinResHeaderPrefix) + sizeof(object::WinResIDs) +
-          sizeof(object::WinResHeaderSuffix) + ManifestSize,
+          sizeof(object::WinResHeaderSuffix) + manifestSize,
       object::WIN_RES_DATA_ALIGNMENT);
-  return WritableMemoryBuffer::getNewMemBuffer(ResSize, Config->OutputFile +
+  return WritableMemoryBuffer::getNewMemBuffer(resSize, config->outputFile +
                                                             ".manifest.res");
 }
 
-static void writeResFileHeader(char *&Buf) {
-  memcpy(Buf, COFF::WinResMagic, sizeof(COFF::WinResMagic));
-  Buf += sizeof(COFF::WinResMagic);
-  memset(Buf, 0, object::WIN_RES_NULL_ENTRY_SIZE);
-  Buf += object::WIN_RES_NULL_ENTRY_SIZE;
+static void writeResFileHeader(char *&buf) {
+  memcpy(buf, COFF::WinResMagic, sizeof(COFF::WinResMagic));
+  buf += sizeof(COFF::WinResMagic);
+  memset(buf, 0, object::WIN_RES_NULL_ENTRY_SIZE);
+  buf += object::WIN_RES_NULL_ENTRY_SIZE;
 }
 
-static void writeResEntryHeader(char *&Buf, size_t ManifestSize) {
+static void writeResEntryHeader(char *&buf, size_t manifestSize) {
   // Write the prefix.
-  auto *Prefix = reinterpret_cast<object::WinResHeaderPrefix *>(Buf);
-  Prefix->DataSize = ManifestSize;
-  Prefix->HeaderSize = sizeof(object::WinResHeaderPrefix) +
+  auto *prefix = reinterpret_cast<object::WinResHeaderPrefix *>(buf);
+  prefix->DataSize = manifestSize;
+  prefix->HeaderSize = sizeof(object::WinResHeaderPrefix) +
                        sizeof(object::WinResIDs) +
                        sizeof(object::WinResHeaderSuffix);
-  Buf += sizeof(object::WinResHeaderPrefix);
+  buf += sizeof(object::WinResHeaderPrefix);
 
   // Write the Type/Name IDs.
-  auto *IDs = reinterpret_cast<object::WinResIDs *>(Buf);
-  IDs->setType(RT_MANIFEST);
-  IDs->setName(Config->ManifestID);
-  Buf += sizeof(object::WinResIDs);
+  auto *iDs = reinterpret_cast<object::WinResIDs *>(buf);
+  iDs->setType(RT_MANIFEST);
+  iDs->setName(config->manifestID);
+  buf += sizeof(object::WinResIDs);
 
   // Write the suffix.
-  auto *Suffix = reinterpret_cast<object::WinResHeaderSuffix *>(Buf);
-  Suffix->DataVersion = 0;
-  Suffix->MemoryFlags = object::WIN_RES_PURE_MOVEABLE;
-  Suffix->Language = SUBLANG_ENGLISH_US;
-  Suffix->Version = 0;
-  Suffix->Characteristics = 0;
-  Buf += sizeof(object::WinResHeaderSuffix);
+  auto *suffix = reinterpret_cast<object::WinResHeaderSuffix *>(buf);
+  suffix->DataVersion = 0;
+  suffix->MemoryFlags = object::WIN_RES_PURE_MOVEABLE;
+  suffix->Language = SUBLANG_ENGLISH_US;
+  suffix->Version = 0;
+  suffix->Characteristics = 0;
+  buf += sizeof(object::WinResHeaderSuffix);
 }
 
 // Create a resource file containing a manifest XML.
 std::unique_ptr<MemoryBuffer> createManifestRes() {
-  std::string Manifest = createManifestXml();
+  std::string manifest = createManifestXml();
 
-  std::unique_ptr<WritableMemoryBuffer> Res =
-      createMemoryBufferForManifestRes(Manifest.size());
+  std::unique_ptr<WritableMemoryBuffer> res =
+      createMemoryBufferForManifestRes(manifest.size());
 
-  char *Buf = Res->getBufferStart();
-  writeResFileHeader(Buf);
-  writeResEntryHeader(Buf, Manifest.size());
+  char *buf = res->getBufferStart();
+  writeResFileHeader(buf);
+  writeResEntryHeader(buf, manifest.size());
 
   // Copy the manifest data into the .res file.
-  std::copy(Manifest.begin(), Manifest.end(), Buf);
-  return std::move(Res);
+  std::copy(manifest.begin(), manifest.end(), buf);
+  return std::move(res);
 }
 
 void createSideBySideManifest() {
-  std::string Path = Config->ManifestFile;
-  if (Path == "")
-    Path = Config->OutputFile + ".manifest";
-  std::error_code EC;
-  raw_fd_ostream Out(Path, EC, sys::fs::F_Text);
-  if (EC)
-    fatal("failed to create manifest: " + EC.message());
-  Out << createManifestXml();
+  std::string path = config->manifestFile;
+  if (path == "")
+    path = config->outputFile + ".manifest";
+  std::error_code ec;
+  raw_fd_ostream out(path, ec, sys::fs::F_Text);
+  if (ec)
+    fatal("failed to create manifest: " + ec.message());
+  out << createManifestXml();
 }
 
 // Parse a string in the form of
 // "<name>[=<internalname>][,@ordinal[,NONAME]][,DATA][,PRIVATE]"
 // or "<name>=<dllname>.<name>".
 // Used for parsing /export arguments.
-Export parseExport(StringRef Arg) {
-  Export E;
-  StringRef Rest;
-  std::tie(E.Name, Rest) = Arg.split(",");
-  if (E.Name.empty())
+Export parseExport(StringRef arg) {
+  Export e;
+  StringRef rest;
+  std::tie(e.name, rest) = arg.split(",");
+  if (e.name.empty())
     goto err;
 
-  if (E.Name.contains('=')) {
-    StringRef X, Y;
-    std::tie(X, Y) = E.Name.split("=");
+  if (e.name.contains('=')) {
+    StringRef x, y;
+    std::tie(x, y) = e.name.split("=");
 
     // If "<name>=<dllname>.<name>".
-    if (Y.contains(".")) {
-      E.Name = X;
-      E.ForwardTo = Y;
-      return E;
+    if (y.contains(".")) {
+      e.name = x;
+      e.forwardTo = y;
+      return e;
     }
 
-    E.ExtName = X;
-    E.Name = Y;
-    if (E.Name.empty())
+    e.extName = x;
+    e.name = y;
+    if (e.name.empty())
       goto err;
   }
 
   // If "<name>=<internalname>[,@ordinal[,NONAME]][,DATA][,PRIVATE]"
-  while (!Rest.empty()) {
-    StringRef Tok;
-    std::tie(Tok, Rest) = Rest.split(",");
-    if (Tok.equals_lower("noname")) {
-      if (E.Ordinal == 0)
+  while (!rest.empty()) {
+    StringRef tok;
+    std::tie(tok, rest) = rest.split(",");
+    if (tok.equals_lower("noname")) {
+      if (e.ordinal == 0)
         goto err;
-      E.Noname = true;
+      e.noname = true;
       continue;
     }
-    if (Tok.equals_lower("data")) {
-      E.Data = true;
+    if (tok.equals_lower("data")) {
+      e.data = true;
       continue;
     }
-    if (Tok.equals_lower("constant")) {
-      E.Constant = true;
+    if (tok.equals_lower("constant")) {
+      e.constant = true;
       continue;
     }
-    if (Tok.equals_lower("private")) {
-      E.Private = true;
+    if (tok.equals_lower("private")) {
+      e.isPrivate = true;
       continue;
     }
-    if (Tok.startswith("@")) {
-      int32_t Ord;
-      if (Tok.substr(1).getAsInteger(0, Ord))
+    if (tok.startswith("@")) {
+      int32_t ord;
+      if (tok.substr(1).getAsInteger(0, ord))
         goto err;
-      if (Ord <= 0 || 65535 < Ord)
+      if (ord <= 0 || 65535 < ord)
         goto err;
-      E.Ordinal = Ord;
+      e.ordinal = ord;
       continue;
     }
     goto err;
   }
-  return E;
+  return e;
 
 err:
-  fatal("invalid /export: " + Arg);
+  fatal("invalid /export: " + arg);
 }
 
-static StringRef undecorate(StringRef Sym) {
-  if (Config->Machine != I386)
-    return Sym;
+static StringRef undecorate(StringRef sym) {
+  if (config->machine != I386)
+    return sym;
   // In MSVC mode, a fully decorated stdcall function is exported
   // as-is with the leading underscore (with type IMPORT_NAME).
   // In MinGW mode, a decorated stdcall function gets the underscore
   // removed, just like normal cdecl functions.
-  if (Sym.startswith("_") && Sym.contains('@') && !Config->MinGW)
-    return Sym;
-  return Sym.startswith("_") ? Sym.substr(1) : Sym;
+  if (sym.startswith("_") && sym.contains('@') && !config->mingw)
+    return sym;
+  return sym.startswith("_") ? sym.substr(1) : sym;
 }
 
 // Convert stdcall/fastcall style symbols into unsuffixed symbols,
 // with or without a leading underscore. (MinGW specific.)
-static StringRef killAt(StringRef Sym, bool Prefix) {
-  if (Sym.empty())
-    return Sym;
+static StringRef killAt(StringRef sym, bool prefix) {
+  if (sym.empty())
+    return sym;
   // Strip any trailing stdcall suffix
-  Sym = Sym.substr(0, Sym.find('@', 1));
-  if (!Sym.startswith("@")) {
-    if (Prefix && !Sym.startswith("_"))
-      return Saver.save("_" + Sym);
-    return Sym;
+  sym = sym.substr(0, sym.find('@', 1));
+  if (!sym.startswith("@")) {
+    if (prefix && !sym.startswith("_"))
+      return saver.save("_" + sym);
+    return sym;
   }
   // For fastcall, remove the leading @ and replace it with an
   // underscore, if prefixes are used.
-  Sym = Sym.substr(1);
-  if (Prefix)
-    Sym = Saver.save("_" + Sym);
-  return Sym;
+  sym = sym.substr(1);
+  if (prefix)
+    sym = saver.save("_" + sym);
+  return sym;
 }
 
 // Performs error checking on all /export arguments.
 // It also sets ordinals.
 void fixupExports() {
   // Symbol ordinals must be unique.
-  std::set<uint16_t> Ords;
-  for (Export &E : Config->Exports) {
-    if (E.Ordinal == 0)
+  std::set<uint16_t> ords;
+  for (Export &e : config->exports) {
+    if (e.ordinal == 0)
       continue;
-    if (!Ords.insert(E.Ordinal).second)
-      fatal("duplicate export ordinal: " + E.Name);
+    if (!ords.insert(e.ordinal).second)
+      fatal("duplicate export ordinal: " + e.name);
   }
 
-  for (Export &E : Config->Exports) {
-    Symbol *Sym = E.Sym;
-    if (!E.ForwardTo.empty() || !Sym) {
-      E.SymbolName = E.Name;
+  for (Export &e : config->exports) {
+    if (!e.forwardTo.empty()) {
+      e.exportName = undecorate(e.name);
     } else {
-      if (auto *U = dyn_cast<Undefined>(Sym))
-        if (U->WeakAlias)
-          Sym = U->WeakAlias;
-      E.SymbolName = Sym->getName();
+      e.exportName = undecorate(e.extName.empty() ? e.name : e.extName);
     }
   }
 
-  for (Export &E : Config->Exports) {
-    if (!E.ForwardTo.empty()) {
-      E.ExportName = undecorate(E.Name);
-    } else {
-      E.ExportName = undecorate(E.ExtName.empty() ? E.Name : E.ExtName);
-    }
-  }
-
-  if (Config->KillAt && Config->Machine == I386) {
-    for (Export &E : Config->Exports) {
-      E.Name = killAt(E.Name, true);
-      E.ExportName = killAt(E.ExportName, false);
-      E.ExtName = killAt(E.ExtName, true);
-      E.SymbolName = killAt(E.SymbolName, true);
+  if (config->killAt && config->machine == I386) {
+    for (Export &e : config->exports) {
+      e.name = killAt(e.name, true);
+      e.exportName = killAt(e.exportName, false);
+      e.extName = killAt(e.extName, true);
+      e.symbolName = killAt(e.symbolName, true);
     }
   }
 
   // Uniquefy by name.
-  DenseMap<StringRef, Export *> Map(Config->Exports.size());
-  std::vector<Export> V;
-  for (Export &E : Config->Exports) {
-    auto Pair = Map.insert(std::make_pair(E.ExportName, &E));
-    bool Inserted = Pair.second;
-    if (Inserted) {
-      V.push_back(E);
+  DenseMap<StringRef, Export *> map(config->exports.size());
+  std::vector<Export> v;
+  for (Export &e : config->exports) {
+    auto pair = map.insert(std::make_pair(e.exportName, &e));
+    bool inserted = pair.second;
+    if (inserted) {
+      v.push_back(e);
       continue;
     }
-    Export *Existing = Pair.first->second;
-    if (E == *Existing || E.Name != Existing->Name)
+    Export *existing = pair.first->second;
+    if (e == *existing || e.name != existing->name)
       continue;
-    warn("duplicate /export option: " + E.Name);
+    warn("duplicate /export option: " + e.name);
   }
-  Config->Exports = std::move(V);
+  config->exports = std::move(v);
 
   // Sort by name.
-  std::sort(Config->Exports.begin(), Config->Exports.end(),
-            [](const Export &A, const Export &B) {
-              return A.ExportName < B.ExportName;
+  std::sort(config->exports.begin(), config->exports.end(),
+            [](const Export &a, const Export &b) {
+              return a.exportName < b.exportName;
             });
 }
 
 void assignExportOrdinals() {
   // Assign unique ordinals if default (= 0).
-  uint16_t Max = 0;
-  for (Export &E : Config->Exports)
-    Max = std::max(Max, E.Ordinal);
-  for (Export &E : Config->Exports)
-    if (E.Ordinal == 0)
-      E.Ordinal = ++Max;
+  uint16_t max = 0;
+  for (Export &e : config->exports)
+    max = std::max(max, e.ordinal);
+  for (Export &e : config->exports)
+    if (e.ordinal == 0)
+      e.ordinal = ++max;
 }
 
 // Parses a string in the form of "key=value" and check
 // if value matches previous values for the same key.
-void checkFailIfMismatch(StringRef Arg) {
-  StringRef K, V;
-  std::tie(K, V) = Arg.split('=');
-  if (K.empty() || V.empty())
-    fatal("/failifmismatch: invalid argument: " + Arg);
-  StringRef Existing = Config->MustMatch[K];
-  if (!Existing.empty() && V != Existing)
-    fatal("/failifmismatch: mismatch detected: " + Existing + " and " + V +
-          " for key " + K);
-  Config->MustMatch[K] = V;
+void checkFailIfMismatch(StringRef arg, InputFile *source) {
+  StringRef k, v;
+  std::tie(k, v) = arg.split('=');
+  if (k.empty() || v.empty())
+    fatal("/failifmismatch: invalid argument: " + arg);
+  std::pair<StringRef, InputFile *> existing = config->mustMatch[k];
+  if (!existing.first.empty() && v != existing.first) {
+    std::string sourceStr = source ? toString(source) : "cmd-line";
+    std::string existingStr =
+        existing.second ? toString(existing.second) : "cmd-line";
+    fatal("/failifmismatch: mismatch detected for '" + k + "':\n>>> " +
+          existingStr + " has value " + existing.first + "\n>>> " + sourceStr +
+          " has value " + v);
+  }
+  config->mustMatch[k] = {v, source};
 }
 
 // Convert Windows resource files (.res files) to a .obj file.
-MemoryBufferRef convertResToCOFF(ArrayRef<MemoryBufferRef> MBs) {
-  object::WindowsResourceParser Parser;
+// Does what cvtres.exe does, but in-process and cross-platform.
+MemoryBufferRef convertResToCOFF(ArrayRef<MemoryBufferRef> mbs) {
+  object::WindowsResourceParser parser;
 
-  for (MemoryBufferRef MB : MBs) {
-    std::unique_ptr<object::Binary> Bin = check(object::createBinary(MB));
-    object::WindowsResource *RF = dyn_cast<object::WindowsResource>(Bin.get());
-    if (!RF)
+  for (MemoryBufferRef mb : mbs) {
+    std::unique_ptr<object::Binary> bin = check(object::createBinary(mb));
+    object::WindowsResource *rf = dyn_cast<object::WindowsResource>(bin.get());
+    if (!rf)
       fatal("cannot compile non-resource file as resource");
-    if (auto EC = Parser.parse(RF))
-      fatal("failed to parse .res file: " + toString(std::move(EC)));
+
+    std::vector<std::string> duplicates;
+    if (auto ec = parser.parse(rf, duplicates))
+      fatal(toString(std::move(ec)));
+
+    for (const auto &dupeDiag : duplicates)
+      if (config->forceMultipleRes)
+        warn(dupeDiag);
+      else
+        error(dupeDiag);
   }
 
-  Expected<std::unique_ptr<MemoryBuffer>> E =
-      llvm::object::writeWindowsResourceCOFF(Config->Machine, Parser);
-  if (!E)
-    fatal("failed to write .res to COFF: " + toString(E.takeError()));
+  Expected<std::unique_ptr<MemoryBuffer>> e =
+      llvm::object::writeWindowsResourceCOFF(config->machine, parser,
+                                             config->timestamp);
+  if (!e)
+    fatal("failed to write .res to COFF: " + toString(e.takeError()));
 
-  MemoryBufferRef MBRef = **E;
-  make<std::unique_ptr<MemoryBuffer>>(std::move(*E)); // take ownership
-  return MBRef;
+  MemoryBufferRef mbref = **e;
+  make<std::unique_ptr<MemoryBuffer>>(std::move(*e)); // take ownership
+  return mbref;
 }
 
 // Create OptTable
@@ -721,7 +739,7 @@ MemoryBufferRef convertResToCOFF(ArrayRef<MemoryBufferRef> MBs) {
 #undef PREFIX
 
 // Create table mapping all options defined in Options.td
-static const llvm::opt::OptTable::Info InfoTable[] = {
+static const llvm::opt::OptTable::Info infoTable[] = {
 #define OPTION(X1, X2, ID, KIND, GROUP, ALIAS, X7, X8, X9, X10, X11, X12)      \
   {X1, X2, X10,         X11,         OPT_##ID, llvm::opt::Option::KIND##Class, \
    X9, X8, OPT_##GROUP, OPT_##ALIAS, X7,       X12},
@@ -729,36 +747,36 @@ static const llvm::opt::OptTable::Info InfoTable[] = {
 #undef OPTION
 };
 
-COFFOptTable::COFFOptTable() : OptTable(InfoTable, true) {}
+COFFOptTable::COFFOptTable() : OptTable(infoTable, true) {}
 
 // Set color diagnostics according to --color-diagnostics={auto,always,never}
 // or --no-color-diagnostics flags.
-static void handleColorDiagnostics(opt::InputArgList &Args) {
-  auto *Arg = Args.getLastArg(OPT_color_diagnostics, OPT_color_diagnostics_eq,
+static void handleColorDiagnostics(opt::InputArgList &args) {
+  auto *arg = args.getLastArg(OPT_color_diagnostics, OPT_color_diagnostics_eq,
                               OPT_no_color_diagnostics);
-  if (!Arg)
+  if (!arg)
     return;
-  if (Arg->getOption().getID() == OPT_color_diagnostics) {
-    errorHandler().ColorDiagnostics = true;
-  } else if (Arg->getOption().getID() == OPT_no_color_diagnostics) {
-    errorHandler().ColorDiagnostics = false;
+  if (arg->getOption().getID() == OPT_color_diagnostics) {
+    errorHandler().colorDiagnostics = true;
+  } else if (arg->getOption().getID() == OPT_no_color_diagnostics) {
+    errorHandler().colorDiagnostics = false;
   } else {
-    StringRef S = Arg->getValue();
-    if (S == "always")
-      errorHandler().ColorDiagnostics = true;
-    else if (S == "never")
-      errorHandler().ColorDiagnostics = false;
-    else if (S != "auto")
-      error("unknown option: --color-diagnostics=" + S);
+    StringRef s = arg->getValue();
+    if (s == "always")
+      errorHandler().colorDiagnostics = true;
+    else if (s == "never")
+      errorHandler().colorDiagnostics = false;
+    else if (s != "auto")
+      error("unknown option: --color-diagnostics=" + s);
   }
 }
 
-static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &Args) {
-  if (auto *Arg = Args.getLastArg(OPT_rsp_quoting)) {
-    StringRef S = Arg->getValue();
-    if (S != "windows" && S != "posix")
-      error("invalid response file quoting: " + S);
-    if (S == "windows")
+static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &args) {
+  if (auto *arg = args.getLastArg(OPT_rsp_quoting)) {
+    StringRef s = arg->getValue();
+    if (s != "windows" && s != "posix")
+      error("invalid response file quoting: " + s);
+    if (s == "windows")
       return cl::TokenizeWindowsCommandLine;
     return cl::TokenizeGNUCommandLine;
   }
@@ -767,104 +785,111 @@ static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &Args) {
 }
 
 // Parses a given list of options.
-opt::InputArgList ArgParser::parse(ArrayRef<const char *> Argv) {
+opt::InputArgList ArgParser::parse(ArrayRef<const char *> argv) {
   // Make InputArgList from string vectors.
-  unsigned MissingIndex;
-  unsigned MissingCount;
+  unsigned missingIndex;
+  unsigned missingCount;
 
   // We need to get the quoting style for response files before parsing all
   // options so we parse here before and ignore all the options but
   // --rsp-quoting.
-  opt::InputArgList Args = Table.ParseArgs(Argv, MissingIndex, MissingCount);
+  opt::InputArgList args = table.ParseArgs(argv, missingIndex, missingCount);
 
   // Expand response files (arguments in the form of @<filename>)
   // and then parse the argument again.
-  SmallVector<const char *, 256> ExpandedArgv(Argv.data(), Argv.data() + Argv.size());
-  cl::ExpandResponseFiles(Saver, getQuotingStyle(Args), ExpandedArgv);
-  Args = Table.ParseArgs(makeArrayRef(ExpandedArgv).drop_front(), MissingIndex,
-                         MissingCount);
+  SmallVector<const char *, 256> expandedArgv(argv.data(),
+                                              argv.data() + argv.size());
+  cl::ExpandResponseFiles(saver, getQuotingStyle(args), expandedArgv);
+  args = table.ParseArgs(makeArrayRef(expandedArgv).drop_front(), missingIndex,
+                         missingCount);
 
   // Print the real command line if response files are expanded.
-  if (Args.hasArg(OPT_verbose) && Argv.size() != ExpandedArgv.size()) {
-    std::string Msg = "Command line:";
-    for (const char *S : ExpandedArgv)
-      Msg += " " + std::string(S);
-    message(Msg);
+  if (args.hasArg(OPT_verbose) && argv.size() != expandedArgv.size()) {
+    std::string msg = "Command line:";
+    for (const char *s : expandedArgv)
+      msg += " " + std::string(s);
+    message(msg);
   }
 
   // Save the command line after response file expansion so we can write it to
   // the PDB if necessary.
-  Config->Argv = {ExpandedArgv.begin(), ExpandedArgv.end()};
+  config->argv = {expandedArgv.begin(), expandedArgv.end()};
 
   // Handle /WX early since it converts missing argument warnings to errors.
-  errorHandler().FatalWarnings = Args.hasFlag(OPT_WX, OPT_WX_no, false);
+  errorHandler().fatalWarnings = args.hasFlag(OPT_WX, OPT_WX_no, false);
 
-  if (MissingCount)
-    fatal(Twine(Args.getArgString(MissingIndex)) + ": missing argument");
+  if (missingCount)
+    fatal(Twine(args.getArgString(missingIndex)) + ": missing argument");
 
-  handleColorDiagnostics(Args);
+  handleColorDiagnostics(args);
 
-  for (auto *Arg : Args.filtered(OPT_UNKNOWN))
-    warn("ignoring unknown argument: " + Arg->getSpelling());
+  for (auto *arg : args.filtered(OPT_UNKNOWN)) {
+    std::string nearest;
+    if (table.findNearest(arg->getAsString(args), nearest) > 1)
+      warn("ignoring unknown argument '" + arg->getAsString(args) + "'");
+    else
+      warn("ignoring unknown argument '" + arg->getAsString(args) +
+           "', did you mean '" + nearest + "'");
+  }
 
-  if (Args.hasArg(OPT_lib))
+  if (args.hasArg(OPT_lib))
     warn("ignoring /lib since it's not the first argument");
 
-  return Args;
+  return args;
 }
 
 // Tokenizes and parses a given string as command line in .drective section.
 // /EXPORT options are processed in fastpath.
 std::pair<opt::InputArgList, std::vector<StringRef>>
-ArgParser::parseDirectives(StringRef S) {
-  std::vector<StringRef> Exports;
-  SmallVector<const char *, 16> Rest;
+ArgParser::parseDirectives(StringRef s) {
+  std::vector<StringRef> exports;
+  SmallVector<const char *, 16> rest;
 
-  for (StringRef Tok : tokenize(S)) {
-    if (Tok.startswith_lower("/export:") || Tok.startswith_lower("-export:"))
-      Exports.push_back(Tok.substr(strlen("/export:")));
+  for (StringRef tok : tokenize(s)) {
+    if (tok.startswith_lower("/export:") || tok.startswith_lower("-export:"))
+      exports.push_back(tok.substr(strlen("/export:")));
     else
-      Rest.push_back(Tok.data());
+      rest.push_back(tok.data());
   }
 
   // Make InputArgList from unparsed string vectors.
-  unsigned MissingIndex;
-  unsigned MissingCount;
+  unsigned missingIndex;
+  unsigned missingCount;
 
-  opt::InputArgList Args = Table.ParseArgs(Rest, MissingIndex, MissingCount);
+  opt::InputArgList args = table.ParseArgs(rest, missingIndex, missingCount);
 
-  if (MissingCount)
-    fatal(Twine(Args.getArgString(MissingIndex)) + ": missing argument");
-  for (auto *Arg : Args.filtered(OPT_UNKNOWN))
-    warn("ignoring unknown argument: " + Arg->getSpelling());
-  return {std::move(Args), std::move(Exports)};
+  if (missingCount)
+    fatal(Twine(args.getArgString(missingIndex)) + ": missing argument");
+  for (auto *arg : args.filtered(OPT_UNKNOWN))
+    warn("ignoring unknown argument: " + arg->getAsString(args));
+  return {std::move(args), std::move(exports)};
 }
 
 // link.exe has an interesting feature. If LINK or _LINK_ environment
 // variables exist, their contents are handled as command line strings.
 // So you can pass extra arguments using them.
-opt::InputArgList ArgParser::parseLINK(std::vector<const char *> Argv) {
+opt::InputArgList ArgParser::parseLINK(std::vector<const char *> argv) {
   // Concatenate LINK env and command line arguments, and then parse them.
-  if (Optional<std::string> S = Process::GetEnv("LINK")) {
-    std::vector<const char *> V = tokenize(*S);
-    Argv.insert(std::next(Argv.begin()), V.begin(), V.end());
+  if (Optional<std::string> s = Process::GetEnv("LINK")) {
+    std::vector<const char *> v = tokenize(*s);
+    argv.insert(std::next(argv.begin()), v.begin(), v.end());
   }
-  if (Optional<std::string> S = Process::GetEnv("_LINK_")) {
-    std::vector<const char *> V = tokenize(*S);
-    Argv.insert(std::next(Argv.begin()), V.begin(), V.end());
+  if (Optional<std::string> s = Process::GetEnv("_LINK_")) {
+    std::vector<const char *> v = tokenize(*s);
+    argv.insert(std::next(argv.begin()), v.begin(), v.end());
   }
-  return parse(Argv);
+  return parse(argv);
 }
 
-std::vector<const char *> ArgParser::tokenize(StringRef S) {
-  SmallVector<const char *, 16> Tokens;
-  cl::TokenizeWindowsCommandLine(S, Saver, Tokens);
-  return std::vector<const char *>(Tokens.begin(), Tokens.end());
+std::vector<const char *> ArgParser::tokenize(StringRef s) {
+  SmallVector<const char *, 16> tokens;
+  cl::TokenizeWindowsCommandLine(s, saver, tokens);
+  return std::vector<const char *>(tokens.begin(), tokens.end());
 }
 
-void printHelp(const char *Argv0) {
+void printHelp(const char *argv0) {
   COFFOptTable().PrintHelp(outs(),
-                           (std::string(Argv0) + " [options] file...").c_str(),
+                           (std::string(argv0) + " [options] file...").c_str(),
                            "LLVM Linker", false);
 }
 

@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 
 # RUN: ld.lld %t -o %t2
-# RUN: llvm-readobj -sections -symbols %t2 | FileCheck %s --check-prefix=NOGC
+# RUN: llvm-readobj --sections --symbols %t2 | FileCheck %s --check-prefix=NOGC
 
 # NOGC:      Name: .bss
 # NOGC-NEXT: Type:
@@ -18,7 +18,7 @@
 # NOGC: Name: foo
 
 # RUN: ld.lld -gc-sections %t -o %t1
-# RUN: llvm-readobj -sections -symbols %t1 | FileCheck %s --check-prefix=GC
+# RUN: llvm-readobj --sections --symbols %t1 | FileCheck %s --check-prefix=GC
 
 # GC:      Name: .bss
 # GC-NEXT: Type:

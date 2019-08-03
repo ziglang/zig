@@ -3,9 +3,9 @@
 // RUN: ld.lld -shared %t.o -o %t0.so
 // RUN: ld.lld -shared -Bsymbolic %t.o -o %t1.so
 // RUN: ld.lld -shared -Bsymbolic-functions %t.o -o %t2.so
-// RUN: llvm-readobj -s %t0.so | FileCheck -check-prefix=NOOPTION %s
-// RUN: llvm-readobj -s %t1.so | FileCheck -check-prefix=SYMBOLIC %s
-// RUN: llvm-readobj -s %t2.so | FileCheck -check-prefix=SYMBOLIC %s
+// RUN: llvm-readobj -S %t0.so | FileCheck -check-prefix=NOOPTION %s
+// RUN: llvm-readobj -S %t1.so | FileCheck -check-prefix=SYMBOLIC %s
+// RUN: llvm-readobj -S %t2.so | FileCheck -check-prefix=SYMBOLIC %s
 
 // NOOPTION:     Section {
 // NOOPTION:       Name: .plt

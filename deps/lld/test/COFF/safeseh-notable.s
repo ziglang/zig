@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple i686-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -entry:main
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck %s
 
 # This object lacks a _load_config_used global, so we set
 # IMAGE_DLL_CHARACTERISTICS_NO_SEH even though there is an exception handler.

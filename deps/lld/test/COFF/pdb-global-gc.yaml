@@ -23,6 +23,7 @@
 # CHECK:      ============================================================
 # CHECK-NEXT:   Mod 0000 | `{{.*}}pdb-global-gc.yaml.tmp.obj`:
 # CHECK-NEXT:   Mod 0001 | `{{.*}}pdb-global-gc.yaml.tmp2.obj`:
+# CHECK-NEXT:   Error loading module stream 1.  The specified stream could not be loaded. Module stream not present
 # CHECK-NEXT:   Mod 0002 | `* Linker *`:
 
 --- !COFF

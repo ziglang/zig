@@ -14,40 +14,42 @@
 ; Check that, when we use an LTO main with LTO objects, we optimize away all
 ; of f1, f2, and comdat.
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.lto.obj %T/comdat1.lto.obj %T/comdat2.lto.obj
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-11 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-11 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-11 %s
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.lto.obj %T/comdat.lto.lib
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-11 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-11 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-11 %s
 
 ; Check that, when we use a non-LTO main with LTO objects, we pick the comdat
 ; implementation in LTO, elide calls to it from inside LTO, and retain the
 ; call to comdat from main.
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.obj %T/comdat1.lto.obj %T/comdat2.lto.obj
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-01 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-01 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-01 %s
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.obj %T/comdat.lto.lib
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-01 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-01 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-01 %s
 
 ; Check that, when we use an LTO main with non-LTO objects, we pick the comdat
 ; implementation in LTO, elide the call to it from inside LTO, and keep the
 ; calls to comdat from the non-LTO objects.
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.lto.obj %T/comdat1.obj %T/comdat2.obj
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-10 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-10 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-10 %s
 ; RUN: lld-link /out:%T/comdat-main.exe /entry:main /subsystem:console %T/comdat-main.lto.obj %T/comdat.lib
-; RUN: llvm-readobj -file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-10 %s
+; RUN: llvm-readobj --file-headers %T/comdat-main.exe | FileCheck -check-prefix=HEADERS-10 %s
 ; RUN: llvm-objdump -d %T/comdat-main.exe | FileCheck -check-prefix=TEXT-10 %s
 
 ; HEADERS-11: AddressOfEntryPoint: 0x1000
 ; TEXT-11: Disassembly of section .text:
+; TEXT-11-EMPTY:
 ; TEXT-11-NEXT: .text:
 ; TEXT-11-NEXT: xorl	%eax, %eax
 ; TEXT-11-NEXT: retq
 
 ; HEADERS-01: AddressOfEntryPoint: 0x1000
 ; TEXT-01: Disassembly of section .text:
+; TEXT-01-EMPTY:
 ; TEXT-01-NEXT: .text:
 ; TEXT-01-NEXT: subq	$40, %rsp
 ; TEXT-01-NEXT: callq	23
@@ -65,6 +67,7 @@
 
 ; HEADERS-10: AddressOfEntryPoint: 0x1020
 ; TEXT-10: Disassembly of section .text:
+; TEXT-10-EMPTY:
 ; TEXT-10-NEXT: .text:
 ; TEXT-10-NEXT: subq	$40, %rsp
 ; TEXT-10-NEXT: callq	55

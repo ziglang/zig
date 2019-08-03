@@ -38,9 +38,10 @@ Sections:
         Symbol:          foo
         Type:            R_X86_64_GOTTPOFF
 Symbols:
-  Global:
-    - Name:     foo
-      Type:     STT_TLS
-      Section:  .text
-      Value:    0x12345
-      Size:     4
+  - Name:     foo
+    Type:     STT_TLS
+    Section:  .text
+    Value:    0x12345
+    Size:     4
+    Binding:  STB_GLOBAL
+ 

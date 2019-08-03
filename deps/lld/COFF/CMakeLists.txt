@@ -8,6 +8,7 @@ endif()
 
 add_lld_library(lldCOFF
   Chunks.cpp
+  DebugTypes.cpp
   DLL.cpp
   Driver.cpp
   DriverUtils.cpp

@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -shared -o %t.so
-// RUN: llvm-readobj -r -s -section-data %t.so | FileCheck %s
+// RUN: llvm-readobj -r -S --section-data %t.so | FileCheck %s
 
 // CHECK:      Name: foo
 // CHECK-NEXT: Type: SHT_PROGBITS

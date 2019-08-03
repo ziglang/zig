@@ -22,6 +22,7 @@ __start:
   .word _foo+8-.                    # R_MIPS_PC32
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:    20000:       ec c8 00 08     lwpc    $6, 32
 #                                      ^-- (0x20020-0x20000)>>2

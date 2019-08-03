@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/visibility.s -o %t2
 // RUN: ld.lld -shared %t %t2 -o %t3
-// RUN: llvm-readobj -t -dyn-symbols %t3 | FileCheck %s
+// RUN: llvm-readobj --symbols --dyn-syms %t3 | FileCheck %s
 
 // CHECK:      Symbols [
 // CHECK-NEXT:   Symbol {

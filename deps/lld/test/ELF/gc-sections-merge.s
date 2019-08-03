@@ -2,8 +2,8 @@
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t.o -o %t.so -shared
 // RUN: ld.lld %t.o -o %t.gc.so -shared --gc-sections
-// RUN: llvm-readobj -s -section-data %t.so | FileCheck %s
-// RUN: llvm-readobj -s -section-data %t.gc.so | FileCheck --check-prefix=GC %s
+// RUN: llvm-readobj -S --section-data %t.so | FileCheck %s
+// RUN: llvm-readobj -S --section-data %t.gc.so | FileCheck --check-prefix=GC %s
 
 
 // CHECK:      Name: .rodata

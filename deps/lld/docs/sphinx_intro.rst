@@ -43,8 +43,8 @@ to install it using:
     Use your distribution's standard package management tool to install it,
     i.e., ``apt-get install easy_install`` or ``yum install easy_install``.
 
-  Mac OS X
-    All modern Mac OS X systems come with ``easy_install`` as part of the base
+  macOS
+    All modern macOS systems come with ``easy_install`` as part of the base
     system.
 
   Windows

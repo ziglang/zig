@@ -3,7 +3,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-freebsd %s -o %t
 # RUN: ld.lld %t -o %t2
-# RUN: llvm-readobj -file-headers %t2 | FileCheck %s
+# RUN: llvm-readobj --file-headers %t2 | FileCheck %s
 
 .globl _start
 _start:
