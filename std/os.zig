@@ -133,6 +133,11 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
+    const st = try fstat(fd);
+    if (!S_ISCHR(st.mode)) {
+        return error.NoDevice;
+    }
+
     const stream = &std.fs.File.openHandle(fd).inStream().stream;
     stream.readNoEof(buf) catch return error.Unexpected;
 }

@@ -5,3 +5,4 @@ pub const is_the_target = switch (builtin.os) {
     else => false,
 };
 pub usingnamespace std.c;
+pub usingnamespace @import("bits.zig");
