@@ -5627,6 +5627,13 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
         entry->llvm_type = LLVMIntType(size_in_bits);
         entry->abi_size = LLVMABISizeOfType(g->target_data_ref, entry->llvm_type);
         entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
+        if (size_in_bits >= 128) {
+            // Override the alignment reported by LLVM like Clang does.
+            // On x86_64 there are some instructions like CMPXCHG16B which require this.
+            // See: https://github.com/ziglang/zig/issues/2987
+            assert(entry->abi_align == 8);
+            entry->abi_align = 16;
+        }
     }
 
     const char u_or_i = is_signed ? 'i' : 'u';
@@ -7267,7 +7274,6 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {
     assertNoError(type_resolve(g, type, ResolveStatusLLVMFull));
     assert(type->abi_size == 0 || type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
-    assert(type->abi_align == 0 || type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
     return type->llvm_type;
 }
 

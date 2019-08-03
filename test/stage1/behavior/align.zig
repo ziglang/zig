@@ -220,6 +220,20 @@ test "alignment of structs" {
     }) == @alignOf(usize));
 }
 
+test "alignment of 128-bit integer type" {
+    expect(@alignOf(u128) == 16);
+}
+
+test "alignment of struct with 128-bit field" {
+    expect(@alignOf(struct { x: u128}) == 16);
+}
+
+test "comptime alignment of struct with 128-bit field" {
+    comptime {
+        expect(@alignOf(struct { x: u128}) == 16);
+    }
+}
+
 test "alignment of extern() void" {
     var runtime_nothing = nothing;
     const casted1 = @ptrCast(*const u8, runtime_nothing);
