@@ -1,6 +1,20 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("@asyncCall with too small a frame",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var bytes: [1]u8 = undefined;
+        \\    var ptr = other;
+        \\    var frame = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\async fn other() void {
+        \\    suspend;
+        \\}
+    );
+
     cases.addRuntimeSafety("resuming a function which is awaiting a frame",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -17,6 +31,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    suspend;
         \\}
     );
+
     cases.addRuntimeSafety("resuming a function which is awaiting a call",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

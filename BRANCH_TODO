@@ -1,9 +1,8 @@
+ * @asyncCall with an async function pointer
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
- * await in single-threaded mode
  * async call on a non async function
- * @asyncCall with an async function pointer
  * cancel
  * defer and errdefer
  * safety for double await
@@ -21,3 +20,16 @@
  * compile error for copying a frame
  * compile error for resuming a const frame pointer
  * runtime safety enabling/disabling scope has to be coordinated across resume/await/calls/return
+ * await in single-threaded mode
+ * calling a generic function which is async
+ * make sure `await @asyncCall` and `await async` are handled correctly.
+ * allow @asyncCall with a real @Frame(func) (the point of this is result pointer)
+ * documentation
+   - @asyncCall
+   - @frame
+   - @Frame
+   - @frameSize
+   - coroutines section
+   - suspend
+   - resume
+   - anyframe, anyframe->T

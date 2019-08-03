@@ -5205,6 +5205,7 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         call->frame_result_loc = &alloca_gen->base;
     }
 
+    // label (grep this): [coro_frame_struct_layout]
     ZigList<ZigType *> field_types = {};
     ZigList<const char *> field_names = {};
 
@@ -7525,6 +7526,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
         if (result_type == nullptr) {
             g->anyframe_fn_type = ptr_result_type;
         }
+        // label (grep this): [coro_frame_struct_layout]
         LLVMTypeRef field_types[] = {
             ptr_result_type, // fn_ptr
             usize_type_ref, // awaiter
@@ -7558,6 +7560,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
         ZigLLVMReplaceTemporary(g->dbuilder, frame_header_di_type, replacement_di_type);
     } else {
         ZigType *ptr_result_type = get_pointer_to_type(g, result_type, false);
+        // label (grep this): [coro_frame_struct_layout]
         LLVMTypeRef field_types[] = {
             LLVMPointerType(fn_type, 0), // fn_ptr
             usize_type_ref, // awaiter

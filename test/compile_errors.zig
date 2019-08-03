@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non async function pointer passed to @asyncCall",
+        \\export fn entry() void {
+        \\    var ptr = afunc;
+        \\    var bytes: [100]u8 = undefined;
+        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\fn afunc() void { }
+    ,
+        "tmp.zig:4:32: error: expected async function, found 'fn() void'",
+    );
+
+    cases.add(
         "runtime-known async function called",
         \\export fn entry() void {
         \\    var ptr = afunc;

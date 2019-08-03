@@ -260,22 +260,42 @@ test "async function with dot syntax" {
     expect(S.y == 2);
 }
 
-//test "async fn pointer in a struct field" {
-//    var data: i32 = 1;
-//    const Foo = struct {
-//        bar: async fn (*i32) void,
-//    };
-//    var foo = Foo{ .bar = simpleAsyncFn2 };
-//    const p = async foo.bar(&data);
-//    expect(data == 2);
-//    resume p;
-//    expect(data == 4);
-//}
-//async fn simpleAsyncFn2(y: *i32) void {
-//    defer y.* += 2;
-//    y.* += 1;
-//    suspend;
-//}
+test "async fn pointer in a struct field" {
+    var data: i32 = 1;
+    const Foo = struct {
+        bar: async fn (*i32) void,
+    };
+    var foo = Foo{ .bar = simpleAsyncFn2 };
+    var bytes: [64]u8 = undefined;
+    const p = @asyncCall(&bytes, {}, foo.bar, &data);
+    comptime expect(@typeOf(p) == anyframe->void);
+    expect(data == 2);
+    resume p;
+    expect(data == 4);
+}
+async fn simpleAsyncFn2(y: *i32) void {
+    defer y.* += 2;
+    y.* += 1;
+    suspend;
+}
+
+test "@asyncCall with return type" {
+    const Foo = struct {
+        bar: async fn () i32,
+
+        async fn afunc() i32 {
+            suspend;
+            return 1234;
+        }
+    };
+    var foo = Foo{ .bar = Foo.afunc };
+    var bytes: [64]u8 = undefined;
+    var aresult: i32 = 0;
+    const frame = @asyncCall(&bytes, &aresult, foo.bar);
+    expect(aresult == 0);
+    resume frame;
+    expect(aresult == 1234);
+}
 
 //test "async fn with inferred error set" {
 //    const p = async failing();

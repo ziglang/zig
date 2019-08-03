@@ -1503,6 +1503,7 @@ enum BuiltinFnId {
     BuiltinFnIdInlineCall,
     BuiltinFnIdNoInlineCall,
     BuiltinFnIdNewStackCall,
+    BuiltinFnIdAsyncCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
@@ -1553,6 +1554,7 @@ enum PanicMsgId {
     PanicMsgIdBadAwait,
     PanicMsgIdBadReturn,
     PanicMsgIdResumedAnAwaitingFn,
+    PanicMsgIdFrameTooSmall,
 
     PanicMsgIdCount,
 };
@@ -3699,6 +3701,7 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
+// label (grep this): [coro_frame_struct_layout]
 static const size_t coro_fn_ptr_index = 0;
 static const size_t coro_awaiter_index = 1;
 static const size_t coro_arg_start = 2;
