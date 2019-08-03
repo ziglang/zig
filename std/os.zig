@@ -134,7 +134,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     defer close(fd);
 
     const st = try fstat(fd);
-    if (!system.S_ISCHR(st.mode)) {
+    if (!S_ISCHR(st.mode)) {
         return error.NoDevice;
     }
 
