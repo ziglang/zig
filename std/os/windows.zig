@@ -827,12 +827,11 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
     // from https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#maximum-path-length-limitation
-    // Because we want the larger maximum path length for absolute paths, we
-    // disallow forward slashes in zig std lib file functions on Windows.
     for (s) |byte| {
         switch (byte) {
             '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => if (builtin.abi == .msvc and byte == '/') return error.BadPathName,
+            '/' => if (builtin.abi == .msvc) return error.BadPathName,
+            else => {},
         }
     }
     const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {

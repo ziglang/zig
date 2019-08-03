@@ -491,6 +491,16 @@ Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
     return ErrorNone;
 }
 
+static ZigLLVM_EnvironmentType target_get_win32_abi() {
+    FILE* files[] = { stdin, stdout, stderr, nullptr };
+    for (int i = 0; files[i] != nullptr; i++) {
+        if (os_is_cygwin_pty(fileno(files[i]))) {
+            return ZigLLVM_GNU;
+        }
+    }
+    return ZigLLVM_MSVC;
+}
+
 void get_native_target(ZigTarget *target) {
     // first zero initialize
     *target = {};
@@ -505,8 +515,11 @@ void get_native_target(ZigTarget *target) {
             &target->abi,
             &oformat);
     target->os = get_zig_os_type(os_type);
+    if (target->os == OsWindows) {
+        target->abi = target_get_win32_abi();
+    }
     target->is_native = true;
-    if (target->os == OsWindows || target->abi == ZigLLVM_UnknownEnvironment) {
+    if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
     }
     if (target_is_glibc(target)) {
@@ -1504,16 +1517,6 @@ bool target_is_single_threaded(const ZigTarget *target) {
     return target_is_wasm(target);
 }
 
-static ZigLLVM_EnvironmentType target_get_win32_abi() {
-    FILE* files[] = { stdin, stdout, stderr, nullptr };
-    for (int i = 0; files[i] != nullptr; i++) {
-        if (os_is_cygwin_pty(fileno(files[i]))) {
-            return ZigLLVM_GNU;
-        }
-    }
-    return ZigLLVM_MSVC;
-}
-
 ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
     if (arch == ZigLLVM_wasm32 || arch == ZigLLVM_wasm64) {
         return ZigLLVM_Musl;
@@ -1554,9 +1557,8 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsHurd:
             return ZigLLVM_GNU;
         case OsUefi:
-            return ZigLLVM_MSVC;
         case OsWindows:
-            return target_get_win32_abi();
+            return ZigLLVM_MSVC;            
         case OsLinux:
         case OsWASI:
             return ZigLLVM_Musl;
