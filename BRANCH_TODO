@@ -6,7 +6,6 @@
  * @asyncCall with an async function pointer
  * cancel
  * defer and errdefer
- * safety for resuming when it is awaiting
  * safety for double await
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
  * go over the commented out tests
@@ -19,3 +18,6 @@
  * make sure there are safety tests for all the new safety features (search the new PanicFnId enum values)
  * error return tracing
  * compile error for casting a function to a non-async function pointer, but then later it gets inferred to be an async function
+ * compile error for copying a frame
+ * compile error for resuming a const frame pointer
+ * runtime safety enabling/disabling scope has to be coordinated across resume/await/calls/return

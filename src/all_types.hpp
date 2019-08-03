@@ -1552,6 +1552,7 @@ enum PanicMsgId {
     PanicMsgIdBadResume,
     PanicMsgIdBadAwait,
     PanicMsgIdBadReturn,
+    PanicMsgIdResumedAnAwaitingFn,
 
     PanicMsgIdCount,
 };

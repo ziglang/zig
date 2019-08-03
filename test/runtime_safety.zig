@@ -1,6 +1,38 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("resuming a function which is awaiting a frame",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var frame = async first();
+        \\    resume frame;
+        \\}
+        \\fn first() void {
+        \\    var frame = async other();
+        \\    await frame;
+        \\}
+        \\fn other() void {
+        \\    suspend;
+        \\}
+    );
+    cases.addRuntimeSafety("resuming a function which is awaiting a call",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var frame = async first();
+        \\    resume frame;
+        \\}
+        \\fn first() void {
+        \\    other();
+        \\}
+        \\fn other() void {
+        \\    suspend;
+        \\}
+    );
+
     cases.addRuntimeSafety("invalid resume of async function",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

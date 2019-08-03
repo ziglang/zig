@@ -89,7 +89,7 @@ test "calling an inferred async function" {
         var other_frame: *@Frame(other) = undefined;
 
         fn doTheTest() void {
-            const p = async first();
+            _ = async first();
             expect(x == 1);
             resume other_frame.*;
             expect(x == 2);
