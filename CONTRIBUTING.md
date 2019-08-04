@@ -25,6 +25,7 @@ Here are some examples:
 
  * [Iterative Replacement of C with Zig](http://tiehuis.github.io/blog/zig1.html)
  * [The Right Tool for the Right Job: Redis Modules & Zig](https://www.youtube.com/watch?v=eCHM8-_poZY)
+ * [Writing a small ray tracer in Rust and Zig](https://nelari.us/post/raytracer_with_rust_and_zig/)
 
 Zig is a brand new language, with no advertising budget. Word of mouth is the
 only way people find out about the project, and the more people hear about it,
@@ -45,8 +46,8 @@ The most highly regarded argument in such a discussion is a real world use case.
 
 The issue label
 [Contributor Friendly](https://github.com/ziglang/zig/issues?q=is%3Aissue+is%3Aopen+label%3A%22contributor+friendly%22)
-exists to help contributors find issues that are "limited in scope and/or
-knowledge of Zig internals."
+exists to help you find issues that are **limited in scope and/or
+knowledge of Zig internals.**
 
 ### Editing Source Code
 
@@ -61,8 +62,7 @@ To test changes, do the following from the build directory:
 
 1. Run `make install` (on POSIX) or
    `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows).
-2. `bin/zig build --build-file ../build.zig test` (on POSIX) or
-   `bin\zig.exe build --build-file ..\build.zig test` (on Windows).
+2. `bin/zig build test` (on POSIX) or `bin\zig.exe build test` (on Windows).
 
 That runs the whole test suite, which does a lot of extra testing that you
 likely won't always need, and can take upwards of 2 hours. This is what the
@@ -79,8 +79,8 @@ Another example is choosing a different set of things to test. For example,
 not the other ones. Combining this suggestion with the previous one, you could
 do this:
 
-`bin/zig build --build-file ../build.zig test-std -Dskip-release` (on POSIX) or
-`bin\zig.exe build --build-file ..\build.zig test-std -Dskip-release` (on Windows).
+`bin/zig build test-std -Dskip-release` (on POSIX) or
+`bin\zig.exe build test-std -Dskip-release` (on Windows).
 
 This will run only the standard library tests, in debug mode only, for all
 targets (it will cross-compile the tests for non-native targets but not run
