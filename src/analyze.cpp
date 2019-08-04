@@ -5182,6 +5182,9 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
                 buf_sprintf("function is not comptime-known; @asyncCall required"));
             return ErrorSemanticAnalyzeFail;
         }
+        if (callee->body_node == nullptr) {
+            continue;
+        }
 
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {

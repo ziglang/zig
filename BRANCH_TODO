@@ -1,13 +1,13 @@
- * @asyncCall with an async function pointer
+ * suspension points inside branching control flow
+ * go over the commented out tests
+ * error return tracing
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
  * async call on a non async function
  * cancel
  * defer and errdefer
- * safety for double await
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
- * go over the commented out tests
  * revive std.event.Loop
  * @typeInfo for @Frame(func)
  * peer type resolution of *@Frame(func) and anyframe
@@ -15,7 +15,6 @@
  * returning a value from within a suspend block
  * make resuming inside a suspend block, with nothing after it, a must-tail call.
  * make sure there are safety tests for all the new safety features (search the new PanicFnId enum values)
- * error return tracing
  * compile error for casting a function to a non-async function pointer, but then later it gets inferred to be an async function
  * compile error for copying a frame
  * compile error for resuming a const frame pointer
@@ -33,3 +32,4 @@
    - suspend
    - resume
    - anyframe, anyframe->T
+ * safety for double await
