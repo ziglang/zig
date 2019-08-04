@@ -5221,7 +5221,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // We either got here from Entry (function call) or from the switch above
     LLVMValueRef spilled_result_ptr = LLVMBuildPhi(g->builder, usize_type_ref, "");
     LLVMValueRef incoming_values[] = { LLVMGetParam(g->cur_fn_val, 1), result_ptr_as_usize };
-    LLVMBasicBlockRef incoming_blocks[] = { g->cur_fn->preamble_llvm_block, predecessor_bb };
+    LLVMBasicBlockRef incoming_blocks[] = { g->cur_preamble_llvm_block, predecessor_bb };
     LLVMAddIncoming(spilled_result_ptr, incoming_values, incoming_blocks, 2);
 
     if (ir_want_runtime_safety(g, &instruction->base)) {
@@ -6428,7 +6428,7 @@ static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
     LLVMBasicBlockRef first_bb = nullptr;
     if (fn_is_async(fn)) {
         first_bb = LLVMAppendBasicBlock(fn_val, "AsyncSwitch");
-        fn->preamble_llvm_block = first_bb;
+        g->cur_preamble_llvm_block = first_bb;
     }
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *bb = executable->basic_block_list.at(block_i);
@@ -6771,7 +6771,7 @@ static void do_code_gen(CodeGen *g) {
             LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
             gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
 
-            LLVMPositionBuilderAtEnd(g->builder, fn_table_entry->preamble_llvm_block);
+            LLVMPositionBuilderAtEnd(g->builder, g->cur_preamble_llvm_block);
             render_async_spills(g);
             g->cur_async_awaiter_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_awaiter_index, "");
             LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_resume_index, "");

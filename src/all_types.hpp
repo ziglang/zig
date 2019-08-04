@@ -1399,7 +1399,6 @@ struct ZigFn {
     ZigList<IrInstructionCallGen *> call_list;
 
     LLVMValueRef valgrind_client_request_array;
-    LLVMBasicBlockRef preamble_llvm_block;
 
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1719,6 +1718,7 @@ struct CodeGen {
     LLVMValueRef cur_async_switch_instr;
     LLVMValueRef cur_async_resume_index_ptr;
     LLVMValueRef cur_async_awaiter_ptr;
+    LLVMBasicBlockRef cur_preamble_llvm_block;
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
     LLVMValueRef memcpy_fn_val;
