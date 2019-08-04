@@ -1049,8 +1049,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBegin *) 
     return IrInstructionIdSuspendBegin;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendBr *) {
-    return IrInstructionIdSuspendBr;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendFinish *) {
+    return IrInstructionIdSuspendFinish;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAwait *) {
@@ -3260,25 +3260,21 @@ static IrInstruction *ir_build_end_expr(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_suspend_begin(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrBasicBlock *resume_block)
-{
+static IrInstructionSuspendBegin *ir_build_suspend_begin(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionSuspendBegin *instruction = ir_build_instruction<IrInstructionSuspendBegin>(irb, scope, source_node);
     instruction->base.value.type = irb->codegen->builtin_types.entry_void;
-    instruction->resume_block = resume_block;
 
-    ir_ref_bb(resume_block);
-
-    return &instruction->base;
+    return instruction;
 }
 
-static IrInstruction *ir_build_suspend_br(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrBasicBlock *resume_block)
+static IrInstruction *ir_build_suspend_finish(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstructionSuspendBegin *begin)
 {
-    IrInstructionSuspendBr *instruction = ir_build_instruction<IrInstructionSuspendBr>(irb, scope, source_node);
-    instruction->resume_block = resume_block;
+    IrInstructionSuspendFinish *instruction = ir_build_instruction<IrInstructionSuspendFinish>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    instruction->begin = begin;
 
-    ir_ref_bb(resume_block);
+    ir_ref_instruction(&begin->base, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -7890,22 +7886,15 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
         return irb->codegen->invalid_instruction;
     }
 
-    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
-
-    ir_build_suspend_begin(irb, parent_scope, node, resume_block);
+    IrInstructionSuspendBegin *begin = ir_build_suspend_begin(irb, parent_scope, node);
     if (node->data.suspend.block != nullptr) {
-        Scope *child_scope;
         ScopeSuspend *suspend_scope = create_suspend_scope(irb->codegen, node, parent_scope);
-        suspend_scope->resume_block = resume_block;
-        child_scope = &suspend_scope->base;
+        Scope *child_scope = &suspend_scope->base;
         IrInstruction *susp_res = ir_gen_node(irb, node->data.suspend.block, child_scope);
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.suspend.block, susp_res));
     }
 
-    IrInstruction *result = ir_build_suspend_br(irb, parent_scope, node, resume_block);
-    result->value.type = irb->codegen->builtin_types.entry_void;
-    ir_set_cursor_at_end_and_append_block(irb, resume_block);
-    return result;
+    return ir_build_suspend_finish(irb, parent_scope, node, begin);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -24458,35 +24447,28 @@ static IrInstruction *ir_analyze_instruction_union_init_named_field(IrAnalyze *i
 }
 
 static IrInstruction *ir_analyze_instruction_suspend_begin(IrAnalyze *ira, IrInstructionSuspendBegin *instruction) {
-    IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, instruction->resume_block, &instruction->base);
-    if (new_bb == nullptr)
-        return ir_unreach_error(ira);
-    return ir_build_suspend_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node, new_bb);
+    IrInstructionSuspendBegin *result = ir_build_suspend_begin(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node);
+    return &result->base;
 }
 
-static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstructionSuspendBr *instruction) {
-    IrBasicBlock *old_dest_block = instruction->resume_block;
-
-    IrBasicBlock *new_bb = ir_get_new_bb_runtime(ira, old_dest_block, &instruction->base);
-    if (new_bb == nullptr)
-        return ir_unreach_error(ira);
+static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
+        IrInstructionSuspendFinish *instruction)
+{
+    IrInstruction *begin_base = instruction->begin->base.child;
+    if (type_is_invalid(begin_base->value.type))
+        return ira->codegen->invalid_instruction;
+    ir_assert(begin_base->id == IrInstructionIdSuspendBegin, &instruction->base);
+    IrInstructionSuspendBegin *begin = reinterpret_cast<IrInstructionSuspendBegin *>(begin_base);
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
 
-    new_bb->resume_index = fn_entry->resume_blocks.length + coro_extra_resume_block_count;
-
-    fn_entry->resume_blocks.append(new_bb);
     if (fn_entry->inferred_async_node == nullptr) {
         fn_entry->inferred_async_node = instruction->base.source_node;
     }
 
-    ir_push_resume_block(ira, old_dest_block);
-
-    IrInstruction *result = ir_build_suspend_br(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, new_bb);
-    result->value.type = ira->codegen->builtin_types.entry_unreachable;
-    return ir_finish_anal(ira, result);
+    return ir_build_suspend_finish(&ira->new_irb, instruction->base.scope, instruction->base.source_node, begin);
 }
 
 static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwait *instruction) {
@@ -24847,8 +24829,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_union_init_named_field(ira, (IrInstructionUnionInitNamedField *)instruction);
         case IrInstructionIdSuspendBegin:
             return ir_analyze_instruction_suspend_begin(ira, (IrInstructionSuspendBegin *)instruction);
-        case IrInstructionIdSuspendBr:
-            return ir_analyze_instruction_suspend_br(ira, (IrInstructionSuspendBr *)instruction);
+        case IrInstructionIdSuspendFinish:
+            return ir_analyze_instruction_suspend_finish(ira, (IrInstructionSuspendFinish *)instruction);
         case IrInstructionIdCoroResume:
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdAwait:
@@ -24986,7 +24968,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdVectorToArray:
         case IrInstructionIdResetResult:
         case IrInstructionIdSuspendBegin:
-        case IrInstructionIdSuspendBr:
+        case IrInstructionIdSuspendFinish:
         case IrInstructionIdCoroResume:
         case IrInstructionIdAwait:
             return true;

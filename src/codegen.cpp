@@ -3661,8 +3661,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         ZigType *ptr_result_type = get_pointer_to_type(g, src_return_type, true);
 
         LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(g->cur_fn_val, "CallResume");
-        size_t new_block_index = g->cur_fn->resume_blocks.length + coro_extra_resume_block_count;
-        g->cur_fn->resume_blocks.append(nullptr);
+        size_t new_block_index = g->cur_resume_block_count;
+        g->cur_resume_block_count += 1;
         LLVMValueRef new_block_index_val = LLVMConstInt(usize_type_ref, new_block_index, false);
         LLVMAddCase(g->cur_async_switch_instr, new_block_index_val, call_bb);
 
@@ -5153,15 +5153,22 @@ static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable
         IrInstructionSuspendBegin *instruction)
 {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
-    LLVMValueRef new_resume_index = LLVMConstInt(usize_type_ref, instruction->resume_block->resume_index, false);
-    LLVMBuildStore(g->builder, new_resume_index, g->cur_async_resume_index_ptr);
+    instruction->resume_bb = LLVMAppendBasicBlock(g->cur_fn_val, "SuspendResume");
+    size_t new_block_index = g->cur_resume_block_count;
+    g->cur_resume_block_count += 1;
+    LLVMValueRef new_block_index_val = LLVMConstInt(usize_type_ref, new_block_index, false);
+    LLVMAddCase(g->cur_async_switch_instr, new_block_index_val, instruction->resume_bb);
+    LLVMBuildStore(g->builder, new_block_index_val, g->cur_async_resume_index_ptr);
     return nullptr;
 }
 
-static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
-        IrInstructionSuspendBr *instruction)
+static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutable *executable,
+        IrInstructionSuspendFinish *instruction)
 {
     LLVMBuildRetVoid(g->builder);
+
+    LLVMPositionBuilderAtEnd(g->builder, instruction->begin->resume_bb);
+    render_async_var_decls(g, instruction->base.scope);
     return nullptr;
 }
 
@@ -5173,8 +5180,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
 
     // Prepare to be suspended
     LLVMBasicBlockRef resume_bb = LLVMAppendBasicBlock(g->cur_fn_val, "AwaitResume");
-    size_t new_block_index = g->cur_fn->resume_blocks.length + coro_extra_resume_block_count;
-    g->cur_fn->resume_blocks.append(nullptr);
+    size_t new_block_index = g->cur_resume_block_count;
+    g->cur_resume_block_count += 1;
     LLVMValueRef new_block_index_val = LLVMConstInt(usize_type_ref, new_block_index, false);
     LLVMAddCase(g->cur_async_switch_instr, new_block_index_val, resume_bb);
     LLVMBuildStore(g->builder, new_block_index_val, g->cur_async_resume_index_ptr);
@@ -5534,8 +5541,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
         case IrInstructionIdSuspendBegin:
             return ir_render_suspend_begin(g, executable, (IrInstructionSuspendBegin *)instruction);
-        case IrInstructionIdSuspendBr:
-            return ir_render_suspend_br(g, executable, (IrInstructionSuspendBr *)instruction);
+        case IrInstructionIdSuspendFinish:
+            return ir_render_suspend_finish(g, executable, (IrInstructionSuspendFinish *)instruction);
         case IrInstructionIdCoroResume:
             return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdFrameSizeGen:
@@ -5552,19 +5559,10 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     IrExecutable *executable = &fn_entry->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
 
-    if (fn_is_async(fn_entry)) {
-        IrBasicBlock *entry_block = executable->basic_block_list.at(0);
-        LLVMPositionBuilderAtEnd(g->builder, entry_block->llvm_block);
-        render_async_var_decls(g, entry_block->instruction_list.at(0)->scope);
-    }
-
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
-        if (current_block->resume_index != 0) {
-            render_async_var_decls(g, current_block->instruction_list.at(0)->scope);
-        }
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
@@ -6757,6 +6755,8 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (is_async) {
+            g->cur_resume_block_count = 0;
+
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
             ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
@@ -6777,19 +6777,15 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_resume_index, "");
             g->cur_async_resume_index_ptr = resume_index_ptr;
             LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
-            LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block,
-                    fn_table_entry->resume_blocks.length + coro_extra_resume_block_count);
+            LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block, 4);
             g->cur_async_switch_instr = switch_instr;
 
             LLVMValueRef zero = LLVMConstNull(usize_type_ref);
-            LLVMAddCase(switch_instr, zero, executable->basic_block_list.at(0)->llvm_block);
-
-            for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
-                IrBasicBlock *resume_block = fn_table_entry->resume_blocks.at(resume_i);
-                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_block->resume_index, false);
-                LLVMAddCase(switch_instr, case_value, resume_block->llvm_block);
-            }
-
+            IrBasicBlock *entry_block = executable->basic_block_list.at(0);
+            LLVMAddCase(switch_instr, zero, entry_block->llvm_block);
+            g->cur_resume_block_count += 1;
+            LLVMPositionBuilderAtEnd(g->builder, entry_block->llvm_block);
+            render_async_var_decls(g, entry_block->instruction_list.at(0)->scope);
         } else {
             // create debug variable declarations for parameters
             // rely on the first variables in the variable_list being parameters.

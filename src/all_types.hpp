@@ -1386,7 +1386,6 @@ struct ZigFn {
 
     ZigList<IrInstructionAllocaGen *> alloca_gen_list;
     ZigList<ZigVar *> variable_list;
-    ZigList<IrBasicBlock *> resume_blocks;
 
     Buf *section_name;
     AstNode *set_alignstack_node;
@@ -1719,6 +1718,7 @@ struct CodeGen {
     LLVMValueRef cur_async_resume_index_ptr;
     LLVMValueRef cur_async_awaiter_ptr;
     LLVMBasicBlockRef cur_preamble_llvm_block;
+    size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
     LLVMValueRef memcpy_fn_val;
@@ -2114,7 +2114,6 @@ struct ScopeRuntime {
 struct ScopeSuspend {
     Scope base;
 
-    IrBasicBlock *resume_block;
     bool reported_err;
 };
 
@@ -2169,8 +2168,6 @@ struct IrBasicBlock {
     size_t ref_count;
     // index into the basic block list
     size_t index;
-    // for async functions, the resume index which corresponds to this block
-    size_t resume_index;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -2354,7 +2351,7 @@ enum IrInstructionId {
     IrInstructionIdPtrOfArrayToSlice,
     IrInstructionIdUnionInitNamedField,
     IrInstructionIdSuspendBegin,
-    IrInstructionIdSuspendBr,
+    IrInstructionIdSuspendFinish,
     IrInstructionIdAwait,
     IrInstructionIdCoroResume,
 };
@@ -3600,13 +3597,13 @@ struct IrInstructionPtrOfArrayToSlice {
 struct IrInstructionSuspendBegin {
     IrInstruction base;
 
-    IrBasicBlock *resume_block;
+    LLVMBasicBlockRef resume_bb;
 };
 
-struct IrInstructionSuspendBr {
+struct IrInstructionSuspendFinish {
     IrInstruction base;
 
-    IrBasicBlock *resume_block;
+    IrInstructionSuspendBegin *begin;
 };
 
 struct IrInstructionAwait {
@@ -3709,9 +3706,6 @@ static const size_t coro_fn_ptr_index = 0;
 static const size_t coro_resume_index = 1;
 static const size_t coro_awaiter_index = 2;
 static const size_t coro_arg_start = 3;
-
-// one for the Entry block, resume blocks are indexed after that.
-static const size_t coro_extra_resume_block_count = 1;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.
