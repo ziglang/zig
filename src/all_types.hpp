@@ -1716,6 +1716,9 @@ struct CodeGen {
     ZigLLVMDIFile *dummy_di_file;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
+    LLVMValueRef cur_async_switch_instr;
+    LLVMValueRef cur_async_resume_index_ptr;
+    LLVMValueRef cur_async_awaiter_ptr;
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
     LLVMValueRef memcpy_fn_val;
@@ -2166,8 +2169,8 @@ struct IrBasicBlock {
     size_t ref_count;
     // index into the basic block list
     size_t index;
-    // for async functions, the split function which corresponds to this block
-    LLVMValueRef split_llvm_fn;
+    // for async functions, the resume index which corresponds to this block
+    size_t resume_index;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
     // The instruction that referenced this basic block and caused us to
@@ -3703,8 +3706,12 @@ static const size_t err_union_payload_index = 1;
 
 // label (grep this): [coro_frame_struct_layout]
 static const size_t coro_fn_ptr_index = 0;
-static const size_t coro_awaiter_index = 1;
-static const size_t coro_arg_start = 2;
+static const size_t coro_resume_index = 1;
+static const size_t coro_awaiter_index = 2;
+static const size_t coro_arg_start = 3;
+
+// one for the Entry block, resume blocks are indexed after that.
+static const size_t coro_extra_resume_block_count = 1;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

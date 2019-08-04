@@ -5215,6 +5215,9 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     field_names.append("fn_ptr");
     field_types.append(fn_type);
 
+    field_names.append("resume_index");
+    field_types.append(g->builtin_types.entry_usize);
+
     field_names.append("awaiter");
     field_types.append(g->builtin_types.entry_usize);
 
@@ -7532,9 +7535,10 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
         // label (grep this): [coro_frame_struct_layout]
         LLVMTypeRef field_types[] = {
             ptr_result_type, // fn_ptr
+            usize_type_ref, // resume_index
             usize_type_ref, // awaiter
         };
-        LLVMStructSetBody(frame_header_type, field_types, 2, false);
+        LLVMStructSetBody(frame_header_type, field_types, 3, false);
 
         ZigLLVMDIType *di_element_types[] = {
             ZigLLVMCreateDebugMemberType(g->dbuilder,
@@ -7545,11 +7549,18 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 0),
                 ZigLLVM_DIFlags_Zero, usize_di_type),
             ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "awaiter",
+                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "resume_index",
                 di_file, line,
                 8*LLVMABISizeOfType(g->target_data_ref, field_types[1]),
                 8*LLVMABIAlignmentOfType(g->target_data_ref, field_types[1]),
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 1),
+                ZigLLVM_DIFlags_Zero, usize_di_type),
+            ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "awaiter",
+                di_file, line,
+                8*LLVMABISizeOfType(g->target_data_ref, field_types[2]),
+                8*LLVMABIAlignmentOfType(g->target_data_ref, field_types[2]),
+                8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 2),
                 ZigLLVM_DIFlags_Zero, usize_di_type),
         };
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
@@ -7558,7 +7569,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 8*LLVMABISizeOfType(g->target_data_ref, frame_header_type),
                 8*LLVMABIAlignmentOfType(g->target_data_ref, frame_header_type),
                 ZigLLVM_DIFlags_Zero,
-                nullptr, di_element_types, 2, 0, nullptr, "");
+                nullptr, di_element_types, 3, 0, nullptr, "");
 
         ZigLLVMReplaceTemporary(g->dbuilder, frame_header_di_type, replacement_di_type);
     } else {
@@ -7566,11 +7577,12 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
         // label (grep this): [coro_frame_struct_layout]
         LLVMTypeRef field_types[] = {
             LLVMPointerType(fn_type, 0), // fn_ptr
+            usize_type_ref, // resume_index
             usize_type_ref, // awaiter
             get_llvm_type(g, ptr_result_type), // result_ptr
             get_llvm_type(g, result_type), // result
         };
-        LLVMStructSetBody(frame_header_type, field_types, 4, false);
+        LLVMStructSetBody(frame_header_type, field_types, 5, false);
 
         ZigLLVMDIType *di_element_types[] = {
             ZigLLVMCreateDebugMemberType(g->dbuilder,
@@ -7588,18 +7600,25 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 1),
                 ZigLLVM_DIFlags_Zero, usize_di_type),
             ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "result_ptr",
+                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "awaiter",
                 di_file, line,
                 8*LLVMABISizeOfType(g->target_data_ref, field_types[2]),
                 8*LLVMABIAlignmentOfType(g->target_data_ref, field_types[2]),
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 2),
-                ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, ptr_result_type)),
+                ZigLLVM_DIFlags_Zero, usize_di_type),
             ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "result",
+                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "result_ptr",
                 di_file, line,
                 8*LLVMABISizeOfType(g->target_data_ref, field_types[3]),
                 8*LLVMABIAlignmentOfType(g->target_data_ref, field_types[3]),
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 3),
+                ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, ptr_result_type)),
+            ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "result",
+                di_file, line,
+                8*LLVMABISizeOfType(g->target_data_ref, field_types[4]),
+                8*LLVMABIAlignmentOfType(g->target_data_ref, field_types[4]),
+                8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, 4),
                 ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, result_type)),
         };
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
@@ -7608,7 +7627,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 8*LLVMABISizeOfType(g->target_data_ref, frame_header_type),
                 8*LLVMABIAlignmentOfType(g->target_data_ref, frame_header_type),
                 ZigLLVM_DIFlags_Zero,
-                nullptr, di_element_types, 2, 0, nullptr, "");
+                nullptr, di_element_types, 5, 0, nullptr, "");
 
         ZigLLVMReplaceTemporary(g->dbuilder, frame_header_di_type, replacement_di_type);
     }

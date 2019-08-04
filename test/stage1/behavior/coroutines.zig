@@ -419,3 +419,29 @@ test "async function call return value" {
     };
     S.doTheTest();
 }
+
+test "suspension points inside branching control flow" {
+    const S = struct {
+        var global_result: i32 = 10;
+
+        fn doTheTest() void {
+            expect(10 == global_result);
+            var frame = async func(true);
+            expect(10 == global_result);
+            resume frame;
+            expect(11 == global_result);
+            resume frame;
+            expect(12 == global_result);
+            resume frame;
+            expect(13 == global_result);
+        }
+
+        fn func(b: bool) void {
+            while (b) {
+                suspend;
+                global_result += 1;
+            }
+        }
+    };
+    S.doTheTest();
+}

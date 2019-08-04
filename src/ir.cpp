@@ -24474,7 +24474,7 @@ static IrInstruction *ir_analyze_instruction_suspend_br(IrAnalyze *ira, IrInstru
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
 
-    new_bb->split_llvm_fn = reinterpret_cast<LLVMValueRef>(0x1);
+    new_bb->resume_index = fn_entry->resume_blocks.length + coro_extra_resume_block_count;
 
     fn_entry->resume_blocks.append(new_bb);
     if (fn_entry->inferred_async_node == nullptr) {

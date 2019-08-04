@@ -1997,7 +1997,9 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     return call_instruction;
 }
 
-static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
+static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable,
+        IrInstructionReturn *return_instruction)
+{
     if (fn_is_async(g->cur_fn)) {
         LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
         LLVMValueRef locals_ptr = g->cur_ret_ptr;
@@ -2006,12 +2008,10 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         ZigType *ret_type = ret_type_has_bits ? return_instruction->value->value.type : nullptr;
 
         if (ir_want_runtime_safety(g, &return_instruction->base)) {
-            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_fn_ptr_index, "");
-            LLVMValueRef new_resume_fn = g->cur_fn->resume_blocks.last()->split_llvm_fn;
-            LLVMBuildStore(g->builder, new_resume_fn, resume_index_ptr);
+            LLVMValueRef new_resume_index = LLVMConstAllOnes(usize_type_ref);
+            LLVMBuildStore(g->builder, new_resume_index, g->cur_async_resume_index_ptr);
         }
 
-        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_awaiter_index, "");
         LLVMValueRef result_ptr_as_usize;
         if (ret_type_has_bits) {
             LLVMValueRef result_ptr_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_arg_start, "");
@@ -2029,8 +2029,8 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         }
         LLVMValueRef zero = LLVMConstNull(usize_type_ref);
         LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
-        LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr,
-                all_ones, LLVMAtomicOrderingSequentiallyConsistent, g->is_single_threaded);
+        LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, g->cur_async_awaiter_ptr,
+                all_ones, LLVMAtomicOrderingMonotonic, g->is_single_threaded);
 
         LLVMBasicBlockRef bad_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadReturn");
         LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");
@@ -3453,7 +3453,6 @@ static void render_async_spills(CodeGen *g) {
 }
 
 static void render_async_var_decls(CodeGen *g, Scope *scope) {
-    render_async_spills(g);
     for (;;) {
         switch (scope->id) {
             case ScopeIdCImport:
@@ -3573,6 +3572,14 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     if (instruction->is_async || callee_is_async) {
         assert(frame_result_loc != nullptr);
 
+        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_fn_ptr_index, "");
+        LLVMValueRef bitcasted_fn_val = LLVMBuildBitCast(g->builder, fn_val,
+                LLVMGetElementType(LLVMTypeOf(fn_ptr_ptr)), "");
+        LLVMBuildStore(g->builder, bitcasted_fn_val, fn_ptr_ptr);
+
+        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, coro_resume_index, "");
+        LLVMBuildStore(g->builder, zero, resume_index_ptr);
+
         if (prefix_arg_err_ret_stack) {
             zig_panic("TODO");
         }
@@ -3652,23 +3659,24 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         return nullptr;
     } else if (callee_is_async) {
         ZigType *ptr_result_type = get_pointer_to_type(g, src_return_type, true);
-        LLVMValueRef split_llvm_fn = make_fn_llvm_value(g, g->cur_fn);
-        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_fn_ptr_index, "");
-        LLVMBuildStore(g->builder, split_llvm_fn, fn_ptr_ptr);
+
+        LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(g->cur_fn_val, "CallResume");
+        size_t new_block_index = g->cur_fn->resume_blocks.length + coro_extra_resume_block_count;
+        g->cur_fn->resume_blocks.append(nullptr);
+        LLVMValueRef new_block_index_val = LLVMConstInt(usize_type_ref, new_block_index, false);
+        LLVMAddCase(g->cur_async_switch_instr, new_block_index_val, call_bb);
+
+        LLVMBuildStore(g->builder, new_block_index_val, g->cur_async_resume_index_ptr);
         LLVMValueRef args[] = {frame_result_loc, LLVMGetUndef(usize_type_ref)};
         LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, fn_inline, "");
         ZigLLVMSetTailCall(call_inst);
         LLVMBuildRetVoid(g->builder);
 
-        g->cur_fn_val = split_llvm_fn;
-        g->cur_ret_ptr = LLVMGetParam(split_llvm_fn, 0);
-        LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(split_llvm_fn, "CallResume");
         LLVMPositionBuilderAtEnd(g->builder, call_bb);
-
         if (ir_want_runtime_safety(g, &instruction->base)) {
-            LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(split_llvm_fn, "BadResume");
-            LLVMBasicBlockRef ok_resume_block = LLVMAppendBasicBlock(split_llvm_fn, "OkResume");
-            LLVMValueRef arg_val = LLVMGetParam(split_llvm_fn, 1);
+            LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
+            LLVMBasicBlockRef ok_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkResume");
+            LLVMValueRef arg_val = LLVMGetParam(g->cur_fn_val, 1);
             LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
             LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntNE, arg_val, all_ones, "");
             LLVMBuildCondBr(g->builder, ok_bit, ok_resume_block, bad_resume_block);
@@ -5144,10 +5152,9 @@ static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executab
 static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable,
         IrInstructionSuspendBegin *instruction)
 {
-    LLVMValueRef locals_ptr = g->cur_ret_ptr;
-    LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, locals_ptr, coro_fn_ptr_index, "");
-    LLVMValueRef new_fn_ptr = instruction->resume_block->split_llvm_fn;
-    LLVMBuildStore(g->builder, new_fn_ptr, fn_ptr_ptr);
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef new_resume_index = LLVMConstInt(usize_type_ref, instruction->resume_block->resume_index, false);
+    LLVMBuildStore(g->builder, new_resume_index, g->cur_async_resume_index_ptr);
     return nullptr;
 }
 
@@ -5159,19 +5166,22 @@ static LLVMValueRef ir_render_suspend_br(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInstructionAwait *instruction) {
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
     ZigType *result_type = instruction->base.value.type;
     ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
 
     // Prepare to be suspended
-    LLVMValueRef split_llvm_fn = make_fn_llvm_value(g, g->cur_fn);
-    LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_fn_ptr_index, "");
-    LLVMBuildStore(g->builder, split_llvm_fn, fn_ptr_ptr);
+    LLVMBasicBlockRef resume_bb = LLVMAppendBasicBlock(g->cur_fn_val, "AwaitResume");
+    size_t new_block_index = g->cur_fn->resume_blocks.length + coro_extra_resume_block_count;
+    g->cur_fn->resume_blocks.append(nullptr);
+    LLVMValueRef new_block_index_val = LLVMConstInt(usize_type_ref, new_block_index, false);
+    LLVMAddCase(g->cur_async_switch_instr, new_block_index_val, resume_bb);
+    LLVMBuildStore(g->builder, new_block_index_val, g->cur_async_resume_index_ptr);
 
     // At this point resuming the function will do the correct thing.
     // This code is as if it is running inside the suspend block.
 
-    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     // caller's own frame pointer
     LLVMValueRef awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr, usize_type_ref, "");
     LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_awaiter_index, "");
@@ -5184,18 +5194,20 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
         result_ptr_as_usize = LLVMGetUndef(usize_type_ref);
     }
     LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_init_val,
-            LLVMAtomicOrderingSequentiallyConsistent, g->is_single_threaded);
+            LLVMAtomicOrderingMonotonic, g->is_single_threaded);
 
     LLVMBasicBlockRef bad_await_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadAwait");
     LLVMBasicBlockRef complete_suspend_block = LLVMAppendBasicBlock(g->cur_fn_val, "CompleteSuspend");
-    LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");
 
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
     LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, prev_val, bad_await_block, 2);
+    LLVMBasicBlockRef predecessor_bb = LLVMGetInsertBlock(g->builder);
 
     LLVMAddCase(switch_instr, zero, complete_suspend_block);
-    LLVMAddCase(switch_instr, all_ones, early_return_block);
+
+    // Early return: The async function has already completed. No need to suspend.
+    LLVMAddCase(switch_instr, all_ones, resume_bb);
 
     // We discovered that another awaiter was already here.
     LLVMPositionBuilderAtEnd(g->builder, bad_await_block);
@@ -5205,25 +5217,18 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     LLVMPositionBuilderAtEnd(g->builder, complete_suspend_block);
     LLVMBuildRetVoid(g->builder);
 
-    // The async function has already completed. So we use a tail call to resume ourselves.
-    LLVMPositionBuilderAtEnd(g->builder, early_return_block);
-    LLVMValueRef args[] = {g->cur_ret_ptr, result_ptr_as_usize};
-    LLVMValueRef call_inst = ZigLLVMBuildCall(g->builder, split_llvm_fn, args, 2, LLVMFastCallConv,
-            ZigLLVM_FnInlineAuto, "");
-    ZigLLVMSetTailCall(call_inst);
-    LLVMBuildRetVoid(g->builder);
-
-    g->cur_fn_val = split_llvm_fn;
-    g->cur_ret_ptr = LLVMGetParam(split_llvm_fn, 0);
-    LLVMBasicBlockRef call_bb = LLVMAppendBasicBlock(split_llvm_fn, "AwaitResume");
-    LLVMPositionBuilderAtEnd(g->builder, call_bb);
+    LLVMPositionBuilderAtEnd(g->builder, resume_bb);
+    // We either got here from Entry (function call) or from the switch above
+    LLVMValueRef spilled_result_ptr = LLVMBuildPhi(g->builder, usize_type_ref, "");
+    LLVMValueRef incoming_values[] = { LLVMGetParam(g->cur_fn_val, 1), result_ptr_as_usize };
+    LLVMBasicBlockRef incoming_blocks[] = { g->cur_fn->preamble_llvm_block, predecessor_bb };
+    LLVMAddIncoming(spilled_result_ptr, incoming_values, incoming_blocks, 2);
 
     if (ir_want_runtime_safety(g, &instruction->base)) {
-        LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(split_llvm_fn, "BadResume");
-        LLVMBasicBlockRef ok_resume_block = LLVMAppendBasicBlock(split_llvm_fn, "OkResume");
-        LLVMValueRef arg_val = LLVMGetParam(split_llvm_fn, 1);
+        LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
+        LLVMBasicBlockRef ok_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkResume");
         LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
-        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntNE, arg_val, all_ones, "");
+        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntNE, spilled_result_ptr, all_ones, "");
         LLVMBuildCondBr(g->builder, ok_bit, ok_resume_block, bad_resume_block);
 
         LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
@@ -5235,7 +5240,6 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     render_async_var_decls(g, instruction->base.scope);
 
     if (type_has_bits(result_type)) {
-        LLVMValueRef spilled_result_ptr = LLVMGetParam(g->cur_fn_val, 1);
         LLVMValueRef casted_spilled_result_ptr = LLVMBuildIntToPtr(g->builder, spilled_result_ptr,
                 get_llvm_type(g, ptr_result_type), "");
         return get_handle_value(g, casted_spilled_result_ptr, result_type, ptr_result_type);
@@ -5547,13 +5551,18 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
 
     IrExecutable *executable = &fn_entry->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
+
+    if (fn_is_async(fn_entry)) {
+        IrBasicBlock *entry_block = executable->basic_block_list.at(0);
+        LLVMPositionBuilderAtEnd(g->builder, entry_block->llvm_block);
+        render_async_var_decls(g, entry_block->instruction_list.at(0)->scope);
+    }
+
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
-        if (current_block->split_llvm_fn != nullptr) {
-            g->cur_fn_val = current_block->split_llvm_fn;
-            g->cur_ret_ptr = LLVMGetParam(g->cur_fn_val, 0);
+        if (current_block->resume_index != 0) {
             render_async_var_decls(g, current_block->instruction_list.at(0)->scope);
         }
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
@@ -6416,17 +6425,19 @@ static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
     IrExecutable *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
     LLVMValueRef fn_val = fn_llvm_value(g, fn);
+    LLVMBasicBlockRef first_bb = nullptr;
+    if (fn_is_async(fn)) {
+        first_bb = LLVMAppendBasicBlock(fn_val, "AsyncSwitch");
+        fn->preamble_llvm_block = first_bb;
+    }
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *bb = executable->basic_block_list.at(block_i);
-        if (bb->split_llvm_fn != nullptr) {
-            assert(bb->split_llvm_fn == reinterpret_cast<LLVMValueRef>(0x1));
-            fn_val = make_fn_llvm_value(g, fn);
-            bb->split_llvm_fn = fn_val;
-        }
         bb->llvm_block = LLVMAppendBasicBlock(fn_val, bb->name_hint);
     }
-    IrBasicBlock *entry_bb = executable->basic_block_list.at(0);
-    LLVMPositionBuilderAtEnd(g->builder, entry_bb->llvm_block);
+    if (first_bb == nullptr) {
+        first_bb = executable->basic_block_list.at(0)->llvm_block;
+    }
+    LLVMPositionBuilderAtEnd(g->builder, first_bb);
 }
 
 static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
@@ -6636,9 +6647,7 @@ static void do_code_gen(CodeGen *g) {
             g->cur_err_ret_trace_val_stack = nullptr;
         }
 
-        if (is_async) {
-            render_async_spills(g);
-        } else {
+        if (!is_async) {
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
                 IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
@@ -6752,17 +6761,35 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
             ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
 
-            if (ir_want_runtime_safety_scope(g, fn_table_entry->child_scope)) {
-                IrBasicBlock *bad_resume_block = allocate<IrBasicBlock>(1);
-                bad_resume_block->name_hint = "BadResume";
-                bad_resume_block->split_llvm_fn = make_fn_llvm_value(g, fn_table_entry);
-
-                LLVMBasicBlockRef llvm_block = LLVMAppendBasicBlock(bad_resume_block->split_llvm_fn, "BadResume");
-                LLVMPositionBuilderAtEnd(g->builder, llvm_block);
-                gen_safety_crash(g, PanicMsgIdBadResume);
-
-                fn_table_entry->resume_blocks.append(bad_resume_block);
+            if (!g->strip_debug_symbols) {
+                AstNode *source_node = fn_table_entry->proto_node;
+                ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
+                        (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
             }
+            IrExecutable *executable = &fn_table_entry->analyzed_executable;
+            LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
+            LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
+            gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
+
+            LLVMPositionBuilderAtEnd(g->builder, fn_table_entry->preamble_llvm_block);
+            render_async_spills(g);
+            g->cur_async_awaiter_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_awaiter_index, "");
+            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_resume_index, "");
+            g->cur_async_resume_index_ptr = resume_index_ptr;
+            LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
+            LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block,
+                    fn_table_entry->resume_blocks.length + coro_extra_resume_block_count);
+            g->cur_async_switch_instr = switch_instr;
+
+            LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+            LLVMAddCase(switch_instr, zero, executable->basic_block_list.at(0)->llvm_block);
+
+            for (size_t resume_i = 0; resume_i < fn_table_entry->resume_blocks.length; resume_i += 1) {
+                IrBasicBlock *resume_block = fn_table_entry->resume_blocks.at(resume_i);
+                LLVMValueRef case_value = LLVMConstInt(usize_type_ref, resume_block->resume_index, false);
+                LLVMAddCase(switch_instr, case_value, resume_block->llvm_block);
+            }
+
         } else {
             // create debug variable declarations for parameters
             // rely on the first variables in the variable_list being parameters.
