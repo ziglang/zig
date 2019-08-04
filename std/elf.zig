@@ -351,6 +351,21 @@ pub const SectionHeader = struct {
     info: u32,
     addr_align: u64,
     ent_size: u64,
+
+    pub fn nameIs(elf_section: SectionHeader, elf: *Elf, name: []const u8) !bool {
+        const name_offset = elf.string_section.offset + elf_section.name;
+        try elf.seekable_stream.seekTo(name_offset);
+
+        for (name) |expected_c| {
+            const target_c = try elf.in_stream.readByte();
+            if (target_c == 0 or expected_c != target_c) return false;
+        }
+
+        const null_byte = try elf.in_stream.readByte();
+        if (null_byte == 0) return true;
+
+        return false;
+    }
 };
 
 pub const Elf = struct {
@@ -528,21 +543,37 @@ pub const Elf = struct {
         elf.allocator.free(elf.section_headers);
     }
 
+
+    pub const SectionIterator = struct {
+        section_headers: *const []SectionHeader,
+        count: usize,
+
+        pub fn next(it: *SectionIterator) ?SectionHeader {
+            if (it.count >= it.section_headers.len) return null;
+            const val = it.section_headers.*[it.count];
+            it.count += 1;
+            return val;
+        }
+
+        pub fn reset(it: *SectionIterator) void {
+            it.count = 0;
+        }
+    };
+
+    pub fn sectionIterator(elf: *const Elf) SectionIterator {
+        return SectionIterator{
+            .section_headers = &elf.section_headers,
+            .count = 0,
+        };
+    }
+
     pub fn findSection(elf: *Elf, name: []const u8) !?*SectionHeader {
-        section_loop: for (elf.section_headers) |*elf_section| {
+        var it = elf.sectionIterator();
+        while (it.next()) |elf_section| {
             if (elf_section.sh_type == SHT_NULL) continue;
 
-            const name_offset = elf.string_section.offset + elf_section.name;
-            try elf.seekable_stream.seekTo(name_offset);
-
-            for (name) |expected_c| {
-                const target_c = try elf.in_stream.readByte();
-                if (target_c == 0 or expected_c != target_c) continue :section_loop;
-            }
-
-            {
-                const null_byte = try elf.in_stream.readByte();
-                if (null_byte == 0) return elf_section;
+            if (try elf_section.nameIs(elf, name)) {
+                return elf_section;
             }
         }
 
