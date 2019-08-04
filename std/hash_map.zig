@@ -4,6 +4,9 @@ const assert = debug.assert;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
+const meta = std.meta;
+const autoHash = std.hash.autoHash;
+const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 
@@ -448,15 +451,17 @@ test "iterator hash map" {
     try reset_map.putNoClobber(2, 22);
     try reset_map.putNoClobber(3, 33);
 
+    // TODO this test depends on the hashing algorithm, because it assumes the
+    // order of the elements in the hashmap. This should not be the case.
     var keys = [_]i32{
+        1,
         3,
         2,
-        1,
     };
     var values = [_]i32{
+        11,
         33,
         22,
-        11,
     };
 
     var it = reset_map.iterator();
@@ -518,8 +523,9 @@ pub fn getTrivialEqlFn(comptime K: type) (fn (K, K) bool) {
 pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
     return struct {
         fn hash(key: K) u32 {
-            comptime var rng = comptime std.rand.DefaultPrng.init(0);
-            return autoHash(key, &rng.random, u32);
+            var hasher = Wyhash.init(0);
+            autoHash(&hasher, key);
+            return @truncate(u32, hasher.final());
         }
     }.hash;
 }
@@ -527,116 +533,7 @@ pub fn getAutoHashFn(comptime K: type) (fn (K) u32) {
 pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
     return struct {
         fn eql(a: K, b: K) bool {
-            return autoEql(a, b);
+            return meta.eql(a, b);
         }
     }.eql;
-}
-
-// TODO improve these hash functions
-pub fn autoHash(key: var, comptime rng: *std.rand.Random, comptime HashInt: type) HashInt {
-    switch (@typeInfo(@typeOf(key))) {
-        .NoReturn,
-        .Opaque,
-        .Undefined,
-        .ArgTuple,
-        .Frame,
-        .AnyFrame,
-        => @compileError("cannot hash this type"),
-
-        .Void,
-        .Null,
-        => return 0,
-
-        .Int => |info| {
-            const unsigned_x = @bitCast(@IntType(false, info.bits), key);
-            if (info.bits <= HashInt.bit_count) {
-                return HashInt(unsigned_x) ^ comptime rng.scalar(HashInt);
-            } else {
-                return @truncate(HashInt, unsigned_x ^ comptime rng.scalar(@typeOf(unsigned_x)));
-            }
-        },
-
-        .Float => |info| {
-            return autoHash(@bitCast(@IntType(false, info.bits), key), rng, HashInt);
-        },
-        .Bool => return autoHash(@boolToInt(key), rng, HashInt),
-        .Enum => return autoHash(@enumToInt(key), rng, HashInt),
-        .ErrorSet => return autoHash(@errorToInt(key), rng, HashInt),
-        .Fn => return autoHash(@ptrToInt(key), rng, HashInt),
-
-        .BoundFn,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Type,
-        .EnumLiteral,
-        => return 0,
-
-        .Pointer => |info| switch (info.size) {
-            .One => @compileError("TODO auto hash for single item pointers"),
-            .Many => @compileError("TODO auto hash for many item pointers"),
-            .C => @compileError("TODO auto hash C pointers"),
-            .Slice => {
-                const interval = std.math.max(1, key.len / 256);
-                var i: usize = 0;
-                var h = comptime rng.scalar(HashInt);
-                while (i < key.len) : (i += interval) {
-                    h ^= autoHash(key[i], rng, HashInt);
-                }
-                return h;
-            },
-        },
-
-        .Optional => @compileError("TODO auto hash for optionals"),
-        .Array => @compileError("TODO auto hash for arrays"),
-        .Vector => @compileError("TODO auto hash for vectors"),
-        .Struct => @compileError("TODO auto hash for structs"),
-        .Union => @compileError("TODO auto hash for unions"),
-        .ErrorUnion => @compileError("TODO auto hash for unions"),
-    }
-}
-
-pub fn autoEql(a: var, b: @typeOf(a)) bool {
-    switch (@typeInfo(@typeOf(a))) {
-        .NoReturn,
-        .Opaque,
-        .Undefined,
-        .ArgTuple,
-        => @compileError("cannot test equality of this type"),
-        .Void,
-        .Null,
-        => return true,
-        .Bool,
-        .Int,
-        .Float,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .EnumLiteral,
-        .Promise,
-        .Enum,
-        .BoundFn,
-        .Fn,
-        .ErrorSet,
-        .Type,
-        => return a == b,
-
-        .Pointer => |info| switch (info.size) {
-            .One => @compileError("TODO auto eql for single item pointers"),
-            .Many => @compileError("TODO auto eql for many item pointers"),
-            .C => @compileError("TODO auto eql for C pointers"),
-            .Slice => {
-                if (a.len != b.len) return false;
-                for (a) |a_item, i| {
-                    if (!autoEql(a_item, b[i])) return false;
-                }
-                return true;
-            },
-        },
-
-        .Optional => @compileError("TODO auto eql for optionals"),
-        .Array => @compileError("TODO auto eql for arrays"),
-        .Struct => @compileError("TODO auto eql for structs"),
-        .Union => @compileError("TODO auto eql for unions"),
-        .ErrorUnion => @compileError("TODO auto eql for unions"),
-        .Vector => @compileError("TODO auto eql for vectors"),
-    }
 }
