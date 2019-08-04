@@ -1024,8 +1024,7 @@ pub fn openElfDebugInfo(
     elf_seekable_stream: *DwarfSeekableStream,
     elf_in_stream: *DwarfInStream,
 ) !DwarfInfo {
-    var efile: elf.Elf = undefined;
-    try efile.openStream(allocator, elf_seekable_stream, elf_in_stream);
+    var efile = try elf.Elf.openStream(allocator, elf_seekable_stream, elf_in_stream);
     errdefer efile.close();
 
     var di = DwarfInfo{
