@@ -7273,7 +7273,6 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {
     assertNoError(type_resolve(g, type, ResolveStatusLLVMFull));
-    assert(type->abi_size == 0 || type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
     return type->llvm_type;
 }
 

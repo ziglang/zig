@@ -220,18 +220,28 @@ test "alignment of structs" {
     }) == @alignOf(usize));
 }
 
-test "alignment of 128-bit integer type" {
+test "alignment of >= 128-bit integer type" {
     expect(@alignOf(u128) == 16);
+    expect(@alignOf(u129) == 16);
 }
 
 test "alignment of struct with 128-bit field" {
-    expect(@alignOf(struct { x: u128}) == 16);
+    expect(@alignOf(struct {
+        x: u128,
+    }) == 16);
+
+    comptime {
+        expect(@alignOf(struct {
+            x: u128,
+        }) == 16);
+    }
 }
 
-test "comptime alignment of struct with 128-bit field" {
-    comptime {
-        expect(@alignOf(struct { x: u128}) == 16);
-    }
+test "size of struct with non-standard-LLVM alignment" {
+    expect(@sizeOf(struct {
+        x: u129,
+        y: u129,
+    }) == 64);
 }
 
 test "alignment of extern() void" {
