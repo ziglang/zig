@@ -1083,16 +1083,18 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
 
     const hdr_base = @ptrCast([*]u8, hdr);
     var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-    var ncmd: u32 = hdr.ncmds;
-    const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*std.macho.load_command, ptr);
-        switch (lc.cmd) {
-            std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
-            else => {},
+    const symtab = blk: {
+        var ncmd = hdr.ncmds;
+        while (ncmd != 0) : (ncmd -= 1) {
+            const lc = @ptrCast(*std.macho.load_command, ptr);
+            switch (lc.cmd) {
+                std.macho.LC_SYMTAB => break :blk @ptrCast(*std.macho.symtab_command, ptr),
+                else => {},
+            }
+            ptr += lc.cmdsize;
+        } else {
+            return error.MissingDebugInfo;
         }
-        ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
-    } else {
-        return error.MissingDebugInfo;
     };
     const syms = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
     const strings = @ptrCast([*]u8, hdr_base + symtab.stroff)[0..symtab.strsize];
@@ -2074,16 +2076,18 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 
         const hdr_base = @ptrCast([*]const u8, hdr);
         var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-        var ncmd: u32 = hdr.ncmds;
-        const segcmd = while (ncmd != 0) : (ncmd -= 1) {
-            const lc = @ptrCast(*const std.macho.load_command, ptr);
-            switch (lc.cmd) {
-                std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, @alignCast(@alignOf(std.macho.segment_command_64), ptr)),
-                else => {},
+        const segcmd = blk: {
+            var ncmd = hdr.ncmds;
+            while (ncmd != 0) : (ncmd -= 1) {
+                const lc = @ptrCast(*const std.macho.load_command, ptr);
+                switch (lc.cmd) {
+                    std.macho.LC_SEGMENT_64 => break :blk @ptrCast(*const std.macho.segment_command_64, @alignCast(@alignOf(std.macho.segment_command_64), ptr)),
+                    else => {},
+                }
+                ptr += lc.cmdsize;
+            } else {
+                return error.MissingDebugInfo;
             }
-            ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
-        } else {
-            return error.MissingDebugInfo;
         };
         const sections = @ptrCast([*]const macho.section_64, @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
         for (sections) |*sect| {
