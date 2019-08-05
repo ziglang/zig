@@ -343,6 +343,10 @@ static bool cc_want_sret_attr(CallingConvention cc) {
     zig_unreachable();
 }
 
+static bool codegen_have_frame_pointer(CodeGen *g) {
+    return g->build_mode == BuildModeDebug;
+}
+
 static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     Buf *unmangled_name = &fn->symbol_name;
     Buf *symbol_name;
@@ -482,7 +486,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     addLLVMFnAttr(llvm_fn, "nounwind");
     add_uwtable_attr(g, llvm_fn);
     addLLVMFnAttr(llvm_fn, "nobuiltin");
-    if (g->build_mode == BuildModeDebug && fn->fn_inline != FnInlineAlways) {
+    if (codegen_have_frame_pointer(g) && fn->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -1020,7 +1024,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     // Error return trace memory is in the stack, which is impossible to be at address 0
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
-    if (g->build_mode == BuildModeDebug) {
+    if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -1101,7 +1105,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     // Error return trace memory is in the stack, which is impossible to be at address 0
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
-    if (g->build_mode == BuildModeDebug) {
+    if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -1173,7 +1177,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
-    if (g->build_mode == BuildModeDebug) {
+    if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -4210,7 +4214,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
-    if (g->build_mode == BuildModeDebug) {
+    if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -8220,6 +8224,12 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-g");
     }
 
+    if (codegen_have_frame_pointer(g)) {
+        args.append("-fno-omit-frame-pointer");
+    } else {
+        args.append("-fomit-frame-pointer");
+    }
+
     switch (g->build_mode) {
         case BuildModeDebug:
             // windows c runtime requires -D_DEBUG if using debug libraries
@@ -8232,7 +8242,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             } else {
                 args.append("-fno-stack-protector");
             }
-            args.append("-fno-omit-frame-pointer");
             break;
         case BuildModeSafeRelease:
             // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
@@ -8246,7 +8255,6 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             } else {
                 args.append("-fno-stack-protector");
             }
-            args.append("-fomit-frame-pointer");
             break;
         case BuildModeFastRelease:
             args.append("-DNDEBUG");
@@ -8257,13 +8265,11 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             // running in -O2 and thus the -O3 path has been tested less.
             args.append("-O2");
             args.append("-fno-stack-protector");
-            args.append("-fomit-frame-pointer");
             break;
         case BuildModeSmallRelease:
             args.append("-DNDEBUG");
             args.append("-Os");
             args.append("-fno-stack-protector");
-            args.append("-fomit-frame-pointer");
             break;
     }
 
@@ -9685,4 +9691,3 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
 
     return g;
 }
-
