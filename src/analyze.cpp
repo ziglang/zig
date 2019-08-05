@@ -5230,9 +5230,8 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     field_names.append("@result");
     field_types.append(fn_type_id->return_type);
 
-    if (codegen_fn_has_err_ret_tracing(g, fn_type_id->return_type)) {
-        field_names.append("@ptr_stack_trace");
-        field_types.append(get_ptr_to_stack_trace_type(g));
+    if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
+        (void)get_ptr_to_stack_trace_type(g); // populate g->stack_trace_type
 
         field_names.append("@stack_trace");
         field_types.append(g->stack_trace_type);
@@ -5254,6 +5253,16 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         ZigType *param_type = param_info->type;
         field_names.append(buf_ptr(param_name));
         field_types.append(param_type);
+    }
+
+    if (codegen_fn_has_err_ret_tracing_stack(g, fn)) {
+        (void)get_ptr_to_stack_trace_type(g); // populate g->stack_trace_type
+
+        field_names.append("@stack_trace");
+        field_types.append(g->stack_trace_type);
+
+        field_names.append("@instruction_addresses");
+        field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
     }
 
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
@@ -7563,8 +7572,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     if (have_result_type) {
         field_types.append(get_llvm_type(g, ptr_result_type)); // ptr_result
         field_types.append(get_llvm_type(g, result_type)); // result
-        if (codegen_fn_has_err_ret_tracing(g, result_type)) {
-            field_types.append(get_llvm_type(g, get_ptr_to_stack_trace_type(g))); // ptr_stack_trace
+        if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
             field_types.append(get_llvm_type(g, g->stack_trace_type)); // stack_trace
             field_types.append(get_llvm_type(g, get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count))); // instruction_addresses
         }
@@ -7614,15 +7622,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, di_element_types.length),
                 ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, result_type)));
 
-        if (codegen_fn_has_err_ret_tracing(g, result_type)) {
-            di_element_types.append(
-                ZigLLVMCreateDebugMemberType(g->dbuilder,
-                    ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "ptr_stack_trace",
-                    di_file, line,
-                    8*LLVMABISizeOfType(g->target_data_ref, field_types.at(di_element_types.length)),
-                    8*LLVMABIAlignmentOfType(g->target_data_ref, field_types.at(di_element_types.length)),
-                    8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, di_element_types.length),
-                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, get_ptr_to_stack_trace_type(g))));
+        if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
             di_element_types.append(
                 ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "stack_trace",

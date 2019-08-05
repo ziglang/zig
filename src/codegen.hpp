@@ -61,6 +61,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g);
 TargetSubsystem detect_subsystem(CodeGen *g);
 
 void codegen_release_caches(CodeGen *codegen);
-bool codegen_fn_has_err_ret_tracing(CodeGen *g, ZigType *return_type);
+bool codegen_fn_has_err_ret_tracing_arg(CodeGen *g, ZigType *return_type);
+bool codegen_fn_has_err_ret_tracing_stack(CodeGen *g, ZigFn *fn);
 
 #endif

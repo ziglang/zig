@@ -1,5 +1,5 @@
+ * error return tracing - handle `await` and function calls
  * go over the commented out tests
- * error return tracing
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function

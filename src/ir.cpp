@@ -15560,9 +15560,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 break;
             }
         }
-        if (call_instruction->is_async) {
-            zig_panic("TODO async call");
-        }
 
         auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
         if (existing_entry) {
@@ -24481,6 +24478,10 @@ static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstruction
 
     if (fn_entry->inferred_async_node == nullptr) {
         fn_entry->inferred_async_node = instruction->base.source_node;
+    }
+
+    if (type_can_fail(result_type)) {
+        fn_entry->calls_or_awaits_errorable_fn = true;
     }
 
     IrInstruction *result = ir_build_await(&ira->new_irb,

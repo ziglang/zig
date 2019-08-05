@@ -337,19 +337,21 @@ test "async fn with inferred error set" {
 //test "error return trace across suspend points - early return" {
 //    const p = nonFailing();
 //    resume p;
-//    const p2 = try async<allocator> printTrace(p);
-//    cancel p2;
+//    const p2 = async printTrace(p);
 //}
 //
 //test "error return trace across suspend points - async return" {
 //    const p = nonFailing();
-//    const p2 = try async<std.debug.global_allocator> printTrace(p);
+//    const p2 = async printTrace(p);
 //    resume p;
-//    cancel p2;
 //}
 //
 //fn nonFailing() (anyframe->anyerror!void) {
-//    return async<std.debug.global_allocator> suspendThenFail() catch unreachable;
+//    const Static = struct {
+//        var frame: @Frame(suspendThenFail) = undefined;
+//    };
+//    Static.frame = async suspendThenFail();
+//    return &Static.frame;
 //}
 //async fn suspendThenFail() anyerror!void {
 //    suspend;
@@ -361,8 +363,8 @@ test "async fn with inferred error set" {
 //        if (@errorReturnTrace()) |trace| {
 //            expect(trace.index == 1);
 //        } else switch (builtin.mode) {
-//            builtin.Mode.Debug, builtin.Mode.ReleaseSafe => @panic("expected return trace"),
-//            builtin.Mode.ReleaseFast, builtin.Mode.ReleaseSmall => {},
+//            .Debug, .ReleaseSafe => @panic("expected return trace"),
+//            .ReleaseFast, .ReleaseSmall => {},
 //        }
 //    };
 //}
