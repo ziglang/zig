@@ -69,7 +69,6 @@ pub fn format(
         FormatFillAndAlign,
         FormatWidth,
         FormatPrecision,
-        Pointer,
     };
 
     comptime var start_index = 0;
@@ -108,9 +107,6 @@ pub fn format(
                 '{' => {
                     state = .Start;
                     start_index = i;
-                },
-                '*' => {
-                    state = .Pointer;
                 },
                 ':' => {
                     state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
@@ -256,19 +252,6 @@ pub fn format(
                     @compileError("Unexpected character in precision value: " ++ [_]u8{c});
                 },
             },
-            .Pointer => switch (c) {
-                '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    try output(context, @typeName(@typeOf(args[arg_to_print]).Child));
-                    try output(context, "@");
-                    try formatInt(@ptrToInt(args[arg_to_print]), 16, false, 0, context, Errors, output);
-
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => @compileError("Unexpected format character after '*'"),
-            },
         }
     }
     comptime {
@@ -299,6 +282,13 @@ pub fn formatType(
     output: fn (@typeOf(context), []const u8) Errors!void,
     max_depth: usize,
 ) Errors!void {
+    if (comptime std.mem.eql(u8, fmt, "*")) {
+        try output(context, @typeName(@typeOf(value).Child));
+        try output(context, "@");
+        try formatInt(@ptrToInt(value), 16, false, 0, context, Errors, output);
+        return;
+    }
+
     const T = @typeOf(value);
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .Float => {
