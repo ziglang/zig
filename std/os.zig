@@ -104,19 +104,41 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
         return windows.RtlGenRandom(buf);
     }
     if (linux.is_the_target) {
-        while (true) {
-            const err = if (std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok) blk: {
-                break :blk errno(std.c.getrandom(buf.ptr, buf.len, 0));
+        var buff = buf[0..];
+        var num_read: usize = 0;
+        const use_c = std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+
+        while (num_read < buf.len) {
+            var err: u12 = 0;
+
+            const res: usize = if (use_c) blk: {
+                const result = std.c.getrandom(buff.ptr, buff.len, 0);
+
+                if (result == -1) {
+                    err = @intCast(u16, std.c._errno().*);
+                    break :blk 0;
+                } else {
+                    break :blk @intCast(usize, result);
+                }
             } else blk: {
-                break :blk linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0));
+                const result = linux.getrandom(buff.ptr, buff.len, 0);
+
+                err = linux.getErrno(result);
+
+                break :blk result;
             };
-            switch (err) {
-                0 => return,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                ENOSYS => return getRandomBytesDevURandom(buf),
-                else => return unexpectedErrno(err),
+
+            if (err != 0) {
+                switch (err) {
+                    EINVAL => unreachable,
+                    EFAULT => unreachable,
+                    EINTR => continue,
+                    ENOSYS => return getRandomBytesDevURandom(buf),
+                    else => return unexpectedErrno(err),
+                }
+            } else {
+                num_read += res;
+                buff = buff[num_read..];
             }
         }
     }
