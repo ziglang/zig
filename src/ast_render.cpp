@@ -1186,3 +1186,9 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
 
     render_node_grouped(&ar, node);
 }
+
+void AstNode::src() {
+    fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize "\n",
+            buf_ptr(this->owner->data.structure.root_struct->path),
+            this->line + 1, this->column + 1);
+}

@@ -1009,6 +1009,10 @@ struct AstNode {
         AstNodeAnyFrameType anyframe_type;
         AstNodeEnumLiteral enum_literal;
     } data;
+
+    // This is a function for use in the debugger to print
+    // the source location.
+    void src();
 };
 
 // this struct is allocated with allocate_nonzero
