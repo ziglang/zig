@@ -1327,29 +1327,7 @@ pub const DwarfInfo = struct {
                             break :x null;
                         };
 
-                        const pc_range = x: {
-                            if (die_obj.getAttrAddr(DW.AT_low_pc)) |low_pc| {
-                                if (die_obj.getAttr(DW.AT_high_pc)) |high_pc_value| {
-                                    const pc_end = switch (high_pc_value.*) {
-                                        FormValue.Address => |value| value,
-                                        FormValue.Const => |value| b: {
-                                            const offset = try value.asUnsignedLe();
-                                            break :b (low_pc + offset);
-                                        },
-                                        else => return error.InvalidDebugInfo,
-                                    };
-                                    break :x PcRange{
-                                        .start = low_pc,
-                                        .end = pc_end,
-                                    };
-                                } else {
-                                    break :x null;
-                                }
-                            } else |err| {
-                                if (err != error.MissingDebugInfo) return err;
-                                break :x null;
-                            }
-                        };
+                        const pc_range = try die_obj.getPcRange();
 
                         try di.func_list.append(Func{
                             .name = fn_name,
@@ -1398,29 +1376,7 @@ pub const DwarfInfo = struct {
 
             if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 
-            const pc_range = x: {
-                if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
-                    if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
-                        const pc_end = switch (high_pc_value.*) {
-                            FormValue.Address => |value| value,
-                            FormValue.Const => |value| b: {
-                                const offset = try value.asUnsignedLe();
-                                break :b (low_pc + offset);
-                            },
-                            else => return error.InvalidDebugInfo,
-                        };
-                        break :x PcRange{
-                            .start = low_pc,
-                            .end = pc_end,
-                        };
-                    } else {
-                        break :x null;
-                    }
-                } else |err| {
-                    if (err != error.MissingDebugInfo) return err;
-                    break :x null;
-                }
-            };
+            const pc_range = try compile_unit_die.getPcRange();
 
             try di.compile_unit_list.append(CompileUnit{
                 .version = version,
@@ -1838,6 +1794,30 @@ const Die = struct {
             FormValue.StrPtr => |offset| di.getString(offset),
             else => error.InvalidDebugInfo,
         };
+    }
+
+    fn getPcRange(self: Die) !?PcRange {
+        if (self.getAttrAddr(DW.AT_low_pc)) |low_pc| {
+            if (self.getAttr(DW.AT_high_pc)) |high_pc_value| {
+                const pc_end = switch (high_pc_value.*) {
+                    FormValue.Address => |value| value,
+                    FormValue.Const => |value| b: {
+                        const offset = try value.asUnsignedLe();
+                        break :b (low_pc + offset);
+                    },
+                    else => return error.InvalidDebugInfo,
+                };
+                return PcRange{
+                    .start = low_pc,
+                    .end = pc_end,
+                };
+            } else {
+                return null;
+            }
+        } else |err| {
+            if (err != error.MissingDebugInfo) return err;
+            return null;
+        }
     }
 };
 
