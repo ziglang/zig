@@ -6,7 +6,8 @@ const Handle = uefi.Handle;
 pub const EdidOverrideProtocol = extern struct {
     _get_edid: extern fn (*const EdidOverrideProtocol, *const Handle, *u32, *usize, *?[*]u8) usize,
 
-    pub fn getEdid(self: *const EdidOverrideProtocol, handle: *const Handle, attributes: *u32, edid_size: *usize, edid: *?[*]u8) usize {
+    /// attributes must be align(4)
+    pub fn getEdid(self: *const EdidOverrideProtocol, handle: *const Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) usize {
         return self._get_edid(self, handle, attributes, edid_size, edid);
     }
 
@@ -18,6 +19,11 @@ pub const EdidOverrideProtocol = extern struct {
         .clock_seq_low = 0x22,
         .node = [_]u8{ 0xf4, 0x58, 0xfe, 0x04, 0x0b, 0xd5 },
     };
-    pub const dont_override: u32 = 1;
-    pub const enable_hot_plug: u32 = 2;
+};
+
+pub const EdidOverrideProtocolAttributes = packed struct {
+    _pad1: u6,
+    enable_hot_plug: bool,
+    dont_override: bool,
+    _pad2: u24,
 };

@@ -54,25 +54,30 @@ pub const KeyData = extern struct {
 };
 
 pub const KeyState = extern struct {
-    key_shift_state: u32,
-    key_toggle_state: u8,
-
-    pub const shift_state_valid: u32 = 0x80000000;
-    pub const right_shift_pressed: u32 = 0x00000001;
-    pub const left_shift_pressed: u32 = 0x00000002;
-    pub const right_control_pressed: u32 = 0x00000004;
-    pub const left_control_pressed: u32 = 0x00000008;
-    pub const right_alt_pressed: u32 = 0x00000010;
-    pub const left_alt_pressed: u32 = 0x00000020;
-    pub const right_logo_pressed: u32 = 0x00000040;
-    pub const left_logo_pressed: u32 = 0x00000080;
-    pub const menu_key_pressed: u32 = 0x00000100;
-    pub const sys_req_pressed: u32 = 0x00000200;
-    pub const toggle_state_valid: u8 = 0x80;
-    pub const key_state_exposed: u8 = 0x40;
-    pub const scroll_lock_active: u8 = 0x01;
-    pub const num_lock_active: u8 = 0x02;
-    pub const caps_lock_active: u8 = 0x04;
+    key_shift_state: packed struct {
+        left_logo_pressed: bool,
+        right_logo_pressed: bool,
+        left_alt_pressed: bool,
+        right_alt_pressed: bool,
+        left_control_pressed: bool,
+        right_control_pressed: bool,
+        left_shift_pressed: bool,
+        right_shift_pressed: bool,
+        _pad1: u6,
+        sys_req_pressed: bool,
+        menu_key_pressed: bool,
+        _pad2: u15,
+        shift_state_valid: bool,
+    },
+    key_toggle_state: packed struct {
+        toggle_state_valid: bool,
+        _pad1: u2,
+        key_state_exposed: bool,
+        caps_lock_active: bool,
+        _pad2: u1,
+        num_lock_active: bool,
+        scroll_lock_active: bool,
+    },
 };
 
 pub const InputKey = extern struct {

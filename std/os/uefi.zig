@@ -26,14 +26,16 @@ pub const Time = extern struct {
     hour: u8,
     minute: u8,
     second: u8,
-    pad1: u8,
+    _pad1: u8,
     nanosecond: u32,
     timezone: i16,
-    daylight: u8,
-    pad2: u8,
+    daylight: packed struct {
+        _pad1: u6,
+        in_daylight: bool,
+        adjust_daylight: bool,
+    },
+    _pad2: u8,
 
-    pub const adjust_daylight: u8 = 1;
-    pub const in_daylight: u8 = 2;
     pub const unspecified_timezone: i16 = 0x7ff;
 };
 pub const TimeCapabilities = extern struct {

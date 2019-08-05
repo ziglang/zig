@@ -27,5 +27,6 @@ pub const EdidDiscoveredProtocol = @import("protocols/edid_discovered_protocol.z
 pub const EdidActiveProtocol = @import("protocols/edid_active_protocol.zig").EdidActiveProtocol;
 
 pub const EdidOverrideProtocol = @import("protocols/edid_override_protocol.zig").EdidOverrideProtocol;
+pub const EdidOverrideProtocolAttributes = @import("protocols/edid_override_protocol.zig").EdidOverrideProtocolAttributes;
 
 pub const RNGProtocol = @import("protocols/rng_protocol.zig").RNGProtocol;
