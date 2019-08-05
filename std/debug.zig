@@ -1509,6 +1509,7 @@ const LineNumberProgram = struct {
 
 fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
     var buf = ArrayList(u8).init(allocator);
+    errdefer buf.deinit();
     while (true) {
         const byte = try in_stream.readByte();
         if (byte == 0) break;
@@ -1639,6 +1640,7 @@ fn parseDie(di: *DwarfInfo, abbrev_table_offset: usize, is_64: bool) !?Die {
             const tag_id = try leb.readULEB128(u64, di.dwarf_in_stream);
             const has_children = (try di.dwarf_in_stream.readByte()) == DW.CHILDREN_yes;
             var attrs = ArrayList(Die.Attr).init(di.allocator);
+            errdefer attrs.deinit();
 
             while (true) {
                 const attr_id = try leb.readULEB128(u64, di.dwarf_in_stream);
