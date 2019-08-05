@@ -121,15 +121,24 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
         }
     }
     if (freebsd.is_the_target) {
-        while (true) {
-            const err = std.c.getErrno(std.c.getrandom(buf.ptr, buf.len, 0));
+        var buff = buf[0..];
+        var num_read: usize = 0;
 
-            switch (err) {
-                0 => return,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                else => return unexpectedErrno(err),
+        while (num_read < buf.len) {
+            const res = std.c.getrandom(buff.ptr, buff.len, 0);
+
+            if (res == -1) {
+                const err = @intCast(u16, std.c._errno().*);
+
+                switch (err) {
+                    EINVAL => unreachable,
+                    EFAULT => unreachable,
+                    EINTR => continue,
+                    else => return unexpectedErrno(err),
+                }
+            } else {
+                num_read += @intCast(usize, res);
+                buff = buff[num_read..];
             }
         }
     }
