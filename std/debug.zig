@@ -1433,8 +1433,8 @@ const LineNumberProgram = struct {
     end_sequence: bool,
 
     target_address: usize,
-    include_dirs: []const []const u8,
-    file_entries: *ArrayList(FileEntry),
+    include_dirs: ArrayList([]const u8),
+    file_entries: ArrayList(FileEntry),
 
     prev_address: usize,
     prev_file: usize,
@@ -1444,7 +1444,7 @@ const LineNumberProgram = struct {
     prev_basic_block: bool,
     prev_end_sequence: bool,
 
-    pub fn init(is_stmt: bool, include_dirs: []const []const u8, file_entries: *ArrayList(FileEntry), target_address: usize) LineNumberProgram {
+    pub fn init(allocator: *mem.Allocator, is_stmt: bool, target_address: usize) LineNumberProgram {
         return LineNumberProgram{
             .address = 0,
             .file = 1,
@@ -1453,8 +1453,8 @@ const LineNumberProgram = struct {
             .is_stmt = is_stmt,
             .basic_block = false,
             .end_sequence = false,
-            .include_dirs = include_dirs,
-            .file_entries = file_entries,
+            .include_dirs = ArrayList([]const u8).init(allocator),
+            .file_entries = ArrayList(FileEntry).init(allocator),
             .target_address = target_address,
             .prev_address = 0,
             .prev_file = undefined,
@@ -1464,6 +1464,11 @@ const LineNumberProgram = struct {
             .prev_basic_block = undefined,
             .prev_end_sequence = undefined,
         };
+    }
+
+    pub fn deinit(self: *LineNumberProgram) void {
+        self.include_dirs.deinit();
+        self.file_entries.deinit();
     }
 
     pub fn checkLineMatch(self: *LineNumberProgram) !?LineInfo {
@@ -1478,7 +1483,7 @@ const LineNumberProgram = struct {
             const dir_name = if (file_entry.dir_index >= self.include_dirs.len) {
                 return error.InvalidDebugInfo;
             } else
-                self.include_dirs[file_entry.dir_index];
+                self.include_dirs.at(file_entry.dir_index);
             const file_name = try fs.path.join(self.file_entries.allocator, [_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
@@ -1751,16 +1756,15 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     const standard_opcode_lengths = ptr[0 .. opcode_base - 1];
     ptr += opcode_base - 1;
 
-    var include_directories = ArrayList([]const u8).init(di.allocator());
-    try include_directories.append("");
+    var prog = LineNumberProgram.init(di.allocator(), default_is_stmt, target_address);
+    defer prog.deinit();
+
+    try prog.include_dirs.append("");
     while (true) {
         const dir = readStringMem(&ptr);
         if (dir.len == 0) break;
-        try include_directories.append(dir);
+        try prog.include_dirs.append(dir);
     }
-
-    var file_entries = ArrayList(FileEntry).init(di.allocator());
-    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
 
     while (true) {
         const file_name = readStringMem(&ptr);
@@ -1768,7 +1772,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const dir_index = try leb.readULEB128Mem(usize, &ptr);
         const mtime = try leb.readULEB128Mem(usize, &ptr);
         const len_bytes = try leb.readULEB128Mem(usize, &ptr);
-        try file_entries.append(FileEntry{
+        try prog.file_entries.append(FileEntry{
             .file_name = file_name,
             .dir_index = dir_index,
             .mtime = mtime,
@@ -1799,7 +1803,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                     const dir_index = try leb.readULEB128Mem(usize, &ptr);
                     const mtime = try leb.readULEB128Mem(usize, &ptr);
                     const len_bytes = try leb.readULEB128Mem(usize, &ptr);
-                    try file_entries.append(FileEntry{
+                    try prog.file_entries.append(FileEntry{
                         .file_name = file_name,
                         .dir_index = dir_index,
                         .mtime = mtime,
@@ -1870,6 +1874,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
 
 fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit_die: Die, target_address: usize) !LineInfo {
     const compile_unit_cwd = try compile_unit_die.getAttrString(di, di.allocator, DW.AT_comp_dir);
+    defer di.allocator.free(compile_unit_cwd);
     const line_info_offset = try compile_unit_die.getAttrSecOffset(DW.AT_stmt_list);
 
     assert(line_info_offset < di.debug_line.size);
@@ -1906,25 +1911,19 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit_die: Die, target_address:
 
     const opcode_base = try di.dwarf_in_stream.readByte();
 
-    const standard_opcode_lengths = try di.allocator.alloc(u8, opcode_base - 1);
+    var standard_opcode_lengths_storage: [256]u8 = undefined;
+    const standard_opcode_lengths = standard_opcode_lengths_storage[0..opcode_base];
+    try di.dwarf_in_stream.readNoEof(standard_opcode_lengths);
 
-    {
-        var i: usize = 0;
-        while (i < opcode_base - 1) : (i += 1) {
-            standard_opcode_lengths[i] = try di.dwarf_in_stream.readByte();
-        }
-    }
+    var prog = LineNumberProgram.init(di.allocator, default_is_stmt, target_address);
+    defer prog.deinit();
 
-    var include_directories = ArrayList([]u8).init(di.allocator);
-    try include_directories.append(compile_unit_cwd);
+    try prog.include_dirs.append(compile_unit_cwd);
     while (true) {
         const dir = try di.readString();
         if (dir.len == 0) break;
-        try include_directories.append(dir);
+        try prog.include_dirs.append(dir);
     }
-
-    var file_entries = ArrayList(FileEntry).init(di.allocator);
-    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
 
     while (true) {
         const file_name = try di.readString();
@@ -1932,7 +1931,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit_die: Die, target_address:
         const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
         const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
         const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
-        try file_entries.append(FileEntry{
+        try prog.file_entries.append(FileEntry{
             .file_name = file_name,
             .dir_index = dir_index,
             .mtime = mtime,
@@ -1964,7 +1963,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit_die: Die, target_address:
                     const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
                     const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
                     const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    try file_entries.append(FileEntry{
+                    try prog.file_entries.append(FileEntry{
                         .file_name = file_name,
                         .dir_index = dir_index,
                         .mtime = mtime,
