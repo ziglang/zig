@@ -120,6 +120,19 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
             }
         }
     }
+    if (freebsd.is_the_target) {
+        while (true) {
+            const err = std.c.getErrno(std.c.getrandom(buf.ptr, buf.len, 0));
+
+            switch (err) {
+                0 => return,
+                EINVAL => unreachable,
+                EFAULT => unreachable,
+                EINTR => continue,
+                else => return unexpectedErrno(err),
+            }
+        }
+    }
     if (wasi.is_the_target) {
         switch (wasi.random_get(buf.ptr, buf.len)) {
             0 => return,
