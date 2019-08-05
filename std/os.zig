@@ -123,7 +123,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
             } else blk: {
                 const result = linux.getrandom(buff.ptr, buff.len, 0);
 
-                err = @intcast(u16, linux.getErrno(result));
+                err = @intCast(u16, linux.getErrno(result));
 
                 break :blk result;
             };
