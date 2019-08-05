@@ -1,6 +1,6 @@
 ![ZIG](https://ziglang.org/zig-logo.svg)
 
-Zig is an open-source programming language designed for **robustness**,
+A general-purpose programming language designed for **robustness**,
 **optimality**, and **maintainability**.
 
 ## Resources
