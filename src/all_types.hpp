@@ -2334,7 +2334,6 @@ enum IrInstructionId {
     IrInstructionIdAtomicLoad,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
-    IrInstructionIdMarkErrRetTracePtr,
     IrInstructionIdErrSetCast,
     IrInstructionIdToBytes,
     IrInstructionIdFromBytes,
@@ -3449,12 +3448,6 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction base;
 
     IrInstruction *value;
-};
-
-struct IrInstructionMarkErrRetTracePtr {
-    IrInstruction base;
-
-    IrInstruction *err_ret_trace_ptr;
 };
 
 // For float ops which take a single argument

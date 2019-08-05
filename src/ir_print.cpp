@@ -1457,12 +1457,6 @@ static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImpl
     fprintf(irp->f, ")");
 }
 
-static void ir_print_mark_err_ret_trace_ptr(IrPrint *irp, IrInstructionMarkErrRetTracePtr *instruction) {
-    fprintf(irp->f, "@markErrRetTracePtr(");
-    ir_print_other_instruction(irp, instruction->err_ret_trace_ptr);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_float_op(IrPrint *irp, IrInstructionFloatOp *instruction) {
 
     fprintf(irp->f, "@%s(", float_op_to_name(instruction->op, false));
@@ -1962,9 +1956,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAddImplicitReturnType:
             ir_print_add_implicit_return_type(irp, (IrInstructionAddImplicitReturnType *)instruction);
-            break;
-        case IrInstructionIdMarkErrRetTracePtr:
-            ir_print_mark_err_ret_trace_ptr(irp, (IrInstructionMarkErrRetTracePtr *)instruction);
             break;
         case IrInstructionIdFloatOp:
             ir_print_float_op(irp, (IrInstructionFloatOp *)instruction);

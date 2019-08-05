@@ -993,10 +993,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAddImplicitRetur
     return IrInstructionIdAddImplicitReturnType;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionMarkErrRetTracePtr *) {
-    return IrInstructionIdMarkErrRetTracePtr;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFloatOp *) {
     return IrInstructionIdFloatOp;
 }
@@ -3088,15 +3084,6 @@ static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *s
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_mark_err_ret_trace_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *err_ret_trace_ptr) {
-    IrInstructionMarkErrRetTracePtr *instruction = ir_build_instruction<IrInstructionMarkErrRetTracePtr>(irb, scope, source_node);
-    instruction->err_ret_trace_ptr = err_ret_trace_ptr;
-
-    ir_ref_instruction(err_ret_trace_ptr, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -23908,17 +23895,6 @@ static IrInstruction *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, I
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_mark_err_ret_trace_ptr(IrAnalyze *ira, IrInstructionMarkErrRetTracePtr *instruction) {
-    IrInstruction *err_ret_trace_ptr = instruction->err_ret_trace_ptr->child;
-    if (type_is_invalid(err_ret_trace_ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *result = ir_build_mark_err_ret_trace_ptr(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, err_ret_trace_ptr);
-    result->value.type = ira->codegen->builtin_types.entry_void;
-    return result;
-}
-
 static void ir_eval_float_op(IrAnalyze *ira, IrInstructionFloatOp *source_instr, ZigType *float_type,
     ConstExprValue *op, ConstExprValue *out_val) {
     assert(ira && source_instr && float_type && out_val && op);
@@ -24798,8 +24774,6 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_save_err_ret_addr(ira, (IrInstructionSaveErrRetAddr *)instruction);
         case IrInstructionIdAddImplicitReturnType:
             return ir_analyze_instruction_add_implicit_return_type(ira, (IrInstructionAddImplicitReturnType *)instruction);
-        case IrInstructionIdMarkErrRetTracePtr:
-            return ir_analyze_instruction_mark_err_ret_trace_ptr(ira, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdFloatOp:
             return ir_analyze_instruction_float_op(ira, (IrInstructionFloatOp *)instruction);
         case IrInstructionIdMulAdd:
@@ -24951,7 +24925,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCancel:
         case IrInstructionIdSaveErrRetAddr:
         case IrInstructionIdAddImplicitReturnType:
-        case IrInstructionIdMarkErrRetTracePtr:
         case IrInstructionIdAtomicRmw:
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:

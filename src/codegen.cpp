@@ -5062,14 +5062,6 @@ static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutable *executable,
     return load_inst;
 }
 
-static LLVMValueRef ir_render_mark_err_ret_trace_ptr(CodeGen *g, IrExecutable *executable,
-        IrInstructionMarkErrRetTracePtr *instruction)
-{
-    assert(g->have_err_ret_tracing);
-    g->cur_err_ret_trace_val_stack = ir_llvm_value(g, instruction->err_ret_trace_ptr);
-    return nullptr;
-}
-
 static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op1);
     assert(instruction->base.value.type->id == ZigTypeIdFloat);
@@ -5544,8 +5536,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_atomic_load(g, executable, (IrInstructionAtomicLoad *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
-        case IrInstructionIdMarkErrRetTracePtr:
-            return ir_render_mark_err_ret_trace_ptr(g, executable, (IrInstructionMarkErrRetTracePtr *)instruction);
         case IrInstructionIdFloatOp:
             return ir_render_float_op(g, executable, (IrInstructionFloatOp *)instruction);
         case IrInstructionIdMulAdd:
