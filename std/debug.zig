@@ -3,6 +3,7 @@ const math = std.math;
 const mem = std.mem;
 const io = std.io;
 const os = std.os;
+const crc = std.hash.crc;
 const fs = std.fs;
 const process = std.process;
 const elf = std.elf;
@@ -11,6 +12,7 @@ const macho = std.macho;
 const coff = std.coff;
 const pdb = std.pdb;
 const ArrayList = std.ArrayList;
+const Crc32IEEE = crc.Crc32WithPoly(crc.Polynomial.IEEE);
 const builtin = @import("builtin");
 const root = @import("root");
 const maxInt = std.math.maxInt;
@@ -1020,6 +1022,7 @@ pub fn openElfDebugInfo(
     var debug_str: ?DwarfInfo.Section = null;
     var debug_line: ?DwarfInfo.Section = null;
     var debug_ranges: ?DwarfInfo.Section = null;
+    var gnu_debuglink: ?DwarfInfo.Section = null;
     var n: usize = 0; // count number of sections found to exit loop early
 
     var it = efile.sectionIterator();
@@ -1052,6 +1055,13 @@ pub fn openElfDebugInfo(
                 .size = elf_section.size,
             };
         } else {
+            // don't want to increment `n`
+            if (gnu_debuglink == null and try elf_section.nameIs(&efile, ".gnu_debuglink")) {
+                gnu_debuglink = DwarfInfo.Section{
+                    .offset = elf_section.offset,
+                    .size = elf_section.size,
+                };
+            }
             continue;
         }
 
@@ -1073,29 +1083,159 @@ pub fn openElfDebugInfo(
         };
     }
 
+    // Look for external debug info
+
+    // TODO: look for note.gnu.build-id. build-id should be preferred over debuglink
+
+    if (gnu_debuglink) |debuglink| {
+        if (openGNUDebugLink(allocator, debuglink, elf_seekable_stream, elf_in_stream, efile.endian)) |di| {
+            // TODO: unmap elf stream
+            return di;
+        } else |err| {
+            switch (err) {
+                error.MissingDebugInfo => {},
+                else => return err,
+            }
+        }
+    }
+
+    // TODO: look for .gnu_debugdata
+    // https://sourceware.org/gdb/onlinedocs/gdb/MiniDebugInfo.html
+
     return error.MissingDebugInfo;
 }
 
-fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
-    const S = struct {
-        var self_exe_file: File = undefined;
-        var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
+fn openGNUDebugLink(
+    allocator: *mem.Allocator,
+    debuglink: DwarfInfo.Section,
+    seekable_stream: *DwarfSeekableStream,
+    in_stream: *DwarfInStream,
+    endian: builtin.Endian,
+) !DwarfInfo {
+    // https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
+    // The section must contain:
+    try seekable_stream.seekTo(debuglink.offset);
+
+    // A filename, with any leading directory components removed, followed by a zero byte
+    // Note that we want to keep the trailing null byte for the upcoming fs.openReadC
+    var filename_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const filename = blk: {
+        var len = usize(0);
+        while (len + 4 < debuglink.size) {
+            if (len >= fs.MAX_PATH_BYTES) return error.NoSpaceLeft;
+            const byte = try in_stream.readByte();
+            filename_buf[len] = byte;
+            len += 1;
+            if (byte == 0) break :blk filename_buf[0..len];
+        } else {
+            return error.InvalidDebugInfo;
+        }
     };
 
-    S.self_exe_file = try fs.openSelfExe();
-    errdefer S.self_exe_file.close();
+    // zero to three bytes of padding, as needed to reach the next four-byte boundary within the section, and
+    {
+        var tmp: [3]u8 = undefined;
+        const padding_bytes = usize(4) - @truncate(u2, try seekable_stream.getPos());
+        try in_stream.readNoEof(tmp[0..padding_bytes]);
+        for (tmp[0..padding_bytes]) |c, i| {
+            if (c != 0) return error.InvalidDebugInfo;
+        }
+    }
 
-    const self_exe_mmap_len = mem.alignForward(try S.self_exe_file.getEndPos(), mem.page_size);
-    const self_exe_mmap = try os.mmap(
-        null,
-        self_exe_mmap_len,
-        os.PROT_READ,
-        os.MAP_SHARED,
-        S.self_exe_file.handle,
-        0,
+    // a four-byte CRC checksum, stored in the same endianness used for the executable file itself.
+    const crc32 = try in_stream.readInt(u32, endian);
+
+    const mmap_slice = blk: {
+        const fd = fd_blk: {
+            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            // 1. look up the named file in the directory of the executable file
+            const dir = try fs.selfExeDirPath(&buf);
+            assert(&dir[0] == &buf[0]);
+            buf[dir.len] = '/';
+            mem.copy(u8, buf[dir.len+1..], filename);
+            if (File.openReadC(filename.ptr)) |f| {
+                break :fd_blk f;
+            } else |err| {
+                switch (err) {
+                    error.FileNotFound => {},
+                    else => return err,
+                }
+            }
+
+            // 2. then in a subdirectory of that directory named .debug,
+            mem.copy(u8, buf[dir.len+1..], ".debug/");
+            mem.copy(u8, buf[dir.len+1+".debug/".len..], filename);
+            if (File.openReadC(filename.ptr)) |f| {
+                break :fd_blk f;
+            } else |err| {
+                switch (err) {
+                    error.FileNotFound => {},
+                    else => return err,
+                }
+            }
+
+            // 3. under each one of the global debug directories, in a subdirectory whose name is identical
+            //    to the leading directories of the executable’s absolute file name.
+            //    (On MS-Windows/MS-DOS, the drive letter of the executable’s leading directories is converted
+            //    to a one-letter subdirectory, i.e. d:/usr/bin/ is converted to /d/usr/bin/, because Windows
+            //    filesystems disallow colons in file names.)
+            // TODO
+
+            return error.MissingDebugInfo;
+        };
+        defer fd.close(); // mmap keeps a reference internally
+
+        break :blk try os.mmap(
+            null,
+            try fd.getEndPos(),
+            os.PROT_READ,
+            os.MAP_SHARED,
+            fd.handle,
+            0,
+        );
+    };
+    errdefer os.munmap(mmap_slice);
+
+    // Verify CRC
+    if (crc32 != Crc32IEEE.hash(mmap_slice)) {
+        return error.InvalidDebugInfo;
+    }
+
+    // TODO: without this struct we end up with a segfault
+    const S = struct {
+        var mmap_seekable: io.SliceSeekableInStream = undefined;
+    };
+    S.mmap_seekable = io.SliceSeekableInStream.init(mmap_slice);
+
+    return openElfDebugInfo(
+        allocator,
+        // TODO https://github.com/ziglang/zig/issues/764
+        @ptrCast(*DwarfSeekableStream, &S.mmap_seekable.seekable_stream),
+        // TODO https://github.com/ziglang/zig/issues/764
+        @ptrCast(*DwarfInStream, &S.mmap_seekable.stream),
     );
+}
+
+fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
+    const self_exe_mmap = blk: {
+        var self_exe_file: File = try fs.openSelfExe();
+        defer self_exe_file.close(); // mmap keeps a reference internally
+
+        break :blk try os.mmap(
+            null,
+            try self_exe_file.getEndPos(),
+            os.PROT_READ,
+            os.MAP_SHARED,
+            self_exe_file.handle,
+            0,
+        );
+    };
     errdefer os.munmap(self_exe_mmap);
 
+    // TODO: without this struct we end up with a segfault
+    const S = struct {
+        var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
+    };
     S.self_exe_mmap_seekable = io.SliceSeekableInStream.init(self_exe_mmap);
 
     return openElfDebugInfo(
