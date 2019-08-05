@@ -109,7 +109,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
         const use_c = std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (num_read < buf.len) {
-            var err: u12 = 0;
+            var err: u16 = 0;
 
             const res: usize = if (use_c) blk: {
                 const result = std.c.getrandom(buff.ptr, buff.len, 0);
@@ -123,7 +123,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
             } else blk: {
                 const result = linux.getrandom(buff.ptr, buff.len, 0);
 
-                err = linux.getErrno(result);
+                err = @intcast(u16, linux.getErrno(result));
 
                 break :blk result;
             };
