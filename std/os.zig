@@ -103,33 +103,41 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
     if (windows.is_the_target) {
         return windows.RtlGenRandom(buf);
     }
-    if (linux.is_the_target) {
-        while (true) {
-            const err = if (std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok) blk: {
-                break :blk errno(std.c.getrandom(buf.ptr, buf.len, 0));
-            } else blk: {
-                break :blk linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0));
-            };
-            switch (err) {
-                0 => return,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                ENOSYS => return getRandomBytesDevURandom(buf),
-                else => return unexpectedErrno(err),
-            }
-        }
-    }
-    if (freebsd.is_the_target) {
-        while (true) {
-            const err = std.c.getErrno(std.c.getrandom(buf.ptr, buf.len, 0));
+    if (linux.is_the_target or freebsd.is_the_target) {
+        var buf_slice: []u8 = buf[0..];
+        var total_read: usize = 0;
+        const use_c = (!linux.is_the_target) or std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
-            switch (err) {
-                0 => return,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                else => return unexpectedErrno(err),
+        while (total_read < buf.len) {
+            var err: u16 = 0;
+
+            const num_read: usize = if (use_c) blk: {
+                const res: c_int = std.c.getrandom(buf_slice.ptr, buf_slice.len, 0);
+
+                if (res == -1) {
+                    err = @intCast(u16, std.c._errno().*);
+                    break :blk 0;
+                } else {
+                    break :blk @intCast(usize, res);
+                }
+            } else blk: {
+                const res: usize = linux.getrandom(buf_slice.ptr, buf_slice.len, 0);
+
+                err = @intCast(u16, linux.getErrno(res));
+                break :blk res;
+            };
+
+            if (err != 0) {
+                switch (err) {
+                    EINVAL => unreachable,
+                    EFAULT => unreachable,
+                    EINTR => continue,
+                    ENOSYS => return getRandomBytesDevURandom(buf),
+                    else => return unexpectedErrno(err),
+                }
+            } else {
+                total_read += num_read;
+                buf_slice = buf_slice[num_read..];
             }
         }
     }
