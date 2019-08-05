@@ -14859,11 +14859,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
         ZigType *fn_type, IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count,
         IrInstruction *casted_new_stack)
 {
-    if (fn_entry == nullptr) {
-        if (call_instruction->new_stack == nullptr) {
-            ir_add_error(ira, fn_ref, buf_sprintf("function is not comptime-known; @asyncCall required"));
-            return ira->codegen->invalid_instruction;
-        }
+    if (casted_new_stack != nullptr) {
         // this is an @asyncCall
 
         if (fn_type->data.fn.fn_type_id.cc != CallingConventionAsync) {
@@ -14881,6 +14877,9 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
         IrInstructionCallGen *call_gen = ir_build_call_gen(ira, &call_instruction->base, nullptr, fn_ref,
                 arg_count, casted_args, FnInlineAuto, true, casted_new_stack, ret_ptr, anyframe_type);
         return &call_gen->base;
+    } else if (fn_entry == nullptr) {
+        ir_add_error(ira, fn_ref, buf_sprintf("function is not comptime-known; @asyncCall required"));
+        return ira->codegen->invalid_instruction;
     }
 
     ZigType *frame_type = get_coro_frame_type(ira->codegen, fn_entry);

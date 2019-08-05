@@ -3705,7 +3705,7 @@ static const size_t err_union_payload_index = 1;
 static const size_t coro_fn_ptr_index = 0;
 static const size_t coro_resume_index = 1;
 static const size_t coro_awaiter_index = 2;
-static const size_t coro_arg_start = 3;
+static const size_t coro_ret_start = 3;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

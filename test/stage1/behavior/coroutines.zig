@@ -161,13 +161,13 @@ fn seq(c: u8) void {
 
 test "coroutine suspend with block" {
     const p = async testSuspendBlock();
-    expect(!result);
+    expect(!global_result);
     resume a_promise;
-    expect(result);
+    expect(global_result);
 }
 
 var a_promise: anyframe = undefined;
-var result = false;
+var global_result = false;
 async fn testSuspendBlock() void {
     suspend {
         comptime expect(@typeOf(@frame()) == *@Frame(testSuspendBlock));
@@ -178,7 +178,7 @@ async fn testSuspendBlock() void {
     // var our_handle: anyframe = @frame();
     expect(a_promise == anyframe(@frame()));
 
-    result = true;
+    global_result = true;
 }
 
 var await_a_promise: anyframe = undefined;
@@ -283,29 +283,56 @@ test "@asyncCall with return type" {
     const Foo = struct {
         bar: async fn () i32,
 
-        async fn afunc() i32 {
+        var global_frame: anyframe = undefined;
+
+        async fn middle() i32 {
+            return afunc();
+        }
+
+        fn afunc() i32 {
+            global_frame = @frame();
             suspend;
             return 1234;
         }
     };
-    var foo = Foo{ .bar = Foo.afunc };
-    var bytes: [64]u8 = undefined;
+    var foo = Foo{ .bar = Foo.middle };
+    var bytes: [100]u8 = undefined;
     var aresult: i32 = 0;
-    const frame = @asyncCall(&bytes, &aresult, foo.bar);
+    _ = @asyncCall(&bytes, &aresult, foo.bar);
     expect(aresult == 0);
-    resume frame;
+    resume Foo.global_frame;
     expect(aresult == 1234);
 }
 
-//test "async fn with inferred error set" {
-//    const p = async failing();
-//    resume p;
-//}
-//
-//async fn failing() !void {
-//    suspend;
-//    return error.Fail;
-//}
+test "async fn with inferred error set" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            var frame: [1]@Frame(middle) = undefined;
+            var result: anyerror!void = undefined;
+            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, middle);
+            resume global_frame;
+            std.testing.expectError(error.Fail, result);
+        }
+
+        async fn middle() !void {
+            var f = async middle2();
+            return await f;
+        }
+
+        fn middle2() !void {
+            return failing();
+        }
+
+        fn failing() !void {
+            global_frame = @frame();
+            suspend;
+            return error.Fail;
+        }
+    };
+    S.doTheTest();
+}
 
 //test "error return trace across suspend points - early return" {
 //    const p = nonFailing();
@@ -422,24 +449,24 @@ test "async function call return value" {
 
 test "suspension points inside branching control flow" {
     const S = struct {
-        var global_result: i32 = 10;
+        var result: i32 = 10;
 
         fn doTheTest() void {
-            expect(10 == global_result);
+            expect(10 == result);
             var frame = async func(true);
-            expect(10 == global_result);
+            expect(10 == result);
             resume frame;
-            expect(11 == global_result);
+            expect(11 == result);
             resume frame;
-            expect(12 == global_result);
+            expect(12 == result);
             resume frame;
-            expect(13 == global_result);
+            expect(13 == result);
         }
 
         fn func(b: bool) void {
             while (b) {
                 suspend;
-                global_result += 1;
+                result += 1;
             }
         }
     };

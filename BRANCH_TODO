@@ -1,3 +1,4 @@
+ * delete IrInstructionMarkErrRetTracePtr
  * go over the commented out tests
  * error return tracing
  * compile error for error: expected anyframe->T, found 'anyframe'
@@ -32,3 +33,4 @@
    - resume
    - anyframe, anyframe->T
  * safety for double await
+ * call graph analysis to have fewer stack trace frames
