@@ -9885,7 +9885,40 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
                 return;
             }
         case ZigTypeIdVector:
-            zig_panic("TODO implement get_c_type for vector types");
+            {
+                ZigTypeVector *vector_data = &type_entry->data.vector;
+
+                Buf *child_buf = buf_alloc();
+                get_c_type(g, gen_h, vector_data->elem_type, child_buf);
+
+                uint32_t size;
+                switch (vector_data->elem_type->id) {
+                case ZigTypeIdBool:
+                    size = 1;
+                    break;
+                case ZigTypeIdInt:
+                    size = vector_data->elem_type->data.integral.bit_count;
+                    break;
+                case ZigTypeIdFloat:
+                    size = vector_data->elem_type->data.floating.bit_count;
+                    break;
+                case ZigTypeIdPointer:
+                    size = sizeof(uintptr_t) * 8;
+                    break;
+                default:
+                    zig_unreachable();
+                };
+
+                if (size % 8 != 0) {
+                    ;// The ABI for these is not really defined, but let's let
+                     // type_allowed_in_extern handle that.
+                }
+
+                buf_resize(out_buf, 0);
+                buf_appendf(out_buf, "%s __attribute__((vector_size(%" PRIu32 ")))",
+                    buf_ptr(child_buf), vector_data->len * (size / 8));
+                return;
+            }
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:

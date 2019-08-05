@@ -1634,8 +1634,17 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                     *result = false;
                     return ErrorNone;
             }
-        case ZigTypeIdVector:
+        case ZigTypeIdVector: {
+            BigInt do_pop;
+            bigint_init_unsigned(&do_pop, type_entry->data.vector.len);
+            size_t pop = bigint_popcount_unsigned(&do_pop);
+            // GCC cannot handle vector sizes that are not powers of two.
+            if (pop != 1) {
+                *result = false;
+                return ErrorNone;
+            }
             return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
+        }
         case ZigTypeIdFloat:
             *result = true;
             return ErrorNone;
