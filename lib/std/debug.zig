@@ -1920,6 +1920,7 @@ const LineNumberProgram = struct {
 // TODO the noasyncs here are workarounds
 fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
     var buf = ArrayList(u8).init(allocator);
+    errdefer buf.deinit();
     while (true) {
         const byte = try noasync in_stream.readByte();
         if (byte == 0) break;
