@@ -100,10 +100,6 @@ pub const GetRandomError = OpenError;
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
 pub fn getrandom(buf: []u8) GetRandomError!void {
-    if (buf.len == 0) {
-        return;
-    }
-
     if (windows.is_the_target) {
         return windows.RtlGenRandom(buf);
     }
