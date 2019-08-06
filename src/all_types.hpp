@@ -1718,7 +1718,7 @@ struct CodeGen {
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;
     LLVMValueRef cur_ret_ptr;
-    LLVMValueRef cur_ret_ptr_ptr;
+    LLVMValueRef cur_frame_ptr;
     LLVMValueRef cur_fn_val;
     LLVMValueRef cur_async_switch_instr;
     LLVMValueRef cur_async_resume_index_ptr;

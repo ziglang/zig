@@ -2088,17 +2088,19 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
 static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnBegin *instruction)
 {
-    if (!fn_is_async(g->cur_fn)) return nullptr;
+    bool ret_type_has_bits = instruction->operand != nullptr &&
+        type_has_bits(instruction->operand->value.type);
+
+    if (!fn_is_async(g->cur_fn)) {
+        return ret_type_has_bits ? ir_llvm_value(g, instruction->operand) : nullptr;
+    }
 
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
-    bool ret_type_has_bits = instruction->operand != nullptr &&
-        type_has_bits(instruction->operand->value.type);
     ZigType *ret_type = ret_type_has_bits ? instruction->operand->value.type : nullptr;
     if (ret_type_has_bits && !handle_is_ptr(ret_type)) {
         // It's a scalar, so it didn't get written to the result ptr. Do that before the atomic rmw.
-        LLVMValueRef result_ptr = LLVMBuildLoad(g->builder, g->cur_ret_ptr_ptr, "");
-        LLVMBuildStore(g->builder, ir_llvm_value(g, instruction->operand), result_ptr);
+        LLVMBuildStore(g->builder, ir_llvm_value(g, instruction->operand), g->cur_ret_ptr);
     }
 
     // Prepare to be suspended. We might end up not having to suspend though.
@@ -2147,7 +2149,11 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
     LLVMBasicBlockRef incoming_blocks[] = { after_resume_block, switch_bb };
     LLVMAddIncoming(g->cur_async_prev_val, incoming_values, incoming_blocks, 2);
 
-    return nullptr;
+    if (!ret_type_has_bits) {
+        return nullptr;
+    }
+
+    return get_handle_value(g, g->cur_ret_ptr, ret_type, get_pointer_to_type(g, ret_type, true));
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *instruction) {
@@ -2166,17 +2172,16 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             // If the awaiter result pointer is non-null, we need to copy the result to there.
             LLVMBasicBlockRef copy_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResult");
             LLVMBasicBlockRef copy_end_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResultEnd");
-            LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_ret_start + 1, "");
+            LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, coro_ret_start + 1, "");
             LLVMValueRef awaiter_ret_ptr = LLVMBuildLoad(g->builder, awaiter_ret_ptr_ptr, "");
             LLVMValueRef zero_ptr = LLVMConstNull(LLVMTypeOf(awaiter_ret_ptr));
             LLVMValueRef need_copy_bit = LLVMBuildICmp(g->builder, LLVMIntNE, awaiter_ret_ptr, zero_ptr, "");
             LLVMBuildCondBr(g->builder, need_copy_bit, copy_block, copy_end_block);
 
             LLVMPositionBuilderAtEnd(g->builder, copy_block);
-            LLVMValueRef ret_ptr = LLVMBuildLoad(g->builder, g->cur_ret_ptr_ptr, "");
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
             LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, awaiter_ret_ptr, ptr_u8, "");
-            LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, ret_ptr, ptr_u8, "");
+            LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, g->cur_ret_ptr, ptr_u8, "");
             bool is_volatile = false;
             uint32_t abi_align = get_abi_alignment(g, ret_type);
             LLVMValueRef byte_count_val = LLVMConstInt(usize_type_ref, type_size(g, ret_type), false);
@@ -3385,10 +3390,6 @@ static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
     if (!type_has_bits(instruction->base.value.type))
         return nullptr;
     src_assert(g->cur_ret_ptr != nullptr, instruction->base.source_node);
-    if (fn_is_async(g->cur_fn)) {
-        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_ret_start, "");
-        return LLVMBuildLoad(g->builder, ptr_ptr, "");
-    }
     return g->cur_ret_ptr;
 }
 
@@ -3547,7 +3548,7 @@ static void render_async_spills(CodeGen *g) {
             continue;
         }
 
-        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, async_var_index,
+        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index,
                 buf_ptr(&var->name));
         async_var_index += 1;
         if (var->decl_node) {
@@ -3578,7 +3579,7 @@ static void render_async_spills(CodeGen *g) {
                 continue;
             }
         }
-        instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, async_var_index,
+        instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index,
                 instruction->name_hint);
         async_var_index += 1;
     }
@@ -3697,7 +3698,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         // initialization.
     } else if (callee_is_async) {
         frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
-        awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr, usize_type_ref, ""); // caller's own frame pointer
+        awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_frame_ptr, usize_type_ref, ""); // caller's own frame pointer
         if (ret_has_bits) {
             if (result_loc == nullptr) {
                 // return type is a scalar, but we still need a pointer to it. Use the async fn frame.
@@ -4850,7 +4851,7 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable
 }
 
 static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable, IrInstructionFrameHandle *instruction) {
-    return g->cur_ret_ptr;
+    return g->cur_frame_ptr;
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
@@ -5335,7 +5336,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     }
 
     // caller's own frame pointer
-    LLVMValueRef awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_ret_ptr, usize_type_ref, "");
+    LLVMValueRef awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_frame_ptr, usize_type_ref, "");
     LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_awaiter_index, "");
     LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_init_val,
             LLVMAtomicOrderingRelease, g->is_single_threaded);
@@ -6710,13 +6711,17 @@ static void do_code_gen(CodeGen *g) {
 
         bool is_async = fn_is_async(fn_table_entry);
 
-        if (want_sret || is_async) {
-            g->cur_ret_ptr = LLVMGetParam(fn, 0);
-        } else if (handle_is_ptr(fn_type_id->return_type)) {
-            g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
-            // TODO add debug info variable for this
+        if (is_async) {
+            g->cur_frame_ptr = LLVMGetParam(fn, 0);
         } else {
-            g->cur_ret_ptr = nullptr;
+            if (want_sret) {
+                g->cur_ret_ptr = LLVMGetParam(fn, 0);
+            } else if (handle_is_ptr(fn_type_id->return_type)) {
+                g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
+                // TODO add debug info variable for this
+            } else {
+                g->cur_ret_ptr = nullptr;
+            }
         }
 
         uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
@@ -6870,21 +6875,22 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMPositionBuilderAtEnd(g->builder, g->cur_preamble_llvm_block);
             render_async_spills(g);
-            g->cur_async_awaiter_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_awaiter_index, "");
-            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_resume_index, "");
+            g->cur_async_awaiter_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, coro_awaiter_index, "");
+            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, coro_resume_index, "");
             g->cur_async_resume_index_ptr = resume_index_ptr;
 
             if (type_has_bits(fn_type_id->return_type)) {
-                g->cur_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, coro_ret_start, "");
+                LLVMValueRef cur_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, coro_ret_start, "");
+                g->cur_ret_ptr = LLVMBuildLoad(g->builder, cur_ret_ptr_ptr, "");
             }
             if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
                 uint32_t trace_field_index = frame_index_trace_arg(g, fn_type_id->return_type);
-                g->cur_err_ret_trace_val_arg = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, trace_field_index, "");
+                g->cur_err_ret_trace_val_arg = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, trace_field_index, "");
             }
             uint32_t trace_field_index_stack = UINT32_MAX;
             if (codegen_fn_has_err_ret_tracing_stack(g, fn_table_entry, true)) {
                 trace_field_index_stack = frame_index_trace_stack(g, fn_type_id);
-                g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
+                g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack, "");
             }
 
@@ -6898,9 +6904,9 @@ static void do_code_gen(CodeGen *g) {
             g->cur_resume_block_count += 1;
             LLVMPositionBuilderAtEnd(g->builder, entry_block->llvm_block);
             if (trace_field_index_stack != UINT32_MAX) {
-                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
+                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack, "");
-                LLVMValueRef trace_field_addrs = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr,
+                LLVMValueRef trace_field_addrs = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack + 1, "");
 
                 LLVMValueRef index_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 0, "");

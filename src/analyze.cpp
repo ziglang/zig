@@ -5160,6 +5160,8 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
 }
 
 static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
+    Error err;
+
     if (frame_type->data.frame.locals_struct != nullptr)
         return ErrorNone;
 
@@ -5285,6 +5287,9 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
             {
                 continue;
             }
+        }
+        if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
+            return err;
         }
         const char *name;
         if (*instruction->name_hint == 0) {

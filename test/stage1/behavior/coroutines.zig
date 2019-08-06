@@ -334,40 +334,40 @@ test "async fn with inferred error set" {
     S.doTheTest();
 }
 
-//test "error return trace across suspend points - early return" {
-//    const p = nonFailing();
-//    resume p;
-//    const p2 = async printTrace(p);
-//}
-//
-//test "error return trace across suspend points - async return" {
-//    const p = nonFailing();
-//    const p2 = async printTrace(p);
-//    resume p;
-//}
-//
-//fn nonFailing() (anyframe->anyerror!void) {
-//    const Static = struct {
-//        var frame: @Frame(suspendThenFail) = undefined;
-//    };
-//    Static.frame = async suspendThenFail();
-//    return &Static.frame;
-//}
-//async fn suspendThenFail() anyerror!void {
-//    suspend;
-//    return error.Fail;
-//}
-//async fn printTrace(p: anyframe->(anyerror!void)) void {
-//    (await p) catch |e| {
-//        std.testing.expect(e == error.Fail);
-//        if (@errorReturnTrace()) |trace| {
-//            expect(trace.index == 1);
-//        } else switch (builtin.mode) {
-//            .Debug, .ReleaseSafe => @panic("expected return trace"),
-//            .ReleaseFast, .ReleaseSmall => {},
-//        }
-//    };
-//}
+test "error return trace across suspend points - early return" {
+    const p = nonFailing();
+    resume p;
+    const p2 = async printTrace(p);
+}
+
+test "error return trace across suspend points - async return" {
+    const p = nonFailing();
+    const p2 = async printTrace(p);
+    resume p;
+}
+
+fn nonFailing() (anyframe->anyerror!void) {
+    const Static = struct {
+        var frame: @Frame(suspendThenFail) = undefined;
+    };
+    Static.frame = async suspendThenFail();
+    return &Static.frame;
+}
+async fn suspendThenFail() anyerror!void {
+    suspend;
+    return error.Fail;
+}
+async fn printTrace(p: anyframe->(anyerror!void)) void {
+    (await p) catch |e| {
+        std.testing.expect(e == error.Fail);
+        if (@errorReturnTrace()) |trace| {
+            expect(trace.index == 1);
+        } else switch (builtin.mode) {
+            .Debug, .ReleaseSafe => @panic("expected return trace"),
+            .ReleaseFast, .ReleaseSmall => {},
+        }
+    };
+}
 
 test "break from suspend" {
     var my_result: i32 = 1;
