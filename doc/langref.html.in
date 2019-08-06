@@ -7235,7 +7235,7 @@ test "field access by string" {
       {#header_open|@floatCast#}
       <pre>{#syntax#}@floatCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
-      Convert from one float type to another. This cast is safe, but may cause the
+      Convert from one float type to another, or from int to float if no precision is lost. This cast is safe, but if down-casting a float may cause the
       numeric value to lose precision.
       </p>
       {#header_close#}
@@ -7453,7 +7453,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_open|@intToFloat#}
       <pre>{#syntax#}@intToFloat(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
-      Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe.
+      Converts an integer to the closest floating point representation. To convert the other way, use {#link|@floatToInt#}. This cast is always safe, but may loose precision.
       </p>
       {#header_close#}
 
