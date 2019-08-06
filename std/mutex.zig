@@ -122,7 +122,7 @@ else switch (builtin.os) {
     },
 };
 
-const TestContext = packed struct {
+const TestContext = struct {
     mutex: *Mutex,
     data: i128,
 
