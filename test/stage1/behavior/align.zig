@@ -167,6 +167,14 @@ test "@ptrCast preserves alignment of bigger source" {
     expect(@typeOf(ptr) == *align(16) u8);
 }
 
+fn give() anyerror!u128 {
+    return 3;
+}
+
+test "return error union with 128-bit integer" {
+    expect(3 == try give());
+}
+
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
@@ -249,6 +257,29 @@ test "size of extern struct with 128-bit field" {
             y: u8,
         }) == 32);
     }
+}
+
+const DefaultAligned = struct {
+    nevermind: u32,
+    badguy: i128,
+};
+
+test "read 128-bit field from default aligned struct in stack memory" {
+    var default_aligned = DefaultAligned {
+        .nevermind = 1,
+        .badguy = 12,
+    };
+    expect(12 == default_aligned.badguy);
+}
+
+var default_aligned_global = DefaultAligned {
+    .nevermind = 1,
+    .badguy = 12,
+};
+
+test "read 128-bit field from default aligned struct in global memory" {
+
+    expect(12 == default_aligned_global.badguy);
 }
 
 test "alignment of extern() void" {
