@@ -128,7 +128,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
             };
 
             if (err != 0) {
-                switch (e) {
+                switch (err) {
                     EINVAL => unreachable,
                     EFAULT => unreachable,
                     EINTR => continue,
