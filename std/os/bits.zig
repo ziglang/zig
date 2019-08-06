@@ -10,7 +10,7 @@ pub usingnamespace switch (builtin.os) {
     .netbsd => @import("bits/netbsd.zig"),
     .wasi => @import("bits/wasi.zig"),
     .windows => @import("bits/windows.zig"),
-    else => struct {},
+    else => @import("bits/unsupported.zig"),
 };
 
 pub const pthread_t = *@OpaqueType();
