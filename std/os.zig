@@ -106,14 +106,10 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
     if (linux.is_the_target or freebsd.is_the_target) {
         var buf_slice: []u8 = buf[0..];
         var total_read: usize = 0;
-        const use_c = if (linux.is_the_target) blk: {
-            break :blk std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
-        } else blk: {
-            break :blk true;
-        };
+        const use_c = (!linux.is_the_target) or std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (total_read < buf.len) {
-            var err: ?u16 = null;
+            var err: u16 = 0;
 
             const num_read: usize = if (use_c) blk: {
                 const res: c_int = std.c.getrandom(buf_slice.ptr, buf_slice.len, 0);
@@ -131,13 +127,13 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
                 break :blk res;
             };
 
-            if (err) |e| {
+            if (err != 0) {
                 switch (e) {
                     EINVAL => unreachable,
                     EFAULT => unreachable,
                     EINTR => continue,
                     ENOSYS => return getRandomBytesDevURandom(buf),
-                    else => return unexpectedErrno(e),
+                    else => return unexpectedErrno(err),
                 }
             } else {
                 total_read += num_read;
