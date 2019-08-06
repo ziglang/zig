@@ -1737,6 +1737,7 @@ struct CodeGen {
     LLVMValueRef stacksave_fn_val;
     LLVMValueRef stackrestore_fn_val;
     LLVMValueRef write_register_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
     LLVMValueRef sp_md_node;
     LLVMValueRef err_name_table;
     LLVMValueRef safety_crash_err_fn;

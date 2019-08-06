@@ -544,23 +544,29 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\
+        \\var failing_frame: @Frame(failing) = undefined;
+        \\
         \\pub fn main() void {
         \\    const p = nonFailing();
         \\    resume p;
-        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
-        \\    cancel p2;
+        \\    const p2 = async printTrace(p);
         \\}
         \\
-        \\fn nonFailing() promise->anyerror!void {
-        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\fn nonFailing() anyframe->anyerror!void {
+        \\    failing_frame = async failing();
+        \\    return &failing_frame;
         \\}
         \\
         \\async fn failing() anyerror!void {
         \\    suspend;
+        \\    return second();
+        \\}
+        \\
+        \\async fn second() anyerror!void {
         \\    return error.Fail;
         \\}
         \\
-        \\async fn printTrace(p: promise->anyerror!void) void {
+        \\async fn printTrace(p: anyframe->anyerror!void) void {
         \\    (await p) catch unreachable;
         \\}
     );
