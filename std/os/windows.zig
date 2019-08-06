@@ -138,10 +138,19 @@ pub const RtlGenRandomError = error{Unexpected};
 /// https://github.com/rust-lang-nursery/rand/issues/111
 /// https://bugzilla.mozilla.org/show_bug.cgi?id=504270
 pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
-    if (advapi32.RtlGenRandom(output.ptr, output.len) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
+    var total_read: usize = 0;
+    var buff: []u8 = output[0..];
+    const max_read_size: ULONG = ULONG(maxInt(ULONG));
+
+    while (total_read < output.len) {
+        const to_read: ULONG = @intCast(ULONG, math.min(buff.len, max_read_size));
+
+        if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
+            return unexpectedError(kernel32.GetLastError());
         }
+
+        total_read += @intCast(usize, to_read);
+        buff = buff[to_read..];
     }
 }
 
