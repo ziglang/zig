@@ -1,5 +1,4 @@
- * error return tracing - handle `await` and function calls
- * go over the commented out tests
+ * go over the commented out tests in cancel.zig
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function

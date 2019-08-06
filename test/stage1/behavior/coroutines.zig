@@ -474,3 +474,36 @@ test "suspension points inside branching control flow" {
     };
     S.doTheTest();
 }
+
+test "call async function which has struct return type" {
+    const S = struct {
+        var frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            _ = async atest();
+            resume frame;
+        }
+
+        fn atest() void {
+            const result = func();
+            expect(result.x == 5);
+            expect(result.y == 6);
+        }
+
+        const Point = struct {
+            x: usize,
+            y: usize,
+        };
+
+        fn func() Point {
+            suspend {
+                frame = @frame();
+            }
+            return Point{
+                .x = 5,
+                .y = 6,
+            };
+        }
+    };
+    S.doTheTest();
+}

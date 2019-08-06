@@ -2300,9 +2300,8 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *instruction) {
     if (fn_is_async(g->cur_fn)) {
         LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
-        bool ret_type_has_bits = instruction->operand != nullptr &&
-            type_has_bits(instruction->operand->value.type);
-        ZigType *ret_type = ret_type_has_bits ? instruction->operand->value.type : nullptr;
+        ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+        bool ret_type_has_bits = type_has_bits(ret_type);
 
         if (ir_want_runtime_safety(g, &instruction->base)) {
             LLVMValueRef new_resume_index = LLVMConstAllOnes(usize_type_ref);
