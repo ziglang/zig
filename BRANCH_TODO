@@ -33,3 +33,6 @@
    - anyframe, anyframe->T
  * safety for double await
  * call graph analysis to have fewer stack trace frames
+ * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
+ * when there are multiple calls to async functions in a function, reuse the same frame buffer, so that the
+   needed bytes is equal to the largest callee's frame 

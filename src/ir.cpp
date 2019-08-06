@@ -525,6 +525,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionReturn *) {
     return IrInstructionIdReturn;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionReturnBegin *) {
+    return IrInstructionIdReturnBegin;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCast *) {
     return IrInstructionIdCast;
 }
@@ -945,10 +949,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionResetResult *) {
     return IrInstructionIdResetResult;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionResultPtr *) {
-    return IrInstructionIdResultPtr;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrOfArrayToSlice *) {
     return IrInstructionIdPtrOfArrayToSlice;
 }
@@ -1049,8 +1049,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSuspendFinish *)
     return IrInstructionIdSuspendFinish;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionAwait *) {
-    return IrInstructionIdAwait;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAwaitSrc *) {
+    return IrInstructionIdAwaitSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAwaitGen *) {
+    return IrInstructionIdAwaitGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroResume *) {
@@ -1109,17 +1113,31 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *so
 }
 
 static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *return_value)
+        IrInstruction *operand)
 {
     IrInstructionReturn *return_instruction = ir_build_instruction<IrInstructionReturn>(irb, scope, source_node);
     return_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
     return_instruction->base.value.special = ConstValSpecialStatic;
-    return_instruction->value = return_value;
+    return_instruction->operand = operand;
 
-    if (return_value != nullptr) ir_ref_instruction(return_value, irb->current_basic_block);
+    if (operand != nullptr) ir_ref_instruction(operand, irb->current_basic_block);
 
     return &return_instruction->base;
 }
+
+static IrInstruction *ir_build_return_begin(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand)
+{
+    IrInstructionReturnBegin *return_instruction = ir_build_instruction<IrInstructionReturnBegin>(irb, scope, source_node);
+    return_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    return_instruction->base.value.special = ConstValSpecialStatic;
+    return_instruction->operand = operand;
+
+    ir_ref_instruction(operand, irb->current_basic_block);
+
+    return &return_instruction->base;
+}
+
 
 static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
@@ -2525,11 +2543,12 @@ static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *s
 }
 
 static IrInstruction *ir_build_test_err_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *base_ptr, bool resolve_err_set)
+    IrInstruction *base_ptr, bool resolve_err_set, bool base_ptr_is_payload)
 {
     IrInstructionTestErrSrc *instruction = ir_build_instruction<IrInstructionTestErrSrc>(irb, scope, source_node);
     instruction->base_ptr = base_ptr;
     instruction->resolve_err_set = resolve_err_set;
+    instruction->base_ptr_is_payload = base_ptr_is_payload;
 
     ir_ref_instruction(base_ptr, irb->current_basic_block);
 
@@ -2971,18 +2990,6 @@ static IrInstruction *ir_build_reset_result(IrBuilder *irb, Scope *scope, AstNod
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_result_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        ResultLoc *result_loc, IrInstruction *result)
-{
-    IrInstructionResultPtr *instruction = ir_build_instruction<IrInstructionResultPtr>(irb, scope, source_node);
-    instruction->result_loc = result_loc;
-    instruction->result = result;
-
-    ir_ref_instruction(result, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_opaque_type(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionOpaqueType *instruction = ir_build_instruction<IrInstructionOpaqueType>(irb, scope, source_node);
 
@@ -3266,13 +3273,29 @@ static IrInstruction *ir_build_suspend_finish(IrBuilder *irb, Scope *scope, AstN
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_await(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *frame)
+static IrInstruction *ir_build_await_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *frame, ResultLoc *result_loc)
 {
-    IrInstructionAwait *instruction = ir_build_instruction<IrInstructionAwait>(irb, scope, source_node);
+    IrInstructionAwaitSrc *instruction = ir_build_instruction<IrInstructionAwaitSrc>(irb, scope, source_node);
     instruction->frame = frame;
+    instruction->result_loc = result_loc;
 
     ir_ref_instruction(frame, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_await_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *frame, ZigType *result_type, IrInstruction *result_loc)
+{
+    IrInstructionAwaitGen *instruction = ir_build_instruction<IrInstructionAwaitGen>(&ira->new_irb,
+            source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
+    instruction->frame = frame;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(frame, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -3416,16 +3439,6 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
-static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
-    bool is_generated_code)
-{
-    ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
-
-    IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
-    return_inst->is_gen = is_generated_code;
-    return return_inst;
-}
-
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval, ResultLoc *result_loc) {
     assert(node->type == NodeTypeReturnExpr);
 
@@ -3467,19 +3480,16 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
+                ir_build_return_begin(irb, scope, node, return_value);
+
                 size_t defer_counts[2];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
                 bool have_err_defers = defer_counts[ReturnKindError] > 0;
                 if (have_err_defers || irb->codegen->have_err_ret_tracing) {
                     IrBasicBlock *err_block = ir_create_basic_block(irb, scope, "ErrRetErr");
                     IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "ErrRetOk");
-                    if (!have_err_defers) {
-                        ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    }
 
-                    IrInstruction *ret_ptr = ir_build_result_ptr(irb, scope, node, &result_loc_ret->base,
-                            return_value);
-                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, ret_ptr, false);
+                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, return_value, false, true);
 
                     bool should_inline = ir_should_inline(irb->exec, scope);
                     IrInstruction *is_comptime;
@@ -3493,28 +3503,26 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
 
                     ir_set_cursor_at_end_and_append_block(irb, err_block);
-                    if (have_err_defers) {
-                        ir_gen_defers_for_block(irb, scope, outer_scope, true);
-                    }
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
                     }
+                    ir_gen_defers_for_block(irb, scope, outer_scope, true);
                     ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                     ir_set_cursor_at_end_and_append_block(irb, ok_block);
-                    if (have_err_defers) {
-                        ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    }
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                     ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
-                    IrInstruction *result = ir_gen_async_return(irb, scope, node, return_value, false);
+                    ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
+                    IrInstruction *result = ir_build_return(irb, scope, node, return_value);
                     result_loc_ret->base.source_instruction = result;
                     return result;
                 } else {
                     // generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    IrInstruction *result = ir_gen_async_return(irb, scope, node, return_value, false);
+                    ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
+                    IrInstruction *result = ir_build_return(irb, scope, node, return_value);
                     result_loc_ret->base.source_instruction = result;
                     return result;
                 }
@@ -3525,7 +3533,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
                 if (err_union_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
-                IrInstruction *is_err_val = ir_build_test_err_src(irb, scope, node, err_union_ptr, true);
+                IrInstruction *is_err_val = ir_build_test_err_src(irb, scope, node, err_union_ptr, true, false);
 
                 IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "ErrRetReturn");
                 IrBasicBlock *continue_block = ir_create_basic_block(irb, scope, "ErrRetContinue");
@@ -3539,10 +3547,10 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime));
 
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
+                IrInstruction *err_val_ptr = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
+                IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
+                ir_build_return_begin(irb, scope, node, err_val);
                 if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
-                    IrInstruction *err_val_ptr = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
-                    IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
-
                     ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
                     result_loc_ret->base.id = ResultLocIdReturn;
                     ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
@@ -3551,7 +3559,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
                     }
-                    IrInstruction *ret_inst = ir_gen_async_return(irb, scope, node, err_val, false);
+                    ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, err_val));
+                    IrInstruction *ret_inst = ir_build_return(irb, scope, node, err_val);
                     result_loc_ret->base.source_instruction = ret_inst;
                 }
 
@@ -6081,7 +6090,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 LValPtr, nullptr);
         if (err_val_ptr == irb->codegen->invalid_instruction)
             return err_val_ptr;
-        IrInstruction *is_err = ir_build_test_err_src(irb, scope, node->data.while_expr.condition, err_val_ptr, true);
+        IrInstruction *is_err = ir_build_test_err_src(irb, scope, node->data.while_expr.condition, err_val_ptr,
+                true, false);
         IrBasicBlock *after_cond_block = irb->current_basic_block;
         IrInstruction *void_else_result = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, scope, node));
         IrInstruction *cond_br_inst;
@@ -6897,7 +6907,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
         return err_val_ptr;
 
     IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
-    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, err_val_ptr, true);
+    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, err_val_ptr, true, false);
 
     IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "TryOk");
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "TryElse");
@@ -7513,7 +7523,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *is_err = ir_build_test_err_src(irb, parent_scope, node, err_union_ptr, true);
+    IrInstruction *is_err = ir_build_test_err_src(irb, parent_scope, node, err_union_ptr, true, false);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb->exec, parent_scope)) {
@@ -7830,7 +7840,9 @@ static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node)
     return ir_build_coro_resume(irb, scope, node, target_inst);
 }
 
-static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval,
+        ResultLoc *result_loc)
+{
     assert(node->type == NodeTypeAwaitExpr);
 
     ZigFn *fn_entry = exec_fn_entry(irb->exec);
@@ -7852,7 +7864,8 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    return ir_build_await(irb, scope, node, target_inst);
+    IrInstruction *await_inst = ir_build_await_src(irb, scope, node, target_inst, result_loc);
+    return ir_lval_wrap(irb, scope, await_inst, lval, result_loc);
 }
 
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -8016,7 +8029,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeResume:
             return ir_lval_wrap(irb, scope, ir_gen_resume(irb, scope, node), lval, result_loc);
         case NodeTypeAwaitExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval, result_loc);
+            return ir_gen_await_expr(irb, scope, node, lval, result_loc);
         case NodeTypeSuspend:
             return ir_lval_wrap(irb, scope, ir_gen_suspend(irb, scope, node), lval, result_loc);
         case NodeTypeEnumLiteral:
@@ -8088,8 +8101,10 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         return false;
 
     if (!instr_is_unreachable(result)) {
+        ir_mark_gen(ir_build_return_begin(irb, scope, node, result));
         // no need for save_err_ret_addr because this cannot return error
-        ir_gen_async_return(irb, scope, result->source_node, result, true);
+        ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, result->source_node, result));
+        ir_mark_gen(ir_build_return(irb, scope, result->source_node, result));
     }
 
     return true;
@@ -8181,18 +8196,19 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
         IrInstruction *instruction = bb->instruction_list.at(i);
         if (instruction->id == IrInstructionIdReturn) {
             IrInstructionReturn *ret_inst = (IrInstructionReturn *)instruction;
-            IrInstruction *value = ret_inst->value;
-            if (value->value.special == ConstValSpecialRuntime) {
-                exec_add_error_node(codegen, exec, value->source_node,
+            IrInstruction *operand = ret_inst->operand;
+            if (operand->value.special == ConstValSpecialRuntime) {
+                exec_add_error_node(codegen, exec, operand->source_node,
                         buf_sprintf("unable to evaluate constant expression"));
                 return &codegen->invalid_instruction->value;
             }
-            return &value->value;
+            return &operand->value;
         } else if (ir_has_side_effects(instruction)) {
             if (instr_is_comptime(instruction)) {
                 switch (instruction->id) {
                     case IrInstructionIdUnwrapErrPayload:
                     case IrInstructionIdUnionFieldPtr:
+                    case IrInstructionIdReturnBegin:
                         continue;
                     default:
                         break;
@@ -12593,21 +12609,13 @@ static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze 
     return ir_const_void(ira, &instruction->base);
 }
 
-static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructionReturn *instruction) {
-    IrInstruction *value = instruction->value->child;
-    if (type_is_invalid(value->value.type))
-        return ir_unreach_error(ira);
+static IrInstruction *ir_analyze_instruction_return_begin(IrAnalyze *ira, IrInstructionReturnBegin *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->invalid_instruction;
 
-    if (!instr_is_comptime(value) && handle_is_ptr(ira->explicit_return_type)) {
-        // result location mechanism took care of it.
-        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-                instruction->base.source_node, nullptr);
-        result->value.type = ira->codegen->builtin_types.entry_unreachable;
-        return ir_finish_anal(ira, result);
-    }
-
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
-    if (type_is_invalid(casted_value->value.type)) {
+    IrInstruction *casted_operand = ir_implicit_cast(ira, operand, ira->explicit_return_type);
+    if (type_is_invalid(casted_operand->value.type)) {
         AstNode *source_node = ira->explicit_return_type_source_node;
         if (source_node != nullptr) {
             ErrorMsg *msg = ira->codegen->errors.last();
@@ -12617,15 +12625,38 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_unreach_error(ira);
     }
 
-    if (casted_value->value.special == ConstValSpecialRuntime &&
-        casted_value->value.type->id == ZigTypeIdPointer &&
-        casted_value->value.data.rh_ptr == RuntimeHintPtrStack)
+    return ir_build_return_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            casted_operand);
+}
+
+static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructionReturn *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    if (type_is_invalid(operand->value.type))
+        return ir_unreach_error(ira);
+
+    if (!instr_is_comptime(operand) && handle_is_ptr(ira->explicit_return_type)) {
+        // result location mechanism took care of it.
+        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
+                instruction->base.source_node, nullptr);
+        result->value.type = ira->codegen->builtin_types.entry_unreachable;
+        return ir_finish_anal(ira, result);
+    }
+
+    IrInstruction *casted_operand = ir_implicit_cast(ira, operand, ira->explicit_return_type);
+    if (type_is_invalid(casted_operand->value.type)) {
+        // error already reported by IrInstructionReturnBegin
+        return ir_unreach_error(ira);
+    }
+
+    if (casted_operand->value.special == ConstValSpecialRuntime &&
+        casted_operand->value.type->id == ZigTypeIdPointer &&
+        casted_operand->value.data.rh_ptr == RuntimeHintPtrStack)
     {
-        ir_add_error(ira, casted_value, buf_sprintf("function returns address of local variable"));
+        ir_add_error(ira, casted_operand, buf_sprintf("function returns address of local variable"));
         return ir_unreach_error(ira);
     }
     IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, casted_value);
+            instruction->base.source_node, casted_operand);
     result->value.type = ira->codegen->builtin_types.entry_unreachable;
     return ir_finish_anal(ira, result);
 }
@@ -22176,19 +22207,6 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     return result;
 }
 
-static IrInstruction *ir_analyze_instruction_result_ptr(IrAnalyze *ira, IrInstructionResultPtr *instruction) {
-    IrInstruction *result = instruction->result->child;
-    if (type_is_invalid(result->value.type))
-        return result;
-
-    if (instruction->result_loc->written && instruction->result_loc->resolved_loc != nullptr &&
-            !instr_is_comptime(result))
-    {
-        return instruction->result_loc->resolved_loc;
-    }
-    return ir_get_ref(ira, &instruction->base, result, true, false);
-}
-
 static void ir_eval_mul_add(IrAnalyze *ira, IrInstructionMulAdd *source_instr, ZigType *float_type,
     ConstExprValue *op1, ConstExprValue *op2, ConstExprValue *op3, ConstExprValue *out_val) {
     if (float_type->id == ZigTypeIdComptimeFloat) {
@@ -22313,11 +22331,16 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(base_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *value = ir_get_deref(ira, &instruction->base, base_ptr, nullptr);
+    IrInstruction *value;
+    if (instruction->base_ptr_is_payload) {
+        value = base_ptr;
+    } else {
+        value = ir_get_deref(ira, &instruction->base, base_ptr, nullptr);
+    }
+
     ZigType *type_entry = value->value.type;
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
-
     if (type_entry->id == ZigTypeIdErrorUnion) {
         if (instr_is_comptime(value)) {
             ConstExprValue *err_union_val = ir_resolve_const(ira, value, UndefBad);
@@ -24443,7 +24466,7 @@ static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
     return ir_build_suspend_finish(&ira->new_irb, instruction->base.scope, instruction->base.source_node, begin);
 }
 
-static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwait *instruction) {
+static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwaitSrc *instruction) {
     IrInstruction *frame_ptr = instruction->frame->child;
     if (type_is_invalid(frame_ptr->value.type))
         return ira->codegen->invalid_instruction;
@@ -24484,9 +24507,17 @@ static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstruction
         fn_entry->calls_or_awaits_errorable_fn = true;
     }
 
-    IrInstruction *result = ir_build_await(&ira->new_irb,
-            instruction->base.scope, instruction->base.source_node, frame);
-    result->value.type = result_type;
+    IrInstruction *result_loc;
+    if (type_has_bits(result_type)) {
+        result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+                result_type, nullptr, true, false, true);
+        if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
+            return result_loc;
+    } else {
+        result_loc = nullptr;
+    }
+
+    IrInstruction *result = ir_build_await_gen(ira, &instruction->base, frame, result_type, result_loc);
     return ir_finish_anal(ira, result);
 }
 
@@ -24541,8 +24572,11 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdRefGen:
         case IrInstructionIdTestErrGen:
         case IrInstructionIdFrameSizeGen:
+        case IrInstructionIdAwaitGen:
             zig_unreachable();
 
+        case IrInstructionIdReturnBegin:
+            return ir_analyze_instruction_return_begin(ira, (IrInstructionReturnBegin *)instruction);
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
         case IrInstructionIdConst:
@@ -24749,8 +24783,6 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_resolve_result(ira, (IrInstructionResolveResult *)instruction);
         case IrInstructionIdResetResult:
             return ir_analyze_instruction_reset_result(ira, (IrInstructionResetResult *)instruction);
-        case IrInstructionIdResultPtr:
-            return ir_analyze_instruction_result_ptr(ira, (IrInstructionResultPtr *)instruction);
         case IrInstructionIdOpaqueType:
             return ir_analyze_instruction_opaque_type(ira, (IrInstructionOpaqueType *)instruction);
         case IrInstructionIdSetAlignStack:
@@ -24807,8 +24839,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_suspend_finish(ira, (IrInstructionSuspendFinish *)instruction);
         case IrInstructionIdCoroResume:
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
-        case IrInstructionIdAwait:
-            return ir_analyze_instruction_await(ira, (IrInstructionAwait *)instruction);
+        case IrInstructionIdAwaitSrc:
+            return ir_analyze_instruction_await(ira, (IrInstructionAwaitSrc *)instruction);
     }
     zig_unreachable();
 }
@@ -24898,6 +24930,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdStorePtr:
         case IrInstructionIdCallSrc:
         case IrInstructionIdCallGen:
+        case IrInstructionIdReturnBegin:
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
         case IrInstructionIdSetCold:
@@ -24943,7 +24976,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSuspendBegin:
         case IrInstructionIdSuspendFinish:
         case IrInstructionIdCoroResume:
-        case IrInstructionIdAwait:
+        case IrInstructionIdAwaitSrc:
+        case IrInstructionIdAwaitGen:
             return true;
 
         case IrInstructionIdPhi:
@@ -25041,7 +25075,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdHasDecl:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
-        case IrInstructionIdResultPtr:
             return false;
 
         case IrInstructionIdAsm:

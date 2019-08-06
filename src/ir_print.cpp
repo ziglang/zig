@@ -64,11 +64,15 @@ static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
     }
 }
 
-static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
+static void ir_print_return_begin(IrPrint *irp, IrInstructionReturnBegin *instruction) {
+    fprintf(irp->f, "@returnBegin(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_return(IrPrint *irp, IrInstructionReturn *instruction) {
     fprintf(irp->f, "return ");
-    if (return_instruction->value != nullptr) {
-        ir_print_other_instruction(irp, return_instruction->value);
-    }
+    ir_print_other_instruction(irp, instruction->operand);
 }
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
@@ -1329,14 +1333,6 @@ static void ir_print_reset_result(IrPrint *irp, IrInstructionResetResult *instru
     fprintf(irp->f, ")");
 }
 
-static void ir_print_result_ptr(IrPrint *irp, IrInstructionResultPtr *instruction) {
-    fprintf(irp->f, "ResultPtr(");
-    ir_print_result_loc(irp, instruction->result_loc);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->result);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_opaque_type(IrPrint *irp, IrInstructionOpaqueType *instruction) {
     fprintf(irp->f, "@OpaqueType()");
 }
@@ -1538,9 +1534,19 @@ static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruct
     fprintf(irp->f, ")");
 }
 
-static void ir_print_await(IrPrint *irp, IrInstructionAwait *instruction) {
+static void ir_print_await_src(IrPrint *irp, IrInstructionAwaitSrc *instruction) {
     fprintf(irp->f, "@await(");
     ir_print_other_instruction(irp, instruction->frame);
+    fprintf(irp->f, ",");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_await_gen(IrPrint *irp, IrInstructionAwaitGen *instruction) {
+    fprintf(irp->f, "@await(");
+    ir_print_other_instruction(irp, instruction->frame);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->result_loc);
     fprintf(irp->f, ")");
 }
 
@@ -1549,6 +1555,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
             zig_unreachable();
+        case IrInstructionIdReturnBegin:
+            ir_print_return_begin(irp, (IrInstructionReturnBegin *)instruction);
+            break;
         case IrInstructionIdReturn:
             ir_print_return(irp, (IrInstructionReturn *)instruction);
             break;
@@ -1921,9 +1930,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdResetResult:
             ir_print_reset_result(irp, (IrInstructionResetResult *)instruction);
             break;
-        case IrInstructionIdResultPtr:
-            ir_print_result_ptr(irp, (IrInstructionResultPtr *)instruction);
-            break;
         case IrInstructionIdOpaqueType:
             ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);
             break;
@@ -2020,8 +2026,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCoroResume:
             ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
             break;
-        case IrInstructionIdAwait:
-            ir_print_await(irp, (IrInstructionAwait *)instruction);
+        case IrInstructionIdAwaitSrc:
+            ir_print_await_src(irp, (IrInstructionAwaitSrc *)instruction);
+            break;
+        case IrInstructionIdAwaitGen:
+            ir_print_await_gen(irp, (IrInstructionAwaitGen *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

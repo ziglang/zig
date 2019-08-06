@@ -1557,6 +1557,7 @@ enum PanicMsgId {
     PanicMsgIdBadReturn,
     PanicMsgIdResumedAnAwaitingFn,
     PanicMsgIdFrameTooSmall,
+    PanicMsgIdResumedFnPendingAwait,
 
     PanicMsgIdCount,
 };
@@ -1717,10 +1718,12 @@ struct CodeGen {
     LLVMTargetMachineRef target_machine;
     ZigLLVMDIFile *dummy_di_file;
     LLVMValueRef cur_ret_ptr;
+    LLVMValueRef cur_ret_ptr_ptr;
     LLVMValueRef cur_fn_val;
     LLVMValueRef cur_async_switch_instr;
     LLVMValueRef cur_async_resume_index_ptr;
     LLVMValueRef cur_async_awaiter_ptr;
+    LLVMValueRef cur_async_prev_val;
     LLVMBasicBlockRef cur_preamble_llvm_block;
     size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
@@ -2223,6 +2226,7 @@ enum IrInstructionId {
     IrInstructionIdCallGen,
     IrInstructionIdConst,
     IrInstructionIdReturn,
+    IrInstructionIdReturnBegin,
     IrInstructionIdCast,
     IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
@@ -2326,7 +2330,6 @@ enum IrInstructionId {
     IrInstructionIdImplicitCast,
     IrInstructionIdResolveResult,
     IrInstructionIdResetResult,
-    IrInstructionIdResultPtr,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
@@ -2355,7 +2358,8 @@ enum IrInstructionId {
     IrInstructionIdUnionInitNamedField,
     IrInstructionIdSuspendBegin,
     IrInstructionIdSuspendFinish,
-    IrInstructionIdAwait,
+    IrInstructionIdAwaitSrc,
+    IrInstructionIdAwaitGen,
     IrInstructionIdCoroResume,
 };
 
@@ -2630,7 +2634,13 @@ struct IrInstructionConst {
 struct IrInstructionReturn {
     IrInstruction base;
 
-    IrInstruction *value;
+    IrInstruction *operand;
+};
+
+struct IrInstructionReturnBegin {
+    IrInstruction base;
+
+    IrInstruction *operand;
 };
 
 enum CastOp {
@@ -3136,6 +3146,7 @@ struct IrInstructionTestErrSrc {
     IrInstruction base;
 
     bool resolve_err_set;
+    bool base_ptr_is_payload;
     IrInstruction *base_ptr;
 };
 
@@ -3603,10 +3614,18 @@ struct IrInstructionSuspendFinish {
     IrInstructionSuspendBegin *begin;
 };
 
-struct IrInstructionAwait {
+struct IrInstructionAwaitSrc {
     IrInstruction base;
 
     IrInstruction *frame;
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionAwaitGen {
+    IrInstruction base;
+
+    IrInstruction *frame;
+    IrInstruction *result_loc;
 };
 
 struct IrInstructionCoroResume {
