@@ -237,11 +237,18 @@ test "alignment of struct with 128-bit field" {
     }
 }
 
-test "size of struct with non-standard-LLVM alignment" {
-    expect(@sizeOf(struct {
-        x: u129,
-        y: u129,
-    }) == 64);
+test "size of extern struct with 128-bit field" {
+    expect(@sizeOf(extern struct {
+        x: u128,
+        y: u8,
+    }) == 32);
+
+    comptime {
+        expect(@sizeOf(extern struct {
+            x: u128,
+            y: u8,
+        }) == 32);
+    }
 }
 
 test "alignment of extern() void" {
