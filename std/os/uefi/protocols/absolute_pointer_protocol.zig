@@ -43,22 +43,13 @@ pub const AbsolutePointerMode = extern struct {
 };
 
 pub const AbsolutePointerState = extern struct {
-    current_x: u64,
-    current_y: u64,
-    current_z: u64,
+    current_x: u64 = undefined,
+    current_y: u64 = undefined,
+    current_z: u64 = undefined,
     active_buttons: packed struct {
         _pad1: u6,
         alt_active: bool,
         touch_active: bool,
         _pad2: u24,
-    },
-
-    pub fn init() AbsolutePointerState {
-        return AbsolutePointerState{
-            .current_x = undefined,
-            .current_y = undefined,
-            .current_z = undefined,
-            .active_buttons = undefined,
-        };
-    }
+    } = undefined,
 };

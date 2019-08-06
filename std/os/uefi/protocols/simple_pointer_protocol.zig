@@ -36,19 +36,9 @@ pub const SimplePointerMode = struct {
 };
 
 pub const SimplePointerState = struct {
-    relative_movement_x: i32,
-    relative_movement_y: i32,
-    relative_movement_z: i32,
-    left_button: bool,
-    right_button: bool,
-
-    pub fn init() SimplePointerState {
-        return SimplePointerState{
-            .relative_movement_x = undefined,
-            .relative_movement_y = undefined,
-            .relative_movement_z = undefined,
-            .left_button = undefined,
-            .right_button = undefined,
-        };
-    }
+    relative_movement_x: i32 = undefined,
+    relative_movement_y: i32 = undefined,
+    relative_movement_z: i32 = undefined,
+    left_button: bool = undefined,
+    right_button: bool = undefined,
 };

@@ -40,23 +40,12 @@ pub const GraphicsOutputProtocolMode = extern struct {
 };
 
 pub const GraphicsOutputModeInformation = extern struct {
-    version: u32,
-    horizontal_resolution: u32,
-    vertical_resolution: u32,
-    pixel_format: GraphicsPixelFormat,
-    pixel_information: PixelBitmask,
-    pixels_per_scan_line: u32,
-
-    pub fn init() GraphicsOutputModeInformation {
-        return GraphicsOutputModeInformation{
-            .version = undefined,
-            .horizontal_resolution = undefined,
-            .vertical_resolution = undefined,
-            .pixel_format = undefined,
-            .pixel_information = undefined,
-            .pixels_per_scan_line = undefined,
-        };
-    }
+    version: u32 = undefined,
+    horizontal_resolution: u32 = undefined,
+    vertical_resolution: u32 = undefined,
+    pixel_format: GraphicsPixelFormat = undefined,
+    pixel_information: PixelBitmask = undefined,
+    pixels_per_scan_line: u32 = undefined,
 };
 
 pub const GraphicsPixelFormat = extern enum(u32) {

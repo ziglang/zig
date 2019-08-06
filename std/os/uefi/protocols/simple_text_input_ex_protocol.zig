@@ -42,15 +42,8 @@ pub const SimpleTextInputExProtocol = extern struct {
 };
 
 pub const KeyData = extern struct {
-    key: InputKey,
-    key_state: KeyState,
-
-    pub fn init() KeyData {
-        return KeyData{
-            .key = undefined,
-            .key_state = undefined,
-        };
-    }
+    key: InputKey = undefined,
+    key_state: KeyState = undefined,
 };
 
 pub const KeyState = extern struct {
