@@ -100,67 +100,52 @@ pub const GetRandomError = OpenError;
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
 pub fn getrandom(buf: []u8) GetRandomError!void {
+    if (buf.len == 0) {
+        return;
+    }
+
     if (windows.is_the_target) {
         return windows.RtlGenRandom(buf);
     }
-    if (linux.is_the_target) {
-        var buff = buf[0..];
-        var num_read: usize = 0;
-        const use_c = std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+    if (linux.is_the_target or freebsd.is_the_target) {
+        var buf_slice: []u8 = buf[0..];
+        var total_read: usize = 0;
+        const use_c = if (linux.is_the_target) blk: {
+            break :blk std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+        } else blk: {
+            break :blk true;
+        };
 
-        while (num_read < buf.len) {
-            var err: u16 = 0;
+        while (total_read < buf.len) {
+            var err: ?u16 = null;
 
-            const res: usize = if (use_c) blk: {
-                const result = std.c.getrandom(buff.ptr, buff.len, 0);
+            const num_read: usize = if (use_c) blk: {
+                const res: c_int = std.c.getrandom(buf_slice.ptr, buf_slice.len, 0);
 
-                if (result == -1) {
+                if (res == -1) {
                     err = @intCast(u16, std.c._errno().*);
                     break :blk 0;
                 } else {
-                    break :blk @intCast(usize, result);
+                    break :blk @intCast(usize, res);
                 }
             } else blk: {
-                const result = linux.getrandom(buff.ptr, buff.len, 0);
+                const res: usize = linux.getrandom(buf_slice.ptr, buf_slice.len, 0);
 
-                err = @intCast(u16, linux.getErrno(result));
-
-                break :blk result;
+                err = @intCast(u16, linux.getErrno(res));
+                break :blk res;
             };
 
-            if (err != 0) {
-                switch (err) {
+            if (err) |e| {
+                switch (e) {
                     EINVAL => unreachable,
                     EFAULT => unreachable,
                     EINTR => continue,
                     ENOSYS => return getRandomBytesDevURandom(buf),
-                    else => return unexpectedErrno(err),
+                    else => return unexpectedErrno(e),
                 }
             } else {
-                num_read += res;
-                buff = buff[num_read..];
-            }
-        }
-    }
-    if (freebsd.is_the_target) {
-        var buff = buf[0..];
-        var num_read: usize = 0;
-
-        while (num_read < buf.len) {
-            const res = std.c.getrandom(buff.ptr, buff.len, 0);
-
-            if (res == -1) {
-                const err = @intCast(u16, std.c._errno().*);
-
-                switch (err) {
-                    EINVAL => unreachable,
-                    EFAULT => unreachable,
-                    EINTR => continue,
-                    else => return unexpectedErrno(err),
-                }
-            } else {
-                num_read += @intCast(usize, res);
-                buff = buff[num_read..];
+                total_read += num_read;
+                buf_slice = buf_slice[total_read..];
             }
         }
     }
