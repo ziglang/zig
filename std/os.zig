@@ -145,7 +145,7 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
                 }
             } else {
                 total_read += num_read;
-                buf_slice = buf_slice[total_read..];
+                buf_slice = buf_slice[num_read..];
             }
         }
     }
