@@ -25445,7 +25445,7 @@ static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInst
 
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base,
             &instruction->result_loc_bit_cast->base, operand->value.type, operand, false, false, true);
-    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
+    if (result_loc != nullptr && !(type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
         return result_loc;
 
     return instruction->result_loc_bit_cast->parent->gen_instruction;
