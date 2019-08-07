@@ -7845,7 +7845,7 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node)
         return irb->codegen->invalid_instruction;
     }
 
-    IrInstruction *operand = ir_gen_node(irb, node->data.cancel_expr.expr, scope);
+    IrInstruction *operand = ir_gen_node_extra(irb, node->data.cancel_expr.expr, scope, LValPtr, nullptr);
     if (operand == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
@@ -24496,9 +24496,19 @@ static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
-    IrInstruction *frame = instruction->frame->child;
-    if (type_is_invalid(frame->value.type))
+    IrInstruction *frame_ptr = instruction->frame->child;
+    if (type_is_invalid(frame_ptr->value.type))
         return ira->codegen->invalid_instruction;
+
+    IrInstruction *frame;
+    if (frame_ptr->value.type->id == ZigTypeIdPointer &&
+        frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
+        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdCoroFrame)
+    {
+        frame = frame_ptr;
+    } else {
+        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
+    }
 
     ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
     IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);

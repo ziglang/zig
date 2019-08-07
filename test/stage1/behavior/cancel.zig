@@ -92,3 +92,19 @@ async fn b4() void {
     }
     suspend;
 }
+
+test "cancel on a non-pointer" {
+    const S = struct {
+        fn doTheTest() void {
+            _ = async atest();
+        }
+        fn atest() void {
+            var f = async func();
+            cancel f;
+        }
+        fn func() void {
+            suspend;
+        }
+    };
+    S.doTheTest();
+}
