@@ -140,16 +140,16 @@ pub const RtlGenRandomError = error{Unexpected};
 pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
     var total_read: usize = 0;
     var buff: []u8 = output[0..];
-    const max_read_size: ULONG = ULONG(maxInt(ULONG));
+    const max_read_size: ULONG = maxInt(ULONG);
 
     while (total_read < output.len) {
-        const to_read: ULONG = @intCast(ULONG, math.min(buff.len, max_read_size));
+        const to_read: ULONG = math.min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
             return unexpectedError(kernel32.GetLastError());
         }
 
-        total_read += @intCast(usize, to_read);
+        total_read += to_read;
         buff = buff[to_read..];
     }
 }
