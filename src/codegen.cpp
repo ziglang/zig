@@ -2213,12 +2213,7 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     if (fn_val == nullptr) {
         LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_fn_ptr_index, "");
-        LLVMValueRef fn_val_typed = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
-        LLVMValueRef as_int = LLVMBuildPtrToInt(g->builder, fn_val_typed, usize_type_ref, "");
-        LLVMValueRef one = LLVMConstInt(usize_type_ref, 1, false);
-        LLVMValueRef mask_val = LLVMConstNot(one);
-        LLVMValueRef as_int_masked = LLVMBuildAnd(g->builder, as_int, mask_val, "");
-        fn_val = LLVMBuildIntToPtr(g->builder, as_int_masked, LLVMTypeOf(fn_val_typed), "");
+        fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
     }
     if (arg_val == nullptr) {
         arg_val = LLVMBuildSub(g->builder, LLVMConstAllOnes(usize_type_ref),
