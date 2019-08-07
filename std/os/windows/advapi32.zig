@@ -19,5 +19,5 @@ pub extern "advapi32" stdcallcc fn RegQueryValueExW(
 
 // RtlGenRandom is known as SystemFunction036 under advapi32
 // http://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx */
-pub extern "advapi32" stdcallcc fn SystemFunction036(output: [*]u8, length: usize) BOOL;
+pub extern "advapi32" stdcallcc fn SystemFunction036(output: [*]u8, length: ULONG) BOOL;
 pub const RtlGenRandom = SystemFunction036;
