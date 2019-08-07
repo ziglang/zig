@@ -242,12 +242,69 @@ pub fn floatExponentBits(comptime T: type) comptime_int {
     };
 }
 
-pub fn min(x: var, y: var) @typeOf(x + y) {
-    return if (x < y) x else y;
+/// Given two types, returns the smallest one which is capable of holding the
+/// full range of the minimum value.
+pub fn Min(comptime A: type, comptime B: type) type {
+    return switch (@typeInfo(A)) {
+        .Int => |a_info| switch (@typeInfo(B)) {
+            .Int => |b_info| blk: {
+                if (a_info.is_signed == b_info.is_signed) {
+                    break :blk if (a_info.bits < b_info.bits) A else B;
+                } else if (a_info.is_signed) {
+                    break :blk A;
+                } else {
+                    break :blk B;
+                }
+            },
+            .ComptimeInt => A,
+            else => @compileError("unsupported type: " ++ @typeName(B)),
+        },
+        .Float => |a_info| if (a_info.bits < @typeInfo(B).Float.bits) A else B,
+        .ComptimeInt => B,
+        .ComptimeFloat => B,
+        else => @compileError("unsupported type: " ++ @typeName(A)),
+    };
+}
+
+/// Returns the smaller number. When one of the parameter's type's full range fits in the other,
+/// the return type is the smaller type.
+pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
+    const Result = Min(@typeOf(x), @typeOf(y));
+    if (x < y) {
+        // TODO Zig should allow this as an implicit cast because x is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, x),
+            .Float => return @floatCast(Result, x),
+            else => return x,
+        }
+    } else {
+        // TODO Zig should allow this as an implicit cast because y is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, y),
+            .Float => return @floatCast(Result, y),
+            else => return y,
+        }
+    }
 }
 
 test "math.min" {
     testing.expect(min(i32(-1), i32(2)) == -1);
+    {
+        var a: u16 = 999;
+        var b: u32 = 10;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == u16);
+        testing.expect(result == 10);
+    }
+    {
+        var a: f64 = 10.34;
+        var b: f32 = 999.12;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == f32);
+        testing.expect(result == 10.34);
+    }
 }
 
 pub fn max(x: var, y: var) @typeOf(x + y) {
