@@ -21312,12 +21312,15 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             }
             for (size_t i = 0; i < errors_len; i += 1) {
                 Stage2ErrorMsg *clang_err = &errors_ptr[i];
-                ErrorMsg *err_msg = err_msg_create_with_offset(
-                    clang_err->filename_ptr ?
-                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
-                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
-                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
-                err_msg_add_note(parent_err_msg, err_msg);
+		// Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+		if (clang_err->source && clang_err->filename_ptr) {
+                    ErrorMsg *err_msg = err_msg_create_with_offset(
+                        clang_err->filename_ptr ?
+                            buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                        clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                        buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+                    err_msg_add_note(parent_err_msg, err_msg);
+		}
             }
 
             return ira->codegen->invalid_instruction;
