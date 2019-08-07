@@ -3811,6 +3811,9 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("await is a suspend point"));
+    } else if (fn->inferred_async_node->type == NodeTypeCancel) {
+        add_error_note(g, msg, fn->inferred_async_node,
+            buf_sprintf("cancel is a suspend point"));
     } else {
         zig_unreachable();
     }

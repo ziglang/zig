@@ -1396,7 +1396,7 @@ static void ir_print_error_union(IrPrint *irp, IrInstructionErrorUnion *instruct
 
 static void ir_print_cancel(IrPrint *irp, IrInstructionCancel *instruction) {
     fprintf(irp->f, "cancel ");
-    ir_print_other_instruction(irp, instruction->target);
+    ir_print_other_instruction(irp, instruction->frame);
 }
 
 static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instruction) {

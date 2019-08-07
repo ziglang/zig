@@ -1,4 +1,4 @@
- * go over the commented out tests in cancel.zig
+ * clean up the bitcasting of awaiter fn ptr
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function

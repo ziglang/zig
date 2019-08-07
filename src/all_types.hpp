@@ -1556,6 +1556,7 @@ enum PanicMsgId {
     PanicMsgIdBadAwait,
     PanicMsgIdBadReturn,
     PanicMsgIdResumedAnAwaitingFn,
+    PanicMsgIdResumedACancelingFn,
     PanicMsgIdFrameTooSmall,
     PanicMsgIdResumedFnPendingAwait,
 
@@ -3432,7 +3433,7 @@ struct IrInstructionErrorUnion {
 struct IrInstructionCancel {
     IrInstruction base;
 
-    IrInstruction *target;
+    IrInstruction *frame;
 };
 
 struct IrInstructionAtomicRmw {

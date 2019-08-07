@@ -3271,6 +3271,16 @@ static IrInstruction *ir_build_suspend_finish(IrBuilder *irb, Scope *scope, AstN
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *frame) {
+    IrInstructionCancel *instruction = ir_build_instruction<IrInstructionCancel>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    instruction->frame = frame;
+
+    ir_ref_instruction(frame, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_await_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *frame, ResultLoc *result_loc)
 {
@@ -7820,11 +7830,26 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
 static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeCancel);
 
-    IrInstruction *target_inst = ir_gen_node(irb, node->data.cancel_expr.expr, scope);
-    if (target_inst == irb->codegen->invalid_instruction)
+    ZigFn *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("cancel outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    ScopeSuspend *existing_suspend_scope = get_scope_suspend(scope);
+    if (existing_suspend_scope) {
+        if (!existing_suspend_scope->reported_err) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node, buf_sprintf("cannot cancel inside suspend block"));
+            add_error_note(irb->codegen, msg, existing_suspend_scope->base.source_node, buf_sprintf("suspend block here"));
+            existing_suspend_scope->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    IrInstruction *operand = ir_gen_node(irb, node->data.cancel_expr.expr, scope);
+    if (operand == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    zig_panic("TODO ir_gen_cancel");
+    return ir_build_cancel(irb, scope, node, operand);
 }
 
 static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -23781,10 +23806,6 @@ static IrInstruction *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstruct
     }
 }
 
-static IrInstruction *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
-    zig_panic("TODO analyze cancel");
-}
-
 static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op) {
     ZigType *operand_type = ir_resolve_type(ira, op);
     if (type_is_invalid(operand_type))
@@ -24472,6 +24493,26 @@ static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
     }
 
     return ir_build_suspend_finish(&ira->new_irb, instruction->base.scope, instruction->base.source_node, begin);
+}
+
+static IrInstruction *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
+    IrInstruction *frame = instruction->frame->child;
+    if (type_is_invalid(frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
+    IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
+    if (type_is_invalid(casted_frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ir_assert(fn_entry != nullptr, &instruction->base);
+
+    if (fn_entry->inferred_async_node == nullptr) {
+        fn_entry->inferred_async_node = instruction->base.source_node;
+    }
+
+    return ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_frame);
 }
 
 static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwaitSrc *instruction) {
