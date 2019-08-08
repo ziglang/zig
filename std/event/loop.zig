@@ -98,9 +98,21 @@ pub const Loop = struct {
     };
     pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
+    /// TODO copy elision / named return values so that the threads referencing *Loop
+    /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
+    pub fn init(self: *Loop, allocator: *mem.Allocator) !void {
+        if (builtin.single_threaded) {
+            return self.initSingleThreaded(allocator);
+        } else {
+            return self.initMultiThreaded(allocator);
+        }
+    }
+
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         return self.initInternal(allocator, 1);
     }
@@ -110,6 +122,7 @@ pub const Loop = struct {
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try Thread.cpuCount();
@@ -161,18 +174,18 @@ pub const Loop = struct {
     fn initOsData(self: *Loop, extra_thread_count: usize) InitOsDataError!void {
         switch (builtin.os) {
             .linux => {
-                // TODO self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
-                // TODO self.os_data.fs_queue_item = 0;
-                // TODO // we need another thread for the file system because Linux does not have an async
-                // TODO // file system I/O API.
-                // TODO self.os_data.fs_end_request = fs.RequestNode{
-                // TODO     .prev = undefined,
-                // TODO     .next = undefined,
-                // TODO     .data = fs.Request{
-                // TODO         .msg = fs.Request.Msg.End,
-                // TODO         .finish = fs.Request.Finish.NoAction,
-                // TODO     },
-                // TODO };
+                self.os_data.fs_queue = std.atomic.Queue(fs.Request).init();
+                self.os_data.fs_queue_item = 0;
+                // we need another thread for the file system because Linux does not have an async
+                // file system I/O API.
+                self.os_data.fs_end_request = fs.RequestNode{
+                    .prev = undefined,
+                    .next = undefined,
+                    .data = fs.Request{
+                        .msg = fs.Request.Msg.End,
+                        .finish = fs.Request.Finish.NoAction,
+                    },
+                };
 
                 errdefer {
                     while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
@@ -210,10 +223,10 @@ pub const Loop = struct {
                     &self.os_data.final_eventfd_event,
                 );
 
-                // TODO self.os_data.fs_thread = try Thread.spawn(self, posixFsRun);
+                self.os_data.fs_thread = try Thread.spawn(self, posixFsRun);
                 errdefer {
-                    // TODO self.posixFsRequest(&self.os_data.fs_end_request);
-                    // TODO self.os_data.fs_thread.wait();
+                    self.posixFsRequest(&self.os_data.fs_end_request);
+                    self.os_data.fs_thread.wait();
                 }
 
                 if (builtin.single_threaded) {
@@ -315,10 +328,10 @@ pub const Loop = struct {
                     .udata = undefined,
                 };
 
-                // TODO self.os_data.fs_thread = try Thread.spawn(self, posixFsRun);
+                self.os_data.fs_thread = try Thread.spawn(self, posixFsRun);
                 errdefer {
-                    // TODO self.posixFsRequest(&self.os_data.fs_end_request);
-                    // TODO self.os_data.fs_thread.wait();
+                    self.posixFsRequest(&self.os_data.fs_end_request);
+                    self.os_data.fs_thread.wait();
                 }
 
                 if (builtin.single_threaded) {
@@ -441,7 +454,6 @@ pub const Loop = struct {
     pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
         defer self.linuxRemoveFd(fd);
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode.Basic{
                 .base = ResumeNode{
                     .id = ResumeNode.Id.Basic,
@@ -454,10 +466,6 @@ pub const Loop = struct {
     }
 
     pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {
-        // TODO #1194
-        suspend {
-            resume @handle();
-        }
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
@@ -578,7 +586,7 @@ pub const Loop = struct {
             .macosx,
             .freebsd,
             .netbsd,
-            => {}, // TODO self.os_data.fs_thread.wait(),
+            => self.os_data.fs_thread.wait(),
             else => {},
         }
 
@@ -631,7 +639,7 @@ pub const Loop = struct {
             // cause all the threads to stop
             switch (builtin.os) {
                 .linux => {
-                    // TODO self.posixFsRequest(&self.os_data.fs_end_request);
+                    self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
                     os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
@@ -862,10 +870,10 @@ pub const Loop = struct {
         epollfd: i32,
         final_eventfd: i32,
         final_eventfd_event: os.linux.epoll_event,
-        // TODO fs_thread: *Thread,
-        // TODO fs_queue_item: i32,
-        // TODO fs_queue: std.atomic.Queue(fs.Request),
-        // TODO fs_end_request: fs.RequestNode,
+        fs_thread: *Thread,
+        fs_queue_item: i32,
+        fs_queue: std.atomic.Queue(fs.Request),
+        fs_end_request: fs.RequestNode,
     };
 };
 

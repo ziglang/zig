@@ -89,12 +89,7 @@ pub fn Channel(comptime T: type) type {
         /// puts a data item in the channel. The promise completes when the value has been added to the
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
         pub async fn put(self: *SelfChannel, data: T) void {
-            // TODO fix this workaround
-            suspend {
-                resume @handle();
-            }
-
-            var my_tick_node = Loop.NextTickNode.init(@handle());
+            var my_tick_node = Loop.NextTickNode.init(@frame());
             var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode{
                 .tick_node = &my_tick_node,
                 .data = data,
@@ -122,15 +117,10 @@ pub fn Channel(comptime T: type) type {
         /// await this function to get an item from the channel. If the buffer is empty, the promise will
         /// complete when the next item is put in the channel.
         pub async fn get(self: *SelfChannel) T {
-            // TODO fix this workaround
-            suspend {
-                resume @handle();
-            }
-
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: T = undefined;
-            var my_tick_node = Loop.NextTickNode.init(@handle());
+            var my_tick_node = Loop.NextTickNode.init(@frame());
             var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
                 .data = GetNode.Data{
@@ -173,15 +163,10 @@ pub fn Channel(comptime T: type) type {
         /// Await is necessary for locking purposes. The function will be resumed after checking the channel
         /// for data and will not wait for data to be available.
         pub async fn getOrNull(self: *SelfChannel) ?T {
-            // TODO fix this workaround
-            suspend {
-                resume @handle();
-            }
-
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: ?T = null;
-            var my_tick_node = Loop.NextTickNode.init(@handle());
+            var my_tick_node = Loop.NextTickNode.init(@frame());
             var or_null_node = std.atomic.Queue(*std.atomic.Queue(GetNode).Node).Node.init(undefined);
             var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
                 .tick_node = &my_tick_node,
@@ -334,41 +319,36 @@ test "std.event.Channel" {
     const channel = try Channel(i32).create(&loop, 0);
     defer channel.destroy();
 
-    const handle = try async<allocator> testChannelGetter(&loop, channel);
-    defer cancel handle;
-
-    const putter = try async<allocator> testChannelPutter(channel);
-    defer cancel putter;
+    const handle = async testChannelGetter(&loop, channel);
+    const putter = async testChannelPutter(channel);
 
     loop.run();
 }
 
 async fn testChannelGetter(loop: *Loop, channel: *Channel(i32)) void {
-    errdefer @panic("test failed");
-
-    const value1_promise = try async channel.get();
+    const value1_promise = async channel.get();
     const value1 = await value1_promise;
     testing.expect(value1 == 1234);
 
-    const value2_promise = try async channel.get();
+    const value2_promise = async channel.get();
     const value2 = await value2_promise;
     testing.expect(value2 == 4567);
 
-    const value3_promise = try async channel.getOrNull();
+    const value3_promise = async channel.getOrNull();
     const value3 = await value3_promise;
     testing.expect(value3 == null);
 
-    const last_put = try async testPut(channel, 4444);
-    const value4 = await try async channel.getOrNull();
+    const last_put = async testPut(channel, 4444);
+    const value4 = channel.getOrNull();
     testing.expect(value4.? == 4444);
     await last_put;
 }
 
 async fn testChannelPutter(channel: *Channel(i32)) void {
-    await (async channel.put(1234) catch @panic("out of memory"));
-    await (async channel.put(4567) catch @panic("out of memory"));
+    channel.put(1234);
+    channel.put(4567);
 }
 
 async fn testPut(channel: *Channel(i32), value: i32) void {
-    await (async channel.put(value) catch @panic("out of memory"));
+    channel.put(value);
 }
