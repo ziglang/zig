@@ -1575,14 +1575,14 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
     }
 }
 
-static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
+static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         LLVMValueRef value)
 {
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *child_type = ptr_type->data.pointer.child_type;
 
     if (!type_has_bits(child_type))
-        return nullptr;
+        return;
 
     if (handle_is_ptr(child_type)) {
         assert(LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMPointerTypeKind);
@@ -1602,13 +1602,13 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
         ZigLLVMBuildMemCpy(g->builder, dest_ptr, align_bytes, src_ptr, align_bytes,
                 LLVMConstInt(usize->llvm_type, size_bytes, false),
                 ptr_type->data.pointer.is_volatile);
-        return nullptr;
+        return;
     }
 
     uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
     if (host_int_bytes == 0) {
         gen_store(g, value, ptr, ptr_type);
-        return nullptr;
+        return;
     }
 
     bool big_endian = g->is_big_endian;
@@ -1638,7 +1638,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_ty
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
     gen_store(g, ored_value, ptr, ptr_type);
-    return nullptr;
+    return;
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
@@ -1958,6 +1958,7 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
                 LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
                 assert(param_value);
                 fn_walk->data.call.gen_param_values->append(param_value);
+                fn_walk->data.call.gen_param_types->append(param_type);
             }
         }
         return;
@@ -3821,6 +3822,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool prefix_arg_err_ret_stack = codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type);
     bool is_var_args = fn_type_id->is_var_args;
     ZigList<LLVMValueRef> gen_param_values = {};
+    ZigList<ZigType *> gen_param_types = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef frame_result_loc;
@@ -3923,6 +3925,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     fn_walk.data.call.inst = instruction;
     fn_walk.data.call.is_var_args = is_var_args;
     fn_walk.data.call.gen_param_values = &gen_param_values;
+    fn_walk.data.call.gen_param_types = &gen_param_types;
     walk_function_params(g, fn_type, &fn_walk);
 
     ZigLLVM_FnInline fn_inline;
@@ -3964,7 +3967,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
         for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
             LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, casted_frame, arg_start_i + arg_i, "");
-            LLVMBuildStore(g->builder, gen_param_values.at(arg_i), arg_ptr);
+            gen_assign_raw(g, arg_ptr, get_pointer_to_type(g, gen_param_types.at(arg_i), true),
+                    gen_param_values.at(arg_i));
         }
     }
     if (instruction->is_async) {

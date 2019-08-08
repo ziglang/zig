@@ -3763,6 +3763,7 @@ struct FnWalkAttrs {
 
 struct FnWalkCall {
     ZigList<LLVMValueRef> *gen_param_values;
+    ZigList<ZigType *> *gen_param_types;
     IrInstructionCallGen *inst;
     bool is_var_args;
 };

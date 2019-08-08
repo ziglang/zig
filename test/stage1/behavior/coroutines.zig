@@ -568,3 +568,24 @@ test "errdefers in scope get run when canceling async fn call" {
     };
     S.doTheTest();
 }
+
+test "pass string literal to async function" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok: bool = false;
+
+        fn doTheTest() void {
+            _ = async hello("hello");
+            resume frame;
+            expect(ok);
+        }
+
+        fn hello(msg: []const u8) void {
+            frame = @frame();
+            suspend;
+            expectEqual(([]const u8)("hello"), msg);
+            ok = true;
+        }
+    };
+    S.doTheTest();
+}
