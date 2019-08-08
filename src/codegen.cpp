@@ -2259,7 +2259,7 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
 
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
-    LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, g->cur_async_awaiter_ptr,
+    LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXor, g->cur_async_awaiter_ptr,
             all_ones, LLVMAtomicOrderingAcquire, g->is_single_threaded);
 
     LLVMBasicBlockRef bad_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadReturn");
@@ -2346,7 +2346,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, masked_prev_val,
                 get_llvm_type(g, any_frame_type), "");
         LLVMValueRef call_inst = gen_resume(g, nullptr, their_frame_ptr, ResumeIdReturn, nullptr);
-        ZigLLVMSetTailCall(call_inst);
+        LLVMSetTailCall(call_inst, true);
         LLVMBuildRetVoid(g->builder);
 
         return nullptr;
@@ -3956,7 +3956,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMBasicBlockRef call_bb = gen_suspend_begin(g, "CallResume");
 
         LLVMValueRef call_inst = gen_resume(g, fn_val, frame_result_loc, ResumeIdCall, nullptr);
-        ZigLLVMSetTailCall(call_inst);
+        LLVMSetTailCall(call_inst, true);
         LLVMBuildRetVoid(g->builder);
 
         LLVMPositionBuilderAtEnd(g->builder, call_bb);
@@ -5456,7 +5456,7 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
     LLVMValueRef call_inst = gen_resume(g, nullptr, target_frame_ptr, ResumeIdAwaitEarlyReturn, awaiter_ored_val);
-    ZigLLVMSetTailCall(call_inst);
+    LLVMSetTailCall(call_inst, true);
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, resume_bb);
@@ -5524,7 +5524,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // Tail resume it now, so that it can complete.
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
     LLVMValueRef call_inst = gen_resume(g, nullptr, target_frame_ptr, ResumeIdAwaitEarlyReturn, awaiter_init_val);
-    ZigLLVMSetTailCall(call_inst);
+    LLVMSetTailCall(call_inst, true);
     LLVMBuildRetVoid(g->builder);
 
     // Rely on the target to resume us from suspension.

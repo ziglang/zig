@@ -1,6 +1,30 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("awaiting twice",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\var frame: anyframe = undefined;
+        \\
+        \\pub fn main() void {
+        \\    _ = async amain();
+        \\    resume frame;
+        \\}
+        \\
+        \\fn amain() void {
+        \\    var f = async func();
+        \\    await f;
+        \\    await f;
+        \\}
+        \\
+        \\fn func() void {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\}
+    );
+
     cases.addRuntimeSafety("@asyncCall with too small a frame",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
