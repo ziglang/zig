@@ -5179,11 +5179,14 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
             if (fn->anal_state == FnAnalStateInvalid)
                 return ErrorSemanticAnalyzeFail;
             break;
-        case FnAnalStateProbing:
-            add_node_error(g, fn->proto_node,
+        case FnAnalStateProbing: {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
                     buf_sprintf("cannot resolve '%s': function not fully analyzed yet",
                         buf_ptr(&frame_type->name)));
+            ir_add_analysis_trace(fn->ir_executable.analysis, msg,
+                    buf_sprintf("depends on its own frame here"));
             return ErrorSemanticAnalyzeFail;
+        }
     }
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
@@ -5201,8 +5204,10 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         if (callee->anal_state == FnAnalStateProbing) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("unable to determine async function frame of '%s'", buf_ptr(&fn->symbol_name)));
-            add_error_note(g, msg, call->base.source_node,
+            ErrorMsg *note = add_error_note(g, msg, call->base.source_node,
                 buf_sprintf("analysis of function '%s' depends on the frame", buf_ptr(&callee->symbol_name)));
+            ir_add_analysis_trace(callee->ir_executable.analysis, note,
+                    buf_sprintf("depends on the frame here"));
             return ErrorSemanticAnalyzeFail;
         }
 

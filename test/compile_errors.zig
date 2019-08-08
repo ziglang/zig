@@ -3,6 +3,36 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "async function indirectly depends on its own frame",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\async fn amain() void {
+        \\    other();
+        \\}
+        \\fn other() void {
+        \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
+        \\}
+    ,
+        "tmp.zig:4:1: error: unable to determine async function frame of 'amain'",
+        "tmp.zig:5:10: note: analysis of function 'other' depends on the frame",
+        "tmp.zig:8:13: note: depends on the frame here",
+    );
+
+    cases.add(
+        "async function depends on its own frame",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\async fn amain() void {
+        \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
+        \\}
+    ,
+        "tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet",
+        "tmp.zig:5:13: note: depends on its own frame here",
+    );
+
+    cases.add(
         "non async function pointer passed to @asyncCall",
         \\export fn entry() void {
         \\    var ptr = afunc;

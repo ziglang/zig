@@ -8217,18 +8217,24 @@ bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
 }
 
-static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg *err_msg, int limit) {
+static void ir_add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg *err_msg, int limit) {
     if (!exec || !exec->source_node || limit < 0) return;
     add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
 
-    add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
+    ir_add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
+}
+
+void ir_add_analysis_trace(IrAnalyze *ira, ErrorMsg *err_msg, Buf *text) {
+    IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
+    add_error_note(ira->codegen, err_msg, old_instruction->source_node, text);
+    ir_add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
 }
 
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg) {
     invalidate_exec(exec);
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     if (exec->parent_exec) {
-        add_call_stack_errors(codegen, exec, err_msg, 10);
+        ir_add_call_stack_errors(codegen, exec, err_msg, 10);
     }
     return err_msg;
 }
