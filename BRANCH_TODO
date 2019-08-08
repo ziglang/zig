@@ -31,3 +31,8 @@
  * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
  * when there are multiple calls to async functions in a function, reuse the same frame buffer, so that the
    needed bytes is equal to the largest callee's frame 
+ * if an async function is never called with async then a few optimizations can be made:
+   - the return does not need to be atomic
+   - it can be assumed that these are always available: the awaiter ptr, return ptr if applicable,
+     error return trace ptr if applicable.
+   - it can be assumed that it is never cancelled

@@ -5198,6 +5198,13 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         if (callee->body_node == nullptr) {
             continue;
         }
+        if (callee->anal_state == FnAnalStateProbing) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("unable to determine async function frame of '%s'", buf_ptr(&fn->symbol_name)));
+            add_error_note(g, msg, call->base.source_node,
+                buf_sprintf("analysis of function '%s' depends on the frame", buf_ptr(&callee->symbol_name)));
+            return ErrorSemanticAnalyzeFail;
+        }
 
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {
