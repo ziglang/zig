@@ -15799,26 +15799,60 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         casted_args[next_arg_index] = casted_arg;
         next_arg_index += 1;
     }
-    size_t iter_count = (call_param_count < call_instruction->arg_count) ?
-        call_param_count : call_instruction->arg_count;
-    for (size_t call_i = 0; call_i < iter_count; call_i += 1) {
+    for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
         IrInstruction *old_arg = call_instruction->args[call_i]->child;
         if (type_is_invalid(old_arg->value.type))
             return ira->codegen->invalid_instruction;
-        IrInstruction *casted_arg;
-        if (next_arg_index < src_param_count) {
-            ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
-            if (type_is_invalid(param_type))
-                return ira->codegen->invalid_instruction;
-            casted_arg = ir_implicit_cast(ira, old_arg, param_type);
-            if (type_is_invalid(casted_arg->value.type))
-                return ira->codegen->invalid_instruction;
-        } else {
-            casted_arg = old_arg;
-        }
 
-        casted_args[next_arg_index] = casted_arg;
-        next_arg_index += 1;
+        if (old_arg->value.type->id == ZigTypeIdArgTuple) {
+            for (size_t arg_tuple_i = old_arg->value.data.x_arg_tuple.start_index;
+                arg_tuple_i < old_arg->value.data.x_arg_tuple.end_index; arg_tuple_i += 1)
+            {
+                ZigVar *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
+                if (arg_var == nullptr) {
+                    ir_add_error(ira, old_arg,
+                        buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
+                    return ira->codegen->invalid_instruction;
+                }
+                IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, old_arg, arg_var);
+                if (type_is_invalid(arg_var_ptr_inst->value.type))
+                    return ira->codegen->invalid_instruction;
+
+                IrInstruction *arg_tuple_arg = ir_get_deref(ira, old_arg, arg_var_ptr_inst, nullptr);
+                if (type_is_invalid(arg_tuple_arg->value.type))
+                    return ira->codegen->invalid_instruction;
+
+                IrInstruction *casted_arg;
+                if (next_arg_index < src_param_count) {
+                    ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
+                    if (type_is_invalid(param_type))
+                        return ira->codegen->invalid_instruction;
+                    casted_arg = ir_implicit_cast(ira, arg_tuple_arg, param_type);
+                    if (type_is_invalid(casted_arg->value.type))
+                        return ira->codegen->invalid_instruction;
+                } else {
+                    casted_arg = arg_tuple_arg;
+                }
+
+                casted_args[next_arg_index] = casted_arg;
+                next_arg_index += 1;
+            }
+        } else {
+            IrInstruction *casted_arg;
+            if (next_arg_index < src_param_count) {
+                ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
+                if (type_is_invalid(param_type))
+                    return ira->codegen->invalid_instruction;
+                casted_arg = ir_implicit_cast(ira, old_arg, param_type);
+                if (type_is_invalid(casted_arg->value.type))
+                    return ira->codegen->invalid_instruction;
+            } else {
+                casted_arg = old_arg;
+            }
+
+            casted_args[next_arg_index] = casted_arg;
+            next_arg_index += 1;
+        }
     }
 
     assert(next_arg_index == call_param_count);

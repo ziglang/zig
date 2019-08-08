@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
+const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -84,6 +85,18 @@ pub const Loop = struct {
             kev: os.Kevent,
         };
     };
+
+    pub const IoMode = enum {
+        blocking,
+        evented,
+    };
+    pub const io_mode: IoMode = if (@hasDecl(root, "io_mode")) root.io_mode else IoMode.blocking;
+    var global_instance_state: Loop = undefined;
+    const default_instance: ?*Loop = switch (io_mode) {
+        .blocking => null,
+        .evented => &global_instance_state,
+    };
+    pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
@@ -599,7 +612,7 @@ pub const Loop = struct {
     /// If the build is multi-threaded and there is an event loop, then it calls `yield`. Otherwise,
     /// does nothing.
     pub fn startCpuBoundOperation() void {
-        if (builtin.is_single_threaded) {
+        if (builtin.single_threaded) {
             return;
         } else if (instance) |event_loop| {
             event_loop.yield();
@@ -881,7 +894,7 @@ test "std.event.Loop - call" {
 
     var did_it = false;
     const handle = async Loop.call(testEventLoop);
-    const handle2 = async Loop.call(testEventLoop2, handle, &did_it);
+    const handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
 
     loop.run();
 
