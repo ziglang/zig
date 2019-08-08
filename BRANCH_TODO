@@ -2,8 +2,7 @@
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
  * async call on a non async function
- * cancel
- * defer and errdefer
+ * a test where an async function destroys its own frame in a defer
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
  * revive std.event.Loop
  * @typeInfo for @Frame(func)

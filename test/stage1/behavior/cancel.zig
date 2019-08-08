@@ -48,8 +48,9 @@ var defer_b3: bool = false;
 var defer_b4: bool = false;
 
 test "cancel backwards" {
-    _ = async b1();
+    var b1_frame = async b1();
     resume b4_handle;
+    _ = async awaitAFrame(&b1_frame);
     expect(defer_b1);
     expect(defer_b2);
     expect(defer_b3);
@@ -63,7 +64,7 @@ async fn b1() void {
     b2();
 }
 
-var b4_handle: anyframe = undefined;
+var b4_handle: anyframe->void = undefined;
 
 async fn b2() void {
     const b3_handle = async b3();
@@ -91,6 +92,10 @@ async fn b4() void {
         b4_handle = @frame();
     }
     suspend;
+}
+
+fn awaitAFrame(f: anyframe->void) void {
+    await f;
 }
 
 test "cancel on a non-pointer" {

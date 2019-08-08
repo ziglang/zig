@@ -26,6 +26,7 @@ struct IrBuilder {
     CodeGen *codegen;
     IrExecutable *exec;
     IrBasicBlock *current_basic_block;
+    AstNode *main_block_node;
 };
 
 struct IrAnalyze {
@@ -1059,6 +1060,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAwaitGen *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroResume *) {
     return IrInstructionIdCoroResume;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTestCancelRequested *) {
+    return IrInstructionIdTestCancelRequested;
 }
 
 template<typename T>
@@ -3320,6 +3325,16 @@ static IrInstruction *ir_build_coro_resume(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_test_cancel_requested(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        bool use_return_begin_prev_value)
+{
+    IrInstructionTestCancelRequested *instruction = ir_build_instruction<IrInstructionTestCancelRequested>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_bool;
+    instruction->use_return_begin_prev_value = use_return_begin_prev_value;
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3494,45 +3509,62 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 size_t defer_counts[2];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
                 bool have_err_defers = defer_counts[ReturnKindError] > 0;
-                if (have_err_defers || irb->codegen->have_err_ret_tracing) {
-                    IrBasicBlock *err_block = ir_create_basic_block(irb, scope, "ErrRetErr");
-                    IrBasicBlock *ok_block = ir_create_basic_block(irb, scope, "ErrRetOk");
-
-                    IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, return_value, false, true);
-
-                    bool should_inline = ir_should_inline(irb->exec, scope);
-                    IrInstruction *is_comptime;
-                    if (should_inline) {
-                        is_comptime = ir_build_const_bool(irb, scope, node, true);
-                    } else {
-                        is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
-                    }
-
-                    ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime));
-                    IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
-
-                    ir_set_cursor_at_end_and_append_block(irb, err_block);
-                    if (irb->codegen->have_err_ret_tracing && !should_inline) {
-                        ir_build_save_err_ret_addr(irb, scope, node);
-                    }
-                    ir_gen_defers_for_block(irb, scope, outer_scope, true);
-                    ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
-
-                    ir_set_cursor_at_end_and_append_block(irb, ok_block);
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
-
-                    ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
-                    IrInstruction *result = ir_build_return(irb, scope, node, return_value);
-                    result_loc_ret->base.source_instruction = result;
-                    return result;
-                } else {
-                    // generate unconditional defers
+                if (!have_err_defers && !irb->codegen->have_err_ret_tracing) {
+                    // only generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     IrInstruction *result = ir_build_return(irb, scope, node, return_value);
                     result_loc_ret->base.source_instruction = result;
                     return result;
                 }
+                bool should_inline = ir_should_inline(irb->exec, scope);
+                bool need_test_cancel = !should_inline && have_err_defers;
+
+                IrBasicBlock *err_block = ir_create_basic_block(irb, scope, "ErrRetErr");
+                IrBasicBlock *normal_defers_block = ir_create_basic_block(irb, scope, "Defers");
+                IrBasicBlock *ok_block = need_test_cancel ?
+                    ir_create_basic_block(irb, scope, "ErrRetOk") : normal_defers_block;
+                IrBasicBlock *all_defers_block = have_err_defers ? ir_create_basic_block(irb, scope, "ErrDefers") : normal_defers_block;
+
+                IrInstruction *is_err = ir_build_test_err_src(irb, scope, node, return_value, false, true);
+
+                IrInstruction *force_comptime = ir_build_const_bool(irb, scope, node, should_inline);
+                IrInstruction *err_is_comptime;
+                if (should_inline) {
+                    err_is_comptime = force_comptime;
+                } else {
+                    err_is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
+                }
+
+                ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, err_is_comptime));
+                IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
+
+                ir_set_cursor_at_end_and_append_block(irb, err_block);
+                if (irb->codegen->have_err_ret_tracing && !should_inline) {
+                    ir_build_save_err_ret_addr(irb, scope, node);
+                }
+                ir_build_br(irb, scope, node, all_defers_block, err_is_comptime);
+
+                if (need_test_cancel) {
+                    ir_set_cursor_at_end_and_append_block(irb, ok_block);
+                    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, scope, node, true);
+                    ir_mark_gen(ir_build_cond_br(irb, scope, node, is_canceled,
+                                all_defers_block, normal_defers_block, force_comptime));
+                }
+
+                if (all_defers_block != normal_defers_block) {
+                    ir_set_cursor_at_end_and_append_block(irb, all_defers_block);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, true);
+                    ir_build_br(irb, scope, node, ret_stmt_block, force_comptime);
+                }
+
+                ir_set_cursor_at_end_and_append_block(irb, normal_defers_block);
+                ir_gen_defers_for_block(irb, scope, outer_scope, false);
+                ir_build_br(irb, scope, node, ret_stmt_block, force_comptime);
+
+                ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
+                IrInstruction *result = ir_build_return(irb, scope, node, return_value);
+                result_loc_ret->base.source_instruction = result;
+                return result;
             }
         case ReturnKindError:
             {
@@ -3765,18 +3797,59 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         incoming_values.append(else_expr_result);
     }
 
-    if (block_node->data.block.name != nullptr) {
+    bool is_return_from_fn = block_node == irb->main_block_node;
+    if (!is_return_from_fn) {
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+    }
+
+    IrInstruction *result;
+    if (block_node->data.block.name != nullptr) {
         ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
         ir_set_cursor_at_end_and_append_block(irb, scope_block->end_block);
         IrInstruction *phi = ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length,
                 incoming_blocks.items, incoming_values.items, scope_block->peer_parent);
-        return ir_expr_wrap(irb, parent_scope, phi, result_loc);
+        result = ir_expr_wrap(irb, parent_scope, phi, result_loc);
     } else {
-        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         IrInstruction *void_inst = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
-        return ir_lval_wrap(irb, parent_scope, void_inst, lval, result_loc);
+        result = ir_lval_wrap(irb, parent_scope, void_inst, lval, result_loc);
     }
+    if (!is_return_from_fn)
+        return result;
+
+    // no need for save_err_ret_addr because this cannot return error
+    // but if it is a canceled async function we do need to run the errdefers
+
+    ir_mark_gen(ir_build_add_implicit_return_type(irb, child_scope, block_node, result));
+    result = ir_mark_gen(ir_build_return_begin(irb, child_scope, block_node, result));
+
+    size_t defer_counts[2];
+    ir_count_defers(irb, child_scope, outer_block_scope, defer_counts);
+    bool have_err_defers = defer_counts[ReturnKindError] > 0;
+    if (!have_err_defers) {
+        // only generate unconditional defers
+        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+        return ir_mark_gen(ir_build_return(irb, child_scope, result->source_node, result));
+    }
+    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, child_scope, block_node, true);
+    IrBasicBlock *all_defers_block = ir_create_basic_block(irb, child_scope, "ErrDefers");
+    IrBasicBlock *normal_defers_block = ir_create_basic_block(irb, child_scope, "Defers");
+    IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, child_scope, "RetStmt");
+    bool should_inline = ir_should_inline(irb->exec, child_scope);
+    IrInstruction *errdefers_is_comptime = ir_build_const_bool(irb, child_scope, block_node,
+            should_inline || !have_err_defers);
+    ir_mark_gen(ir_build_cond_br(irb, child_scope, block_node, is_canceled,
+                all_defers_block, normal_defers_block, errdefers_is_comptime));
+
+    ir_set_cursor_at_end_and_append_block(irb, all_defers_block);
+    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, true);
+    ir_build_br(irb, child_scope, block_node, ret_stmt_block, errdefers_is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, normal_defers_block);
+    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+    ir_build_br(irb, child_scope, block_node, ret_stmt_block, errdefers_is_comptime);
+
+    ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
+    return ir_mark_gen(ir_build_return(irb, child_scope, result->source_node, result));
 }
 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
@@ -8111,6 +8184,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     irb->codegen = codegen;
     irb->exec = ir_executable;
+    irb->main_block_node = node;
 
     IrBasicBlock *entry_block = ir_create_basic_block(irb, scope, "Entry");
     ir_set_cursor_at_end_and_append_block(irb, entry_block);
@@ -24603,6 +24677,16 @@ static IrInstruction *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstr
     return ir_build_coro_resume(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_frame);
 }
 
+static IrInstruction *ir_analyze_instruction_test_cancel_requested(IrAnalyze *ira,
+        IrInstructionTestCancelRequested *instruction)
+{
+    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope)) {
+        return ir_const_bool(ira, &instruction->base, false);
+    }
+    return ir_build_test_cancel_requested(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            instruction->use_return_begin_prev_value);
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -24900,6 +24984,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdAwaitSrc:
             return ir_analyze_instruction_await(ira, (IrInstructionAwaitSrc *)instruction);
+        case IrInstructionIdTestCancelRequested:
+            return ir_analyze_instruction_test_cancel_requested(ira, (IrInstructionTestCancelRequested *)instruction);
     }
     zig_unreachable();
 }
@@ -25134,6 +25220,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdHasDecl:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
+        case IrInstructionIdTestCancelRequested:
             return false;
 
         case IrInstructionIdAsm:

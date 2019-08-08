@@ -5557,6 +5557,18 @@ static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutable *executable,
     return gen_frame_size(g, fn_val);
 }
 
+static LLVMValueRef ir_render_test_cancel_requested(CodeGen *g, IrExecutable *executable,
+        IrInstructionTestCancelRequested *instruction)
+{
+    if (!fn_is_async(g->cur_fn))
+        return LLVMConstInt(LLVMInt1Type(), 0, false);
+    if (instruction->use_return_begin_prev_value) {
+        return LLVMBuildTrunc(g->builder, g->cur_async_prev_val, LLVMInt1Type(), "");
+    } else {
+        zig_panic("TODO");
+    }
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -5810,6 +5822,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_frame_size(g, executable, (IrInstructionFrameSizeGen *)instruction);
         case IrInstructionIdAwaitGen:
             return ir_render_await(g, executable, (IrInstructionAwaitGen *)instruction);
+        case IrInstructionIdTestCancelRequested:
+            return ir_render_test_cancel_requested(g, executable, (IrInstructionTestCancelRequested *)instruction);
     }
     zig_unreachable();
 }

@@ -2363,6 +2363,7 @@ enum IrInstructionId {
     IrInstructionIdAwaitSrc,
     IrInstructionIdAwaitGen,
     IrInstructionIdCoroResume,
+    IrInstructionIdTestCancelRequested,
 };
 
 struct IrInstruction {
@@ -3634,6 +3635,12 @@ struct IrInstructionCoroResume {
     IrInstruction base;
 
     IrInstruction *frame;
+};
+
+struct IrInstructionTestCancelRequested {
+    IrInstruction base;
+
+    bool use_return_begin_prev_value;
 };
 
 enum ResultLocId {

@@ -134,29 +134,44 @@ test "@frameSize" {
 }
 
 test "coroutine suspend, resume" {
-    seq('a');
-    const p = async testAsyncSeq();
-    seq('c');
-    resume p;
-    seq('f');
-    // `cancel` is now a suspend point so it cannot be done here
-    seq('g');
+    const S = struct {
+        var frame: anyframe = undefined;
 
-    expect(std.mem.eql(u8, points, "abcdefg"));
-}
-async fn testAsyncSeq() void {
-    defer seq('e');
+        fn doTheTest() void {
+            _ = async amain();
+            seq('d');
+            resume frame;
+            seq('h');
 
-    seq('b');
-    suspend;
-    seq('d');
-}
-var points = [_]u8{0} ** "abcdefg".len;
-var index: usize = 0;
+            expect(std.mem.eql(u8, points, "abcdefgh"));
+        }
 
-fn seq(c: u8) void {
-    points[index] = c;
-    index += 1;
+        fn amain() void {
+            seq('a');
+            var f = async testAsyncSeq();
+            seq('c');
+            cancel f;
+            seq('g');
+        }
+
+        fn testAsyncSeq() void {
+            defer seq('f');
+
+            seq('b');
+            suspend {
+                frame = @frame();
+            }
+            seq('e');
+        }
+        var points = [_]u8{'x'} ** "abcdefgh".len;
+        var index: usize = 0;
+
+        fn seq(c: u8) void {
+            points[index] = c;
+            index += 1;
+        }
+    };
+    S.doTheTest();
 }
 
 test "coroutine suspend with block" {
@@ -267,12 +282,19 @@ test "async fn pointer in a struct field" {
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 = undefined;
-    const p = @asyncCall(&bytes, {}, foo.bar, &data);
-    comptime expect(@typeOf(p) == anyframe->void);
+    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    comptime expect(@typeOf(f) == anyframe->void);
     expect(data == 2);
-    resume p;
+    resume f;
+    expect(data == 2);
+    _ = async doTheAwait(f);
     expect(data == 4);
 }
+
+fn doTheAwait(f: anyframe->void) void {
+    await f;
+}
+
 async fn simpleAsyncFn2(y: *i32) void {
     defer y.* += 2;
     y.* += 1;
@@ -503,6 +525,45 @@ test "call async function which has struct return type" {
                 .x = 5,
                 .y = 6,
             };
+        }
+    };
+    S.doTheTest();
+}
+
+test "errdefers in scope get run when canceling async fn call" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var x: u32 = 0;
+
+        fn doTheTest() void {
+            x = 9;
+            _ = async cancelIt();
+            resume frame;
+            expect(x == 6);
+
+            x = 9;
+            _ = async awaitIt();
+            resume frame;
+            expect(x == 11);
+        }
+
+        fn cancelIt() void {
+            var f = async func();
+            cancel f;
+        }
+
+        fn awaitIt() void {
+            var f = async func();
+            await f;
+        }
+
+        fn func() void {
+            defer x += 1;
+            errdefer x /= 2;
+            defer x += 1;
+            suspend {
+                frame = @frame();
+            }
         }
     };
     S.doTheTest();
