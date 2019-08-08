@@ -2236,6 +2236,29 @@ static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
     return resume_bb;
 }
 
+static LLVMValueRef gen_maybe_atomic_op(CodeGen *g, LLVMAtomicRMWBinOp op, LLVMValueRef ptr, LLVMValueRef val,
+        LLVMAtomicOrdering order)
+{
+    if (g->is_single_threaded) {
+        LLVMValueRef loaded = LLVMBuildLoad(g->builder, ptr, "");
+        LLVMValueRef modified;
+        switch (op) {
+            case LLVMAtomicRMWBinOpXchg:
+                modified = val;
+                break;
+            case LLVMAtomicRMWBinOpXor:
+                modified = LLVMBuildXor(g->builder, loaded, val, "");
+                break;
+            default:
+                zig_unreachable();
+        }
+        LLVMBuildStore(g->builder, modified, ptr);
+        return loaded;
+    } else {
+        return LLVMBuildAtomicRMW(g->builder, op, ptr, val, order, false);
+    }
+}
+
 static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnBegin *instruction)
 {
@@ -2259,8 +2282,8 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
 
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
-    LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXor, g->cur_async_awaiter_ptr,
-            all_ones, LLVMAtomicOrderingAcquire, g->is_single_threaded);
+    LLVMValueRef prev_val = gen_maybe_atomic_op(g, LLVMAtomicRMWBinOpXor, g->cur_async_awaiter_ptr,
+            all_ones, LLVMAtomicOrderingAcquire);
 
     LLVMBasicBlockRef bad_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadReturn");
     LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");
@@ -5278,7 +5301,8 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
         LLVMPointerType(g->builtin_types.entry_usize->llvm_type, 0), "");
     LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, g->builtin_types.entry_usize->llvm_type, "");
-    LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering, false);
+    LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering,
+            g->is_single_threaded);
     return LLVMBuildIntToPtr(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
 }
 
@@ -5441,8 +5465,8 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef awaiter_ored_val = LLVMBuildOr(g->builder, awaiter_val, one, "");
     LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_awaiter_index, "");
 
-    LLVMValueRef prev_val = LLVMBuildAtomicRMW(g->builder, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_ored_val,
-            LLVMAtomicOrderingRelease, g->is_single_threaded);
+    LLVMValueRef prev_val = gen_maybe_atomic_op(g, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_ored_val,
+            LLVMAtomicOrderingRelease);
 
     LLVMBasicBlockRef complete_suspend_block = LLVMAppendBasicBlock(g->cur_fn_val, "CancelSuspend");
     LLVMBasicBlockRef early_return_block = LLVMAppendBasicBlock(g->cur_fn_val, "EarlyReturn");

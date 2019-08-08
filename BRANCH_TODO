@@ -15,7 +15,6 @@
  * compile error for copying a frame
  * compile error for resuming a const frame pointer
  * runtime safety enabling/disabling scope has to be coordinated across resume/await/calls/return
- * await in single-threaded mode
  * calling a generic function which is async
  * make sure `await @asyncCall` and `await async` are handled correctly.
  * allow @asyncCall with a real @Frame(func) (the point of this is result pointer)
@@ -28,7 +27,6 @@
    - suspend
    - resume
    - anyframe, anyframe->T
- * safety for double await
  * call graph analysis to have fewer stack trace frames
  * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
  * when there are multiple calls to async functions in a function, reuse the same frame buffer, so that the
