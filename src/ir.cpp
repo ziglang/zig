@@ -15746,7 +15746,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         size_t impl_param_count = impl_fn_type_id->param_count;
         if (call_instruction->is_async) {
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
-                    nullptr, casted_args, call_param_count, casted_new_stack);
+                    nullptr, casted_args, impl_param_count, casted_new_stack);
             return ir_finish_anal(ira, result);
         }
 
@@ -15756,7 +15756,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
 
         IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
-                call_instruction->is_async, casted_new_stack, result_loc,
+                false, casted_new_stack, result_loc,
                 impl_fn_type_id->return_type);
 
         parent_fn_entry->call_list.append(new_call_instruction);
@@ -15799,7 +15799,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         casted_args[next_arg_index] = casted_arg;
         next_arg_index += 1;
     }
-    for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
+    size_t iter_count = (call_param_count < call_instruction->arg_count) ?
+        call_param_count : call_instruction->arg_count;
+    for (size_t call_i = 0; call_i < iter_count; call_i += 1) {
         IrInstruction *old_arg = call_instruction->args[call_i]->child;
         if (type_is_invalid(old_arg->value.type))
             return ira->codegen->invalid_instruction;

@@ -83,10 +83,10 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
         resume @handle();
     }
     switch (builtin.os) {
-        builtin.Os.macosx,
-        builtin.Os.linux,
-        builtin.Os.freebsd,
-        builtin.Os.netbsd,
+        .macosx,
+        .linux,
+        .freebsd,
+        .netbsd,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec_const, data.len);
             defer loop.allocator.free(iovecs);
@@ -100,7 +100,7 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
 
             return await (async pwritevPosix(loop, fd, iovecs, offset) catch unreachable);
         },
-        builtin.Os.windows => {
+        .windows => {
             const data_copy = try std.mem.dupe(loop.allocator, []const u8, data);
             defer loop.allocator.free(data_copy);
             return await (async pwritevWindows(loop, fd, data, offset) catch unreachable);
@@ -220,10 +220,10 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
 
     assert(data.len != 0);
     switch (builtin.os) {
-        builtin.Os.macosx,
-        builtin.Os.linux,
-        builtin.Os.freebsd,
-        builtin.Os.netbsd,
+        .macosx,
+        .linux,
+        .freebsd,
+        .netbsd,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec, data.len);
             defer loop.allocator.free(iovecs);
@@ -237,7 +237,7 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
 
             return await (async preadvPosix(loop, fd, iovecs, offset) catch unreachable);
         },
-        builtin.Os.windows => {
+        .windows => {
             const data_copy = try std.mem.dupe(loop.allocator, []u8, data);
             defer loop.allocator.free(data_copy);
             return await (async preadvWindows(loop, fd, data_copy, offset) catch unreachable);
@@ -403,12 +403,12 @@ pub async fn openPosix(
 
 pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
-        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
+        .macosx, .linux, .freebsd, .netbsd => {
             const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
 
-        builtin.Os.windows => return windows.CreateFile(
+        .windows => return windows.CreateFile(
             path,
             windows.GENERIC_READ,
             windows.FILE_SHARE_READ,
@@ -431,15 +431,15 @@ pub async fn openWrite(loop: *Loop, path: []const u8) File.OpenError!fd_t {
 /// Creates if does not exist. Truncates the file if it exists.
 pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenError!fd_t {
     switch (builtin.os) {
-        builtin.Os.macosx,
-        builtin.Os.linux,
-        builtin.Os.freebsd,
-        builtin.Os.netbsd,
+        .macosx,
+        .linux,
+        .freebsd,
+        .netbsd,
         => {
             const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
         },
-        builtin.Os.windows => return windows.CreateFile(
+        .windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
@@ -459,12 +459,12 @@ pub async fn openReadWrite(
     mode: File.Mode,
 ) File.OpenError!fd_t {
     switch (builtin.os) {
-        builtin.Os.macosx, builtin.Os.linux, builtin.Os.freebsd, builtin.Os.netbsd => {
+        .macosx, .linux, .freebsd, .netbsd => {
             const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return await (async openPosix(loop, path, flags, mode) catch unreachable);
         },
 
-        builtin.Os.windows => return windows.CreateFile(
+        .windows => return windows.CreateFile(
             path,
             windows.GENERIC_WRITE | windows.GENERIC_READ,
             windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
@@ -489,9 +489,9 @@ pub const CloseOperation = struct {
     os_data: OsData,
 
     const OsData = switch (builtin.os) {
-        builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => OsDataPosix,
+        .linux, .macosx, .freebsd, .netbsd => OsDataPosix,
 
-        builtin.Os.windows => struct {
+        .windows => struct {
             handle: ?fd_t,
         },
 
@@ -508,8 +508,8 @@ pub const CloseOperation = struct {
         self.* = CloseOperation{
             .loop = loop,
             .os_data = switch (builtin.os) {
-                builtin.Os.linux, builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => initOsDataPosix(self),
-                builtin.Os.windows => OsData{ .handle = null },
+                .linux, .macosx, .freebsd, .netbsd => initOsDataPosix(self),
+                .windows => OsData{ .handle = null },
                 else => @compileError("Unsupported OS"),
             },
         };
@@ -535,10 +535,10 @@ pub const CloseOperation = struct {
     /// Defer this after creating.
     pub fn finish(self: *CloseOperation) void {
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
             => {
                 if (self.os_data.have_fd) {
                     self.loop.posixFsRequest(&self.os_data.close_req_node);
@@ -546,7 +546,7 @@ pub const CloseOperation = struct {
                     self.loop.allocator.destroy(self);
                 }
             },
-            builtin.Os.windows => {
+            .windows => {
                 if (self.os_data.handle) |handle| {
                     os.close(handle);
                 }
@@ -558,15 +558,15 @@ pub const CloseOperation = struct {
 
     pub fn setHandle(self: *CloseOperation, handle: fd_t) void {
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
             => {
                 self.os_data.close_req_node.data.msg.Close.fd = handle;
                 self.os_data.have_fd = true;
             },
-            builtin.Os.windows => {
+            .windows => {
                 self.os_data.handle = handle;
             },
             else => @compileError("Unsupported OS"),
@@ -576,14 +576,14 @@ pub const CloseOperation = struct {
     /// Undo a `setHandle`.
     pub fn clearHandle(self: *CloseOperation) void {
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
             => {
                 self.os_data.have_fd = false;
             },
-            builtin.Os.windows => {
+            .windows => {
                 self.os_data.handle = null;
             },
             else => @compileError("Unsupported OS"),
@@ -592,15 +592,15 @@ pub const CloseOperation = struct {
 
     pub fn getHandle(self: *CloseOperation) fd_t {
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
             => {
                 assert(self.os_data.have_fd);
                 return self.os_data.close_req_node.data.msg.Close.fd;
             },
-            builtin.Os.windows => {
+            .windows => {
                 return self.os_data.handle.?;
             },
             else => @compileError("Unsupported OS"),
@@ -617,12 +617,12 @@ pub async fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !voi
 /// contents must remain alive until writeFile completes.
 pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     switch (builtin.os) {
-        builtin.Os.linux,
-        builtin.Os.macosx,
-        builtin.Os.freebsd,
-        builtin.Os.netbsd,
+        .linux,
+        .macosx,
+        .freebsd,
+        .netbsd,
         => return await (async writeFileModeThread(loop, path, contents, mode) catch unreachable),
-        builtin.Os.windows => return await (async writeFileWindows(loop, path, contents) catch unreachable),
+        .windows => return await (async writeFileWindows(loop, path, contents) catch unreachable),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -728,7 +728,7 @@ pub fn Watch(comptime V: type) type {
         os_data: OsData,
 
         const OsData = switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => struct {
+            .macosx, .freebsd, .netbsd => struct {
                 file_table: FileTable,
                 table_lock: event.Lock,
 
@@ -739,8 +739,8 @@ pub fn Watch(comptime V: type) type {
                 };
             },
 
-            builtin.Os.linux => LinuxOsData,
-            builtin.Os.windows => WindowsOsData,
+            .linux => LinuxOsData,
+            .windows => WindowsOsData,
 
             else => @compileError("Unsupported OS"),
         };
@@ -793,7 +793,7 @@ pub fn Watch(comptime V: type) type {
             errdefer channel.destroy();
 
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     const inotify_fd = try os.inotify_init1(os.linux.IN_NONBLOCK | os.linux.IN_CLOEXEC);
                     errdefer os.close(inotify_fd);
 
@@ -802,7 +802,7 @@ pub fn Watch(comptime V: type) type {
                     return result;
                 },
 
-                builtin.Os.windows => {
+                .windows => {
                     const self = try loop.allocator.create(Self);
                     errdefer loop.allocator.destroy(self);
                     self.* = Self{
@@ -817,7 +817,7 @@ pub fn Watch(comptime V: type) type {
                     return self;
                 },
 
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     const self = try loop.allocator.create(Self);
                     errdefer loop.allocator.destroy(self);
 
@@ -837,7 +837,7 @@ pub fn Watch(comptime V: type) type {
         /// All addFile calls and removeFile calls must have completed.
         pub fn destroy(self: *Self) void {
             switch (builtin.os) {
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     // TODO we need to cancel the coroutines before destroying the lock
                     self.os_data.table_lock.deinit();
                     var it = self.os_data.file_table.iterator();
@@ -847,8 +847,8 @@ pub fn Watch(comptime V: type) type {
                     }
                     self.channel.destroy();
                 },
-                builtin.Os.linux => cancel self.os_data.putter,
-                builtin.Os.windows => {
+                .linux => cancel self.os_data.putter,
+                .windows => {
                     while (self.os_data.all_putters.get()) |putter_node| {
                         cancel putter_node.data;
                     }
@@ -879,9 +879,9 @@ pub fn Watch(comptime V: type) type {
 
         pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
             switch (builtin.os) {
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => return await (async addFileKEvent(self, file_path, value) catch unreachable),
-                builtin.Os.linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
-                builtin.Os.windows => return await (async addFileWindows(self, file_path, value) catch unreachable),
+                .macosx, .freebsd, .netbsd => return await (async addFileKEvent(self, file_path, value) catch unreachable),
+                .linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
+                .windows => return await (async addFileWindows(self, file_path, value) catch unreachable),
                 else => @compileError("Unsupported OS"),
             }
         }
