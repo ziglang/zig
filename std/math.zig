@@ -366,7 +366,7 @@ test "math.shl" {
 }
 
 /// Shifts right. Overflowed bits are truncated.
-/// A negative shift amount results in a lefft shift.
+/// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
