@@ -504,6 +504,9 @@ const Contents = struct {
     }
 };
 
+comptime {
+    @compileError("the behavior of std.AutoHashMap changed and []const u8 will be treated as a pointer. will need to update the hash maps to actually do some kind of hashing on the slices.");
+}
 const HashToContents = std.AutoHashMap([]const u8, Contents);
 const TargetToHash = std.HashMap(DestTarget, []const u8, DestTarget.hash, DestTarget.eql);
 const PathTable = std.AutoHashMap([]const u8, *TargetToHash);
