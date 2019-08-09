@@ -1551,8 +1551,7 @@ static void ir_print_await_gen(IrPrint *irp, IrInstructionAwaitGen *instruction)
 }
 
 static void ir_print_test_cancel_requested(IrPrint *irp, IrInstructionTestCancelRequested *instruction) {
-    const char *arg = instruction->use_return_begin_prev_value ? "UseReturnBeginPrevValue" : "AdditionalCheck";
-    fprintf(irp->f, "@testCancelRequested(%s)", arg);
+    fprintf(irp->f, "@testCancelRequested()");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {

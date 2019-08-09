@@ -3325,12 +3325,9 @@ static IrInstruction *ir_build_coro_resume(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_test_cancel_requested(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        bool use_return_begin_prev_value)
-{
+static IrInstruction *ir_build_test_cancel_requested(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionTestCancelRequested *instruction = ir_build_instruction<IrInstructionTestCancelRequested>(irb, scope, source_node);
     instruction->base.value.type = irb->codegen->builtin_types.entry_bool;
-    instruction->use_return_begin_prev_value = use_return_begin_prev_value;
 
     return &instruction->base;
 }
@@ -3546,7 +3543,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
 
                 if (need_test_cancel) {
                     ir_set_cursor_at_end_and_append_block(irb, ok_block);
-                    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, scope, node, true);
+                    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, scope, node);
                     ir_mark_gen(ir_build_cond_br(irb, scope, node, is_canceled,
                                 all_defers_block, normal_defers_block, force_comptime));
                 }
@@ -3830,7 +3827,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
         return ir_mark_gen(ir_build_return(irb, child_scope, result->source_node, result));
     }
-    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, child_scope, block_node, true);
+    IrInstruction *is_canceled = ir_build_test_cancel_requested(irb, child_scope, block_node);
     IrBasicBlock *all_defers_block = ir_create_basic_block(irb, child_scope, "ErrDefers");
     IrBasicBlock *normal_defers_block = ir_create_basic_block(irb, child_scope, "Defers");
     IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, child_scope, "RetStmt");
@@ -24725,8 +24722,7 @@ static IrInstruction *ir_analyze_instruction_test_cancel_requested(IrAnalyze *ir
     if (ir_should_inline(ira->new_irb.exec, instruction->base.scope)) {
         return ir_const_bool(ira, &instruction->base, false);
     }
-    return ir_build_test_cancel_requested(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-            instruction->use_return_begin_prev_value);
+    return ir_build_test_cancel_requested(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
 }
 
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {

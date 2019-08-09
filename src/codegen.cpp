@@ -2226,7 +2226,18 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
     return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
 }
 
+static LLVMValueRef get_cur_async_prev_val(CodeGen *g) {
+    if (g->cur_async_prev_val != nullptr) {
+        return g->cur_async_prev_val;
+    }
+    g->cur_async_prev_val = LLVMBuildLoad(g->builder, g->cur_async_prev_val_field_ptr, "");
+    return g->cur_async_prev_val;
+}
+
 static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
+    // This becomes invalid when a suspend happens.
+    g->cur_async_prev_val = nullptr;
+
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMBasicBlockRef resume_bb = LLVMAppendBasicBlock(g->cur_fn_val, name_hint);
     size_t new_block_index = g->cur_resume_block_count;
@@ -2319,6 +2330,9 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
     LLVMBasicBlockRef incoming_blocks[] = { after_resume_block, switch_bb };
     LLVMAddIncoming(g->cur_async_prev_val, incoming_values, incoming_blocks, 2);
 
+    g->cur_is_after_return = true;
+    LLVMBuildStore(g->builder, g->cur_async_prev_val, g->cur_async_prev_val_field_ptr);
+
     if (!ret_type_has_bits) {
         return nullptr;
     }
@@ -2366,7 +2380,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         ZigType *any_frame_type = get_any_frame_type(g, ret_type);
         LLVMValueRef one = LLVMConstInt(usize_type_ref, 1, false);
         LLVMValueRef mask_val = LLVMConstNot(one);
-        LLVMValueRef masked_prev_val = LLVMBuildAnd(g->builder, g->cur_async_prev_val, mask_val, "");
+        LLVMValueRef masked_prev_val = LLVMBuildAnd(g->builder, get_cur_async_prev_val(g), mask_val, "");
         LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, masked_prev_val,
                 get_llvm_type(g, any_frame_type), "");
         LLVMValueRef call_inst = gen_resume(g, nullptr, their_frame_ptr, ResumeIdReturn, nullptr);
@@ -5590,8 +5604,8 @@ static LLVMValueRef ir_render_test_cancel_requested(CodeGen *g, IrExecutable *ex
 {
     if (!fn_is_async(g->cur_fn))
         return LLVMConstInt(LLVMInt1Type(), 0, false);
-    if (instruction->use_return_begin_prev_value) {
-        return LLVMBuildTrunc(g->builder, g->cur_async_prev_val, LLVMInt1Type(), "");
+    if (g->cur_is_after_return) {
+        return LLVMBuildTrunc(g->builder, get_cur_async_prev_val(g), LLVMInt1Type(), "");
     } else {
         zig_panic("TODO");
     }
@@ -7063,6 +7077,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (is_async) {
+            g->cur_is_after_return = false;
             g->cur_resume_block_count = 0;
 
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
@@ -7099,6 +7114,8 @@ static void do_code_gen(CodeGen *g) {
                 g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack, "");
             }
+            g->cur_async_prev_val_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                    coro_prev_val_index, "");
 
             LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
             LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block, 4);

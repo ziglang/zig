@@ -1725,6 +1725,7 @@ struct CodeGen {
     LLVMValueRef cur_async_resume_index_ptr;
     LLVMValueRef cur_async_awaiter_ptr;
     LLVMValueRef cur_async_prev_val;
+    LLVMValueRef cur_async_prev_val_field_ptr;
     LLVMBasicBlockRef cur_preamble_llvm_block;
     size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
@@ -1886,6 +1887,7 @@ struct CodeGen {
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
     bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
+    bool cur_is_after_return;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
@@ -3639,8 +3641,6 @@ struct IrInstructionCoroResume {
 
 struct IrInstructionTestCancelRequested {
     IrInstruction base;
-
-    bool use_return_begin_prev_value;
 };
 
 enum ResultLocId {
@@ -3730,7 +3730,8 @@ static const size_t err_union_payload_index = 1;
 static const size_t coro_fn_ptr_index = 0;
 static const size_t coro_resume_index = 1;
 static const size_t coro_awaiter_index = 2;
-static const size_t coro_ret_start = 3;
+static const size_t coro_prev_val_index = 3;
+static const size_t coro_ret_start = 4;
 
 // TODO call graph analysis to find out what this number needs to be for every function
 // MUST BE A POWER OF TWO.

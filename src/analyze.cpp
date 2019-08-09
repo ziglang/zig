@@ -5246,6 +5246,9 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     field_names.append("@awaiter");
     field_types.append(g->builtin_types.entry_usize);
 
+    field_names.append("@prev_val");
+    field_types.append(g->builtin_types.entry_usize);
+
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
     field_names.append("@result_ptr_callee");
@@ -7592,6 +7595,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     field_types.append(ptr_fn_llvm_type); // fn_ptr
     field_types.append(usize_type_ref); // resume_index
     field_types.append(usize_type_ref); // awaiter
+    field_types.append(usize_type_ref); // prev_val
 
     bool have_result_type = result_type != nullptr && type_has_bits(result_type);
     if (have_result_type) {

@@ -318,7 +318,7 @@ test "@asyncCall with return type" {
         }
     };
     var foo = Foo{ .bar = Foo.middle };
-    var bytes: [100]u8 = undefined;
+    var bytes: [150]u8 = undefined;
     var aresult: i32 = 0;
     _ = @asyncCall(&bytes, &aresult, foo.bar);
     expect(aresult == 0);
@@ -586,6 +586,30 @@ test "pass string literal to async function" {
             expectEqual(([]const u8)("hello"), msg);
             ok = true;
         }
+    };
+    S.doTheTest();
+}
+
+test "cancel inside an errdefer" {
+    const S = struct {
+        var frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            _ = async amainWrap();
+            resume frame;
+        }
+
+        fn amainWrap() !void {
+            var foo = async func();
+            errdefer cancel foo;
+            return error.Bad;
+        }
+
+        fn func() void {
+            frame = @frame();
+            suspend;
+        }
+
     };
     S.doTheTest();
 }
