@@ -31,7 +31,7 @@ extern fn wasm_freestanding_start() void {
     _ = callMain();
 }
 
-extern fn EfiMain(handle: *uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
+extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
     const bad_efi_main_ret = "expected return type of main to be 'void', 'noreturn', or 'usize'";
     uefi.handle = handle;
     uefi.system_table = system_table;

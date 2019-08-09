@@ -5,7 +5,7 @@ pub const tables = @import("uefi/tables.zig");
 const builtin = @import("builtin");
 pub const is_the_target = builtin.os == .uefi;
 
-pub var handle: *Handle = undefined;
+pub var handle: Handle = undefined;
 pub var system_table: *tables.SystemTable = undefined;
 
 pub const Event = @OpaqueType();
@@ -18,7 +18,7 @@ pub const Guid = extern struct {
     clock_seq_low: u8,
     node: [6]u8,
 };
-pub const Handle = @OpaqueType();
+pub const Handle = *@OpaqueType();
 pub const Time = extern struct {
     year: u16,
     month: u8,

@@ -4,10 +4,10 @@ const Handle = uefi.Handle;
 
 /// UEFI Specification, Version 2.8, 12.9
 pub const EdidOverrideProtocol = extern struct {
-    _get_edid: extern fn (*const EdidOverrideProtocol, *const Handle, *u32, *usize, *?[*]u8) usize,
+    _get_edid: extern fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) usize,
 
     /// attributes must be align(4)
-    pub fn getEdid(self: *const EdidOverrideProtocol, handle: *const Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) usize {
+    pub fn getEdid(self: *const EdidOverrideProtocol, handle: Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) usize {
         return self._get_edid(self, handle, attributes, edid_size, edid);
     }
 

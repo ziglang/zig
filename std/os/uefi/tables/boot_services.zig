@@ -39,7 +39,7 @@ pub const BootServices = extern struct {
     installConfigurationTable: usize, // TODO
     imageLoad: usize, // TODO
     imageStart: usize, // TODO
-    exit: extern fn (*const Handle, usize, usize, ?*const c_void) usize,
+    exit: extern fn (Handle, usize, usize, ?*const c_void) usize,
     imageUnload: usize, // TODO
     exitBootServices: usize, // TODO
     getNextMonotonicCount: usize, // TODO
