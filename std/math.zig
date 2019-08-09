@@ -245,25 +245,20 @@ pub fn floatExponentBits(comptime T: type) comptime_int {
 /// Given two types, returns the smallest one which is capable of holding the
 /// full range of the minimum value.
 pub fn Min(comptime A: type, comptime B: type) type {
-    return switch (@typeInfo(A)) {
+    switch (@typeInfo(A)) {
         .Int => |a_info| switch (@typeInfo(B)) {
-            .Int => |b_info| blk: {
-                if (a_info.is_signed == b_info.is_signed) {
-                    break :blk if (a_info.bits < b_info.bits) A else B;
-                } else if (a_info.is_signed) {
-                    break :blk A;
+            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+                if (a_info.bits < b_info.bits) {
+                    return A;
                 } else {
-                    break :blk B;
+                    return B;
                 }
             },
-            .ComptimeInt => A,
-            else => @compileError("unsupported type: " ++ @typeName(B)),
+            else => {},
         },
-        .Float => |a_info| if (a_info.bits < @typeInfo(B).Float.bits) A else B,
-        .ComptimeInt => B,
-        .ComptimeFloat => B,
-        else => @compileError("unsupported type: " ++ @typeName(A)),
-    };
+        else => {},
+    }
+    return @typeOf(A(0) + B(0));
 }
 
 /// Returns the smaller number. When one of the parameter's type's full range fits in the other,
@@ -275,7 +270,6 @@ pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
         // scope it is known to fit in the return type.
         switch (@typeInfo(Result)) {
             .Int => return @intCast(Result, x),
-            .Float => return @floatCast(Result, x),
             else => return x,
         }
     } else {
@@ -283,7 +277,6 @@ pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
         // scope it is known to fit in the return type.
         switch (@typeInfo(Result)) {
             .Int => return @intCast(Result, y),
-            .Float => return @floatCast(Result, y),
             else => return y,
         }
     }
@@ -302,8 +295,15 @@ test "math.min" {
         var a: f64 = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == f32);
+        testing.expect(@typeOf(result) == f64);
         testing.expect(result == 10.34);
+    }
+    {
+        var a: i8 = -127;
+        var b: i16 = -200;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == i16);
+        testing.expect(result == -200);
     }
 }
 
