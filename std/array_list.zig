@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -201,27 +202,90 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.pop();
         }
 
+        // an iterator which allows you to remove the current element
+        // while iterating through it.
         pub const Iterator = struct {
-            list: *const Self,
-            // how many items have we returned
-            count: usize,
+            list: *Self,
+
+            // index of the next element to return
+            next_index: usize = 0,
+
+            // did we remove the element last returned by `next`?
+            removed: bool = false,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.count >= it.list.len) return null;
-                const val = it.list.at(it.count);
-                it.count += 1;
+                // if we removed the previous element, then
+                // the next element replaced the current one,
+                // so we get the element at the same index a second time.
+                // the next element's index was incremented when we
+                // called `next` before, so we decrement it here, before we get the item.
+                const index = if (it.removed) it.next_index-1 else it.next_index;
+                it.removed = false;
+
+                if (index >= it.list.len) return null;
+                const val = it.list.at(index);
+
+                it.next_index = index+1;
+
                 return val;
             }
 
             pub fn reset(it: *Iterator) void {
-                it.count = 0;
+                it.next_index = 0;
+                it.removed = false;
+            }
+
+            pub fn swapRemove(it: *Iterator) T {
+                if (!it.removed) {
+                    it.removed = true;
+                    return it.list.swapRemove(it.next_index-1);
+                } else switch (builtin.mode) {
+                    .ReleaseFast => unreachable,
+                    else => @panic("removed element more than once"),
+                }
+            }
+
+            pub fn orderedRemove(it: *Iterator) T {
+                if (!it.removed) {
+                    it.removed = true;
+                    return it.list.orderedRemove(it.next_index-1);
+                } else switch (builtin.mode) {
+                    .ReleaseFast => unreachable,
+                    else => @panic("removed element more than once"),
+                }
             }
         };
 
-        pub fn iterator(self: *const Self) Iterator {
+        pub fn iterator(self: *Self) Iterator {
             return Iterator{
                 .list = self,
-                .count = 0,
+            };
+        }
+
+        // an iterator that only allows you to iterate
+        // through the elements; you cannot remove the current
+        // element.
+        pub const IteratorConst = struct {
+            list: *const Self,
+
+            // index of the next element to return
+            next_index: usize = 0,
+
+            pub fn next(it: *IteratorConst) ?T {
+                if (it.next_index >= it.list.len) return null;
+                const val = it.list.at(it.next_index);
+                it.next_index += 1;
+                return val;
+            }
+
+            pub fn reset(it: *IteratorConst) void {
+                it.next_index = 0;
+            }
+        };
+
+        pub fn iteratorConst(self: *const Self) IteratorConst {
+            return IteratorConst{
+                .list = self,
             };
         }
     };
@@ -390,6 +454,96 @@ test "std.ArrayList.iterator" {
 
     var count: i32 = 0;
     var it = list.iterator();
+    while (it.next()) |next| {
+        testing.expect(next == count + 1);
+        count += 1;
+    }
+
+    testing.expect(count == 3);
+    testing.expect(it.next() == null);
+    it.reset();
+    count = 0;
+    while (it.next()) |next| {
+        testing.expect(next == count + 1);
+        count += 1;
+        if (count == 2) break;
+    }
+
+    it.reset();
+    testing.expect(it.next().? == 1);
+}
+
+test "std.ArrayList.iterator.swapRemove" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
+
+    var it = list.iterator();
+    while (it.next()) |next| {
+        if (next == 2) {
+            var removed = it.swapRemove();
+            testing.expect(removed == 2);
+            break;
+        }
+    }
+
+    it.reset();
+    testing.expect(it.next().? == 1);
+    testing.expect(it.next().? == 4);
+    testing.expect(it.next().? == 3);
+    testing.expect(it.next() == null);
+}
+
+test "std.ArrayList.iterator.orderedRemove" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+    try list.append(4);
+
+    var it = list.iterator();
+    while (it.next()) |next| {
+        if (next == 2) {
+            var removed = it.orderedRemove();
+            testing.expect(removed == 2);
+            break;
+        }
+    }
+
+    it.reset();
+    testing.expect(it.next().? == 1);
+    testing.expect(it.next().? == 3);
+    testing.expect(it.next().? == 4);
+    testing.expect(it.next() == null);
+}
+
+test "std.ArrayList.iteratorConst" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+
+    var list = ArrayList(i32).init(allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.append(2);
+    try list.append(3);
+
+    const clist = list;
+
+    var count: i32 = 0;
+    var it = clist.iteratorConst();
     while (it.next()) |next| {
         testing.expect(next == count + 1);
         count += 1;

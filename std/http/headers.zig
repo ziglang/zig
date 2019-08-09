@@ -133,7 +133,7 @@ pub const Headers = struct {
             self.index.deinit();
         }
         {
-            var it = self.data.iterator();
+            var it = self.data.iteratorConst();
             while (it.next()) |entry| {
                 entry.deinit();
             }
@@ -146,7 +146,7 @@ pub const Headers = struct {
         errdefer other.deinit();
         try other.data.ensureCapacity(self.data.count());
         try other.index.initCapacity(self.index.entries.len);
-        var it = self.data.iterator();
+        var it = self.data.iteratorConst();
         while (it.next()) |entry| {
             try other.append(entry.name, entry.value, entry.never_index);
         }
@@ -160,7 +160,7 @@ pub const Headers = struct {
     pub const Iterator = HeaderList.Iterator;
 
     pub fn iterator(self: Self) Iterator {
-        return self.data.iterator();
+        return self.data.iteratorConst();
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
@@ -290,7 +290,7 @@ pub const Headers = struct {
         const dex = self.getIndices(name) orelse return null;
 
         const buf = try allocator.alloc(HeaderEntry, dex.count());
-        var it = dex.iterator();
+        var it = dex.iteratorConst();
         var n: usize = 0;
         while (it.next()) |idx| {
             buf[n] = self.data.at(idx);
@@ -315,7 +315,7 @@ pub const Headers = struct {
         // adapted from mem.join
         const total_len = blk: {
             var sum: usize = dex.count() - 1; // space for separator(s)
-            var it = dex.iterator();
+            var it = dex.iteratorConst();
             while (it.next()) |idx|
                 sum += self.data.at(idx).value.len;
             break :blk sum;
@@ -351,7 +351,7 @@ pub const Headers = struct {
             var it = self.data.iterator();
             while (it.next()) |entry| {
                 var dex = &self.index.get(entry.name).?.value;
-                dex.appendAssumeCapacity(it.count);
+                dex.appendAssumeCapacity(it.next_index);
             }
         }
     }
