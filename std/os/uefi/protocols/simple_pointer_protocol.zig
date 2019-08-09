@@ -6,7 +6,7 @@ const Guid = uefi.Guid;
 pub const SimplePointerProtocol = struct {
     _reset: extern fn (*const SimplePointerProtocol, bool) usize,
     _get_state: extern fn (*const SimplePointerProtocol, *SimplePointerState) usize,
-    wait_for_input: *Event,
+    wait_for_input: Event,
     mode: *SimplePointerMode,
 
     pub fn reset(self: *const SimplePointerProtocol, verify: bool) usize {

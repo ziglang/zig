@@ -6,7 +6,7 @@ const Guid = uefi.Guid;
 pub const AbsolutePointerProtocol = extern struct {
     _reset: extern fn (*const AbsolutePointerProtocol, bool) usize,
     _get_state: extern fn (*const AbsolutePointerProtocol, *AbsolutePointerState) usize,
-    wait_for_input: *Event,
+    wait_for_input: Event,
     mode: *AbsolutePointerMode,
 
     pub fn reset(self: *const AbsolutePointerProtocol, verify: bool) usize {

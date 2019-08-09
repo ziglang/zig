@@ -6,7 +6,7 @@ const Guid = uefi.Guid;
 pub const SimpleTextInputExProtocol = extern struct {
     _reset: extern fn (*const SimpleTextInputExProtocol, bool) usize,
     _read_key_stroke_ex: extern fn (*const SimpleTextInputExProtocol, *KeyData) usize,
-    wait_for_key_ex: *Event,
+    wait_for_key_ex: Event,
     _set_state: extern fn (*const SimpleTextInputExProtocol, *const u8) usize,
     _register_key_notify: extern fn (*const SimpleTextInputExProtocol, *const KeyData, extern fn (*const KeyData) usize, **c_void) usize,
     _unregister_key_notify: extern fn (*const SimpleTextInputExProtocol, *const c_void) usize,

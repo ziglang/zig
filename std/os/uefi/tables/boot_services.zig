@@ -1,4 +1,5 @@
 const uefi = @import("std").os.uefi;
+const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const TableHeader = uefi.tables.TableHeader;
@@ -22,10 +23,10 @@ pub const BootServices = extern struct {
     getMemoryMap: usize, // TODO
     allocatePool: usize, // TODO
     freePool: usize, // TODO
-    createEvent: usize, // TODO
-    setTimer: usize, // TODO
+    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
+    setTimer: extern fn (Event, TimerDelay, u64) usize,
     waitForEvent: usize, // TODO
-    signalEvent: usize, // TODO
+    signalEvent: extern fn (Event) usize,
     closeEvent: usize, // TODO
     checkEvent: usize, // TODO
     installProtocolInterface: usize, // TODO
@@ -61,4 +62,22 @@ pub const BootServices = extern struct {
     createEventEx: usize, // TODO
 
     pub const signature: u64 = 0x56524553544f4f42;
+
+    pub const event_timer: u32 = 0x80000000;
+    pub const event_runtime: u32 = 0x40000000;
+    pub const event_notify_wait: u32 = 0x00000100;
+    pub const event_notify_signal: u32 = 0x00000200;
+    pub const event_signal_exit_boot_services: u32 = 0x00000201;
+    pub const event_signal_virtual_address_change: u32 = 0x00000202;
+
+    pub const tpl_application: usize = 4;
+    pub const tpl_callback: usize = 8;
+    pub const tpl_notify: usize = 16;
+    pub const tpl_high_level: usize = 31;
+};
+
+pub const TimerDelay = extern enum(u32) {
+    TimerCancel,
+    TimerPeriodic,
+    TimerRelative,
 };

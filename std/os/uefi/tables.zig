@@ -4,3 +4,4 @@ pub const ResetType = @import("tables/runtime_services.zig").ResetType;
 pub const RuntimeServices = @import("tables/runtime_services.zig").RuntimeServices;
 pub const SystemTable = @import("tables/system_table.zig").SystemTable;
 pub const TableHeader = @import("tables/table_header.zig").TableHeader;
+pub const TimerDelay = @import("tables/boot_services.zig").TimerDelay;

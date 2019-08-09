@@ -8,7 +8,7 @@ pub const is_the_target = builtin.os == .uefi;
 pub var handle: Handle = undefined;
 pub var system_table: *tables.SystemTable = undefined;
 
-pub const Event = @OpaqueType();
+pub const Event = *@OpaqueType();
 // GUIDs must be align(8)
 pub const Guid = extern struct {
     time_low: u32,
