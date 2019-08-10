@@ -157,10 +157,10 @@ pub const Headers = struct {
         return self.data.count();
     }
 
-    pub const Iterator = HeaderList.Iterator;
+    pub const Iterator = HeaderList.IteratorConst;
 
     pub fn iterator(self: Self) Iterator {
-        return self.data.iterator();
+        return self.data.iteratorConst();
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
