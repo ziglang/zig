@@ -1482,19 +1482,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "use of comptime-known undefined function value",
-        \\const Cmd = struct {
-        \\    exec: fn () void,
-        \\};
-        \\export fn entry() void {
-        \\    const command = Cmd{ .exec = undefined };
-        \\    command.exec();
-        \\}
-    ,
-        "tmp.zig:6:12: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
         "bad @alignCast at comptime",
         \\comptime {
         \\    const ptr = @intToPtr(*i32, 0x1);
