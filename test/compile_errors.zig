@@ -733,15 +733,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
-        "@truncate undefined value",
-        \\export fn entry() void {
-        \\    var z = @truncate(u8, u16(undefined));
-        \\}
-    ,
-        "tmp.zig:2:30: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.addTest(
         "return invalid type from test",
         \\test "example" { return 1; }
     ,
@@ -3411,383 +3402,43 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "div on undefined value",
+        "div with undefined denominator",
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a / a;
+        \\    _ = 5 / a;
         \\}
     ,
         "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
-        "div assign on undefined value",
+        "div assign with undefined denominator",
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    a /= a;
+        \\    5 /= a;
         \\}
     ,
         "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
-        "mod on undefined value",
+        "mod with undefined denominator",
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a % a;
+        \\    _ = 5 % a;
         \\}
     ,
         "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
-        "mod assign on undefined value",
+        "mod assign with undefined denominator",
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    a %= a;
+        \\    5 %= a;
         \\}
     ,
         "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "add on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a + a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "add assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a += a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "add wrap on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a +% a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "add wrap assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a +%= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "sub on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a - a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "sub assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a -= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "sub wrap on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a -% a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "sub wrap assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a -%= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "mult on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a * a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "mult assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a *= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "mult wrap on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a *% a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "mult wrap assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a *%= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "shift left on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a << 2;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "shift left assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a <<= 2;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "shift right on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a >> 2;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "shift left assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a >>= 2;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin and on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a & a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin and assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a &= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin or on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a | a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin or assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a |= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin xor on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a ^ a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin xor assign on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    a ^= a;
-        \\}
-    ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "equal on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a == a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "not equal on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a != a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "greater than on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a > a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "greater than equal on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a >= a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "less than on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a < a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "less than equal on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = a <= a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "and on undefined value",
-        \\comptime {
-        \\    var a: bool = undefined;
-        \\    _ = a and a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "or on undefined value",
-        \\comptime {
-        \\    var a: bool = undefined;
-        \\    _ = a or a;
-        \\}
-    ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "negate on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = -a;
-        \\}
-    ,
-        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "negate wrap on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = -%a;
-        \\}
-    ,
-        "tmp.zig:3:11: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bin not on undefined value",
-        \\comptime {
-        \\    var a: i64 = undefined;
-        \\    _ = ~a;
-        \\}
-    ,
-        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
-    );
-
-    cases.add(
-        "bool not on undefined value",
-        \\comptime {
-        \\    var a: bool = undefined;
-        \\    _ = !a;
-        \\}
-    ,
-        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
