@@ -2280,13 +2280,16 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
         return operand_has_bits ? ir_llvm_value(g, instruction->operand) : nullptr;
     }
 
-    ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-    bool ret_type_has_bits = type_has_bits(ret_type);
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
-
-    if (ret_type_has_bits && !handle_is_ptr(ret_type)) {
-        // It's a scalar, so it didn't get written to the result ptr. Do that before the atomic rmw.
-        LLVMBuildStore(g->builder, ir_llvm_value(g, instruction->operand), g->cur_ret_ptr);
+    if (operand_has_bits && instruction->operand != nullptr) {
+        ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+        bool need_store = instruction->operand->value.special != ConstValSpecialRuntime || !handle_is_ptr(ret_type);
+        if (need_store) {
+            // It didn't get written to the result ptr. We do that now so that we do not have to spill
+            // the return operand.
+            ZigType *ret_ptr_type = get_pointer_to_type(g, ret_type, true);
+            gen_assign_raw(g, g->cur_ret_ptr, ret_ptr_type, ir_llvm_value(g, instruction->operand));
+        }
     }
 
     // Prepare to be suspended. We might end up not having to suspend though.
@@ -2386,6 +2389,8 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         LLVMValueRef call_inst = gen_resume(g, nullptr, their_frame_ptr, ResumeIdReturn, nullptr);
         LLVMSetTailCall(call_inst, true);
         LLVMBuildRetVoid(g->builder);
+
+        g->cur_is_after_return = false;
 
         return nullptr;
     }
@@ -7117,7 +7122,6 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (is_async) {
-            g->cur_is_after_return = false;
             g->cur_resume_block_count = 0;
 
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;

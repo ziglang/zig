@@ -672,3 +672,31 @@ test "try in an async function with error union and non-zero-bit payload" {
     };
     S.doTheTest();
 }
+
+test "returning a const error from async function" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            _ = async amain();
+            resume frame;
+            expect(ok);
+        }
+
+        fn amain() !void {
+            var download_frame = async fetchUrl(10, "a string");
+            const download_text = try await download_frame;
+
+            @panic("should not get here");
+        }
+
+        fn fetchUrl(unused: i32, url: []const u8) ![]u8 {
+            frame = @frame();
+            suspend;
+            ok = true;
+            return error.OutOfMemory;
+        }
+    };
+    S.doTheTest();
+}
