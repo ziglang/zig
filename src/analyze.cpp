@@ -5190,6 +5190,18 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
     }
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
+    if (fn->analyzed_executable.need_err_code_spill) {
+        IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
+        alloca_gen->base.id = IrInstructionIdAllocaGen;
+        alloca_gen->base.source_node = fn->proto_node;
+        alloca_gen->base.scope = fn->child_scope;
+        alloca_gen->base.value.type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+        alloca_gen->base.ref_count = 1;
+        alloca_gen->name_hint = "";
+        fn->alloca_gen_list.append(alloca_gen);
+        fn->err_code_spill = &alloca_gen->base;
+    }
+
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
         ZigFn *callee = call->fn_entry;

@@ -74,6 +74,7 @@ struct IrExecutable {
     bool invalid;
     bool is_inline;
     bool is_generic_instantiation;
+    bool need_err_code_spill;
 };
 
 enum OutType {
@@ -1384,6 +1385,7 @@ struct ZigFn {
     size_t prealloc_backward_branch_quota;
     AstNode **param_source_nodes;
     Buf **param_names;
+    IrInstruction *err_code_spill;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -2366,7 +2368,8 @@ enum IrInstructionId {
     IrInstructionIdAwaitGen,
     IrInstructionIdCoroResume,
     IrInstructionIdTestCancelRequested,
-    IrInstructionIdSpill,
+    IrInstructionIdSpillBegin,
+    IrInstructionIdSpillEnd,
 };
 
 struct IrInstruction {
@@ -3649,11 +3652,17 @@ enum SpillId {
     SpillIdRetErrCode,
 };
 
-struct IrInstructionSpill {
+struct IrInstructionSpillBegin {
     IrInstruction base;
 
     SpillId spill_id;
     IrInstruction *operand;
+};
+
+struct IrInstructionSpillEnd {
+    IrInstruction base;
+
+    IrInstructionSpillBegin *begin;
 };
 
 enum ResultLocId {

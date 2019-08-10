@@ -2274,16 +2274,16 @@ static LLVMValueRef gen_maybe_atomic_op(CodeGen *g, LLVMAtomicRMWBinOp op, LLVMV
 static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnBegin *instruction)
 {
-    bool ret_type_has_bits = instruction->operand != nullptr &&
-        type_has_bits(instruction->operand->value.type);
-
+    ZigType *operand_type = (instruction->operand != nullptr) ? instruction->operand->value.type : nullptr;
+    bool operand_has_bits = (operand_type != nullptr) && type_has_bits(operand_type);
     if (!fn_is_async(g->cur_fn)) {
-        return ret_type_has_bits ? ir_llvm_value(g, instruction->operand) : nullptr;
+        return operand_has_bits ? ir_llvm_value(g, instruction->operand) : nullptr;
     }
 
+    ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+    bool ret_type_has_bits = type_has_bits(ret_type);
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
-    ZigType *ret_type = ret_type_has_bits ? instruction->operand->value.type : nullptr;
     if (ret_type_has_bits && !handle_is_ptr(ret_type)) {
         // It's a scalar, so it didn't get written to the result ptr. Do that before the atomic rmw.
         LLVMBuildStore(g->builder, ir_llvm_value(g, instruction->operand), g->cur_ret_ptr);
@@ -2333,11 +2333,11 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
     g->cur_is_after_return = true;
     LLVMBuildStore(g->builder, g->cur_async_prev_val, g->cur_async_prev_val_field_ptr);
 
-    if (!ret_type_has_bits) {
+    if (!operand_has_bits) {
         return nullptr;
     }
 
-    return get_handle_value(g, g->cur_ret_ptr, ret_type, get_pointer_to_type(g, ret_type, true));
+    return get_handle_value(g, g->cur_ret_ptr, operand_type, get_pointer_to_type(g, operand_type, true));
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *instruction) {
@@ -5113,18 +5113,6 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntNE, err_val, zero, "");
 }
 
-static LLVMValueRef gen_unwrap_err_code(CodeGen *g, LLVMValueRef err_union_ptr, ZigType *ptr_type) {
-    ZigType *err_union_type = ptr_type->data.pointer.child_type;
-    ZigType *payload_type = err_union_type->data.error_union.payload_type;
-    if (!type_has_bits(payload_type)) {
-        return err_union_ptr;
-    } else {
-        // TODO assign undef to the payload
-        LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
-        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
-    }
-}
-
 static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrCode *instruction)
 {
@@ -5133,8 +5121,16 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 
     ZigType *ptr_type = instruction->err_union_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *err_union_type = ptr_type->data.pointer.child_type;
+    ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->err_union_ptr);
-    return gen_unwrap_err_code(g, err_union_ptr, ptr_type);
+    if (!type_has_bits(payload_type)) {
+        return err_union_ptr;
+    } else {
+        // TODO assign undef to the payload
+        LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
+        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+    }
 }
 
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable,
@@ -5615,21 +5611,36 @@ static LLVMValueRef ir_render_test_cancel_requested(CodeGen *g, IrExecutable *ex
     }
 }
 
-static LLVMValueRef ir_render_spill(CodeGen *g, IrExecutable *executable, IrInstructionSpill *instruction) {
+static LLVMValueRef ir_render_spill_begin(CodeGen *g, IrExecutable *executable,
+        IrInstructionSpillBegin *instruction)
+{
     if (!fn_is_async(g->cur_fn))
-        return ir_llvm_value(g, instruction->operand);
+        return nullptr;
 
     switch (instruction->spill_id) {
         case SpillIdInvalid:
             zig_unreachable();
         case SpillIdRetErrCode: {
-            LLVMValueRef ret_ptr = LLVMBuildLoad(g->builder, g->cur_ret_ptr, "");
-            ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-            if (ret_type->id == ZigTypeIdErrorUnion) {
-                return gen_unwrap_err_code(g, ret_ptr, get_pointer_to_type(g, ret_type, true));
-            } else {
-                zig_unreachable();
-            }
+            LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+            LLVMValueRef ptr = ir_llvm_value(g, g->cur_fn->err_code_spill);
+            LLVMBuildStore(g->builder, operand, ptr);
+            return nullptr;
+        }
+
+    }
+    zig_unreachable();
+}
+
+static LLVMValueRef ir_render_spill_end(CodeGen *g, IrExecutable *executable, IrInstructionSpillEnd *instruction) {
+    if (!fn_is_async(g->cur_fn))
+        return ir_llvm_value(g, instruction->begin->operand);
+
+    switch (instruction->begin->spill_id) {
+        case SpillIdInvalid:
+            zig_unreachable();
+        case SpillIdRetErrCode: {
+            LLVMValueRef ptr = ir_llvm_value(g, g->cur_fn->err_code_spill);
+            return LLVMBuildLoad(g->builder, ptr, "");
         }
 
     }
@@ -5891,8 +5902,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_await(g, executable, (IrInstructionAwaitGen *)instruction);
         case IrInstructionIdTestCancelRequested:
             return ir_render_test_cancel_requested(g, executable, (IrInstructionTestCancelRequested *)instruction);
-        case IrInstructionIdSpill:
-            return ir_render_spill(g, executable, (IrInstructionSpill *)instruction);
+        case IrInstructionIdSpillBegin:
+            return ir_render_spill_begin(g, executable, (IrInstructionSpillBegin *)instruction);
+        case IrInstructionIdSpillEnd:
+            return ir_render_spill_end(g, executable, (IrInstructionSpillEnd *)instruction);
     }
     zig_unreachable();
 }

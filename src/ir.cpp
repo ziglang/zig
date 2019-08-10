@@ -1066,8 +1066,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestCancelReques
     return IrInstructionIdTestCancelRequested;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSpill *) {
-    return IrInstructionIdSpill;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSpillBegin *) {
+    return IrInstructionIdSpillBegin;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSpillEnd *) {
+    return IrInstructionIdSpillEnd;
 }
 
 template<typename T>
@@ -3336,14 +3340,27 @@ static IrInstruction *ir_build_test_cancel_requested(IrBuilder *irb, Scope *scop
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_spill(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstructionSpillBegin *ir_build_spill_begin(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *operand, SpillId spill_id)
 {
-    IrInstructionSpill *instruction = ir_build_instruction<IrInstructionSpill>(irb, scope, source_node);
+    IrInstructionSpillBegin *instruction = ir_build_instruction<IrInstructionSpillBegin>(irb, scope, source_node);
+    instruction->base.value.special = ConstValSpecialStatic;
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     instruction->operand = operand;
     instruction->spill_id = spill_id;
 
     ir_ref_instruction(operand, irb->current_basic_block);
+
+    return instruction;
+}
+
+static IrInstruction *ir_build_spill_end(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstructionSpillBegin *begin)
+{
+    IrInstructionSpillEnd *instruction = ir_build_instruction<IrInstructionSpillEnd>(irb, scope, source_node);
+    instruction->begin = begin;
+
+    ir_ref_instruction(&begin->base, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3602,14 +3619,15 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *err_val_ptr = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
                 IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
                 ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, err_val));
-                err_val = ir_build_return_begin(irb, scope, node, err_val);
+                IrInstructionSpillBegin *spill_begin = ir_build_spill_begin(irb, scope, node, err_val,
+                        SpillIdRetErrCode);
+                ir_build_return_begin(irb, scope, node, err_val);
+                err_val = ir_build_spill_end(irb, scope, node, spill_begin);
+                ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
+                result_loc_ret->base.id = ResultLocIdReturn;
+                ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
+                ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
                 if (!ir_gen_defers_for_block(irb, scope, outer_scope, true)) {
-                    ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
-                    result_loc_ret->base.id = ResultLocIdReturn;
-                    ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
-                    err_val = ir_build_spill(irb, scope, node, err_val, SpillIdRetErrCode);
-                    ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
-
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
                         ir_build_save_err_ret_addr(irb, scope, node);
                     }
@@ -12778,8 +12796,21 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
         return ir_finish_anal(ira, result);
     }
 
+    // This cast might have been already done from IrInstructionReturnBegin but it also
+    // might not have, in the case of `try`.
+    IrInstruction *casted_operand = ir_implicit_cast(ira, operand, ira->explicit_return_type);
+    if (type_is_invalid(casted_operand->value.type)) {
+        AstNode *source_node = ira->explicit_return_type_source_node;
+        if (source_node != nullptr) {
+            ErrorMsg *msg = ira->codegen->errors.last();
+            add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("return type declared here"));
+        }
+        return ir_unreach_error(ira);
+    }
+
     IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, operand);
+            instruction->base.source_node, casted_operand);
     result->value.type = ira->codegen->builtin_types.entry_unreachable;
     return ir_finish_anal(ira, result);
 }
@@ -24742,15 +24773,38 @@ static IrInstruction *ir_analyze_instruction_test_cancel_requested(IrAnalyze *ir
     return ir_build_test_cancel_requested(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
 }
 
-static IrInstruction *ir_analyze_instruction_spill(IrAnalyze *ira, IrInstructionSpill *instruction) {
+static IrInstruction *ir_analyze_instruction_spill_begin(IrAnalyze *ira, IrInstructionSpillBegin *instruction) {
+    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope))
+        return ir_const_void(ira, &instruction->base);
+
     IrInstruction *operand = instruction->operand->child;
     if (type_is_invalid(operand->value.type))
         return ira->codegen->invalid_instruction;
-    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope)) {
+
+    if (!type_has_bits(operand->value.type))
+        return ir_const_void(ira, &instruction->base);
+
+    ir_assert(instruction->spill_id == SpillIdRetErrCode, &instruction->base);
+    ira->new_irb.exec->need_err_code_spill = true;
+
+    IrInstructionSpillBegin *result = ir_build_spill_begin(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, operand, instruction->spill_id);
+    return &result->base;
+}
+
+static IrInstruction *ir_analyze_instruction_spill_end(IrAnalyze *ira, IrInstructionSpillEnd *instruction) {
+    IrInstruction *operand = instruction->begin->operand->child;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope) || !type_has_bits(operand->value.type))
         return operand;
-    }
-    IrInstruction *result = ir_build_spill(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-            operand, instruction->spill_id);
+
+    ir_assert(instruction->begin->base.child->id == IrInstructionIdSpillBegin, &instruction->base);
+    IrInstructionSpillBegin *begin = reinterpret_cast<IrInstructionSpillBegin *>(instruction->begin->base.child);
+
+    IrInstruction *result = ir_build_spill_end(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, begin);
     result->value.type = operand->value.type;
     return result;
 }
@@ -25054,8 +25108,10 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_await(ira, (IrInstructionAwaitSrc *)instruction);
         case IrInstructionIdTestCancelRequested:
             return ir_analyze_instruction_test_cancel_requested(ira, (IrInstructionTestCancelRequested *)instruction);
-        case IrInstructionIdSpill:
-            return ir_analyze_instruction_spill(ira, (IrInstructionSpill *)instruction);
+        case IrInstructionIdSpillBegin:
+            return ir_analyze_instruction_spill_begin(ira, (IrInstructionSpillBegin *)instruction);
+        case IrInstructionIdSpillEnd:
+            return ir_analyze_instruction_spill_end(ira, (IrInstructionSpillEnd *)instruction);
     }
     zig_unreachable();
 }
@@ -25193,6 +25249,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroResume:
         case IrInstructionIdAwaitSrc:
         case IrInstructionIdAwaitGen:
+        case IrInstructionIdSpillBegin:
             return true;
 
         case IrInstructionIdPhi:
@@ -25291,7 +25348,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdTestCancelRequested:
-        case IrInstructionIdSpill:
+        case IrInstructionIdSpillEnd:
             return false;
 
         case IrInstructionIdAsm:

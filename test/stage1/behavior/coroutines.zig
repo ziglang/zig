@@ -642,3 +642,33 @@ test "combining try with errdefer cancel" {
     };
     S.doTheTest();
 }
+
+test "try in an async function with error union and non-zero-bit payload" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            _ = async amain();
+            resume frame;
+            expect(ok);
+        }
+
+        fn amain() void {
+            std.testing.expectError(error.Bad, theProblem());
+            ok = true;
+        }
+
+        fn theProblem() ![]u8 {
+            frame = @frame();
+            suspend;
+            const result = try other();
+            return result;
+        }
+
+        fn other() ![]u8 {
+            return error.Bad;
+        }
+    };
+    S.doTheTest();
+}
