@@ -700,3 +700,69 @@ test "returning a const error from async function" {
     };
     S.doTheTest();
 }
+
+test "async/await typical usage" {
+    inline for ([_]bool{false, true}) |b1| {
+        inline for ([_]bool{false, true}) |b2| {
+            testAsyncAwaitTypicalUsage(b1, b2).doTheTest();
+        }
+    }
+}
+
+fn testAsyncAwaitTypicalUsage(comptime simulate_fail_download: bool, comptime simulate_fail_file: bool) type {
+    return struct {
+        fn doTheTest() void {
+            _ = async amainWrap();
+            resume global_file_frame;
+            resume global_download_frame;
+        }
+        fn amainWrap() void {
+            if (amain()) |_| {
+                expect(!simulate_fail_download);
+                expect(!simulate_fail_file);
+            } else |e| switch (e) {
+                error.NoResponse => expect(simulate_fail_download),
+                error.FileNotFound => expect(simulate_fail_file),
+                else => @panic("test failure"),
+            }
+        }
+
+        fn amain() !void {
+            const allocator = std.heap.direct_allocator; // TODO once we have the debug allocator, use that, so that this can detect leaks
+            var download_frame = async fetchUrl(allocator, "https://example.com/");
+            errdefer cancel download_frame;
+
+            var file_frame = async readFile(allocator, "something.txt");
+            errdefer cancel file_frame;
+
+            const download_text = try await download_frame;
+            defer allocator.free(download_text);
+
+            const file_text = try await file_frame;
+            defer allocator.free(file_text);
+
+            expect(std.mem.eql(u8, "expected download text", download_text));
+            expect(std.mem.eql(u8, "expected file text", file_text));
+        }
+
+        var global_download_frame: anyframe = undefined;
+        fn fetchUrl(allocator: *std.mem.Allocator, url: []const u8) anyerror![]u8 {
+            global_download_frame = @frame();
+            const result = try std.mem.dupe(allocator, u8, "expected download text");
+            errdefer allocator.free(result);
+            suspend;
+            if (simulate_fail_download) return error.NoResponse;
+            return result;
+        }
+
+        var global_file_frame: anyframe = undefined;
+        fn readFile(allocator: *std.mem.Allocator, filename: []const u8) anyerror![]u8 {
+            global_file_frame = @frame();
+            const result = try std.mem.dupe(allocator, u8, "expected file text");
+            errdefer allocator.free(result);
+            suspend;
+            if (simulate_fail_file) return error.FileNotFound;
+            return result;
+        }
+    };
+}
