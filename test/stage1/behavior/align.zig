@@ -269,6 +269,7 @@ test "read 128-bit field from default aligned struct in stack memory" {
         .nevermind = 1,
         .badguy = 12,
     };
+    expect((@ptrToInt(&default_aligned.badguy) % 16) == 0);
     expect(12 == default_aligned.badguy);
 }
 
@@ -278,7 +279,7 @@ var default_aligned_global = DefaultAligned {
 };
 
 test "read 128-bit field from default aligned struct in global memory" {
-
+    expect((@ptrToInt(&default_aligned_global.badguy) % 16) == 0);
     expect(12 == default_aligned_global.badguy);
 }
 
