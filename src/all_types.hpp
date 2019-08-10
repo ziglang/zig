@@ -2366,6 +2366,7 @@ enum IrInstructionId {
     IrInstructionIdAwaitGen,
     IrInstructionIdCoroResume,
     IrInstructionIdTestCancelRequested,
+    IrInstructionIdSpill,
 };
 
 struct IrInstruction {
@@ -3641,6 +3642,18 @@ struct IrInstructionCoroResume {
 
 struct IrInstructionTestCancelRequested {
     IrInstruction base;
+};
+
+enum SpillId {
+    SpillIdInvalid,
+    SpillIdRetErrCode,
+};
+
+struct IrInstructionSpill {
+    IrInstruction base;
+
+    SpillId spill_id;
+    IrInstruction *operand;
 };
 
 enum ResultLocId {

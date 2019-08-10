@@ -1554,6 +1554,12 @@ static void ir_print_test_cancel_requested(IrPrint *irp, IrInstructionTestCancel
     fprintf(irp->f, "@testCancelRequested()");
 }
 
+static void ir_print_spill(IrPrint *irp, IrInstructionSpill *instruction) {
+    fprintf(irp->f, "@spill(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -2038,6 +2044,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTestCancelRequested:
             ir_print_test_cancel_requested(irp, (IrInstructionTestCancelRequested *)instruction);
+            break;
+        case IrInstructionIdSpill:
+            ir_print_spill(irp, (IrInstructionSpill *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

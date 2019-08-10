@@ -1066,6 +1066,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestCancelReques
     return IrInstructionIdTestCancelRequested;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSpill *) {
+    return IrInstructionIdSpill;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -3332,6 +3336,18 @@ static IrInstruction *ir_build_test_cancel_requested(IrBuilder *irb, Scope *scop
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_spill(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand, SpillId spill_id)
+{
+    IrInstructionSpill *instruction = ir_build_instruction<IrInstructionSpill>(irb, scope, source_node);
+    instruction->operand = operand;
+    instruction->spill_id = spill_id;
+
+    ir_ref_instruction(operand, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3591,6 +3607,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
                     result_loc_ret->base.id = ResultLocIdReturn;
                     ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
+                    err_val = ir_build_spill(irb, scope, node, err_val, SpillIdRetErrCode);
                     ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
 
                     if (irb->codegen->have_err_ret_tracing && !should_inline) {
@@ -24725,6 +24742,19 @@ static IrInstruction *ir_analyze_instruction_test_cancel_requested(IrAnalyze *ir
     return ir_build_test_cancel_requested(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
 }
 
+static IrInstruction *ir_analyze_instruction_spill(IrAnalyze *ira, IrInstructionSpill *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->invalid_instruction;
+    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope)) {
+        return operand;
+    }
+    IrInstruction *result = ir_build_spill(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            operand, instruction->spill_id);
+    result->value.type = operand->value.type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -25024,6 +25054,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_await(ira, (IrInstructionAwaitSrc *)instruction);
         case IrInstructionIdTestCancelRequested:
             return ir_analyze_instruction_test_cancel_requested(ira, (IrInstructionTestCancelRequested *)instruction);
+        case IrInstructionIdSpill:
+            return ir_analyze_instruction_spill(ira, (IrInstructionSpill *)instruction);
     }
     zig_unreachable();
 }
@@ -25259,6 +25291,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdTestCancelRequested:
+        case IrInstructionIdSpill:
             return false;
 
         case IrInstructionIdAsm:

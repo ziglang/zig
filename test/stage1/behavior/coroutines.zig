@@ -613,3 +613,32 @@ test "cancel inside an errdefer" {
     };
     S.doTheTest();
 }
+
+test "combining try with errdefer cancel" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            _ = async amain();
+            resume frame;
+            expect(ok);
+        }
+
+        fn amain() !void {
+            var f = async func("https://example.com/");
+            errdefer cancel f;
+
+            _ = try await f;
+        }
+
+        fn func(url: []const u8) ![]u8 {
+            errdefer ok = true;
+            frame = @frame();
+            suspend;
+            return error.Bad;
+        }
+
+    };
+    S.doTheTest();
+}
