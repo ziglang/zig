@@ -24656,38 +24656,9 @@ static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
     return ir_build_suspend_finish(&ira->new_irb, instruction->base.scope, instruction->base.source_node, begin);
 }
 
-static IrInstruction *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
-    IrInstruction *frame_ptr = instruction->frame->child;
-    if (type_is_invalid(frame_ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *frame;
-    if (frame_ptr->value.type->id == ZigTypeIdPointer &&
-        frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
-        frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdCoroFrame)
-    {
-        frame = frame_ptr;
-    } else {
-        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
-    }
-
-    ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
-    IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
-    if (type_is_invalid(casted_frame->value.type))
-        return ira->codegen->invalid_instruction;
-
-    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    ir_assert(fn_entry != nullptr, &instruction->base);
-
-    if (fn_entry->inferred_async_node == nullptr) {
-        fn_entry->inferred_async_node = instruction->base.source_node;
-    }
-
-    return ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_frame);
-}
-
-static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwaitSrc *instruction) {
-    IrInstruction *frame_ptr = instruction->frame->child;
+static IrInstruction *analyze_frame_ptr_to_anyframe_T(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *frame_ptr)
+{
     if (type_is_invalid(frame_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -24700,21 +24671,52 @@ static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstruction
         result_type = frame_ptr->value.type->data.pointer.child_type->data.frame.fn->type_entry->data.fn.fn_type_id.return_type;
         frame = frame_ptr;
     } else {
-        frame = ir_get_deref(ira, &instruction->base, frame_ptr, nullptr);
-        if (frame->value.type->id != ZigTypeIdAnyFrame ||
+        frame = ir_get_deref(ira, source_instr, frame_ptr, nullptr);
+        if (frame->value.type->id == ZigTypeIdPointer &&
+            frame->value.type->data.pointer.ptr_len == PtrLenSingle &&
+            frame->value.type->data.pointer.child_type->id == ZigTypeIdCoroFrame)
+        {
+            result_type = frame->value.type->data.pointer.child_type->data.frame.fn->type_entry->data.fn.fn_type_id.return_type;
+        } else if (frame->value.type->id != ZigTypeIdAnyFrame ||
             frame->value.type->data.any_frame.result_type == nullptr)
         {
-            ir_add_error(ira, &instruction->base,
+            ir_add_error(ira, source_instr,
                 buf_sprintf("expected anyframe->T, found '%s'", buf_ptr(&frame->value.type->name)));
             return ira->codegen->invalid_instruction;
+        } else {
+            result_type = frame->value.type->data.any_frame.result_type;
         }
-        result_type = frame->value.type->data.any_frame.result_type;
     }
 
     ZigType *any_frame_type = get_any_frame_type(ira->codegen, result_type);
     IrInstruction *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
     if (type_is_invalid(casted_frame->value.type))
         return ira->codegen->invalid_instruction;
+
+    return casted_frame;
+}
+
+static IrInstruction *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
+    IrInstruction *frame = analyze_frame_ptr_to_anyframe_T(ira, &instruction->base, instruction->frame->child);
+    if (type_is_invalid(frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    ir_assert(fn_entry != nullptr, &instruction->base);
+
+    if (fn_entry->inferred_async_node == nullptr) {
+        fn_entry->inferred_async_node = instruction->base.source_node;
+    }
+
+    return ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, frame);
+}
+
+static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwaitSrc *instruction) {
+    IrInstruction *frame = analyze_frame_ptr_to_anyframe_T(ira, &instruction->base, instruction->frame->child);
+    if (type_is_invalid(frame->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *result_type = frame->value.type->data.any_frame.result_type;
 
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
