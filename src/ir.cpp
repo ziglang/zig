@@ -9713,6 +9713,9 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     bool const_val_is_float = (const_val->type->id == ZigTypeIdFloat || const_val->type->id == ZigTypeIdComptimeFloat);
     assert(const_val_is_int || const_val_is_float);
 
+    if (const_val_is_int && other_type->id == ZigTypeIdComptimeFloat) {
+        return true;
+    }
     if (other_type->id == ZigTypeIdFloat) {
         if (const_val->type->id == ZigTypeIdComptimeInt || const_val->type->id == ZigTypeIdComptimeFloat) {
             return true;

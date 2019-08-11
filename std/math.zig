@@ -305,6 +305,13 @@ test "math.min" {
         testing.expect(@typeOf(result) == i16);
         testing.expect(result == -200);
     }
+    {
+        const a = 10.34;
+        var b: f32 = 999.12;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == f32);
+        testing.expect(result == 10.34);
+    }
 }
 
 pub fn max(x: var, y: var) @typeOf(x + y) {
