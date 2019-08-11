@@ -25,9 +25,9 @@ pub const BootServices = extern struct {
     freePool: usize, // TODO
     createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
     setTimer: extern fn (Event, TimerDelay, u64) usize,
-    waitForEvent: usize, // TODO
+    waitForEvent: extern fn (usize, [*]const Event, *usize) usize,
     signalEvent: extern fn (Event) usize,
-    closeEvent: usize, // TODO
+    closeEvent: extern fn (Event) usize,
     checkEvent: usize, // TODO
     installProtocolInterface: usize, // TODO
     reinstallProtocolInterface: usize, // TODO
