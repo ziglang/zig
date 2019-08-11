@@ -10,6 +10,7 @@ A general-purpose programming language designed for **robustness**,
  * [Community](https://github.com/ziglang/zig/wiki/Community)
  * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
  * [Frequently Asked Questions](https://github.com/ziglang/zig/wiki/FAQ)
+ * [Community Projects](https://github.com/ziglang/zig/wiki/Community-Projects)
 
 ## Building from Source
 
