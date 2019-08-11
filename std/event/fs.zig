@@ -76,12 +76,8 @@ pub const Request = struct {
 
 pub const PWriteVError = error{OutOfMemory} || File.WriteError;
 
-/// data - just the inner references - must live until pwritev promise completes.
+/// data - just the inner references - must live until pwritev frame completes.
 pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
     switch (builtin.os) {
         .macosx,
         .linux,
@@ -109,7 +105,7 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
     }
 }
 
-/// data must outlive the returned promise
+/// data must outlive the returned frame
 pub async fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
     if (data.len == 0) return;
     if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
@@ -123,15 +119,10 @@ pub async fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, off
 }
 
 pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteError!void {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     var resume_node = Loop.ResumeNode.Basic{
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
-            .handle = @handle(),
+            .handle = @frame(),
             .overlapped = windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
@@ -166,18 +157,13 @@ pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64)
     }
 }
 
-/// iovecs must live until pwritev promise completes.
+/// iovecs must live until pwritev frame completes.
 pub async fn pwritevPosix(
     loop: *Loop,
     fd: fd_t,
     iovecs: []const os.iovec_const,
     offset: usize,
 ) os.WriteError!void {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     var req_node = RequestNode{
         .prev = null,
         .next = null,
@@ -194,7 +180,7 @@ pub async fn pwritevPosix(
                 .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
-                    .data = @handle(),
+                    .data = @frame(),
                 },
             },
         },
@@ -211,13 +197,8 @@ pub async fn pwritevPosix(
 
 pub const PReadVError = error{OutOfMemory} || File.ReadError;
 
-/// data - just the inner references - must live until preadv promise completes.
+/// data - just the inner references - must live until preadv frame completes.
 pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     assert(data.len != 0);
     switch (builtin.os) {
         .macosx,
@@ -246,7 +227,7 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
     }
 }
 
-/// data must outlive the returned promise
+/// data must outlive the returned frame
 pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) !usize {
     assert(data.len != 0);
     if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
@@ -272,15 +253,10 @@ pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u6
 }
 
 pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     var resume_node = Loop.ResumeNode.Basic{
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
-            .handle = @handle(),
+            .handle = @frame(),
             .overlapped = windows.OVERLAPPED{
                 .Internal = 0,
                 .InternalHigh = 0,
@@ -314,18 +290,13 @@ pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize
     return usize(bytes_transferred);
 }
 
-/// iovecs must live until preadv promise completes
+/// iovecs must live until preadv frame completes
 pub async fn preadvPosix(
     loop: *Loop,
     fd: fd_t,
     iovecs: []const os.iovec,
     offset: usize,
 ) os.ReadError!usize {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     var req_node = RequestNode{
         .prev = null,
         .next = null,
@@ -342,7 +313,7 @@ pub async fn preadvPosix(
                 .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
-                    .data = @handle(),
+                    .data = @frame(),
                 },
             },
         },
@@ -363,11 +334,6 @@ pub async fn openPosix(
     flags: u32,
     mode: File.Mode,
 ) File.OpenError!fd_t {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     const path_c = try std.os.toPosixPath(path);
 
     var req_node = RequestNode{
@@ -386,7 +352,7 @@ pub async fn openPosix(
                 .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
-                    .data = @handle(),
+                    .data = @frame(),
                 },
             },
         },
@@ -643,11 +609,6 @@ async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !
 }
 
 async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
-    // workaround for https://github.com/ziglang/zig/issues/1194
-    suspend {
-        resume @handle();
-    }
-
     const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
     defer loop.allocator.free(path_with_null);
 
@@ -667,7 +628,7 @@ async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8
                 .TickNode = Loop.NextTickNode{
                     .prev = null,
                     .next = null,
-                    .data = @handle(),
+                    .data = @frame(),
                 },
             },
         },
@@ -682,7 +643,7 @@ async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8
     return req_node.data.msg.WriteFile.result;
 }
 
-/// The promise resumes when the last data has been confirmed written, but before the file handle
+/// The frame resumes when the last data has been confirmed written, but before the file handle
 /// is closed.
 /// Caller owns returned memory.
 pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8 {
@@ -734,7 +695,7 @@ pub const WatchEventId = enum {
 //
 //                const FileTable = std.AutoHashMap([]const u8, *Put);
 //                const Put = struct {
-//                    putter: promise,
+//                    putter: anyframe,
 //                    value_ptr: *V,
 //                };
 //            },
@@ -748,21 +709,21 @@ pub const WatchEventId = enum {
 //        const WindowsOsData = struct {
 //            table_lock: event.Lock,
 //            dir_table: DirTable,
-//            all_putters: std.atomic.Queue(promise),
+//            all_putters: std.atomic.Queue(anyframe),
 //            ref_count: std.atomic.Int(usize),
 //
 //            const DirTable = std.AutoHashMap([]const u8, *Dir);
 //            const FileTable = std.AutoHashMap([]const u16, V);
 //
 //            const Dir = struct {
-//                putter: promise,
+//                putter: anyframe,
 //                file_table: FileTable,
 //                table_lock: event.Lock,
 //            };
 //        };
 //
 //        const LinuxOsData = struct {
-//            putter: promise,
+//            putter: anyframe,
 //            inotify_fd: i32,
 //            wd_table: WdTable,
 //            table_lock: event.Lock,
@@ -776,7 +737,7 @@ pub const WatchEventId = enum {
 //            };
 //        };
 //
-//        const FileToHandle = std.AutoHashMap([]const u8, promise);
+//        const FileToHandle = std.AutoHashMap([]const u8, anyframe);
 //
 //        const Self = @This();
 //
@@ -811,7 +772,7 @@ pub const WatchEventId = enum {
 //                            .table_lock = event.Lock.init(loop),
 //                            .dir_table = OsData.DirTable.init(loop.allocator),
 //                            .ref_count = std.atomic.Int(usize).init(1),
-//                            .all_putters = std.atomic.Queue(promise).init(),
+//                            .all_putters = std.atomic.Queue(anyframe).init(),
 //                        },
 //                    };
 //                    return self;
@@ -926,14 +887,9 @@ pub const WatchEventId = enum {
 //        }
 //
 //        async fn kqPutEvents(self: *Self, close_op: *CloseOperation, value: V, out_put: **OsData.Put) void {
-//            // TODO https://github.com/ziglang/zig/issues/1194
-//            suspend {
-//                resume @handle();
-//            }
-//
 //            var value_copy = value;
 //            var put = OsData.Put{
-//                .putter = @handle(),
+//                .putter = @frame(),
 //                .value_ptr = &value_copy,
 //            };
 //            out_put.* = &put;
@@ -1091,18 +1047,13 @@ pub const WatchEventId = enum {
 //        }
 //
 //        async fn windowsDirReader(self: *Self, dir_handle: windows.HANDLE, dir: *OsData.Dir) void {
-//            // TODO https://github.com/ziglang/zig/issues/1194
-//            suspend {
-//                resume @handle();
-//            }
-//
 //            self.ref();
 //            defer self.deref();
 //
 //            defer os.close(dir_handle);
 //
-//            var putter_node = std.atomic.Queue(promise).Node{
-//                .data = @handle(),
+//            var putter_node = std.atomic.Queue(anyframe).Node{
+//                .data = @frame(),
 //                .prev = null,
 //                .next = null,
 //            };
@@ -1112,7 +1063,7 @@ pub const WatchEventId = enum {
 //            var resume_node = Loop.ResumeNode.Basic{
 //                .base = Loop.ResumeNode{
 //                    .id = Loop.ResumeNode.Id.Basic,
-//                    .handle = @handle(),
+//                    .handle = @frame(),
 //                    .overlapped = windows.OVERLAPPED{
 //                        .Internal = 0,
 //                        .InternalHigh = 0,
@@ -1207,17 +1158,12 @@ pub const WatchEventId = enum {
 //        }
 //
 //        async fn linuxEventPutter(inotify_fd: i32, channel: *event.Channel(Event.Error!Event), out_watch: **Self) void {
-//            // TODO https://github.com/ziglang/zig/issues/1194
-//            suspend {
-//                resume @handle();
-//            }
-//
 //            const loop = channel.loop;
 //
 //            var watch = Self{
 //                .channel = channel,
 //                .os_data = OsData{
-//                    .putter = @handle(),
+//                    .putter = @frame(),
 //                    .inotify_fd = inotify_fd,
 //                    .wd_table = OsData.WdTable.init(loop.allocator),
 //                    .table_lock = event.Lock.init(loop),

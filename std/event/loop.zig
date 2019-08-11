@@ -457,7 +457,7 @@ pub const Loop = struct {
             var resume_node = ResumeNode.Basic{
                 .base = ResumeNode{
                     .id = ResumeNode.Id.Basic,
-                    .handle = @handle(),
+                    .handle = @frame(),
                     .overlapped = ResumeNode.overlapped_init,
                 },
             };
@@ -469,7 +469,7 @@ pub const Loop = struct {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
-                .handle = @handle(),
+                .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
             .kev = undefined,

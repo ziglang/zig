@@ -15064,6 +15064,9 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
         return result_loc;
     }
+    result_loc = ir_implicit_cast(ira, result_loc, get_pointer_to_type(ira->codegen, frame_type, false));
+    if (type_is_invalid(result_loc->value.type))
+        return ira->codegen->invalid_instruction;
     return &ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
             casted_args, FnInlineAuto, true, nullptr, result_loc, frame_type)->base;
 }

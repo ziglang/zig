@@ -535,24 +535,24 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         // use the ABI alignment, which is fine.
     }
 
-    unsigned init_gen_i = 0;
-    if (!type_has_bits(return_type)) {
-        // nothing to do
-    } else if (type_is_nonnull_ptr(return_type)) {
-        addLLVMAttr(llvm_fn, 0, "nonnull");
-    } else if (!is_async && want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
-        // Sret pointers must not be address 0
-        addLLVMArgAttr(llvm_fn, 0, "nonnull");
-        addLLVMArgAttr(llvm_fn, 0, "sret");
-        if (cc_want_sret_attr(cc)) {
-            addLLVMArgAttr(llvm_fn, 0, "noalias");
-        }
-        init_gen_i = 1;
-    }
-
     if (is_async) {
         addLLVMArgAttr(llvm_fn, 0, "nonnull");
     } else {
+        unsigned init_gen_i = 0;
+        if (!type_has_bits(return_type)) {
+            // nothing to do
+        } else if (type_is_nonnull_ptr(return_type)) {
+            addLLVMAttr(llvm_fn, 0, "nonnull");
+        } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
+            // Sret pointers must not be address 0
+            addLLVMArgAttr(llvm_fn, 0, "nonnull");
+            addLLVMArgAttr(llvm_fn, 0, "sret");
+            if (cc_want_sret_attr(cc)) {
+                addLLVMArgAttr(llvm_fn, 0, "noalias");
+            }
+            init_gen_i = 1;
+        }
+
         // set parameter attributes
         FnWalk fn_walk = {};
         fn_walk.id = FnWalkIdAttrs;
@@ -911,7 +911,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdBadResume:
             return buf_create_from_str("resumed an async function which already returned");
         case PanicMsgIdBadAwait:
-            return buf_create_from_str("async function awaited/canceled twice");
+            return buf_create_from_str("async function awaited twice");
         case PanicMsgIdBadReturn:
             return buf_create_from_str("async function returned twice");
         case PanicMsgIdResumedAnAwaitingFn:
@@ -2350,6 +2350,10 @@ static LLVMValueRef ir_render_return_begin(CodeGen *g, IrExecutable *executable,
     return get_handle_value(g, g->cur_ret_ptr, operand_type, get_pointer_to_type(g, operand_type, true));
 }
 
+static void set_tail_call_if_appropriate(CodeGen *g, LLVMValueRef call_inst) {
+    LLVMSetTailCall(call_inst, true);
+}
+
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *instruction) {
     if (fn_is_async(g->cur_fn)) {
         LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
@@ -2394,7 +2398,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, masked_prev_val,
                 get_llvm_type(g, any_frame_type), "");
         LLVMValueRef call_inst = gen_resume(g, nullptr, their_frame_ptr, ResumeIdReturn, nullptr);
-        LLVMSetTailCall(call_inst, true);
+        set_tail_call_if_appropriate(g, call_inst);
         LLVMBuildRetVoid(g->builder);
 
         g->cur_is_after_return = false;
@@ -4009,7 +4013,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMBasicBlockRef call_bb = gen_suspend_begin(g, "CallResume");
 
         LLVMValueRef call_inst = gen_resume(g, fn_val, frame_result_loc, ResumeIdCall, nullptr);
-        LLVMSetTailCall(call_inst, true);
+        set_tail_call_if_appropriate(g, call_inst);
         LLVMBuildRetVoid(g->builder);
 
         LLVMPositionBuilderAtEnd(g->builder, call_bb);
@@ -5520,7 +5524,7 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
     LLVMValueRef call_inst = gen_resume(g, nullptr, target_frame_ptr, ResumeIdAwaitEarlyReturn, awaiter_ored_val);
-    LLVMSetTailCall(call_inst, true);
+    set_tail_call_if_appropriate(g, call_inst);
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, resume_bb);
@@ -5556,8 +5560,9 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     }
 
     // supply the error return trace pointer
-    LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
-    if (my_err_ret_trace_val != nullptr) {
+    if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
+        LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+        assert(my_err_ret_trace_val != nullptr);
         LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
                 frame_index_trace_arg(g, result_type), "");
         LLVMBuildStore(g->builder, my_err_ret_trace_val, err_ret_trace_ptr_ptr);
@@ -5588,7 +5593,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // Tail resume it now, so that it can complete.
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
     LLVMValueRef call_inst = gen_resume(g, nullptr, target_frame_ptr, ResumeIdAwaitEarlyReturn, awaiter_init_val);
-    LLVMSetTailCall(call_inst, true);
+    set_tail_call_if_appropriate(g, call_inst);
     LLVMBuildRetVoid(g->builder);
 
     // Rely on the target to resume us from suspension.

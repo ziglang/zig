@@ -5325,7 +5325,7 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         if (*instruction->name_hint == 0) {
             name = buf_ptr(buf_sprintf("@local%" ZIG_PRI_usize, alloca_i));
         } else {
-            name = instruction->name_hint;
+            name = buf_ptr(buf_sprintf("%s.%" ZIG_PRI_usize, instruction->name_hint, alloca_i));
         }
         field_names.append(name);
         field_types.append(child_type);

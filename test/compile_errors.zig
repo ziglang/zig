@@ -1403,24 +1403,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@handle() called outside of function definition",
-        \\var handle_undef: promise = undefined;
-        \\var handle_dummy: promise = @handle();
+        "@frame() called outside of function definition",
+        \\var handle_undef: anyframe = undefined;
+        \\var handle_dummy: anyframe = @frame();
         \\export fn entry() bool {
         \\    return handle_undef == handle_dummy;
         \\}
     ,
-        "tmp.zig:2:29: error: @handle() called outside of function definition",
-    );
-
-    cases.add(
-        "@handle() in non-async function",
-        \\export fn entry() bool {
-        \\    var handle_undef: promise = undefined;
-        \\    return handle_undef == @handle();
-        \\}
-    ,
-        "tmp.zig:3:28: error: @handle() in non-async function",
+        "tmp.zig:2:30: error: @frame() called outside of function definition",
     );
 
     cases.add(
@@ -1796,15 +1786,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "suspend inside suspend block",
-        \\const std = @import("std",);
-        \\
         \\export fn entry() void {
-        \\    var buf: [500]u8 = undefined;
-        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-        \\    const p = (async<a> foo()) catch unreachable;
-        \\    cancel p;
+        \\    _ = async foo();
         \\}
-        \\
         \\async fn foo() void {
         \\    suspend {
         \\        suspend {
@@ -1812,8 +1796,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:12:9: error: cannot suspend inside suspend block",
-        "tmp.zig:11:5: note: other suspend block here",
+        "tmp.zig:6:9: error: cannot suspend inside suspend block",
+        "tmp.zig:5:5: note: other suspend block here",
     );
 
     cases.add(
@@ -1854,15 +1838,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "returning error from void async function",
-        \\const std = @import("std",);
         \\export fn entry() void {
-        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
+        \\    _ = async amain();
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        "tmp.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(

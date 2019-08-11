@@ -1,10 +1,13 @@
+ * for loops need to spill the index. other payload captures probably also need to spill
+ * compile error (instead of crashing) for trying to get @Frame of generic function
+ * compile error (instead of crashing) for trying to async call and passing @Frame of wrong function
+ * `const result = (await a) + (await b);` this causes "Instruction does not dominate all uses" - need spill
  * compile error for error: expected anyframe->T, found 'anyframe'
  * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
  * async call on a non async function
  * a test where an async function destroys its own frame in a defer
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
- * revive std.event.Loop
  * @typeInfo for @Frame(func)
  * peer type resolution of *@Frame(func) and anyframe
  * peer type resolution of *@Frame(func) and anyframe->T when the return type matches
@@ -36,3 +39,4 @@
    - it can be assumed that these are always available: the awaiter ptr, return ptr if applicable,
      error return trace ptr if applicable.
    - it can be assumed that it is never cancelled
+ * fix the debug info for variables of async functions

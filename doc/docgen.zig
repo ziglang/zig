@@ -770,7 +770,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_or,
             .Keyword_orelse,
             .Keyword_packed,
-            .Keyword_promise,
+            .Keyword_anyframe,
             .Keyword_pub,
             .Keyword_resume,
             .Keyword_return,

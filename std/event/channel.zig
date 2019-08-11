@@ -77,18 +77,19 @@ pub fn Channel(comptime T: type) type {
         /// must be called when all calls to put and get have suspended and no more calls occur
         pub fn destroy(self: *SelfChannel) void {
             while (self.getters.get()) |get_node| {
-                cancel get_node.data.tick_node.data;
+                resume get_node.data.tick_node.data;
             }
             while (self.putters.get()) |put_node| {
-                cancel put_node.data.tick_node.data;
+                resume put_node.data.tick_node.data;
             }
             self.loop.allocator.free(self.buffer_nodes);
             self.loop.allocator.destroy(self);
         }
 
-        /// puts a data item in the channel. The promise completes when the value has been added to the
+        /// puts a data item in the channel. The function returns when the value has been added to the
         /// buffer, or in the case of a zero size buffer, when the item has been retrieved by a getter.
-        pub async fn put(self: *SelfChannel, data: T) void {
+        /// Or when the channel is destroyed.
+        pub fn put(self: *SelfChannel, data: T) void {
             var my_tick_node = Loop.NextTickNode.init(@frame());
             var queue_node = std.atomic.Queue(PutNode).Node.init(PutNode{
                 .tick_node = &my_tick_node,
@@ -114,7 +115,7 @@ pub fn Channel(comptime T: type) type {
             }
         }
 
-        /// await this function to get an item from the channel. If the buffer is empty, the promise will
+        /// await this function to get an item from the channel. If the buffer is empty, the frame will
         /// complete when the next item is put in the channel.
         pub async fn get(self: *SelfChannel) T {
             // TODO integrate this function with named return values

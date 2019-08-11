@@ -6024,13 +6024,14 @@ const assert = std.debug.assert;
 
 var x: i32 = 1;
 
-test "create a coroutine and cancel it" {
-    const p = try async<std.debug.global_allocator> simpleAsyncFn();
-    comptime assert(@typeOf(p) == promise->void);
-    cancel p;
+test "call an async function" {
+    var frame = async simpleAsyncFn();
+    comptime assert(@typeOf(frame) == @Frame(simpleAsyncFn));
     assert(x == 2);
 }
-async<*std.mem.Allocator> fn simpleAsyncFn() void {
+fn simpleAsyncFn() void {
+    x += 1;
+    suspend;
     x += 1;
 }
       {#code_end#}
@@ -6041,60 +6042,33 @@ async<*std.mem.Allocator> fn simpleAsyncFn() void {
       return to the caller or resumer. The following code demonstrates where control flow
       goes:
       </p>
-      {#code_begin|test#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-test "coroutine suspend, resume, cancel" {
-    seq('a');
-    const p = try async<std.debug.global_allocator> testAsyncSeq();
-    seq('c');
-    resume p;
-    seq('f');
-    cancel p;
-    seq('g');
-
-    assert(std.mem.eql(u8, points, "abcdefg"));
-}
-async fn testAsyncSeq() void {
-    defer seq('e');
-
-    seq('b');
-    suspend;
-    seq('d');
-}
-var points = [_]u8{0} ** "abcdefg".len;
-var index: usize = 0;
-
-fn seq(c: u8) void {
-    points[index] = c;
-    index += 1;
-}
-      {#code_end#}
+      <p>
+      TODO another test example here
+      </p>
       <p>
       When an async function suspends itself, it must be sure that it will be
       resumed or canceled somehow, for example by registering its promise handle
       in an event loop. Use a suspend capture block to gain access to the
-      promise:
+      promise (TODO this is outdated):
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
+var the_frame: anyframe = undefined;
+var result = false;
+
 test "coroutine suspend with block" {
-    const p = try async<std.debug.global_allocator> testSuspendBlock();
+    _ = async testSuspendBlock();
     std.debug.assert(!result);
-    resume a_promise;
+    resume the_frame;
     std.debug.assert(result);
-    cancel p;
 }
 
-var a_promise: promise = undefined;
-var result = false;
-async fn testSuspendBlock() void {
+fn testSuspendBlock() void {
     suspend {
-        comptime assert(@typeOf(@handle()) == promise->void);
-        a_promise = @handle();
+        comptime assert(@typeOf(@frame()) == *@Frame(testSuspendBlock));
+        the_frame = @frame();
     }
     result = true;
 }
@@ -6124,16 +6098,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "resume from suspend" {
-    var buf: [500]u8 = undefined;
-    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
     var my_result: i32 = 1;
-    const p = try async<a> testResumeFromSuspend(&my_result);
-    cancel p;
+    _ = async testResumeFromSuspend(&my_result);
     std.debug.assert(my_result == 2);
 }
 async fn testResumeFromSuspend(my_result: *i32) void {
     suspend {
-        resume @handle();
+        resume @frame();
     }
     my_result.* += 1;
     suspend;
@@ -6172,30 +6143,30 @@ async fn testResumeFromSuspend(my_result: *i32) void {
 const std = @import("std");
 const assert = std.debug.assert;
 
-var a_promise: promise = undefined;
+var the_frame: anyframe = undefined;
 var final_result: i32 = 0;
 
 test "coroutine await" {
     seq('a');
-    const p = async<std.debug.global_allocator> amain() catch unreachable;
+    _ = async amain();
     seq('f');
-    resume a_promise;
+    resume the_frame;
     seq('i');
     assert(final_result == 1234);
     assert(std.mem.eql(u8, seq_points, "abcdefghi"));
 }
 async fn amain() void {
     seq('b');
-    const p = async another() catch unreachable;
+    var f = async another();
     seq('e');
-    final_result = await p;
+    final_result = await f;
     seq('h');
 }
 async fn another() i32 {
     seq('c');
     suspend {
         seq('d');
-        a_promise = @handle();
+        the_frame = @frame();
     }
     seq('g');
     return 1234;

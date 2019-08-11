@@ -1183,7 +1183,7 @@ test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
         \\    suspend {
-        \\        resume @handle();
+        \\        resume @frame();
         \\    }
         \\}
         \\
