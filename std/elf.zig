@@ -267,6 +267,8 @@ pub const SHT_HIPROC = 0x7fffffff;
 pub const SHT_LOUSER = 0x80000000;
 pub const SHT_HIUSER = 0xffffffff;
 
+pub const NT_GNU_BUILD_ID = 3;
+
 pub const STB_LOCAL = 0;
 pub const STB_GLOBAL = 1;
 pub const STB_WEAK = 2;
@@ -361,6 +363,47 @@ pub const SectionHeader = struct {
         const name_offset = elf.string_section.offset + elf_section.name;
         try elf.seekable_stream.seekTo(name_offset);
         return try isString(elf, name);
+    }
+
+    pub const NoteDescription = struct {
+        elf: *Elf,
+        start_pos: usize,
+        len: usize,
+    };
+    pub fn isNote(elf_section: SectionHeader, elf: *Elf, name: []const u8, wanted_type: u64) !?NoteDescription {
+        if (elf_section.sh_type != SHT_NOTE) return null;
+
+        try elf.seekable_stream.seekTo(elf_section.offset);
+
+        var desc_len: usize = undefined;
+
+        if (elf.is_64) {
+            const hdr = Elf64_Nhdr {
+                .n_namesz = try elf.in_stream.readInt(Elf64_Word, elf.endian),
+                .n_descsz = try elf.in_stream.readInt(Elf64_Word, elf.endian),
+                .n_type = try elf.in_stream.readInt(Elf64_Word, elf.endian),
+            };
+            if (name.len + 1 != hdr.n_namesz) return null;
+            if (wanted_type != hdr.n_type) return null;
+            desc_len = hdr.n_descsz;
+        } else {
+            const hdr = Elf32_Nhdr {
+                .n_namesz = try elf.in_stream.readInt(Elf32_Word, elf.endian),
+                .n_descsz = try elf.in_stream.readInt(Elf32_Word, elf.endian),
+                .n_type = try elf.in_stream.readInt(Elf32_Word, elf.endian),
+            };
+            if (name.len + 1 != hdr.n_namesz) return null;
+            if (wanted_type != hdr.n_type) return null;
+            desc_len = hdr.n_descsz;
+        }
+
+        if (!try isString(elf, name)) return null;
+
+        return NoteDescription {
+            .elf = elf,
+            .start_pos = try elf.seekable_stream.getPos(),
+            .len = desc_len,
+        };
     }
 };
 

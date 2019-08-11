@@ -1023,6 +1023,7 @@ pub fn openElfDebugInfo(
     var debug_line: ?DwarfInfo.Section = null;
     var debug_ranges: ?DwarfInfo.Section = null;
     var gnu_debuglink: ?DwarfInfo.Section = null;
+    var note_gnu_build_id: ?elf.SectionHeader.NoteDescription = null;
     var n: usize = 0; // count number of sections found to exit loop early
 
     var it = efile.sectionIterator();
@@ -1056,12 +1057,19 @@ pub fn openElfDebugInfo(
             };
         } else {
             // don't want to increment `n`
+
+            if (note_gnu_build_id == null) if (try elf_section.isNote(&efile, "GNU", elf.NT_GNU_BUILD_ID)) |note_description| {
+                // is allowed to be in any note section, not just .note.gnu.build-id
+                note_gnu_build_id = note_description;
+            };
+
             if (gnu_debuglink == null and try elf_section.nameIs(&efile, ".gnu_debuglink")) {
                 gnu_debuglink = DwarfInfo.Section{
                     .offset = elf_section.offset,
                     .size = elf_section.size,
                 };
             }
+
             continue;
         }
 
@@ -1085,7 +1093,10 @@ pub fn openElfDebugInfo(
 
     // Look for external debug info
 
-    // TODO: look for note.gnu.build-id. build-id should be preferred over debuglink
+    // build-id is preferred over debuglink
+    if (note_gnu_build_id) |note_description| {
+        // TODO: look in global debug directories for .build-id/nn/nnnnnnnn.debug
+    }
 
     if (gnu_debuglink) |debuglink| {
         if (openGNUDebugLink(allocator, debuglink, elf_seekable_stream, elf_in_stream, efile.endian)) |di| {
