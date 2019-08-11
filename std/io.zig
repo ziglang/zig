@@ -209,6 +209,17 @@ pub fn InStream(comptime ReadError: type) type {
             }
         }
 
+        pub fn checkByte(self: *Self, byte: u8) !bool {
+            return (try self.readByte()) == byte;
+        }
+
+        pub fn checkBytes(self: *Self, bytes: []const u8) !bool {
+            for (bytes) |expected_c| {
+                if (!try self.checkByte(expected_c)) return false;
+            }
+            return true;
+        }
+
         pub fn readStruct(self: *Self, comptime T: type) !T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != builtin.TypeInfo.ContainerLayout.Auto);

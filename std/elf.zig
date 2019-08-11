@@ -340,6 +340,11 @@ pub const Arch = enum {
     AArch64,
 };
 
+fn isString(elf: *Elf, str: []const u8) !bool {
+    if (!try elf.in_stream.checkBytes(str)) return false;
+    return try elf.in_stream.checkByte(0);
+}
+
 pub const SectionHeader = struct {
     name: u32,
     sh_type: u32,
@@ -355,16 +360,7 @@ pub const SectionHeader = struct {
     pub fn nameIs(elf_section: SectionHeader, elf: *Elf, name: []const u8) !bool {
         const name_offset = elf.string_section.offset + elf_section.name;
         try elf.seekable_stream.seekTo(name_offset);
-
-        for (name) |expected_c| {
-            const target_c = try elf.in_stream.readByte();
-            if (target_c == 0 or expected_c != target_c) return false;
-        }
-
-        const null_byte = try elf.in_stream.readByte();
-        if (null_byte == 0) return true;
-
-        return false;
+        return try isString(elf, name);
     }
 };
 
