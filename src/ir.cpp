@@ -11938,7 +11938,6 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
         enum_type->data.enumeration.src_field_count == 1)
     {
-        assert(tag_type == ira->codegen->builtin_types.entry_num_lit_int);
         IrInstruction *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(&result->value, tag_type,
                 &enum_type->data.enumeration.fields[0].value);
