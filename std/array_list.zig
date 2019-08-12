@@ -210,13 +210,10 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             // index of the next element to return
             next_index: usize = 0,
 
-            // did we remove the element last returned by `next`?
-            removed: bool = false,
+            // the last index we removed
+            removed_index: ?usize = null,
 
             pub fn next(it: *Iterator) ?T {
-                // NOTE: volatile code! this is actually slower if you remove the branch!!!
-                if (it.removed) it.removed = false;
-
                 if (it.next_index >= it.list.len) return null;
                 const val = it.list.at(it.next_index);
 
@@ -227,13 +224,26 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 
             pub fn reset(it: *Iterator) void {
                 it.next_index = 0;
-                it.removed = false;
+                it.removed_index = null;
             }
 
-            pub fn swapRemove(it: *Iterator) T {
-                if (!it.removed) {
-                    it.removed = true;
+            //
+            // NOTE: inlining these removal routines is important.
+            // Allows them to get with 1% of the performance of ArrayList.swapRemove/orderedRemove.
+            //
+
+            pub inline fn swapRemove(it: *Iterator) T {
+                const removed_already = blk: {
+                    if (it.removed_index) |idx| {
+                        break :blk idx==it.next_index;
+                    } else {
+                        break :blk false;
+                    }
+                };
+                if (!removed_already) {
                     if (it.next_index > 0) it.next_index -= 1;
+                    it.removed_index = it.next_index;
+                    if (it.next_index >= it.list.len) @panic("attempt to remove element from empty list");
                     return it.list.swapRemove(it.next_index);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
@@ -241,10 +251,18 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
                 }
             }
 
-            pub fn orderedRemove(it: *Iterator) T {
-                if (!it.removed) {
-                    it.removed = true;
+            pub inline fn orderedRemove(it: *Iterator) T {
+                const removed_already = blk: {
+                    if (it.removed_index) |idx| {
+                        break :blk idx==it.next_index;
+                    } else {
+                        break :blk false;
+                    }
+                };
+                if (!removed_already) {
                     if (it.next_index > 0) it.next_index -= 1;
+                    if (it.next_index >= it.list.len) @panic("attempt to remove element from empty list");
+                    it.removed_index = it.next_index;
                     return it.list.orderedRemove(it.next_index);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
