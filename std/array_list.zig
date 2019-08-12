@@ -219,20 +219,23 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
                 // so we get the element at the same index a second time.
                 // the next element's index was incremented when we
                 // called `next` before, so we decrement it here, before we get the item.
-                const index = if (it.removed) it.next_index-1 else it.next_index;
-                it.removed = false;
+                // NOTE: volatile code! don't use a ternary if, or stack variable for new index here!
+                if (it.removed) {
+                    it.removed = false;
+                    it.next_index -= 1;
+                }
 
-                if (index >= it.list.len) return null;
-                const val = it.list.at(index);
+                if (it.next_index >= it.list.len) return null;
+                const val = it.list.at(it.next_index);
 
-                it.next_index = index+1;
+                it.next_index += 1;
 
                 return val;
             }
 
             pub fn reset(it: *Iterator) void {
                 it.next_index = 0;
-                it.removed = false;
+                it.removed = true;
             }
 
             pub fn swapRemove(it: *Iterator) T {
