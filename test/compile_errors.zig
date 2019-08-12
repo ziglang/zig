@@ -3408,7 +3408,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = 5 / a;
         \\}
     ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:13: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3418,7 +3418,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    5 /= a;
         \\}
     ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3428,7 +3428,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = 5 % a;
         \\}
     ,
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:13: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -3438,7 +3438,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    5 %= a;
         \\}
     ,
-        "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:3:10: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
