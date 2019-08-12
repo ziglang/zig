@@ -1163,6 +1163,17 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMValueRef return_address_ptr = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
     LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, return_address_ptr, usize_type_ref, "");
 
+    LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(fn_val, "Return");
+    LLVMBasicBlockRef dest_non_null_block = LLVMAppendBasicBlock(fn_val, "DestNonNull");
+
+    LLVMValueRef null_dest_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, err_ret_trace_ptr,
+            LLVMConstNull(LLVMTypeOf(err_ret_trace_ptr)), "");
+    LLVMBuildCondBr(g->builder, null_dest_bit, return_block, dest_non_null_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, return_block);
+    LLVMBuildRetVoid(g->builder);
+
+    LLVMPositionBuilderAtEnd(g->builder, dest_non_null_block);
     LLVMValueRef args[] = { err_ret_trace_ptr, return_address };
     ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
     LLVMBuildRetVoid(g->builder);
@@ -5496,6 +5507,13 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
     LLVMBasicBlockRef resume_bb = gen_suspend_begin(g, "CancelResume");
+
+    // supply null for the awaiter return pointer (no copy needed)
+    if (type_has_bits(result_type)) {
+        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_ret_start + 1, "");
+        LLVMBuildStore(g->builder, LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr_ptr))),
+                awaiter_ret_ptr_ptr);
+    }
 
     // supply null for the error return trace pointer
     if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
