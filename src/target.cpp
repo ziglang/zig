@@ -1759,3 +1759,7 @@ bool target_supports_libunwind(const ZigTarget *target) {
     return true;
 }
 
+
+unsigned target_fn_align(const ZigTarget *target) {
+    return 16;
+}

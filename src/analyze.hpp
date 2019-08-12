@@ -39,7 +39,7 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
-        ZigType *field_types[], size_t field_count);
+        ZigType *field_types[], size_t field_count, unsigned min_abi_align);
 ZigType *get_test_fn_type(CodeGen *g);
 ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
 bool handle_is_ptr(ZigType *type_entry);

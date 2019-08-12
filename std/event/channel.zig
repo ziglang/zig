@@ -2,8 +2,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
 const Loop = std.event.Loop;
 
 /// many producer, many consumer, thread-safe, runtime configurable buffer size
@@ -98,18 +96,18 @@ pub fn Channel(comptime T: type) type {
 
             // TODO test canceling a put()
             errdefer {
-                _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
                 const need_dispatch = !self.putters.remove(&queue_node);
                 self.loop.cancelOnNextTick(&my_tick_node);
                 if (need_dispatch) {
                     // oops we made the put_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                    _ = @atomicRmw(usize, &self.put_count, .Add, 1, .SeqCst);
                     self.dispatch();
                 }
             }
             suspend {
                 self.putters.put(&queue_node);
-                _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.put_count, .Add, 1, .SeqCst);
 
                 self.dispatch();
             }
@@ -118,8 +116,7 @@ pub fn Channel(comptime T: type) type {
         /// await this function to get an item from the channel. If the buffer is empty, the frame will
         /// complete when the next item is put in the channel.
         pub async fn get(self: *SelfChannel) T {
-            // TODO integrate this function with named return values
-            // so we can get rid of this extra result copy
+            // TODO https://github.com/ziglang/zig/issues/2765
             var result: T = undefined;
             var my_tick_node = Loop.NextTickNode.init(@frame());
             var queue_node = std.atomic.Queue(GetNode).Node.init(GetNode{
@@ -131,19 +128,19 @@ pub fn Channel(comptime T: type) type {
 
             // TODO test canceling a get()
             errdefer {
-                _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
                 const need_dispatch = !self.getters.remove(&queue_node);
                 self.loop.cancelOnNextTick(&my_tick_node);
                 if (need_dispatch) {
                     // oops we made the get_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                    _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
                     self.dispatch();
                 }
             }
 
             suspend {
                 self.getters.put(&queue_node);
-                _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
 
                 self.dispatch();
             }
@@ -183,19 +180,19 @@ pub fn Channel(comptime T: type) type {
             // TODO test canceling getOrNull
             errdefer {
                 _ = self.or_null_queue.remove(&or_null_node);
-                _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
                 const need_dispatch = !self.getters.remove(&queue_node);
                 self.loop.cancelOnNextTick(&my_tick_node);
                 if (need_dispatch) {
                     // oops we made the get_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                    _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
                     self.dispatch();
                 }
             }
 
             suspend {
                 self.getters.put(&queue_node);
-                _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
                 self.or_null_queue.put(&or_null_node);
 
                 self.dispatch();
@@ -205,21 +202,21 @@ pub fn Channel(comptime T: type) type {
 
         fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
-            _ = @atomicRmw(u8, &self.need_dispatch, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+            _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 1, .SeqCst);
 
             lock: while (true) {
                 // set the lock flag
-                const prev_lock = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+                const prev_lock = @atomicRmw(u8, &self.dispatch_lock, .Xchg, 1, .SeqCst);
                 if (prev_lock != 0) return;
 
                 // clear the need_dispatch flag since we're about to do it
-                _ = @atomicRmw(u8, &self.need_dispatch, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 0, .SeqCst);
 
                 while (true) {
                     one_dispatch: {
                         // later we correct these extra subtractions
-                        var get_count = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
-                        var put_count = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                        var get_count = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
+                        var put_count = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
 
                         // transfer self.buffer to self.getters
                         while (self.buffer_len != 0) {
@@ -238,7 +235,7 @@ pub fn Channel(comptime T: type) type {
                             self.loop.onNextTick(get_node.tick_node);
                             self.buffer_len -= 1;
 
-                            get_count = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                            get_count = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
                         }
 
                         // direct transfer self.putters to self.getters
@@ -258,8 +255,8 @@ pub fn Channel(comptime T: type) type {
                             self.loop.onNextTick(get_node.tick_node);
                             self.loop.onNextTick(put_node.tick_node);
 
-                            get_count = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
-                            put_count = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                            get_count = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
+                            put_count = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
                         }
 
                         // transfer self.putters to self.buffer
@@ -271,13 +268,13 @@ pub fn Channel(comptime T: type) type {
                             self.buffer_index +%= 1;
                             self.buffer_len += 1;
 
-                            put_count = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst);
+                            put_count = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
                         }
                     }
 
                     // undo the extra subtractions
-                    _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
-                    _ = @atomicRmw(usize, &self.put_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+                    _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
+                    _ = @atomicRmw(usize, &self.put_count, .Add, 1, .SeqCst);
 
                     // All the "get or null" functions should resume now.
                     var remove_count: usize = 0;
@@ -286,18 +283,18 @@ pub fn Channel(comptime T: type) type {
                         self.loop.onNextTick(or_null_node.data.data.tick_node);
                     }
                     if (remove_count != 0) {
-                        _ = @atomicRmw(usize, &self.get_count, AtomicRmwOp.Sub, remove_count, AtomicOrder.SeqCst);
+                        _ = @atomicRmw(usize, &self.get_count, .Sub, remove_count, .SeqCst);
                     }
 
                     // clear need-dispatch flag
-                    const need_dispatch = @atomicRmw(u8, &self.need_dispatch, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                    const need_dispatch = @atomicRmw(u8, &self.need_dispatch, .Xchg, 0, .SeqCst);
                     if (need_dispatch != 0) continue;
 
-                    const my_lock = @atomicRmw(u8, &self.dispatch_lock, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+                    const my_lock = @atomicRmw(u8, &self.dispatch_lock, .Xchg, 0, .SeqCst);
                     assert(my_lock != 0);
 
                     // we have to check again now that we unlocked
-                    if (@atomicLoad(u8, &self.need_dispatch, AtomicOrder.SeqCst) != 0) continue :lock;
+                    if (@atomicLoad(u8, &self.need_dispatch, .SeqCst) != 0) continue :lock;
 
                     return;
                 }
@@ -327,16 +324,13 @@ test "std.event.Channel" {
 }
 
 async fn testChannelGetter(loop: *Loop, channel: *Channel(i32)) void {
-    const value1_promise = async channel.get();
-    const value1 = await value1_promise;
+    const value1 = channel.get();
     testing.expect(value1 == 1234);
 
-    const value2_promise = async channel.get();
-    const value2 = await value2_promise;
+    const value2 = channel.get();
     testing.expect(value2 == 4567);
 
-    const value3_promise = async channel.getOrNull();
-    const value3 = await value3_promise;
+    const value3 = channel.getOrNull();
     testing.expect(value3 == null);
 
     const last_put = async testPut(channel, 4444);

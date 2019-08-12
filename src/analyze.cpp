@@ -1500,7 +1500,7 @@ bool type_is_invalid(ZigType *type_entry) {
 
 
 ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
-        ZigType *field_types[], size_t field_count)
+        ZigType *field_types[], size_t field_count, unsigned min_abi_align)
 {
     ZigType *struct_type = new_type_table_entry(ZigTypeIdStruct);
 
@@ -1512,7 +1512,7 @@ ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_na
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
     struct_type->data.structure.fields_by_name.init(field_count);
 
-    size_t abi_align = 0;
+    size_t abi_align = min_abi_align;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = &struct_type->data.structure.fields[i];
         field->name = buf_create_from_str(field_names[i]);
@@ -5334,7 +5334,7 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
 
     assert(field_names.length == field_types.length);
     frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
-            field_names.items, field_types.items, field_names.length);
+            field_names.items, field_types.items, field_names.length, target_fn_align(g->zig_target));
     frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
     frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
     frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
@@ -7764,8 +7764,8 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
 
 LLVMTypeRef get_llvm_type(CodeGen *g, ZigType *type) {
     assertNoError(type_resolve(g, type, ResolveStatusLLVMFull));
-    assert(type->abi_size == 0 || type->abi_size == LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
-    assert(type->abi_align == 0 || type->abi_align == LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_size == 0 || type->abi_size >= LLVMABISizeOfType(g->target_data_ref, type->llvm_type));
+    assert(type->abi_align == 0 || type->abi_align >= LLVMABIAlignmentOfType(g->target_data_ref, type->llvm_type));
     return type->llvm_type;
 }
 
