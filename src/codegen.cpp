@@ -1139,9 +1139,6 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
-    // Error return trace memory is in the stack, which is impossible to be at address 0
-    // on any architecture.
-    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (codegen_have_frame_pointer(g)) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
@@ -2058,13 +2055,9 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
-    // Error return trace memory is in the stack, which is impossible to be at address 0
-    // on any architecture.
-    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)0, "writeonly");
-    // Error return trace memory is in the stack, which is impossible to be at address 0
-    // on any architecture.
+
     addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
     addLLVMArgAttr(fn_val, (unsigned)1, "noalias");
     addLLVMArgAttr(fn_val, (unsigned)1, "readonly");
@@ -5571,7 +5564,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
         LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, coro_ret_start + 1, "");
         if (result_loc == nullptr) {
             // no copy needed
-            LLVMBuildStore(g->builder, zero, awaiter_ret_ptr_ptr);
+            LLVMBuildStore(g->builder, LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr_ptr))),
+                    awaiter_ret_ptr_ptr);
         } else {
             LLVMBuildStore(g->builder, result_loc, awaiter_ret_ptr_ptr);
         }
