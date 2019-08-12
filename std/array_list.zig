@@ -214,16 +214,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             removed: bool = false,
 
             pub fn next(it: *Iterator) ?T {
-                // if we removed the previous element, then
-                // the next element replaced the current one,
-                // so we get the element at the same index a second time.
-                // the next element's index was incremented when we
-                // called `next` before, so we decrement it here, before we get the item.
-                // NOTE: volatile code! don't use a ternary if, or stack variable for new index here!
-                if (it.removed) {
-                    it.removed = false;
-                    it.next_index -= 1;
-                }
+                // NOTE: volatile code! this is actually slower if you remove the branch!!!
+                if (it.removed) it.removed = false;
 
                 if (it.next_index >= it.list.len) return null;
                 const val = it.list.at(it.next_index);
@@ -235,13 +227,14 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 
             pub fn reset(it: *Iterator) void {
                 it.next_index = 0;
-                it.removed = true;
+                it.removed = false;
             }
 
             pub fn swapRemove(it: *Iterator) T {
                 if (!it.removed) {
                     it.removed = true;
-                    return it.list.swapRemove(it.next_index-1);
+                    if (it.next_index > 0) it.next_index -= 1;
+                    return it.list.swapRemove(it.next_index);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
                     else => @panic("removed element more than once"),
@@ -251,7 +244,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             pub fn orderedRemove(it: *Iterator) T {
                 if (!it.removed) {
                     it.removed = true;
-                    return it.list.orderedRemove(it.next_index-1);
+                    if (it.next_index > 0) it.next_index -= 1;
+                    return it.list.orderedRemove(it.next_index);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
                     else => @panic("removed element more than once"),
@@ -488,6 +482,14 @@ test "std.ArrayList.iterator.swapRemove" {
     try list.append(3);
     try list.append(4);
 
+    {
+        var last_elem = list.at(list.len-1);
+        var itr = list.iterator();
+        _ = itr.swapRemove();
+        testing.expectEqual(list.at(0), last_elem);
+        try list.insert(0, 1); // put the number back in.
+    }
+
     var it = list.iterator();
     while (it.next()) |next| {
         if (next == 2) {
@@ -515,6 +517,15 @@ test "std.ArrayList.iterator.orderedRemove" {
     try list.append(2);
     try list.append(3);
     try list.append(4);
+
+    // check we can remove the first element
+    {
+        var second_elem = list.at(1);
+        var itr = list.iterator();
+        _ = itr.orderedRemove();
+        testing.expectEqual(list.at(0), second_elem);
+        try list.insert(0, 1); // put the number back in.
+    }
 
     var it = list.iterator();
     while (it.next()) |next| {
