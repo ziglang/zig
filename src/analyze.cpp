@@ -7017,20 +7017,21 @@ static void resolve_llvm_types_error_union(CodeGen *g, ZigType *type) {
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, type->llvm_type);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, type->llvm_type);
 
-        ZigLLVMDIType *di_element_types[] = {
-            ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
+        ZigLLVMDIType *di_element_types[2];
+        di_element_types[err_union_err_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(type->llvm_di_type),
                     "tag", di_file, line,
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     tag_offset_in_bits,
-                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, err_set_type)),
-            ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(type->llvm_di_type),
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, err_set_type));
+        di_element_types[err_union_payload_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(type->llvm_di_type),
                     "value", di_file, line,
                     value_debug_size_in_bits,
                     value_debug_align_in_bits,
                     value_offset_in_bits,
-                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, payload_type)),
-        };
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, payload_type));
 
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
                 compile_unit_scope,
