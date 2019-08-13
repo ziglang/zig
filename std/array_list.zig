@@ -233,17 +233,13 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             //
 
             pub inline fn swapRemove(it: *Iterator) T {
-                const removed_already = blk: {
-                    if (it.removed_index) |idx| {
-                        break :blk idx==it.next_index;
-                    } else {
-                        break :blk false;
-                    }
-                };
-                if (!removed_already) {
+                if (it.list.len == 0) @panic("attempt to remove element from empty list");
+
+                if (it.removed_index == null or
+                    it.removed_index.? != it.next_index)
+                {
                     if (it.next_index > 0) it.next_index -= 1;
                     it.removed_index = it.next_index;
-                    if (it.next_index >= it.list.len) @panic("attempt to remove element from empty list");
                     return it.list.swapRemove(it.next_index);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
@@ -252,16 +248,12 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             }
 
             pub inline fn orderedRemove(it: *Iterator) T {
-                const removed_already = blk: {
-                    if (it.removed_index) |idx| {
-                        break :blk idx==it.next_index;
-                    } else {
-                        break :blk false;
-                    }
-                };
-                if (!removed_already) {
+                if (it.list.len == 0) @panic("attempt to remove element from empty list");
+
+                if (it.removed_index == null or
+                    it.removed_index.? != it.next_index)
+                {
                     if (it.next_index > 0) it.next_index -= 1;
-                    if (it.next_index >= it.list.len) @panic("attempt to remove element from empty list");
                     it.removed_index = it.next_index;
                     return it.list.orderedRemove(it.next_index);
                 } else switch (builtin.mode) {
