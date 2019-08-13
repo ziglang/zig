@@ -52,7 +52,7 @@ const Command = struct {
 
 pub fn main() !void {
     // This allocator needs to be thread-safe because we use it for the event.Loop
-    // which multiplexes coroutines onto kernel threads.
+    // which multiplexes async functions onto kernel threads.
     // libc allocator is guaranteed to have this property.
     const allocator = std.heap.c_allocator;
 

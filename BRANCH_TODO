@@ -1,4 +1,4 @@
- * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
+ * zig fmt support for the syntax
  * alignment of variables not being respected in async functions
  * await of a non async function
  * async call on a non async function

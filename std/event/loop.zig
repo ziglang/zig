@@ -118,7 +118,7 @@ pub const Loop = struct {
     }
 
     /// The allocator must be thread-safe because we use it for multiplexing
-    /// coroutines onto kernel threads.
+    /// async functions onto kernel threads.
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.

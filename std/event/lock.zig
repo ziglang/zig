@@ -6,7 +6,7 @@ const mem = std.mem;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock.
-/// coroutines which are waiting for the lock are suspended, and
+/// Functions which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Allows only one actor to hold the lock.
 pub const Lock = struct {
@@ -96,8 +96,7 @@ pub const Lock = struct {
         suspend {
             self.queue.put(&my_tick_node);
 
-            // At this point, we are in the queue, so we might have already been resumed and this coroutine
-            // frame might be destroyed. For the rest of the suspend block we cannot access the coroutine frame.
+            // At this point, we are in the queue, so we might have already been resumed.
 
             // We set this bit so that later we can rely on the fact, that if queue_empty_bit is 1, some actor
             // will attempt to grab the lock.

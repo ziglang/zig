@@ -7,7 +7,7 @@ const testing = std.testing;
 /// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
     return struct {
-        coro_stack: Stack,
+        frame_stack: Stack,
         alloc_stack: Stack,
         lock: Lock,
 
@@ -21,7 +21,7 @@ pub fn Group(comptime ReturnType: type) type {
 
         pub fn init(loop: *Loop) Self {
             return Self{
-                .coro_stack = Stack.init(),
+                .frame_stack = Stack.init(),
                 .alloc_stack = Stack.init(),
                 .lock = Lock.init(loop),
             };
@@ -29,7 +29,7 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Cancel all the outstanding frames. Can be called even if wait was already called.
         pub fn deinit(self: *Self) void {
-            while (self.coro_stack.pop()) |node| {
+            while (self.frame_stack.pop()) |node| {
                 cancel node.data;
             }
             while (self.alloc_stack.pop()) |node| {
@@ -50,11 +50,11 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Add a node to the group. Thread-safe. Cannot fail.
         /// `node.data` should be the frame handle to add to the group.
-        /// The node's memory should be in the coroutine frame of
+        /// The node's memory should be in the function frame of
         /// the handle that is in the node, or somewhere guaranteed to live
         /// at least as long.
         pub fn addNode(self: *Self, node: *Stack.Node) void {
-            self.coro_stack.push(node);
+            self.frame_stack.push(node);
         }
 
         /// Wait for all the calls and promises of the group to complete.
@@ -64,7 +64,7 @@ pub fn Group(comptime ReturnType: type) type {
             const held = self.lock.acquire();
             defer held.release();
 
-            while (self.coro_stack.pop()) |node| {
+            while (self.frame_stack.pop()) |node| {
                 if (Error == void) {
                     await node.data;
                 } else {

@@ -2103,7 +2103,7 @@ test "zig fmt: inline asm" {
     );
 }
 
-test "zig fmt: coroutines" {
+test "zig fmt: async functions" {
     try testCanonical(
         \\async fn simpleAsyncFn() void {
         \\    const a = async a.b();
@@ -2115,8 +2115,8 @@ test "zig fmt: coroutines" {
         \\    await p;
         \\}
         \\
-        \\test "coroutine suspend, resume, cancel" {
-        \\    const p: anyframe = try async<std.debug.global_allocator> testAsyncSeq();
+        \\test "suspend, resume, cancel" {
+        \\    const p: anyframe = async testAsyncSeq();
         \\    resume p;
         \\    cancel p;
         \\}

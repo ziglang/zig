@@ -6,7 +6,7 @@ const mem = std.mem;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock.
-/// coroutines which are waiting for the lock are suspended, and
+/// Functions which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Many readers can hold the lock at the same time; however locking for writing is exclusive.
 /// When a read lock is held, it will not be released until the reader queue is empty.
@@ -107,8 +107,7 @@ pub const RwLock = struct {
 
             self.reader_queue.put(&my_tick_node);
 
-            // At this point, we are in the reader_queue, so we might have already been resumed and this coroutine
-            // frame might be destroyed. For the rest of the suspend block we cannot access the coroutine frame.
+            // At this point, we are in the reader_queue, so we might have already been resumed.
 
             // We set this bit so that later we can rely on the fact, that if reader_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.
@@ -139,8 +138,7 @@ pub const RwLock = struct {
 
             self.writer_queue.put(&my_tick_node);
 
-            // At this point, we are in the writer_queue, so we might have already been resumed and this coroutine
-            // frame might be destroyed. For the rest of the suspend block we cannot access the coroutine frame.
+            // At this point, we are in the writer_queue, so we might have already been resumed.
 
             // We set this bit so that later we can rely on the fact, that if writer_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.

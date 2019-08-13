@@ -799,7 +799,7 @@ pub const WatchEventId = enum {
 //        pub fn destroy(self: *Self) void {
 //            switch (builtin.os) {
 //                .macosx, .freebsd, .netbsd => {
-//                    // TODO we need to cancel the coroutines before destroying the lock
+//                    // TODO we need to cancel the frames before destroying the lock
 //                    self.os_data.table_lock.deinit();
 //                    var it = self.os_data.file_table.iterator();
 //                    while (it.next()) |entry| {
@@ -1088,7 +1088,7 @@ pub const WatchEventId = enum {
 //
 //            while (true) {
 //                {
-//                    // TODO only 1 beginOneEvent for the whole coroutine
+//                    // TODO only 1 beginOneEvent for the whole function
 //                    self.channel.loop.beginOneEvent();
 //                    errdefer self.channel.loop.finishOneEvent();
 //                    errdefer {
@@ -1252,7 +1252,7 @@ pub const WatchEventId = enum {
 
 const test_tmp_dir = "std_event_fs_test";
 
-// TODO this test is disabled until the coroutine rewrite is finished.
+// TODO this test is disabled until the async function rewrite is finished.
 //test "write a file, watch it, write it again" {
 //    return error.SkipZigTest;
 //    const allocator = std.heap.direct_allocator;

@@ -13,7 +13,7 @@ pub const Server = struct {
 
     loop: *Loop,
     sockfd: ?i32,
-    accept_coro: ?anyframe,
+    accept_frame: ?anyframe,
     listen_address: std.net.Address,
 
     waiting_for_emfile_node: PromiseNode,
@@ -22,11 +22,11 @@ pub const Server = struct {
     const PromiseNode = std.TailQueue(anyframe).Node;
 
     pub fn init(loop: *Loop) Server {
-        // TODO can't initialize handler coroutine here because we need well defined copy elision
+        // TODO can't initialize handler here because we need well defined copy elision
         return Server{
             .loop = loop,
             .sockfd = null,
-            .accept_coro = null,
+            .accept_frame = null,
             .handleRequestFn = undefined,
             .waiting_for_emfile_node = undefined,
             .listen_address = undefined,
@@ -53,10 +53,10 @@ pub const Server = struct {
         try os.listen(sockfd, os.SOMAXCONN);
         self.listen_address = std.net.Address.initPosix(try os.getsockname(sockfd));
 
-        self.accept_coro = async Server.handler(self);
-        errdefer cancel self.accept_coro.?;
+        self.accept_frame = async Server.handler(self);
+        errdefer cancel self.accept_frame.?;
 
-        self.listen_resume_node.handle = self.accept_coro.?;
+        self.listen_resume_node.handle = self.accept_frame.?;
         try self.loop.linuxAddFd(sockfd, &self.listen_resume_node, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
         errdefer self.loop.removeFd(sockfd);
     }
@@ -71,7 +71,7 @@ pub const Server = struct {
     }
 
     pub fn deinit(self: *Server) void {
-        if (self.accept_coro) |accept_coro| cancel accept_coro;
+        if (self.accept_frame) |accept_frame| cancel accept_frame;
         if (self.sockfd) |sockfd| os.close(sockfd);
     }
 

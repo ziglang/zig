@@ -1265,7 +1265,7 @@ enum ZigTypeId {
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
-    ZigTypeIdCoroFrame,
+    ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
@@ -1281,7 +1281,7 @@ struct ZigTypeOpaque {
     Buf *bare_name;
 };
 
-struct ZigTypeCoroFrame {
+struct ZigTypeFnFrame {
     ZigFn *fn;
     ZigType *locals_struct;
 };
@@ -1315,7 +1315,7 @@ struct ZigType {
         ZigTypeBoundFn bound_fn;
         ZigTypeVector vector;
         ZigTypeOpaque opaque;
-        ZigTypeCoroFrame frame;
+        ZigTypeFnFrame frame;
         ZigTypeAnyFrame any_frame;
     } data;
 
@@ -1376,7 +1376,7 @@ struct ZigFn {
     LLVMTypeRef raw_type_ref;
     ZigLLVMDIType *raw_di_type;
 
-    ZigType *frame_type; // coro frame type
+    ZigType *frame_type;
     // in the case of normal functions this is the implicit return type
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
@@ -2368,7 +2368,7 @@ enum IrInstructionId {
     IrInstructionIdSuspendFinish,
     IrInstructionIdAwaitSrc,
     IrInstructionIdAwaitGen,
-    IrInstructionIdCoroResume,
+    IrInstructionIdResume,
     IrInstructionIdTestCancelRequested,
     IrInstructionIdSpillBegin,
     IrInstructionIdSpillEnd,
@@ -3640,7 +3640,7 @@ struct IrInstructionAwaitGen {
     IrInstruction *result_loc;
 };
 
-struct IrInstructionCoroResume {
+struct IrInstructionResume {
     IrInstruction base;
 
     IrInstruction *frame;
@@ -3751,12 +3751,12 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_payload_index = 0;
 static const size_t err_union_err_index = 1;
 
-// label (grep this): [coro_frame_struct_layout]
-static const size_t coro_fn_ptr_index = 0;
-static const size_t coro_resume_index = 1;
-static const size_t coro_awaiter_index = 2;
-static const size_t coro_prev_val_index = 3;
-static const size_t coro_ret_start = 4;
+// label (grep this): [fn_frame_struct_layout]
+static const size_t frame_fn_ptr_index = 0;
+static const size_t frame_resume_index = 1;
+static const size_t frame_awaiter_index = 2;
+static const size_t frame_prev_val_index = 3;
+static const size_t frame_ret_start = 4;
 
 // TODO https://github.com/ziglang/zig/issues/3056
 // We require this to be a power of 2 so that we can use shifting rather than

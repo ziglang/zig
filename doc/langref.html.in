@@ -5968,9 +5968,10 @@ test "global assembly" {
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
       {#header_close#}
-      {#header_open|Coroutines#}
+      {#header_open|Async Functions#}
       <p>
-      A coroutine is a generalization of a function.
+      An async function is a function whose callsite is split into an {#syntax#}async{#endsyntax#} initiation,
+      followed by an {#syntax#}await{#endsyntax#} completion. They can also be canceled.
       </p>
       <p>
       When you call a function, it creates a stack frame,
@@ -5980,14 +5981,14 @@ test "global assembly" {
       until the function returns.
       </p>
       <p>
-      A coroutine is like a function, but it can be suspended
+      An async function is like a function, but it can be suspended
       and resumed any number of times, and then it must be
-      explicitly destroyed. When a coroutine suspends, it
+      explicitly destroyed. When an async function suspends, it
       returns to the resumer.
       </p>
-      {#header_open|Minimal Coroutine Example#}
+      {#header_open|Minimal Async Function Example#}
       <p>
-      Declare a coroutine with the {#syntax#}async{#endsyntax#} keyword.
+      Declare an async function with the {#syntax#}async{#endsyntax#} keyword.
       The expression in angle brackets must evaluate to a struct
       which has these fields:
       </p>
@@ -6006,8 +6007,8 @@ test "global assembly" {
       the function generic. Zig will infer the allocator type when the async function is called.
       </p>
       <p>
-      Call a coroutine with the {#syntax#}async{#endsyntax#} keyword. Here, the expression in angle brackets
-      is a pointer to the allocator struct that the coroutine expects.
+      Call an async function with the {#syntax#}async{#endsyntax#} keyword. Here, the expression in angle brackets
+      is a pointer to the allocator struct that the async function expects.
       </p>
       <p>
       The result of an async function call is a {#syntax#}promise->T{#endsyntax#} type, where {#syntax#}T{#endsyntax#}
@@ -6058,7 +6059,7 @@ const assert = std.debug.assert;
 var the_frame: anyframe = undefined;
 var result = false;
 
-test "coroutine suspend with block" {
+test "async function suspend with block" {
     _ = async testSuspendBlock();
     std.debug.assert(!result);
     resume the_frame;
@@ -6074,7 +6075,7 @@ fn testSuspendBlock() void {
 }
       {#code_end#}
       <p>
-      Every suspend point in an async function represents a point at which the coroutine
+      Every suspend point in an async function represents a point at which the async function
       could be destroyed. If that happens, {#syntax#}defer{#endsyntax#} expressions that are in
           scope are run, as well as {#syntax#}errdefer{#endsyntax#} expressions.
       </p>
@@ -6083,14 +6084,14 @@ fn testSuspendBlock() void {
       </p>
       {#header_open|Resuming from Suspend Blocks#}
       <p>
-      Upon entering a {#syntax#}suspend{#endsyntax#} block, the coroutine is already considered
+      Upon entering a {#syntax#}suspend{#endsyntax#} block, the async function is already considered
       suspended, and can be resumed. For example, if you started another kernel thread,
       and had that thread call {#syntax#}resume{#endsyntax#} on the promise handle provided by the
           {#syntax#}suspend{#endsyntax#} block, the new thread would begin executing after the suspend
       block, while the old thread continued executing the suspend block.
       </p>
       <p>
-      However, the coroutine can be directly resumed from the suspend block, in which case it
+      However, the async function can be directly resumed from the suspend block, in which case it
       never returns to its resumer and continues executing.
       </p>
       {#code_begin|test#}
@@ -6127,8 +6128,8 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       If the async function associated with the promise handle has already returned,
       then {#syntax#}await{#endsyntax#} destroys the target async function, and gives the return value.
           Otherwise, {#syntax#}await{#endsyntax#} suspends the current async function, registering its
-      promise handle with the target coroutine. It becomes the target coroutine's responsibility
-      to have ensured that it will be resumed or destroyed. When the target coroutine reaches
+      promise handle with the target async function. It becomes the target async function's responsibility
+      to have ensured that it will be resumed or destroyed. When the target async function reaches
       its return statement, it gives the return value to the awaiter, destroys itself, and then
       resumes the awaiter.
       </p>
@@ -6137,7 +6138,7 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       </p>
       <p>
       {#syntax#}await{#endsyntax#} counts as a suspend point, and therefore at every {#syntax#}await{#endsyntax#},
-              a coroutine can be potentially destroyed, which would run {#syntax#}defer{#endsyntax#} and {#syntax#}errdefer{#endsyntax#} expressions.
+              a async function can be potentially destroyed, which would run {#syntax#}defer{#endsyntax#} and {#syntax#}errdefer{#endsyntax#} expressions.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -6146,7 +6147,7 @@ const assert = std.debug.assert;
 var the_frame: anyframe = undefined;
 var final_result: i32 = 0;
 
-test "coroutine await" {
+test "async function await" {
     seq('a');
     _ = async amain();
     seq('f');
@@ -6188,7 +6189,7 @@ fn seq(c: u8) void {
       {#header_close#}
       {#header_open|Open Issues#}
       <p>
-      There are a few issues with coroutines that are considered unresolved. Best be aware of them,
+      There are a few issues with async function that are considered unresolved. Best be aware of them,
       as the situation is likely to change before 1.0.0:
       </p>
       <ul>
@@ -6202,7 +6203,7 @@ fn seq(c: u8) void {
           </li>
           <li>
               Zig does not take advantage of LLVM's allocation elision optimization for
-              coroutines. It crashed LLVM when I tried to do it the first time. This is
+              async function. It crashed LLVM when I tried to do it the first time. This is
               related to the other 2 bullet points here. See
               <a href="https://github.com/ziglang/zig/issues/802">#802</a>.
           </li>
@@ -8016,8 +8017,7 @@ pub fn build(b: *Builder) void {
       <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
-        <li>The overhead of {#link|Coroutines#} becomes equivalent to function call overhead.
-          TODO: please note this will not be implemented until the upcoming Coroutine Rewrite</li>
+        <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
         <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
           and therefore various userland APIs which read this variable become more efficient.
           For example {#syntax#}std.Mutex{#endsyntax#} becomes

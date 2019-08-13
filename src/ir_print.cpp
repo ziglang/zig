@@ -1528,10 +1528,9 @@ static void ir_print_suspend_finish(IrPrint *irp, IrInstructionSuspendFinish *in
     fprintf(irp->f, "@suspendFinish()");
 }
 
-static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruction) {
-    fprintf(irp->f, "@coroResume(");
+static void ir_print_resume(IrPrint *irp, IrInstructionResume *instruction) {
+    fprintf(irp->f, "resume ");
     ir_print_other_instruction(irp, instruction->frame);
-    fprintf(irp->f, ")");
 }
 
 static void ir_print_await_src(IrPrint *irp, IrInstructionAwaitSrc *instruction) {
@@ -2039,8 +2038,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSuspendFinish:
             ir_print_suspend_finish(irp, (IrInstructionSuspendFinish *)instruction);
             break;
-        case IrInstructionIdCoroResume:
-            ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdResume:
+            ir_print_resume(irp, (IrInstructionResume *)instruction);
             break;
         case IrInstructionIdAwaitSrc:
             ir_print_await_src(irp, (IrInstructionAwaitSrc *)instruction);

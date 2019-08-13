@@ -234,7 +234,7 @@ AstNode *type_decl_node(ZigType *type_entry) {
             return type_entry->data.enumeration.decl_node;
         case ZigTypeIdUnion:
             return type_entry->data.unionation.decl_node;
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             return type_entry->data.frame.fn->proto_node;
         case ZigTypeIdOpaque:
         case ZigTypeIdMetaType:
@@ -271,7 +271,7 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
             return type_entry->data.structure.resolve_status >= status;
         case ZigTypeIdUnion:
             return type_entry->data.unionation.resolve_status >= status;
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             switch (status) {
                 case ResolveStatusInvalid:
                     zig_unreachable();
@@ -394,18 +394,18 @@ static const char *ptr_len_to_star_str(PtrLen ptr_len) {
     zig_unreachable();
 }
 
-ZigType *get_coro_frame_type(CodeGen *g, ZigFn *fn) {
+ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn) {
     if (fn->frame_type != nullptr) {
         return fn->frame_type;
     }
 
-    ZigType *entry = new_type_table_entry(ZigTypeIdCoroFrame);
+    ZigType *entry = new_type_table_entry(ZigTypeIdFnFrame);
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "@Frame(%s)", buf_ptr(&fn->symbol_name));
 
     entry->data.frame.fn = fn;
 
-    // Coroutine frames are always non-zero bits because they always have a resume index.
+    // Async function frames are always non-zero bits because they always have a resume index.
     entry->abi_size = SIZE_MAX;
     entry->size_in_bits = SIZE_MAX;
 
@@ -1108,7 +1108,7 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             add_node_error(g, source_node,
                     buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
@@ -1198,7 +1198,7 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return false;
         case ZigTypeIdOpaque:
@@ -1370,7 +1370,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdUnion:
             case ZigTypeIdFn:
             case ZigTypeIdVector:
-            case ZigTypeIdCoroFrame:
+            case ZigTypeIdFnFrame:
             case ZigTypeIdAnyFrame:
                 switch (type_requires_comptime(g, type_entry)) {
                     case ReqCompTimeNo:
@@ -1467,7 +1467,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdVector:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             switch (type_requires_comptime(g, fn_type_id.return_type)) {
                 case ReqCompTimeInvalid:
@@ -3080,7 +3080,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdVector:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return type_entry;
     }
@@ -3582,7 +3582,7 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return false;
     }
@@ -3640,7 +3640,7 @@ Error resolve_container_type(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
     }
@@ -3672,7 +3672,7 @@ bool type_is_nonnull_ptr(ZigType *type) {
     return get_codegen_ptr_type(type) == type && !ptr_allows_addr_zero(type);
 }
 
-static uint32_t get_coro_frame_align_bytes(CodeGen *g) {
+static uint32_t get_async_frame_align_bytes(CodeGen *g) {
     uint32_t a = g->pointer_size_bytes * 2;
     // promises have at least alignment 8 so that we can have 3 extra bits when doing atomicrmw
     if (a < 8) a = 8;
@@ -3691,7 +3691,7 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
         // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {
-        return get_coro_frame_align_bytes(g);
+        return get_async_frame_align_bytes(g);
     } else {
         zig_unreachable();
     }
@@ -3779,7 +3779,7 @@ bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *sour
 }
 
 static void resolve_async_fn_frame(CodeGen *g, ZigFn *fn) {
-    ZigType *frame_type = get_coro_frame_type(g, fn);
+    ZigType *frame_type = get_fn_frame_type(g, fn);
     Error err;
     if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
         fn->anal_state = FnAnalStateInvalid;
@@ -4218,7 +4218,7 @@ bool handle_is_ptr(ZigType *type_entry) {
              return false;
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
              return type_has_bits(type_entry);
         case ZigTypeIdErrorUnion:
              return type_has_bits(type_entry->data.error_union.payload_type);
@@ -4463,7 +4463,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case ZigTypeIdVector:
             // TODO better hashing algorithm
             return 3647867726;
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             // TODO better hashing algorithm
             return 675741936;
         case ZigTypeIdAnyFrame:
@@ -4533,7 +4533,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
         case ZigTypeIdOpaque:
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return false;
 
@@ -4606,7 +4606,7 @@ static bool return_type_is_cacheable(ZigType *return_type) {
         case ZigTypeIdEnum:
         case ZigTypeIdPointer:
         case ZigTypeIdVector:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return true;
 
@@ -4739,7 +4739,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdBool:
         case ZigTypeIdFloat:
         case ZigTypeIdErrorUnion:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return OnePossibleValueNo;
         case ZigTypeIdUndefined:
@@ -4828,7 +4828,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdFloat:
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             return ReqCompTimeNo;
     }
@@ -5161,7 +5161,7 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     return fn_type;
 }
 
-static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
+static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     Error err;
 
     if (frame_type->data.frame.locals_struct != nullptr)
@@ -5231,7 +5231,7 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        ZigType *callee_frame_type = get_coro_frame_type(g, callee);
+        ZigType *callee_frame_type = get_fn_frame_type(g, callee);
 
         IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
         alloca_gen->base.id = IrInstructionIdAllocaGen;
@@ -5244,7 +5244,7 @@ static Error resolve_coro_frame(CodeGen *g, ZigType *frame_type) {
         call->frame_result_loc = &alloca_gen->base;
     }
 
-    // label (grep this): [coro_frame_struct_layout]
+    // label (grep this): [fn_frame_struct_layout]
     ZigList<ZigType *> field_types = {};
     ZigList<const char *> field_names = {};
 
@@ -5366,8 +5366,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
                 return resolve_enum_zero_bits(g, ty);
             } else if (ty->id == ZigTypeIdUnion) {
                 return resolve_union_alignment(g, ty);
-            } else if (ty->id == ZigTypeIdCoroFrame) {
-                return resolve_coro_frame(g, ty);
+            } else if (ty->id == ZigTypeIdFnFrame) {
+                return resolve_async_frame(g, ty);
             }
             return ErrorNone;
         case ResolveStatusSizeKnown:
@@ -5377,8 +5377,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
                 return resolve_enum_zero_bits(g, ty);
             } else if (ty->id == ZigTypeIdUnion) {
                 return resolve_union_type(g, ty);
-            } else if (ty->id == ZigTypeIdCoroFrame) {
-                return resolve_coro_frame(g, ty);
+            } else if (ty->id == ZigTypeIdFnFrame) {
+                return resolve_async_frame(g, ty);
             }
             return ErrorNone;
         case ResolveStatusLLVMFwdDecl:
@@ -5573,7 +5573,7 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
                     return false;
             }
             return true;
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             zig_panic("TODO");
         case ZigTypeIdAnyFrame:
             zig_panic("TODO");
@@ -5929,7 +5929,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "(args value)");
                 return;
             }
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             buf_appendf(buf, "(TODO: async function frame value)");
             return;
 
@@ -5992,7 +5992,7 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
@@ -6042,7 +6042,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdBoundFn:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
         case ZigTypeIdErrorUnion:
@@ -6209,7 +6209,7 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdBoundFn,
     ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
-    ZigTypeIdCoroFrame,
+    ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
     ZigTypeIdVector,
     ZigTypeIdEnumLiteral,
@@ -6274,7 +6274,7 @@ size_t type_id_index(ZigType *entry) {
             return 20;
         case ZigTypeIdOpaque:
             return 21;
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             return 22;
         case ZigTypeIdAnyFrame:
             return 23;
@@ -6338,7 +6338,7 @@ const char *type_id_name(ZigTypeId id) {
             return "Opaque";
         case ZigTypeIdVector:
             return "Vector";
-        case ZigTypeIdCoroFrame:
+        case ZigTypeIdFnFrame:
             return "Frame";
         case ZigTypeIdAnyFrame:
             return "AnyFrame";
@@ -6782,7 +6782,7 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
 }
 
 static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveStatus wanted_resolve_status,
-        ZigType *coro_frame_type)
+        ZigType *async_frame_type)
 {
     assert(struct_type->id == ZigTypeIdStruct);
     assert(struct_type->data.structure.resolve_status != ResolveStatusInvalid);
@@ -6887,11 +6887,11 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             packed_bits_offset = next_packed_bits_offset;
         } else {
             LLVMTypeRef llvm_type;
-            if (i == 0 && coro_frame_type != nullptr) {
-                assert(coro_frame_type->id == ZigTypeIdCoroFrame);
+            if (i == 0 && async_frame_type != nullptr) {
+                assert(async_frame_type->id == ZigTypeIdFnFrame);
                 assert(field_type->id == ZigTypeIdFn);
-                resolve_llvm_types_fn(g, coro_frame_type->data.frame.fn);
-                llvm_type = LLVMPointerType(coro_frame_type->data.frame.fn->raw_type_ref, 0);
+                resolve_llvm_types_fn(g, async_frame_type->data.frame.fn);
+                llvm_type = LLVMPointerType(async_frame_type->data.frame.fn->raw_type_ref, 0);
             } else {
                 llvm_type = get_llvm_type(g, field_type);
             }
@@ -7594,7 +7594,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     // first "parameter" is return value
     param_di_types.append(get_llvm_di_type(g, gen_return_type));
 
-    ZigType *frame_type = get_coro_frame_type(g, fn);
+    ZigType *frame_type = get_fn_frame_type(g, fn);
     ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
     if ((err = type_resolve(g, ptr_type, ResolveStatusLLVMFwdDecl)))
         zig_unreachable();
@@ -7634,7 +7634,7 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
             get_llvm_di_type(g, g->err_tag_type), "");
 }
 
-static void resolve_llvm_types_coro_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
+static void resolve_llvm_types_async_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
     resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status, frame_type);
     frame_type->llvm_type = frame_type->data.frame.locals_struct->llvm_type;
     frame_type->llvm_di_type = frame_type->data.frame.locals_struct->llvm_di_type;
@@ -7673,7 +7673,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     ZigList<LLVMTypeRef> field_types = {};
     ZigList<ZigLLVMDIType *> di_element_types = {};
 
-    // label (grep this): [coro_frame_struct_layout]
+    // label (grep this): [fn_frame_struct_layout]
     field_types.append(ptr_fn_llvm_type); // fn_ptr
     field_types.append(usize_type_ref); // resume_index
     field_types.append(usize_type_ref); // awaiter
@@ -7824,8 +7824,8 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
                     type->abi_align, get_llvm_di_type(g, type->data.vector.elem_type), type->data.vector.len);
             return;
         }
-        case ZigTypeIdCoroFrame:
-            return resolve_llvm_types_coro_frame(g, type, wanted_resolve_status);
+        case ZigTypeIdFnFrame:
+            return resolve_llvm_types_async_frame(g, type, wanted_resolve_status);
         case ZigTypeIdAnyFrame:
             return resolve_llvm_types_any_frame(g, type, wanted_resolve_status);
     }
