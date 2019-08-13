@@ -1499,9 +1499,14 @@ bool type_is_invalid(ZigType *type_entry) {
     zig_unreachable();
 }
 
+struct SrcField {
+    const char *name;
+    ZigType *ty;
+    unsigned align;
+};
 
-static ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
-        ZigType *field_types[], size_t field_count, unsigned min_abi_align)
+static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fields[], size_t field_count,
+        unsigned min_abi_align)
 {
     ZigType *struct_type = new_type_table_entry(ZigTypeIdStruct);
 
@@ -1516,14 +1521,15 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *f
     size_t abi_align = min_abi_align;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = &struct_type->data.structure.fields[i];
-        field->name = buf_create_from_str(field_names[i]);
-        field->type_entry = field_types[i];
+        field->name = buf_create_from_str(fields[i].name);
+        field->type_entry = fields[i].ty;
         field->src_index = i;
 
         if (type_has_bits(field->type_entry)) {
             assert(type_is_resolved(field->type_entry, ResolveStatusSizeKnown));
-            if (field->type_entry->abi_align > abi_align) {
-                abi_align = field->type_entry->abi_align;
+            unsigned field_abi_align = max(fields[i].align, field->type_entry->abi_align);
+            if (field_abi_align > abi_align) {
+                abi_align = field_abi_align;
             }
         }
 
@@ -1545,8 +1551,13 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *f
             if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
                 break;
         }
-        size_t next_abi_align = (next_src_field_index == field_count) ?
-            abi_align : struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
+        size_t next_abi_align;
+        if (next_src_field_index == field_count) {
+            next_abi_align = abi_align;
+        } else {
+            next_abi_align = max(fields[next_src_field_index].align,
+                    struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align);
+        }
         next_offset = next_field_offset(next_offset, abi_align, field->type_entry->abi_size, next_abi_align);
     }
 
@@ -5245,35 +5256,22 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     }
 
     // label (grep this): [fn_frame_struct_layout]
-    ZigList<ZigType *> field_types = {};
-    ZigList<const char *> field_names = {};
+    ZigList<SrcField> fields = {};
 
-    field_names.append("@fn_ptr");
-    field_types.append(fn_type);
-
-    field_names.append("@resume_index");
-    field_types.append(g->builtin_types.entry_usize);
-
-    field_names.append("@awaiter");
-    field_types.append(g->builtin_types.entry_usize);
-
-    field_names.append("@prev_val");
-    field_types.append(g->builtin_types.entry_usize);
+    fields.append({"@fn_ptr", fn_type, 0});
+    fields.append({"@resume_index", g->builtin_types.entry_usize, 0});
+    fields.append({"@awaiter", g->builtin_types.entry_usize, 0});
+    fields.append({"@prev_val", g->builtin_types.entry_usize, 0});
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-    field_names.append("@result_ptr_callee");
-    field_types.append(ptr_return_type);
 
-    field_names.append("@result_ptr_awaiter");
-    field_types.append(ptr_return_type);
-
-    field_names.append("@result");
-    field_types.append(fn_type_id->return_type);
+    fields.append({"@result_ptr_callee", ptr_return_type, 0});
+    fields.append({"@result_ptr_awaiter", ptr_return_type, 0});
+    fields.append({"@result", fn_type_id->return_type, 0});
 
     if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
-        field_names.append("@ptr_stack_trace");
-        field_types.append(get_ptr_to_stack_trace_type(g));
+        fields.append({"@ptr_stack_trace", get_ptr_to_stack_trace_type(g), 0});
     }
 
     for (size_t arg_i = 0; arg_i < fn_type_id->param_count; arg_i += 1) {
@@ -5287,18 +5285,16 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             param_name = buf_sprintf("@arg%" ZIG_PRI_usize, arg_i);
         }
         ZigType *param_type = param_info->type;
-        field_names.append(buf_ptr(param_name));
-        field_types.append(param_type);
+
+        fields.append({buf_ptr(param_name), param_type, 0});
     }
 
     if (codegen_fn_has_err_ret_tracing_stack(g, fn, true)) {
         (void)get_ptr_to_stack_trace_type(g); // populate g->stack_trace_type
 
-        field_names.append("@stack_trace");
-        field_types.append(g->stack_trace_type);
-
-        field_names.append("@instruction_addresses");
-        field_types.append(get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count));
+        fields.append({"@stack_trace", g->stack_trace_type, 0});
+        fields.append({"@instruction_addresses",
+                get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
     }
 
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
@@ -5327,15 +5323,14 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         } else {
             name = buf_ptr(buf_sprintf("%s.%" ZIG_PRI_usize, instruction->name_hint, alloca_i));
         }
-        instruction->field_index = field_types.length;
-        field_names.append(name);
-        field_types.append(child_type);
+        instruction->field_index = fields.length;
+
+        fields.append({name, child_type, 0});
     }
 
 
-    assert(field_names.length == field_types.length);
     frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
-            field_names.items, field_types.items, field_names.length, target_fn_align(g->zig_target));
+            fields.items, fields.length, target_fn_align(g->zig_target));
     frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
     frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
     frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
