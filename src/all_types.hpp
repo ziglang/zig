@@ -3758,9 +3758,10 @@ static const size_t coro_awaiter_index = 2;
 static const size_t coro_prev_val_index = 3;
 static const size_t coro_ret_start = 4;
 
-// TODO call graph analysis to find out what this number needs to be for every function
-// MUST BE A POWER OF TWO.
-static const size_t stack_trace_ptr_count = 32;
+// TODO https://github.com/ziglang/zig/issues/3056
+// We require this to be a power of 2 so that we can use shifting rather than
+// remainder division.
+static const size_t stack_trace_ptr_count = 32; // Must be a power of 2.
 
 #define NAMESPACE_SEP_CHAR '.'
 #define NAMESPACE_SEP_STR "."

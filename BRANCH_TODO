@@ -1,17 +1,27 @@
+ * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
  * alignment of variables not being respected in async functions
- * for loops need to spill the index. other payload captures probably also need to spill
- * compile error (instead of crashing) for trying to get @Frame of generic function
- * compile error (instead of crashing) for trying to async call and passing @Frame of wrong function
- * `const result = (await a) + (await b);` this causes "Instruction does not dominate all uses" - need spill
- * compile error for error: expected anyframe->T, found 'anyframe'
- * compile error for error: expected anyframe->T, found 'i32'
  * await of a non async function
  * async call on a non async function
+ * documentation
+   - @asyncCall
+   - @frame
+   - @Frame
+   - @frameSize
+   - coroutines section
+   - suspend
+   - resume
+   - anyframe, anyframe->T
  * a test where an async function destroys its own frame in a defer
+ * compile error (instead of crashing) for trying to get @Frame of generic function
+ * compile error (instead of crashing) for trying to async call and passing @Frame of wrong function
  * implicit cast of normal function to async function should be allowed when it is inferred to be async
- * @typeInfo for @Frame(func)
+ * compile error for error: expected anyframe->T, found 'anyframe'
+ * compile error for error: expected anyframe->T, found 'i32'
  * peer type resolution of *@Frame(func) and anyframe
  * peer type resolution of *@Frame(func) and anyframe->T when the return type matches
+ * for loops need to spill the index. other payload captures probably also need to spill
+ * `const result = (await a) + (await b);` this causes "Instruction does not dominate all uses" - need spill
+ * @typeInfo for @Frame(func)
  * returning a value from within a suspend block
  * make resuming inside a suspend block, with nothing after it, a must-tail call.
  * make sure there are safety tests for all the new safety features (search the new PanicFnId enum values)
@@ -22,17 +32,6 @@
  * calling a generic function which is async
  * make sure `await @asyncCall` and `await async` are handled correctly.
  * allow @asyncCall with a real @Frame(func) (the point of this is result pointer)
- * documentation
-   - @asyncCall
-   - @frame
-   - @Frame
-   - @frameSize
-   - coroutines section
-   - suspend
-   - resume
-   - anyframe, anyframe->T
- * call graph analysis to have fewer stack trace frames
- * grep for "coroutine" and "coro" and replace all that nomenclature with "async functions"
  * when there are multiple calls to async functions in a function, reuse the same frame buffer, so that the
    needed bytes is equal to the largest callee's frame 
  * if an async function is never called with async then a few optimizations can be made:
