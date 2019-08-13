@@ -307,11 +307,9 @@ test "std.event.Channel" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
-
     var loop: Loop = undefined;
     // TODO make a multi threaded test
-    try loop.initSingleThreaded(allocator);
+    try loop.initSingleThreaded(std.heap.direct_allocator);
     defer loop.deinit();
 
     const channel = try Channel(i32).create(&loop, 0);

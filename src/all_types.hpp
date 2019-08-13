@@ -1148,6 +1148,8 @@ struct ZigTypeOptional {
 struct ZigTypeErrorUnion {
     ZigType *err_set_type;
     ZigType *payload_type;
+    size_t pad_bytes;
+    LLVMTypeRef pad_llvm_type;
 };
 
 struct ZigTypeErrorSet {
@@ -3564,6 +3566,7 @@ struct IrInstructionAllocaGen {
 
     uint32_t align;
     const char *name_hint;
+    size_t field_index;
 };
 
 struct IrInstructionEndExpr {

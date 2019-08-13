@@ -3765,29 +3765,17 @@ static void render_async_spills(CodeGen *g) {
             gen_var_debug_decl(g, var);
         }
     }
-    // label (grep this): [coro_frame_struct_layout]
-    if (codegen_fn_has_err_ret_tracing_stack(g, g->cur_fn, true)) {
-        async_var_index += 2;
-    }
+
+    ZigType *frame_type = g->cur_fn->frame_type->data.frame.locals_struct;
+
     for (size_t alloca_i = 0; alloca_i < g->cur_fn->alloca_gen_list.length; alloca_i += 1) {
         IrInstructionAllocaGen *instruction = g->cur_fn->alloca_gen_list.at(alloca_i);
-        ZigType *ptr_type = instruction->base.value.type;
-        assert(ptr_type->id == ZigTypeIdPointer);
-        ZigType *child_type = ptr_type->data.pointer.child_type;
-        if (!type_has_bits(child_type))
+        if (instruction->field_index == SIZE_MAX)
             continue;
-        if (instruction->base.ref_count == 0)
-            continue;
-        if (instruction->base.value.special != ConstValSpecialRuntime) {
-            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
-                    ConstValSpecialRuntime)
-            {
-                continue;
-            }
-        }
-        instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index,
+
+        size_t gen_index = frame_type->data.structure.fields[instruction->field_index].gen_index;
+        instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, gen_index,
                 instruction->name_hint);
-        async_var_index += 1;
     }
 }
 
@@ -6363,6 +6351,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
             break;
     }
 
+    if ((err = type_resolve(g, type_entry, ResolveStatusLLVMFull)))
+        zig_unreachable();
+
     switch (type_entry->id) {
         case ZigTypeIdInt:
             return bigint_to_llvm_const(get_llvm_type(g, type_entry), &const_val->data.x_bigint);
@@ -6434,6 +6425,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
                 size_t src_field_count = type_entry->data.structure.src_field_count;
                 bool make_unnamed_struct = false;
+                assert(type_entry->data.structure.resolve_status == ResolveStatusLLVMFull);
                 if (type_entry->data.structure.layout == ContainerLayoutPacked) {
                     size_t src_field_index = 0;
                     while (src_field_index < src_field_count) {
@@ -6503,6 +6495,22 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         LLVMValueRef val = gen_const_val(g, field_val, "");
                         fields[type_struct_field->gen_index] = val;
                         make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, field_val->type, val);
+
+                        size_t end_pad_gen_index = (i + 1 < src_field_count) ?
+                            type_entry->data.structure.fields[i + 1].gen_index :
+                            type_entry->data.structure.gen_field_count;
+                        size_t next_offset = (i + 1 < src_field_count) ?
+                            type_entry->data.structure.fields[i + 1].offset : type_entry->abi_size;
+                        if (end_pad_gen_index != SIZE_MAX) {
+                            for (size_t gen_i = type_struct_field->gen_index + 1; gen_i < end_pad_gen_index;
+                                    gen_i += 1)
+                            {
+                                size_t pad_bytes = next_offset -
+                                    (type_struct_field->offset + type_struct_field->type_entry->abi_size);
+                                LLVMTypeRef llvm_array_type = LLVMArrayType(LLVMInt8Type(), pad_bytes);
+                                fields[gen_i] = LLVMGetUndef(llvm_array_type);
+                            }
+                        }
                     }
                 }
                 if (make_unnamed_struct) {
@@ -6690,13 +6698,18 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         err_payload_value = gen_const_val(g, payload_val, "");
                         make_unnamed_struct = is_llvm_value_unnamed_type(g, payload_val->type, err_payload_value);
                     }
-                    LLVMValueRef fields[2];
+                    LLVMValueRef fields[3];
                     fields[err_union_err_index] = err_tag_value;
                     fields[err_union_payload_index] = err_payload_value;
+                    size_t field_count = 2;
+                    if (type_entry->data.error_union.pad_llvm_type != nullptr) {
+                        fields[2] = LLVMGetUndef(type_entry->data.error_union.pad_llvm_type);
+                        field_count = 3;
+                    }
                     if (make_unnamed_struct) {
-                        return LLVMConstStruct(fields, 2, false);
+                        return LLVMConstStruct(fields, field_count, false);
                     } else {
-                        return LLVMConstNamedStruct(get_llvm_type(g, type_entry), fields, 2);
+                        return LLVMConstNamedStruct(get_llvm_type(g, type_entry), fields, field_count);
                     }
                 }
             }
@@ -7139,6 +7152,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (is_async) {
+            (void)get_llvm_type(g, fn_table_entry->frame_type);
             g->cur_resume_block_count = 0;
 
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
