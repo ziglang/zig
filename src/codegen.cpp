@@ -6690,29 +6690,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         err_payload_value = gen_const_val(g, payload_val, "");
                         make_unnamed_struct = is_llvm_value_unnamed_type(g, payload_val->type, err_payload_value);
                     }
+                    LLVMValueRef fields[2];
+                    fields[err_union_err_index] = err_tag_value;
+                    fields[err_union_payload_index] = err_payload_value;
                     if (make_unnamed_struct) {
-                        uint64_t payload_off = LLVMOffsetOfElement(g->target_data_ref, get_llvm_type(g, type_entry), 1);
-                        uint64_t err_sz = LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(err_tag_value));
-                        unsigned pad_sz = payload_off - err_sz;
-                        if (pad_sz == 0) {
-                            LLVMValueRef fields[] = {
-                                err_tag_value,
-                                err_payload_value,
-                            };
-                            return LLVMConstStruct(fields, 2, false);
-                        } else {
-                            LLVMValueRef fields[] = {
-                                err_tag_value,
-                                LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_sz)),
-                                err_payload_value,
-                            };
-                            return LLVMConstStruct(fields, 3, false);
-                        }
+                        return LLVMConstStruct(fields, 2, false);
                     } else {
-                        LLVMValueRef fields[] = {
-                            err_tag_value,
-                            err_payload_value,
-                        };
                         return LLVMConstNamedStruct(get_llvm_type(g, type_entry), fields, 2);
                     }
                 }
@@ -8627,15 +8610,18 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         }
     }
 
+    //note(dimenus): appending libc headers before c_headers breaks intrinsics 
+    //and other compiler specific items
+    // According to Rich Felker libc headers are supposed to go before C language headers.
+    args.append("-isystem");
+    args.append(buf_ptr(g->zig_c_headers_dir));
+
     for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
         Buf *include_dir = g->libc_include_dir_list[i];
         args.append("-isystem");
         args.append(buf_ptr(include_dir));
     }
 
-    // According to Rich Felker libc headers are supposed to go before C language headers.
-    args.append("-isystem");
-    args.append(buf_ptr(g->zig_c_headers_dir));
 
     if (g->zig_target->is_native) {
         args.append("-march=native");

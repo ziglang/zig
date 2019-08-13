@@ -9098,6 +9098,9 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     bool const_val_is_float = (const_val->type->id == ZigTypeIdFloat || const_val->type->id == ZigTypeIdComptimeFloat);
     assert(const_val_is_int || const_val_is_float);
 
+    if (const_val_is_int && other_type->id == ZigTypeIdComptimeFloat) {
+        return true;
+    }
     if (other_type->id == ZigTypeIdFloat) {
         if (const_val->type->id == ZigTypeIdComptimeInt || const_val->type->id == ZigTypeIdComptimeFloat) {
             return true;
@@ -11329,7 +11332,6 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     if (enum_type->data.enumeration.layout == ContainerLayoutAuto &&
         enum_type->data.enumeration.src_field_count == 1)
     {
-        assert(tag_type == ira->codegen->builtin_types.entry_num_lit_int);
         IrInstruction *result = ir_const(ira, source_instr, tag_type);
         init_const_bigint(&result->value, tag_type,
                 &enum_type->data.enumeration.fields[0].value);
@@ -20697,12 +20699,15 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             }
             for (size_t i = 0; i < errors_len; i += 1) {
                 Stage2ErrorMsg *clang_err = &errors_ptr[i];
-                ErrorMsg *err_msg = err_msg_create_with_offset(
-                    clang_err->filename_ptr ?
-                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
-                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
-                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
-                err_msg_add_note(parent_err_msg, err_msg);
+		// Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+		if (clang_err->source && clang_err->filename_ptr) {
+                    ErrorMsg *err_msg = err_msg_create_with_offset(
+                        clang_err->filename_ptr ?
+                            buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                        clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                        buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+                    err_msg_add_note(parent_err_msg, err_msg);
+		}
             }
 
             return ira->codegen->invalid_instruction;

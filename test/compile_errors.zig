@@ -3293,14 +3293,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "incompatible number literals",
-        \\const x = 2 == 2.0;
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
-    ,
-        "tmp.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
-    );
-
-    cases.add(
         "missing function call param",
         \\const Foo = struct {
         \\    a: i32,
