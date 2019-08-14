@@ -3893,18 +3893,18 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
     fn->inferred_async_node = inferred_async_none;
 }
 
-static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node) {
-    ZigType *fn_type = fn_table_entry->type_entry;
+static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
+    ZigType *fn_type = fn->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
-    ZigType *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
-            &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node);
-    fn_table_entry->src_implicit_return_type = block_return_type;
+    ZigType *block_return_type = ir_analyze(g, &fn->ir_executable,
+            &fn->analyzed_executable, fn_type_id->return_type, return_type_node);
+    fn->src_implicit_return_type = block_return_type;
 
-    if (type_is_invalid(block_return_type) || fn_table_entry->analyzed_executable.invalid) {
+    if (type_is_invalid(block_return_type) || fn->analyzed_executable.invalid) {
         assert(g->errors.length > 0);
-        fn_table_entry->anal_state = FnAnalStateInvalid;
+        fn->anal_state = FnAnalStateInvalid;
         return;
     }
 
@@ -3912,20 +3912,20 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_typ
         ZigType *return_err_set_type = fn_type_id->return_type->data.error_union.err_set_type;
         if (return_err_set_type->data.error_set.infer_fn != nullptr) {
             ZigType *inferred_err_set_type;
-            if (fn_table_entry->src_implicit_return_type->id == ZigTypeIdErrorSet) {
-                inferred_err_set_type = fn_table_entry->src_implicit_return_type;
-            } else if (fn_table_entry->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
-                inferred_err_set_type = fn_table_entry->src_implicit_return_type->data.error_union.err_set_type;
+            if (fn->src_implicit_return_type->id == ZigTypeIdErrorSet) {
+                inferred_err_set_type = fn->src_implicit_return_type;
+            } else if (fn->src_implicit_return_type->id == ZigTypeIdErrorUnion) {
+                inferred_err_set_type = fn->src_implicit_return_type->data.error_union.err_set_type;
             } else {
                 add_node_error(g, return_type_node,
                         buf_sprintf("function with inferred error set must return at least one possible error"));
-                fn_table_entry->anal_state = FnAnalStateInvalid;
+                fn->anal_state = FnAnalStateInvalid;
                 return;
             }
 
             if (inferred_err_set_type->data.error_set.infer_fn != nullptr) {
                 if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
-                    fn_table_entry->anal_state = FnAnalStateInvalid;
+                    fn->anal_state = FnAnalStateInvalid;
                     return;
                 }
             }
@@ -3945,12 +3945,25 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_typ
         }
     }
 
+    CallingConvention cc = fn->type_entry->data.fn.fn_type_id.cc;
+    if (cc != CallingConventionUnspecified && cc != CallingConventionAsync &&
+        fn->inferred_async_node != nullptr &&
+        fn->inferred_async_node != inferred_async_checking &&
+        fn->inferred_async_node != inferred_async_none)
+    {
+        ErrorMsg *msg = add_node_error(g, fn->proto_node,
+            buf_sprintf("function with calling convention '%s' cannot be async",
+                calling_convention_name(cc)));
+        add_async_error_notes(g, msg, fn);
+        fn->anal_state = FnAnalStateInvalid;
+    }
+
     if (g->verbose_ir) {
-        fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn_table_entry->symbol_name));
-        ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
+        fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn->symbol_name));
+        ir_print(g, stderr, &fn->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
-    fn_table_entry->anal_state = FnAnalStateComplete;
+    fn->anal_state = FnAnalStateComplete;
 }
 
 static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {

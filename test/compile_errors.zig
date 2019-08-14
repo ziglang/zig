@@ -3,6 +3,20 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "invalid suspend in exported function",
+        \\export fn entry() void {
+        \\    var frame = async func();
+        \\    var result = await frame;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:3:18: note: await is a suspend point",
+    );
+
+    cases.add(
         "async function indirectly depends on its own frame",
         \\export fn entry() void {
         \\    _ = async amain();
