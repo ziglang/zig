@@ -3831,7 +3831,7 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
 }
 
 // This function resolves functions being inferred async.
-static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
+static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     if (fn->inferred_async_node == inferred_async_checking) {
         // TODO call graph cycle detected, disallow the recursion
         fn->inferred_async_node = inferred_async_none;
@@ -3841,7 +3841,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
         return;
     }
     if (fn->inferred_async_node != nullptr) {
-        resolve_async_fn_frame(g, fn);
+        if (resolve_frame) {
+            resolve_async_fn_frame(g, fn);
+        }
         return;
     }
     fn->inferred_async_node = inferred_async_checking;
@@ -3870,7 +3872,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
             }
         }
         assert(callee->anal_state == FnAnalStateComplete);
-        analyze_fn_async(g, callee);
+        analyze_fn_async(g, callee, true);
         if (callee->anal_state == FnAnalStateInvalid) {
             fn->anal_state = FnAnalStateInvalid;
             return;
@@ -3886,7 +3888,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn) {
                 fn->anal_state = FnAnalStateInvalid;
                 return;
             }
-            resolve_async_fn_frame(g, fn);
+            if (resolve_frame) {
+                resolve_async_fn_frame(g, fn);
+            }
             return;
         }
     }
@@ -4141,7 +4145,7 @@ void semantic_analyze(CodeGen *g) {
     // second pass over functions for detecting async
     for (g->fn_defs_index = 0; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
         ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
-        analyze_fn_async(g, fn_entry);
+        analyze_fn_async(g, fn_entry, true);
     }
 }
 
@@ -5212,6 +5216,36 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             return ErrorSemanticAnalyzeFail;
         }
     }
+    analyze_fn_async(g, fn, false);
+    if (fn->anal_state == FnAnalStateInvalid)
+        return ErrorSemanticAnalyzeFail;
+
+    if (!fn_is_async(fn)) {
+        ZigType *fn_type = fn->type_entry;
+        FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+        ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
+
+        // label (grep this): [fn_frame_struct_layout]
+        ZigList<SrcField> fields = {};
+
+        fields.append({"@fn_ptr", g->builtin_types.entry_usize, 0});
+        fields.append({"@resume_index", g->builtin_types.entry_usize, 0});
+        fields.append({"@awaiter", g->builtin_types.entry_usize, 0});
+        fields.append({"@prev_val", g->builtin_types.entry_usize, 0});
+
+        fields.append({"@result_ptr_callee", ptr_return_type, 0});
+        fields.append({"@result_ptr_awaiter", ptr_return_type, 0});
+        fields.append({"@result", fn_type_id->return_type, 0});
+
+        frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
+                fields.items, fields.length, target_fn_align(g->zig_target));
+        frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
+        frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
+        frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
+
+        return ErrorNone;
+    }
+
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
     if (fn->analyzed_executable.need_err_code_spill) {
@@ -5252,7 +5286,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
             return ErrorSemanticAnalyzeFail;
         }
-        analyze_fn_async(g, callee);
+        analyze_fn_async(g, callee, true);
         if (!fn_is_async(callee))
             continue;
 
@@ -5268,6 +5302,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         fn->alloca_gen_list.append(alloca_gen);
         call->frame_result_loc = &alloca_gen->base;
     }
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
 
     // label (grep this): [fn_frame_struct_layout]
     ZigList<SrcField> fields = {};
@@ -5276,9 +5312,6 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     fields.append({"@resume_index", g->builtin_types.entry_usize, 0});
     fields.append({"@awaiter", g->builtin_types.entry_usize, 0});
     fields.append({"@prev_val", g->builtin_types.entry_usize, 0});
-
-    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
 
     fields.append({"@result_ptr_callee", ptr_return_type, 0});
     fields.append({"@result_ptr_awaiter", ptr_return_type, 0});
@@ -7651,7 +7684,8 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
 }
 
 static void resolve_llvm_types_async_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
-    resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status, frame_type);
+    ZigType *passed_frame_type = fn_is_async(frame_type->data.frame.fn) ? frame_type : nullptr;
+    resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status, passed_frame_type);
     frame_type->llvm_type = frame_type->data.frame.locals_struct->llvm_type;
     frame_type->llvm_di_type = frame_type->data.frame.locals_struct->llvm_di_type;
 }
