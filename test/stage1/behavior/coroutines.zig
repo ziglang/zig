@@ -766,3 +766,14 @@ fn testAsyncAwaitTypicalUsage(comptime simulate_fail_download: bool, comptime si
         }
     };
 }
+
+test "alignment of local variables in async functions" {
+    const S = struct {
+        fn doTheTest() void {
+            var y: u8 = 123;
+            var x: u8 align(128) = 1;
+            expect(@ptrToInt(&x) % 128 == 0);
+        }
+    };
+    S.doTheTest();
+}

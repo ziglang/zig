@@ -1524,10 +1524,11 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
         field->name = buf_create_from_str(fields[i].name);
         field->type_entry = fields[i].ty;
         field->src_index = i;
+        field->align = fields[i].align;
 
         if (type_has_bits(field->type_entry)) {
             assert(type_is_resolved(field->type_entry, ResolveStatusSizeKnown));
-            unsigned field_abi_align = max(fields[i].align, field->type_entry->abi_align);
+            unsigned field_abi_align = max(field->align, field->type_entry->abi_align);
             if (field_abi_align > abi_align) {
                 abi_align = field_abi_align;
             }
@@ -5325,7 +5326,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         instruction->field_index = fields.length;
 
-        fields.append({name, child_type, 0});
+        fields.append({name, child_type, instruction->align});
     }
 
 
@@ -6900,9 +6901,16 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
                     break;
             }
-            size_t next_abi_align = (next_src_field_index == field_count) ?
-                struct_type->abi_align :
-                struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
+            size_t next_abi_align;
+            if (next_src_field_index == field_count) {
+                next_abi_align = struct_type->abi_align;
+            } else {
+                if (struct_type->data.structure.fields[next_src_field_index].align == 0) {
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
+                } else {
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].align;
+                }
+            }
             size_t llvm_next_abi_align = (next_src_field_index == field_count) ?
                 llvm_struct_abi_align :
                 LLVMABIAlignmentOfType(g->target_data_ref,
