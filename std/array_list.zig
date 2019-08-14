@@ -229,7 +229,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 
             //
             // NOTE: inlining these removal routines is important.
-            // Allows them to get with 1% of the performance of ArrayList.swapRemove/orderedRemove.
+            // It gains ~5% in debug mode, and ~8% in release-safe; within 1% of the performance of ArrayList.swapRemove/orderedRemove.
             //
 
             pub inline fn swapRemove(it: *Iterator) T {
