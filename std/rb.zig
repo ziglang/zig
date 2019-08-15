@@ -549,7 +549,6 @@ test "rb" {
     }
 }
 
-
 test "inserting and looking up" {
     var tree: Tree = undefined;
     tree.init(testCompare);

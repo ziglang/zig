@@ -875,7 +875,6 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {

@@ -627,7 +627,6 @@ pub const Loop = struct {
         }
     }
 
-
     /// call finishOneEvent when done
     pub fn beginOneEvent(self: *Loop) void {
         _ = @atomicRmw(usize, &self.pending_event_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);

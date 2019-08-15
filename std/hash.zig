@@ -20,7 +20,6 @@ pub const SipHash128 = siphash.SipHash128;
 pub const murmur = @import("hash/murmur.zig");
 pub const Murmur2_32 = murmur.Murmur2_32;
 
-
 pub const Murmur2_64 = murmur.Murmur2_64;
 pub const Murmur3_32 = murmur.Murmur3_32;
 
