@@ -734,3 +734,10 @@ test "alignment of local variables in async functions" {
     };
     S.doTheTest();
 }
+
+test "no reason to resolve frame still works" {
+    _ = async simpleNothing();
+}
+fn simpleNothing() void {
+    var x: i32 = 1234;
+}

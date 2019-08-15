@@ -7004,6 +7004,8 @@ static void do_code_gen(CodeGen *g) {
                 ZigType *ptr_type = instruction->base.value.type;
                 assert(ptr_type->id == ZigTypeIdPointer);
                 ZigType *child_type = ptr_type->data.pointer.child_type;
+                if (type_resolve(g, child_type, ResolveStatusSizeKnown))
+                    zig_unreachable();
                 if (!type_has_bits(child_type))
                     continue;
                 if (instruction->base.ref_count == 0)
@@ -7015,6 +7017,8 @@ static void do_code_gen(CodeGen *g) {
                         continue;
                     }
                 }
+                if (type_resolve(g, child_type, ResolveStatusLLVMFull))
+                    zig_unreachable();
                 instruction->base.llvm_value = build_alloca(g, child_type, instruction->name_hint,
                         get_ptr_align(g, ptr_type));
             }
