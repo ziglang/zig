@@ -3849,6 +3849,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                     // Use the result location provided to the @asyncCall builtin
                     ret_ptr = result_loc;
                 }
+            } else {
+                zig_unreachable();
             }
 
             // even if prefix_arg_err_ret_stack is true, let the async function do its own
