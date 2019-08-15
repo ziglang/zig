@@ -42,7 +42,6 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/CodeGenCWrappers.h>
-#include <llvm/Transforms/Coroutines.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -202,8 +201,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
         PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
     }
-
-    addCoroutinePassesToExtensionPoints(*PMBuilder);
 
     // Set up the per-function pass manager.
     legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
@@ -896,6 +893,14 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
         const char *name)
 {
     return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
+void ZigLLVMSetTailCall(LLVMValueRef Call) {
+    unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
+} 
+
+void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
+    unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }
 
 

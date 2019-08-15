@@ -1205,15 +1205,15 @@ fn renderExpression(
             }
         },
 
-        ast.Node.Id.PromiseType => {
-            const promise_type = @fieldParentPtr(ast.Node.PromiseType, "base", base);
+        ast.Node.Id.AnyFrameType => {
+            const anyframe_type = @fieldParentPtr(ast.Node.AnyFrameType, "base", base);
 
-            if (promise_type.result) |result| {
-                try renderToken(tree, stream, promise_type.promise_token, indent, start_col, Space.None); // promise
+            if (anyframe_type.result) |result| {
+                try renderToken(tree, stream, anyframe_type.anyframe_token, indent, start_col, Space.None); // anyframe
                 try renderToken(tree, stream, result.arrow_token, indent, start_col, Space.None); // ->
                 return renderExpression(allocator, stream, tree, indent, start_col, result.return_type, space);
             } else {
-                return renderToken(tree, stream, promise_type.promise_token, indent, start_col, space); // promise
+                return renderToken(tree, stream, anyframe_type.anyframe_token, indent, start_col, space); // anyframe
             }
         },
 

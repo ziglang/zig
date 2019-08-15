@@ -52,7 +52,7 @@ const Command = struct {
 
 pub fn main() !void {
     // This allocator needs to be thread-safe because we use it for the event.Loop
-    // which multiplexes coroutines onto kernel threads.
+    // which multiplexes async functions onto kernel threads.
     // libc allocator is guaranteed to have this property.
     const allocator = std.heap.c_allocator;
 
@@ -466,8 +466,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_objects = link_objects;
 
     comp.start();
-    const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
-    defer cancel process_build_events_handle;
+    // TODO const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
     loop.run();
 }
 
@@ -578,8 +577,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     var zig_compiler = try ZigCompiler.init(&loop);
     defer zig_compiler.deinit();
 
-    const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
-    defer cancel handle;
+    // TODO const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
 
     loop.run();
 }
@@ -663,13 +661,12 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     defer loop.deinit();
 
     var result: FmtError!void = undefined;
-    const main_handle = try async<allocator> asyncFmtMainChecked(
-        &result,
-        &loop,
-        &flags,
-        color,
-    );
-    defer cancel main_handle;
+    // TODO const main_handle = try async<allocator> asyncFmtMainChecked(
+    // TODO     &result,
+    // TODO     &loop,
+    // TODO     &flags,
+    // TODO     color,
+    // TODO );
     loop.run();
     return result;
 }

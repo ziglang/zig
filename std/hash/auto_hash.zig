@@ -8,31 +8,32 @@ const meta = std.meta;
 pub fn autoHash(hasher: var, key: var) void {
     const Key = @typeOf(key);
     switch (@typeInfo(Key)) {
-        builtin.TypeId.NoReturn,
-        builtin.TypeId.Opaque,
-        builtin.TypeId.Undefined,
-        builtin.TypeId.ArgTuple,
-        builtin.TypeId.Void,
-        builtin.TypeId.Null,
-        builtin.TypeId.BoundFn,
-        builtin.TypeId.ComptimeFloat,
-        builtin.TypeId.ComptimeInt,
-        builtin.TypeId.Type,
-        builtin.TypeId.EnumLiteral,
+        .NoReturn,
+        .Opaque,
+        .Undefined,
+        .ArgTuple,
+        .Void,
+        .Null,
+        .BoundFn,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Type,
+        .EnumLiteral,
+        .Frame,
         => @compileError("cannot hash this type"),
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        builtin.TypeId.Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
+        .Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
 
-        builtin.TypeId.Float => |info| autoHash(hasher, @bitCast(@IntType(false, info.bits), key)),
+        .Float => |info| autoHash(hasher, @bitCast(@IntType(false, info.bits), key)),
 
-        builtin.TypeId.Bool => autoHash(hasher, @boolToInt(key)),
-        builtin.TypeId.Enum => autoHash(hasher, @enumToInt(key)),
-        builtin.TypeId.ErrorSet => autoHash(hasher, @errorToInt(key)),
-        builtin.TypeId.Promise, builtin.TypeId.Fn => autoHash(hasher, @ptrToInt(key)),
+        .Bool => autoHash(hasher, @boolToInt(key)),
+        .Enum => autoHash(hasher, @enumToInt(key)),
+        .ErrorSet => autoHash(hasher, @errorToInt(key)),
+        .AnyFrame, .Fn => autoHash(hasher, @ptrToInt(key)),
 
-        builtin.TypeId.Pointer => |info| switch (info.size) {
+        .Pointer => |info| switch (info.size) {
             builtin.TypeInfo.Pointer.Size.One,
             builtin.TypeInfo.Pointer.Size.Many,
             builtin.TypeInfo.Pointer.Size.C,
@@ -44,9 +45,9 @@ pub fn autoHash(hasher: var, key: var) void {
             },
         },
 
-        builtin.TypeId.Optional => if (key) |k| autoHash(hasher, k),
+        .Optional => if (key) |k| autoHash(hasher, k),
 
-        builtin.TypeId.Array => {
+        .Array => {
             // TODO detect via a trait when Key has no padding bits to
             // hash it as an array of bytes.
             // Otherwise, hash every element.
@@ -55,7 +56,7 @@ pub fn autoHash(hasher: var, key: var) void {
             }
         },
 
-        builtin.TypeId.Vector => |info| {
+        .Vector => |info| {
             if (info.child.bit_count % 8 == 0) {
                 // If there's no unused bits in the child type, we can just hash
                 // this as an array of bytes.
@@ -71,7 +72,7 @@ pub fn autoHash(hasher: var, key: var) void {
             }
         },
 
-        builtin.TypeId.Struct => |info| {
+        .Struct => |info| {
             // TODO detect via a trait when Key has no padding bits to
             // hash it as an array of bytes.
             // Otherwise, hash every field.
@@ -82,7 +83,7 @@ pub fn autoHash(hasher: var, key: var) void {
             }
         },
 
-        builtin.TypeId.Union => |info| blk: {
+        .Union => |info| blk: {
             if (info.tag_type) |tag_type| {
                 const tag = meta.activeTag(key);
                 const s = autoHash(hasher, tag);
@@ -99,7 +100,7 @@ pub fn autoHash(hasher: var, key: var) void {
             } else @compileError("cannot hash untagged union type: " ++ @typeName(Key) ++ ", provide your own hash function");
         },
 
-        builtin.TypeId.ErrorUnion => blk: {
+        .ErrorUnion => blk: {
             const payload = key catch |err| {
                 autoHash(hasher, err);
                 break :blk;

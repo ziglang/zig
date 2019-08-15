@@ -1183,7 +1183,7 @@ test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
         \\    suspend {
-        \\        resume @handle();
+        \\        resume @frame();
         \\    }
         \\}
         \\
@@ -2103,7 +2103,7 @@ test "zig fmt: inline asm" {
     );
 }
 
-test "zig fmt: coroutines" {
+test "zig fmt: async functions" {
     try testCanonical(
         \\async fn simpleAsyncFn() void {
         \\    const a = async a.b();
@@ -2111,14 +2111,14 @@ test "zig fmt: coroutines" {
         \\    suspend;
         \\    x += 1;
         \\    suspend;
-        \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
+        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
-        \\test "coroutine suspend, resume, cancel" {
-        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
+        \\test "suspend, resume, await" {
+        \\    const p: anyframe = async testAsyncSeq();
         \\    resume p;
-        \\    cancel p;
+        \\    await p;
         \\}
         \\
     );

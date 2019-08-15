@@ -375,7 +375,9 @@ fn addLibUserlandStep(b: *Builder) void {
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
-    artifact.linkSystemLibrary("ntdll");
+    if (builtin.os == .windows) {
+        artifact.linkSystemLibrary("ntdll");
+    }
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
     libuserland_step.dependOn(&artifact.step);
 

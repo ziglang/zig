@@ -426,7 +426,6 @@ set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
@@ -438,6 +437,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"

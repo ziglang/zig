@@ -197,4 +197,6 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch);
 size_t target_libc_count(void);
 void target_libc_enum(size_t index, ZigTarget *out_target);
 
+unsigned target_fn_align(const ZigTarget *target);
+
 #endif
