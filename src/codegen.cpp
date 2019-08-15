@@ -3760,6 +3760,23 @@ static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
     return LLVMBuildLoad(g->builder, prefix_ptr, "");
 }
 
+static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMValueRef addrs_field_ptr) {
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+
+    LLVMValueRef index_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 0, "");
+    LLVMBuildStore(g->builder, zero, index_ptr);
+
+    LLVMValueRef addrs_slice_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 1, "");
+    LLVMValueRef addrs_ptr_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_ptr_index, "");
+    LLVMValueRef indices[] = { LLVMConstNull(usize_type_ref), LLVMConstNull(usize_type_ref) };
+    LLVMValueRef trace_field_addrs_as_ptr = LLVMBuildInBoundsGEP(g->builder, addrs_field_ptr, indices, 2, "");
+    LLVMBuildStore(g->builder, trace_field_addrs_as_ptr, addrs_ptr_ptr);
+
+    LLVMValueRef addrs_len_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_len_index, "");
+    LLVMBuildStore(g->builder, LLVMConstInt(usize_type_ref, stack_trace_ptr_count, false), addrs_len_ptr);
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCallGen *instruction) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
@@ -3900,9 +3917,24 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (first_arg_ret) {
                 gen_param_values.append(ret_ptr);
             }
-        }
-        if (prefix_arg_err_ret_stack) {
-            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+            if (prefix_arg_err_ret_stack) {
+                // Set up the callee stack trace pointer pointing into the frame.
+                // Then we have to wire up the StackTrace pointers.
+                // Await is responsible for merging error return traces.
+                uint32_t trace_field_index_start = frame_index_trace_arg(g, src_return_type);
+                LLVMValueRef callee_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                        trace_field_index_start, "");
+                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                        trace_field_index_start + 2, "");
+                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                        trace_field_index_start + 3, "");
+
+                LLVMBuildStore(g->builder, trace_field_ptr, callee_trace_ptr_ptr);
+
+                gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
+
+                gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+            }
         }
     } else {
         if (first_arg_ret) {
@@ -7126,20 +7158,10 @@ static void do_code_gen(CodeGen *g) {
 
                 LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack, "");
-                LLVMValueRef trace_field_addrs = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack + 1, "");
 
-                LLVMValueRef index_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 0, "");
-                LLVMBuildStore(g->builder, zero, index_ptr);
-
-                LLVMValueRef addrs_slice_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 1, "");
-                LLVMValueRef addrs_ptr_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_ptr_index, "");
-                LLVMValueRef indices[] = { LLVMConstNull(usize_type_ref), LLVMConstNull(usize_type_ref) };
-                LLVMValueRef trace_field_addrs_as_ptr = LLVMBuildInBoundsGEP(g->builder, trace_field_addrs, indices, 2, "");
-                LLVMBuildStore(g->builder, trace_field_addrs_as_ptr, addrs_ptr_ptr);
-
-                LLVMValueRef addrs_len_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_len_index, "");
-                LLVMBuildStore(g->builder, LLVMConstInt(usize_type_ref, stack_trace_ptr_count, false), addrs_len_ptr);
+                gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
             }
             render_async_var_decls(g, entry_block->instruction_list.at(0)->scope);
         } else {

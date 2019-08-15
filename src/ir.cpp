@@ -22078,6 +22078,10 @@ static IrInstruction *ir_analyze_instruction_frame_handle(IrAnalyze *ira, IrInst
     ZigFn *fn = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn != nullptr, &instruction->base);
 
+    if (fn->inferred_async_node == nullptr) {
+        fn->inferred_async_node = instruction->base.source_node;
+    }
+
     ZigType *frame_type = get_fn_frame_type(ira->codegen, fn);
     ZigType *ptr_frame_type = get_pointer_to_type(ira->codegen, frame_type, false);
 

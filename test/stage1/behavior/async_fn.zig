@@ -634,17 +634,30 @@ test "returning a const error from async function" {
 test "async/await typical usage" {
     inline for ([_]bool{false, true}) |b1| {
         inline for ([_]bool{false, true}) |b2| {
-            testAsyncAwaitTypicalUsage(b1, b2).doTheTest();
+            inline for ([_]bool{false, true}) |b3| {
+                inline for ([_]bool{false, true}) |b4| {
+                    testAsyncAwaitTypicalUsage(b1, b2, b3, b4).doTheTest();
+                }
+            }
         }
     }
 }
 
-fn testAsyncAwaitTypicalUsage(comptime simulate_fail_download: bool, comptime simulate_fail_file: bool) type {
+fn testAsyncAwaitTypicalUsage(
+    comptime simulate_fail_download: bool,
+    comptime simulate_fail_file: bool,
+    comptime suspend_download: bool,
+    comptime suspend_file: bool) type
+{
     return struct {
         fn doTheTest() void {
             _ = async amainWrap();
-            resume global_file_frame;
-            resume global_download_frame;
+            if (suspend_file) {
+                resume global_file_frame;
+            }
+            if (suspend_download) {
+                resume global_download_frame;
+            }
         }
         fn amainWrap() void {
             if (amain()) |_| {
@@ -685,20 +698,26 @@ fn testAsyncAwaitTypicalUsage(comptime simulate_fail_download: bool, comptime si
 
         var global_download_frame: anyframe = undefined;
         fn fetchUrl(allocator: *std.mem.Allocator, url: []const u8) anyerror![]u8 {
-            global_download_frame = @frame();
             const result = try std.mem.dupe(allocator, u8, "expected download text");
             errdefer allocator.free(result);
-            suspend;
+            if (suspend_download) {
+                suspend {
+                    global_download_frame = @frame();
+                }
+            }
             if (simulate_fail_download) return error.NoResponse;
             return result;
         }
 
         var global_file_frame: anyframe = undefined;
         fn readFile(allocator: *std.mem.Allocator, filename: []const u8) anyerror![]u8 {
-            global_file_frame = @frame();
             const result = try std.mem.dupe(allocator, u8, "expected file text");
             errdefer allocator.free(result);
-            suspend;
+            if (suspend_file) {
+                suspend {
+                    global_file_frame = @frame();
+                }
+            }
             if (simulate_fail_file) return error.FileNotFound;
             return result;
         }

@@ -3819,6 +3819,11 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("await is a suspend point"));
+    } else if (fn->inferred_async_node->type == NodeTypeFnCallExpr &&
+        fn->inferred_async_node->data.fn_call_expr.is_builtin)
+    {
+        add_error_note(g, msg, fn->inferred_async_node,
+            buf_sprintf("@frame() causes function to be async"));
     } else {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("suspends here"));
