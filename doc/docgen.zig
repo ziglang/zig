@@ -750,7 +750,6 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_async,
             .Keyword_await,
             .Keyword_break,
-            .Keyword_cancel,
             .Keyword_catch,
             .Keyword_comptime,
             .Keyword_const,

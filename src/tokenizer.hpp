@@ -58,7 +58,6 @@ enum TokenId {
     TokenIdKeywordAsync,
     TokenIdKeywordAwait,
     TokenIdKeywordBreak,
-    TokenIdKeywordCancel,
     TokenIdKeywordCatch,
     TokenIdKeywordCompTime,
     TokenIdKeywordConst,

@@ -150,7 +150,7 @@ test "coroutine suspend, resume" {
             seq('a');
             var f = async testAsyncSeq();
             seq('c');
-            cancel f;
+            await f;
             seq('g');
         }
 
@@ -271,7 +271,6 @@ test "async function with dot syntax" {
         }
     };
     const p = async S.foo();
-    // can't cancel in tests because they are non-async functions
     expect(S.y == 2);
 }
 
@@ -286,7 +285,7 @@ test "async fn pointer in a struct field" {
     comptime expect(@typeOf(f) == anyframe->void);
     expect(data == 2);
     resume f;
-    expect(data == 2);
+    expect(data == 4);
     _ = async doTheAwait(f);
     expect(data == 4);
 }
@@ -394,7 +393,6 @@ async fn printTrace(p: anyframe->(anyerror!void)) void {
 test "break from suspend" {
     var my_result: i32 = 1;
     const p = async testBreakFromSuspend(&my_result);
-    // can't cancel here
     std.testing.expect(my_result == 2);
 }
 async fn testBreakFromSuspend(my_result: *i32) void {
@@ -530,45 +528,6 @@ test "call async function which has struct return type" {
     S.doTheTest();
 }
 
-test "errdefers in scope get run when canceling async fn call" {
-    const S = struct {
-        var frame: anyframe = undefined;
-        var x: u32 = 0;
-
-        fn doTheTest() void {
-            x = 9;
-            _ = async cancelIt();
-            resume frame;
-            expect(x == 6);
-
-            x = 9;
-            _ = async awaitIt();
-            resume frame;
-            expect(x == 11);
-        }
-
-        fn cancelIt() void {
-            var f = async func();
-            cancel f;
-        }
-
-        fn awaitIt() void {
-            var f = async func();
-            await f;
-        }
-
-        fn func() void {
-            defer x += 1;
-            errdefer x /= 2;
-            defer x += 1;
-            suspend {
-                frame = @frame();
-            }
-        }
-    };
-    S.doTheTest();
-}
-
 test "pass string literal to async function" {
     const S = struct {
         var frame: anyframe = undefined;
@@ -590,7 +549,7 @@ test "pass string literal to async function" {
     S.doTheTest();
 }
 
-test "cancel inside an errdefer" {
+test "await inside an errdefer" {
     const S = struct {
         var frame: anyframe = undefined;
 
@@ -601,42 +560,13 @@ test "cancel inside an errdefer" {
 
         fn amainWrap() !void {
             var foo = async func();
-            errdefer cancel foo;
+            errdefer await foo;
             return error.Bad;
         }
 
         fn func() void {
             frame = @frame();
             suspend;
-        }
-
-    };
-    S.doTheTest();
-}
-
-test "combining try with errdefer cancel" {
-    const S = struct {
-        var frame: anyframe = undefined;
-        var ok = false;
-
-        fn doTheTest() void {
-            _ = async amain();
-            resume frame;
-            expect(ok);
-        }
-
-        fn amain() !void {
-            var f = async func("https://example.com/");
-            errdefer cancel f;
-
-            _ = try await f;
-        }
-
-        fn func(url: []const u8) ![]u8 {
-            errdefer ok = true;
-            frame = @frame();
-            suspend;
-            return error.Bad;
         }
 
     };
@@ -730,14 +660,22 @@ fn testAsyncAwaitTypicalUsage(comptime simulate_fail_download: bool, comptime si
         fn amain() !void {
             const allocator = std.heap.direct_allocator; // TODO once we have the debug allocator, use that, so that this can detect leaks
             var download_frame = async fetchUrl(allocator, "https://example.com/");
-            errdefer cancel download_frame;
+            var download_awaited = false;
+            errdefer if (!download_awaited) {
+                if (await download_frame) |x| allocator.free(x) else |_| {}
+            };
 
             var file_frame = async readFile(allocator, "something.txt");
-            errdefer cancel file_frame;
+            var file_awaited = false;
+            errdefer if (!file_awaited) {
+                if (await file_frame) |x| allocator.free(x) else |_| {}
+            };
 
+            download_awaited = true;
             const download_text = try await download_frame;
             defer allocator.free(download_text);
 
+            file_awaited = true;
             const file_text = try await file_frame;
             defer allocator.free(file_text);
 

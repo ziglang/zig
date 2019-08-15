@@ -467,7 +467,6 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     comp.start();
     // TODO const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
-    defer cancel process_build_events_handle;
     loop.run();
 }
 
@@ -579,7 +578,6 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     defer zig_compiler.deinit();
 
     // TODO const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
-    defer cancel handle;
 
     loop.run();
 }
@@ -669,7 +667,6 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     // TODO     &flags,
     // TODO     color,
     // TODO );
-    defer cancel main_handle;
     loop.run();
     return result;
 }

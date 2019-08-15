@@ -5971,7 +5971,7 @@ test "global assembly" {
       {#header_open|Async Functions#}
       <p>
       An async function is a function whose callsite is split into an {#syntax#}async{#endsyntax#} initiation,
-      followed by an {#syntax#}await{#endsyntax#} completion. They can also be canceled.
+      followed by an {#syntax#}await{#endsyntax#} completion.
       </p>
       <p>
       When you call a function, it creates a stack frame,
@@ -6013,11 +6013,11 @@ test "global assembly" {
       <p>
       The result of an async function call is a {#syntax#}promise->T{#endsyntax#} type, where {#syntax#}T{#endsyntax#}
       is the return type of the async function. Once a promise has been created, it must be
-      consumed, either with {#syntax#}cancel{#endsyntax#} or {#syntax#}await{#endsyntax#}:
+      consumed with {#syntax#}await{#endsyntax#}:
       </p>
       <p>
       Async functions start executing when created, so in the following example, the entire
-      async function completes before it is canceled:
+      TODO
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -6048,7 +6048,7 @@ fn simpleAsyncFn() void {
       </p>
       <p>
       When an async function suspends itself, it must be sure that it will be
-      resumed or canceled somehow, for example by registering its promise handle
+      resumed somehow, for example by registering its promise handle
       in an event loop. Use a suspend capture block to gain access to the
       promise (TODO this is outdated):
       </p>
@@ -6134,7 +6134,7 @@ async fn testResumeFromSuspend(my_result: *i32) void {
       resumes the awaiter.
       </p>
       <p>
-      A promise handle must be consumed exactly once after it is created, either by {#syntax#}cancel{#endsyntax#} or {#syntax#}await{#endsyntax#}.
+      A frame handle must be consumed exactly once after it is created with {#syntax#}await{#endsyntax#}.
       </p>
       <p>
       {#syntax#}await{#endsyntax#} counts as a suspend point, and therefore at every {#syntax#}await{#endsyntax#},
@@ -9764,7 +9764,6 @@ PrimaryExpr
     &lt;- AsmExpr
      / IfExpr
      / KEYWORD_break BreakLabel? Expr?
-     / KEYWORD_cancel Expr
      / KEYWORD_comptime Expr
      / KEYWORD_continue BreakLabel?
      / KEYWORD_resume Expr
@@ -10120,7 +10119,6 @@ KEYWORD_asm         &lt;- 'asm'         end_of_word
 KEYWORD_async       &lt;- 'async'       end_of_word
 KEYWORD_await       &lt;- 'await'       end_of_word
 KEYWORD_break       &lt;- 'break'       end_of_word
-KEYWORD_cancel      &lt;- 'cancel'      end_of_word
 KEYWORD_catch       &lt;- 'catch'       end_of_word
 KEYWORD_comptime    &lt;- 'comptime'    end_of_word
 KEYWORD_const       &lt;- 'const'       end_of_word
@@ -10165,7 +10163,7 @@ KEYWORD_volatile    &lt;- 'volatile'    end_of_word
 KEYWORD_while       &lt;- 'while'       end_of_word
 
 keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
-         / KEYWORD_async / KEYWORD_await / KEYWORD_break / KEYWORD_cancel
+         / KEYWORD_async / KEYWORD_await / KEYWORD_break
          / KEYWORD_catch / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false

@@ -828,17 +828,15 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
     zig_unreachable();
 }
 
-ZigType *get_ptr_to_stack_trace_type(CodeGen *g) {
+ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
         assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
 
         g->stack_trace_type = stack_trace_type_val->data.x_type;
         assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
-
-        g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
     }
-    return g->ptr_to_stack_trace_type;
+    return g->stack_trace_type;
 }
 
 bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
@@ -3035,7 +3033,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeIfErrorExpr:
         case NodeTypeIfOptional:
         case NodeTypeErrorSetDecl:
-        case NodeTypeCancel:
         case NodeTypeResume:
         case NodeTypeAwaitExpr:
         case NodeTypeSuspend:
@@ -3822,11 +3819,9 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("await is a suspend point"));
-    } else if (fn->inferred_async_node->type == NodeTypeCancel) {
-        add_error_note(g, msg, fn->inferred_async_node,
-            buf_sprintf("cancel is a suspend point"));
     } else {
-        zig_unreachable();
+        add_error_note(g, msg, fn->inferred_async_node,
+            buf_sprintf("suspends here"));
     }
 }
 
@@ -5231,11 +5226,20 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         fields.append({"@fn_ptr", g->builtin_types.entry_usize, 0});
         fields.append({"@resume_index", g->builtin_types.entry_usize, 0});
         fields.append({"@awaiter", g->builtin_types.entry_usize, 0});
-        fields.append({"@prev_val", g->builtin_types.entry_usize, 0});
 
         fields.append({"@result_ptr_callee", ptr_return_type, 0});
         fields.append({"@result_ptr_awaiter", ptr_return_type, 0});
         fields.append({"@result", fn_type_id->return_type, 0});
+
+        if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
+            ZigType *ptr_to_stack_trace_type = get_pointer_to_type(g, get_stack_trace_type(g), false);
+            fields.append({"@ptr_stack_trace_callee", ptr_to_stack_trace_type, 0});
+            fields.append({"@ptr_stack_trace_awaiter", ptr_to_stack_trace_type, 0});
+
+            fields.append({"@stack_trace", get_stack_trace_type(g), 0});
+            fields.append({"@instruction_addresses",
+                    get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
+        }
 
         frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
                 fields.items, fields.length, target_fn_align(g->zig_target));
@@ -5311,14 +5315,15 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     fields.append({"@fn_ptr", fn_type, 0});
     fields.append({"@resume_index", g->builtin_types.entry_usize, 0});
     fields.append({"@awaiter", g->builtin_types.entry_usize, 0});
-    fields.append({"@prev_val", g->builtin_types.entry_usize, 0});
 
     fields.append({"@result_ptr_callee", ptr_return_type, 0});
     fields.append({"@result_ptr_awaiter", ptr_return_type, 0});
     fields.append({"@result", fn_type_id->return_type, 0});
 
     if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
-        fields.append({"@ptr_stack_trace", get_ptr_to_stack_trace_type(g), 0});
+        ZigType *ptr_stack_trace_type = get_pointer_to_type(g, get_stack_trace_type(g), false);
+        fields.append({"@ptr_stack_trace_callee", ptr_stack_trace_type, 0});
+        fields.append({"@ptr_stack_trace_awaiter", ptr_stack_trace_type, 0});
     }
 
     for (size_t arg_i = 0; arg_i < fn_type_id->param_count; arg_i += 1) {
@@ -5337,9 +5342,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     }
 
     if (codegen_fn_has_err_ret_tracing_stack(g, fn, true)) {
-        (void)get_ptr_to_stack_trace_type(g); // populate g->stack_trace_type
-
-        fields.append({"@stack_trace", g->stack_trace_type, 0});
+        fields.append({"@stack_trace", get_stack_trace_type(g), 0});
         fields.append({"@instruction_addresses",
                 get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
     }
@@ -7553,7 +7556,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     fn_type->data.fn.gen_return_type = gen_return_type;
 
     if (prefix_arg_error_return_trace && !is_async) {
-        ZigType *gen_type = get_ptr_to_stack_trace_type(g);
+        ZigType *gen_type = get_pointer_to_type(g, get_stack_trace_type(g), false);
         gen_param_types.append(get_llvm_type(g, gen_type));
         param_di_types.append(get_llvm_di_type(g, gen_type));
     }
@@ -7727,7 +7730,6 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
     field_types.append(ptr_fn_llvm_type); // fn_ptr
     field_types.append(usize_type_ref); // resume_index
     field_types.append(usize_type_ref); // awaiter
-    field_types.append(usize_type_ref); // prev_val
 
     bool have_result_type = result_type != nullptr && type_has_bits(result_type);
     if (have_result_type) {
@@ -7735,7 +7737,9 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
         field_types.append(get_llvm_type(g, ptr_result_type)); // result_ptr_awaiter
         field_types.append(get_llvm_type(g, result_type)); // result
         if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
-            field_types.append(get_llvm_type(g, get_ptr_to_stack_trace_type(g))); // ptr_stack_trace
+            ZigType *ptr_stack_trace = get_pointer_to_type(g, get_stack_trace_type(g), false);
+            field_types.append(get_llvm_type(g, ptr_stack_trace)); // ptr_stack_trace_callee
+            field_types.append(get_llvm_type(g, ptr_stack_trace)); // ptr_stack_trace_awaiter
         }
     }
     LLVMStructSetBody(frame_header_type, field_types.items, field_types.length, false);
@@ -7792,14 +7796,23 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
                 ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, result_type)));
 
         if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
+            ZigType *ptr_stack_trace = get_pointer_to_type(g, get_stack_trace_type(g), false);
             di_element_types.append(
                 ZigLLVMCreateDebugMemberType(g->dbuilder,
-                    ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "ptr_stack_trace",
+                    ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "ptr_stack_trace_callee",
                     di_file, line,
                     8*LLVMABISizeOfType(g->target_data_ref, field_types.at(di_element_types.length)),
                     8*LLVMABIAlignmentOfType(g->target_data_ref, field_types.at(di_element_types.length)),
                     8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, di_element_types.length),
-                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, get_ptr_to_stack_trace_type(g))));
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, ptr_stack_trace)));
+            di_element_types.append(
+                ZigLLVMCreateDebugMemberType(g->dbuilder,
+                    ZigLLVMTypeToScope(any_frame_type->llvm_di_type), "ptr_stack_trace_awaiter",
+                    di_file, line,
+                    8*LLVMABISizeOfType(g->target_data_ref, field_types.at(di_element_types.length)),
+                    8*LLVMABIAlignmentOfType(g->target_data_ref, field_types.at(di_element_types.length)),
+                    8*LLVMOffsetOfElement(g->target_data_ref, frame_header_type, di_element_types.length),
+                    ZigLLVM_DIFlags_Zero, get_llvm_di_type(g, ptr_stack_trace)));
         }
     };
 

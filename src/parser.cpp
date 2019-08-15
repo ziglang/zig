@@ -1167,7 +1167,6 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //     <- AsmExpr
 //      / IfExpr
 //      / KEYWORD_break BreakLabel? Expr?
-//      / KEYWORD_cancel Expr
 //      / KEYWORD_comptime Expr
 //      / KEYWORD_continue BreakLabel?
 //      / KEYWORD_resume Expr
@@ -1192,14 +1191,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         AstNode *res = ast_create_node(pc, NodeTypeBreak, break_token);
         res->data.break_expr.name = token_buf(label);
         res->data.break_expr.expr = expr;
-        return res;
-    }
-
-    Token *cancel = eat_token_if(pc, TokenIdKeywordCancel);
-    if (cancel != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeCancel, cancel);
-        res->data.cancel_expr.expr = expr;
         return res;
     }
 
@@ -3034,9 +3025,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeErrorSetDecl:
             visit_node_list(&node->data.err_set_decl.decls, visit, context);
-            break;
-        case NodeTypeCancel:
-            visit_field(&node->data.cancel_expr.expr, visit, context);
             break;
         case NodeTypeResume:
             visit_field(&node->data.resume_expr.expr, visit, context);

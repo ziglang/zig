@@ -814,7 +814,6 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- AsmExpr
 ///      / IfExpr
 ///      / KEYWORD_break BreakLabel? Expr?
-///      / KEYWORD_cancel Expr
 ///      / KEYWORD_comptime Expr
 ///      / KEYWORD_continue BreakLabel?
 ///      / KEYWORD_resume Expr
@@ -834,20 +833,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
             .base = Node{ .id = .ControlFlowExpression },
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Break = label },
-            .rhs = expr_node,
-        };
-        return &node.base;
-    }
-
-    if (eatToken(it, .Keyword_cancel)) |token| {
-        const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
-            .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
-        });
-        const node = try arena.create(Node.PrefixOp);
-        node.* = Node.PrefixOp{
-            .base = Node{ .id = .PrefixOp },
-            .op_token = token,
-            .op = Node.PrefixOp.Op.Cancel,
             .rhs = expr_node,
         };
         return &node.base;

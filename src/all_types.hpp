@@ -476,7 +476,6 @@ enum NodeType {
     NodeTypeIfErrorExpr,
     NodeTypeIfOptional,
     NodeTypeErrorSetDecl,
-    NodeTypeCancel,
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
@@ -911,10 +910,6 @@ struct AstNodeBreakExpr {
     AstNode *expr; // may be null
 };
 
-struct AstNodeCancelExpr {
-    AstNode *expr;
-};
-
 struct AstNodeResumeExpr {
     AstNode *expr;
 };
@@ -1003,7 +998,6 @@ struct AstNode {
         AstNodeInferredArrayType inferred_array_type;
         AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
-        AstNodeCancelExpr cancel_expr;
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
@@ -1561,7 +1555,6 @@ enum PanicMsgId {
     PanicMsgIdBadAwait,
     PanicMsgIdBadReturn,
     PanicMsgIdResumedAnAwaitingFn,
-    PanicMsgIdResumedACancelingFn,
     PanicMsgIdFrameTooSmall,
     PanicMsgIdResumedFnPendingAwait,
 
@@ -1729,8 +1722,6 @@ struct CodeGen {
     LLVMValueRef cur_async_switch_instr;
     LLVMValueRef cur_async_resume_index_ptr;
     LLVMValueRef cur_async_awaiter_ptr;
-    LLVMValueRef cur_async_prev_val;
-    LLVMValueRef cur_async_prev_val_field_ptr;
     LLVMBasicBlockRef cur_preamble_llvm_block;
     size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
@@ -1822,7 +1813,6 @@ struct CodeGen {
 
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
-    ZigType *ptr_to_stack_trace_type;
     ZigType *err_tag_type;
     ZigType *test_fn_type;
 
@@ -1892,7 +1882,6 @@ struct CodeGen {
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
     bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
-    bool cur_is_after_return;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
@@ -2235,7 +2224,6 @@ enum IrInstructionId {
     IrInstructionIdCallGen,
     IrInstructionIdConst,
     IrInstructionIdReturn,
-    IrInstructionIdReturnBegin,
     IrInstructionIdCast,
     IrInstructionIdResizeSlice,
     IrInstructionIdContainerInitList,
@@ -2345,7 +2333,6 @@ enum IrInstructionId {
     IrInstructionIdExport,
     IrInstructionIdErrorReturnTrace,
     IrInstructionIdErrorUnion,
-    IrInstructionIdCancel,
     IrInstructionIdAtomicRmw,
     IrInstructionIdAtomicLoad,
     IrInstructionIdSaveErrRetAddr,
@@ -2370,7 +2357,6 @@ enum IrInstructionId {
     IrInstructionIdAwaitSrc,
     IrInstructionIdAwaitGen,
     IrInstructionIdResume,
-    IrInstructionIdTestCancelRequested,
     IrInstructionIdSpillBegin,
     IrInstructionIdSpillEnd,
 };
@@ -2644,12 +2630,6 @@ struct IrInstructionConst {
 // the expression returns with that value, even though a return statement from
 // an AST perspective is invalid.
 struct IrInstructionReturn {
-    IrInstruction base;
-
-    IrInstruction *operand;
-};
-
-struct IrInstructionReturnBegin {
     IrInstruction base;
 
     IrInstruction *operand;
@@ -3440,12 +3420,6 @@ struct IrInstructionErrorUnion {
     IrInstruction *payload;
 };
 
-struct IrInstructionCancel {
-    IrInstruction base;
-
-    IrInstruction *frame;
-};
-
 struct IrInstructionAtomicRmw {
     IrInstruction base;
 
@@ -3647,10 +3621,6 @@ struct IrInstructionResume {
     IrInstruction *frame;
 };
 
-struct IrInstructionTestCancelRequested {
-    IrInstruction base;
-};
-
 enum SpillId {
     SpillIdInvalid,
     SpillIdRetErrCode,
@@ -3756,8 +3726,7 @@ static const size_t err_union_err_index = 1;
 static const size_t frame_fn_ptr_index = 0;
 static const size_t frame_resume_index = 1;
 static const size_t frame_awaiter_index = 2;
-static const size_t frame_prev_val_index = 3;
-static const size_t frame_ret_start = 4;
+static const size_t frame_ret_start = 3;
 
 // TODO https://github.com/ziglang/zig/issues/3056
 // We require this to be a power of 2 so that we can use shifting rather than

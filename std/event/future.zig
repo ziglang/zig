@@ -110,7 +110,7 @@ async fn testFuture(loop: *Loop) void {
     const b_result = await b;
     const result = a_result + b_result;
 
-    cancel c;
+    await c;
     testing.expect(result == 12);
 }
 

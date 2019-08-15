@@ -61,13 +61,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "runtime-known async function called",
         \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\fn amain() void {
         \\    var ptr = afunc;
         \\    _ = ptr();
         \\}
-        \\
         \\async fn afunc() void {}
     ,
-        "tmp.zig:3:12: error: function is not comptime-known; @asyncCall required",
+        "tmp.zig:6:12: error: function is not comptime-known; @asyncCall required",
     );
 
     cases.add(
@@ -3388,7 +3390,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(Foo)); }
     ,
-        "tmp.zig:5:18: error: unable to evaluate constant expression",
+        "tmp.zig:5:25: error: unable to evaluate constant expression",
         "tmp.zig:2:12: note: called from here",
         "tmp.zig:2:8: note: called from here",
     );

@@ -195,7 +195,7 @@ void add_var_export(CodeGen *g, ZigVar *fn_table_entry, Buf *symbol_name, Global
 
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
-ZigType *get_ptr_to_stack_trace_type(CodeGen *g);
+ZigType *get_stack_trace_type(CodeGen *g);
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node);
 
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry);

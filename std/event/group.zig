@@ -27,17 +27,6 @@ pub fn Group(comptime ReturnType: type) type {
             };
         }
 
-        /// Cancel all the outstanding frames. Can be called even if wait was already called.
-        pub fn deinit(self: *Self) void {
-            while (self.frame_stack.pop()) |node| {
-                cancel node.data;
-            }
-            while (self.alloc_stack.pop()) |node| {
-                cancel node.data;
-                self.lock.loop.allocator.destroy(node);
-            }
-        }
-
         /// Add a frame to the group. Thread-safe.
         pub fn add(self: *Self, handle: anyframe->ReturnType) (error{OutOfMemory}!void) {
             const node = try self.lock.loop.allocator.create(Stack.Node);
@@ -64,13 +53,14 @@ pub fn Group(comptime ReturnType: type) type {
             const held = self.lock.acquire();
             defer held.release();
 
+            var result: ReturnType = {};
+
             while (self.frame_stack.pop()) |node| {
                 if (Error == void) {
                     await node.data;
                 } else {
                     (await node.data) catch |err| {
-                        self.deinit();
-                        return err;
+                        result = err;
                     };
                 }
             }
@@ -81,11 +71,11 @@ pub fn Group(comptime ReturnType: type) type {
                     await handle;
                 } else {
                     (await handle) catch |err| {
-                        self.deinit();
-                        return err;
+                        result = err;
                     };
                 }
             }
+            return result;
         }
     };
 }

@@ -54,7 +54,7 @@ pub const Server = struct {
         self.listen_address = std.net.Address.initPosix(try os.getsockname(sockfd));
 
         self.accept_frame = async Server.handler(self);
-        errdefer cancel self.accept_frame.?;
+        errdefer await self.accept_frame.?;
 
         self.listen_resume_node.handle = self.accept_frame.?;
         try self.loop.linuxAddFd(sockfd, &self.listen_resume_node, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
@@ -71,7 +71,7 @@ pub const Server = struct {
     }
 
     pub fn deinit(self: *Server) void {
-        if (self.accept_frame) |accept_frame| cancel accept_frame;
+        if (self.accept_frame) |accept_frame| await accept_frame;
         if (self.sockfd) |sockfd| os.close(sockfd);
     }
 
@@ -274,13 +274,9 @@ test "listen on a port, send bytes, receive bytes" {
             const self = @fieldParentPtr(Self, "tcp_server", tcp_server);
             var socket = _socket; // TODO https://github.com/ziglang/zig/issues/1592
             defer socket.close();
-            // TODO guarantee elision of this allocation
             const next_handler = errorableHandler(self, _addr, socket) catch |err| {
                 std.debug.panic("unable to handle connection: {}\n", err);
             };
-            suspend {
-                cancel @frame();
-            }
         }
         async fn errorableHandler(self: *Self, _addr: *const std.net.Address, _socket: File) !void {
             const addr = _addr.*; // TODO https://github.com/ziglang/zig/issues/1592

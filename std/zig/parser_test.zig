@@ -2115,10 +2115,10 @@ test "zig fmt: async functions" {
         \\    await p;
         \\}
         \\
-        \\test "suspend, resume, cancel" {
+        \\test "suspend, resume, await" {
         \\    const p: anyframe = async testAsyncSeq();
         \\    resume p;
-        \\    cancel p;
+        \\    await p;
         \\}
         \\
     );

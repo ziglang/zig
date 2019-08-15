@@ -64,12 +64,6 @@ static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
     }
 }
 
-static void ir_print_return_begin(IrPrint *irp, IrInstructionReturnBegin *instruction) {
-    fprintf(irp->f, "@returnBegin(");
-    ir_print_other_instruction(irp, instruction->operand);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_return(IrPrint *irp, IrInstructionReturn *instruction) {
     fprintf(irp->f, "return ");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1394,11 +1388,6 @@ static void ir_print_error_union(IrPrint *irp, IrInstructionErrorUnion *instruct
     ir_print_other_instruction(irp, instruction->payload);
 }
 
-static void ir_print_cancel(IrPrint *irp, IrInstructionCancel *instruction) {
-    fprintf(irp->f, "cancel ");
-    ir_print_other_instruction(irp, instruction->frame);
-}
-
 static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instruction) {
     fprintf(irp->f, "@atomicRmw(");
     if (instruction->operand_type != nullptr) {
@@ -1549,10 +1538,6 @@ static void ir_print_await_gen(IrPrint *irp, IrInstructionAwaitGen *instruction)
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_cancel_requested(IrPrint *irp, IrInstructionTestCancelRequested *instruction) {
-    fprintf(irp->f, "@testCancelRequested()");
-}
-
 static void ir_print_spill_begin(IrPrint *irp, IrInstructionSpillBegin *instruction) {
     fprintf(irp->f, "@spillBegin(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1570,9 +1555,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
             zig_unreachable();
-        case IrInstructionIdReturnBegin:
-            ir_print_return_begin(irp, (IrInstructionReturnBegin *)instruction);
-            break;
         case IrInstructionIdReturn:
             ir_print_return(irp, (IrInstructionReturn *)instruction);
             break;
@@ -1966,9 +1948,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdErrorUnion:
             ir_print_error_union(irp, (IrInstructionErrorUnion *)instruction);
             break;
-        case IrInstructionIdCancel:
-            ir_print_cancel(irp, (IrInstructionCancel *)instruction);
-            break;
         case IrInstructionIdAtomicRmw:
             ir_print_atomic_rmw(irp, (IrInstructionAtomicRmw *)instruction);
             break;
@@ -2046,9 +2025,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAwaitGen:
             ir_print_await_gen(irp, (IrInstructionAwaitGen *)instruction);
-            break;
-        case IrInstructionIdTestCancelRequested:
-            ir_print_test_cancel_requested(irp, (IrInstructionTestCancelRequested *)instruction);
             break;
         case IrInstructionIdSpillBegin:
             ir_print_spill_begin(irp, (IrInstructionSpillBegin *)instruction);

@@ -1301,7 +1301,7 @@ async fn testFsWatch(loop: *Loop) !void {
 
     const ev = try async watch.channel.get();
     var ev_consumed = false;
-    defer if (!ev_consumed) cancel ev;
+    defer if (!ev_consumed) await ev;
 
     // overwrite line 2
     const fd = try await try async openReadWrite(loop, file_path, File.default_mode);
