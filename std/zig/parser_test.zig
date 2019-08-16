@@ -8,6 +8,18 @@ test "zig fmt: change use to usingnamespace" {
     );
 }
 
+test "zig fmt: async function" {
+    try testCanonical(
+        \\pub const Server = struct {
+        \\    handleRequestFn: async fn (*Server, *const std.net.Address, File) void,
+        \\};
+        \\test "hi" {
+        \\    var ptr = @ptrCast(async fn (i32) void, other);
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: whitespace fixes" {
     try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
