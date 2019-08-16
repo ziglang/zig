@@ -2210,8 +2210,8 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
         LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_fn_ptr_index, "");
         fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
     }
-    LLVMValueRef arg_val = LLVMBuildSub(g->builder, LLVMConstAllOnes(usize_type_ref),
-            LLVMConstInt(usize_type_ref, resume_id, false), "");
+    LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
+            LLVMConstInt(usize_type_ref, resume_id, false));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
     return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
 }
