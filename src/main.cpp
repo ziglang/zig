@@ -85,7 +85,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --verbose-cc                 enable compiler debug output for C compilation\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
-        "  -mllvm [arg]                 forward an arg to LLVM's option processing\n"
+        "  -mllvm [arg]                 (unsupported) forward an arg to LLVM's option processing\n"
         "  --override-std-dir [arg]     override path to Zig standard library\n"
         "  --override-lib-dir [arg]     override path to Zig lib library\n"
         "  -ffunction-sections          places each function in a seperate section\n"

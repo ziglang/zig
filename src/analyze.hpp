@@ -11,11 +11,12 @@
 #include "all_types.hpp"
 
 void semantic_analyze(CodeGen *g);
-ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+ErrorMsg *add_node_error(CodeGen *g, const AstNode *node, Buf *msg);
 ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg);
-ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
+ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, Buf *msg);
 void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
+ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);
 ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len,
@@ -37,11 +38,8 @@ ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payload_type);
 ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry);
 ZigType *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *full_name, Buf *bare_name);
-ZigType *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
-        ZigType *field_types[], size_t field_count);
-ZigType *get_promise_type(CodeGen *g, ZigType *result_type);
-ZigType *get_promise_frame_type(CodeGen *g, ZigType *return_type);
 ZigType *get_test_fn_type(CodeGen *g);
+ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
 bool handle_is_ptr(ZigType *type_entry);
 
 bool type_has_bits(ZigType *type_entry);
@@ -106,7 +104,6 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
 void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool is_max);
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
-void analyze_fn_ir(CodeGen *g, ZigFn *fn_table_entry, AstNode *return_type_node);
 
 ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent);
@@ -117,7 +114,6 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
-Scope *create_coro_prelude_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
@@ -199,12 +195,11 @@ void add_var_export(CodeGen *g, ZigVar *fn_table_entry, Buf *symbol_name, Global
 
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
-ZigType *get_ptr_to_stack_trace_type(CodeGen *g);
+ZigType *get_stack_trace_type(CodeGen *g);
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node);
 
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry);
 
-uint32_t get_coro_frame_align_bytes(CodeGen *g);
 bool fn_type_can_fail(FnTypeId *fn_type_id);
 bool type_can_fail(ZigType *type_entry);
 bool fn_eval_cacheable(Scope *scope, ZigType *return_type);
@@ -250,5 +245,8 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
 ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
+
+void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
+bool fn_is_async(ZigFn *fn);
 
 #endif

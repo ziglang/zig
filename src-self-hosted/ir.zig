@@ -1181,7 +1181,6 @@ pub const Builder = struct {
             ast.Node.Id.ErrorTag => return error.Unimplemented,
             ast.Node.Id.AsmInput => return error.Unimplemented,
             ast.Node.Id.AsmOutput => return error.Unimplemented,
-            ast.Node.Id.AsyncAttribute => return error.Unimplemented,
             ast.Node.Id.ParamDecl => return error.Unimplemented,
             ast.Node.Id.FieldInitializer => return error.Unimplemented,
             ast.Node.Id.EnumLiteral => return error.Unimplemented,
@@ -1904,20 +1903,6 @@ pub const Builder = struct {
         }
         return error.Unimplemented;
 
-        //ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_field_ptr, return_value);
-        //IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
-        //        get_optional_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
-        //// TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
-        //IrInstruction *replacement_value = irb->exec->coro_handle;
-        //IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, scope, node,
-        //        promise_type_val, irb->exec->coro_awaiter_field_ptr, nullptr, replacement_value, nullptr,
-        //        AtomicRmwOp_xchg, AtomicOrderSeqCst);
-        //ir_build_store_ptr(irb, scope, node, irb->exec->await_handle_var_ptr, maybe_await_handle);
-        //IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_await_handle);
-        //IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, false);
-        //return ir_build_cond_br(irb, scope, node, is_non_null, irb->exec->coro_normal_final, irb->exec->coro_early_final,
-        //        is_comptime);
-        //// the above blocks are rendered by ir_gen after the rest of codegen
     }
 
     const Ident = union(enum) {

@@ -116,21 +116,6 @@ fn testOptional() void {
     expect(null_info.Optional.child == void);
 }
 
-test "type info: promise info" {
-    testPromise();
-    comptime testPromise();
-}
-
-fn testPromise() void {
-    const null_promise_info = @typeInfo(promise);
-    expect(TypeId(null_promise_info) == TypeId.Promise);
-    expect(null_promise_info.Promise.child == null);
-
-    const promise_info = @typeInfo(promise->usize);
-    expect(TypeId(promise_info) == TypeId.Promise);
-    expect(promise_info.Promise.child.? == usize);
-}
-
 test "type info: error set, error union info" {
     testErrorSet();
     comptime testErrorSet();
@@ -192,7 +177,7 @@ fn testUnion() void {
     expect(TypeId(typeinfo_info) == TypeId.Union);
     expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
-    expect(typeinfo_info.Union.fields.len == 25);
+    expect(typeinfo_info.Union.fields.len == 26);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
@@ -265,7 +250,6 @@ fn testFunction() void {
     expect(fn_info.Fn.args.len == 2);
     expect(fn_info.Fn.is_var_args);
     expect(fn_info.Fn.return_type == null);
-    expect(fn_info.Fn.async_allocator_type == null);
 
     const test_instance: TestStruct = undefined;
     const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
@@ -294,6 +278,25 @@ fn testVector() void {
     expect(TypeId(vec_info) == TypeId.Vector);
     expect(vec_info.Vector.len == 4);
     expect(vec_info.Vector.child == i32);
+}
+
+test "type info: anyframe and anyframe->T" {
+    testAnyFrame();
+    comptime testAnyFrame();
+}
+
+fn testAnyFrame() void {
+    {
+        const anyframe_info = @typeInfo(anyframe->i32);
+        expect(TypeId(anyframe_info) == .AnyFrame);
+        expect(anyframe_info.AnyFrame.child.? == i32);
+    }
+
+    {
+        const anyframe_info = @typeInfo(anyframe);
+        expect(TypeId(anyframe_info) == .AnyFrame);
+        expect(anyframe_info.AnyFrame.child == null);
+    }
 }
 
 test "type info: optional field unwrapping" {

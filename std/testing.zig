@@ -25,36 +25,37 @@ pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
 /// The types must match exactly.
 pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
     switch (@typeInfo(@typeOf(actual))) {
-        TypeId.NoReturn,
-        TypeId.BoundFn,
-        TypeId.ArgTuple,
-        TypeId.Opaque,
+        .NoReturn,
+        .BoundFn,
+        .ArgTuple,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
         => @compileError("value of type " ++ @typeName(@typeOf(actual)) ++ " encountered"),
 
-        TypeId.Undefined,
-        TypeId.Null,
-        TypeId.Void,
+        .Undefined,
+        .Null,
+        .Void,
         => return,
 
-        TypeId.Type,
-        TypeId.Bool,
-        TypeId.Int,
-        TypeId.Float,
-        TypeId.ComptimeFloat,
-        TypeId.ComptimeInt,
-        TypeId.EnumLiteral,
-        TypeId.Enum,
-        TypeId.Fn,
-        TypeId.Promise,
-        TypeId.Vector,
-        TypeId.ErrorSet,
+        .Type,
+        .Bool,
+        .Int,
+        .Float,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Enum,
+        .Fn,
+        .Vector,
+        .ErrorSet,
         => {
             if (actual != expected) {
                 std.debug.panic("expected {}, found {}", expected, actual);
             }
         },
 
-        TypeId.Pointer => |pointer| {
+        .Pointer => |pointer| {
             switch (pointer.size) {
                 builtin.TypeInfo.Pointer.Size.One,
                 builtin.TypeInfo.Pointer.Size.Many,
@@ -76,22 +77,22 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             }
         },
 
-        TypeId.Array => |array| expectEqualSlices(array.child, &expected, &actual),
+        .Array => |array| expectEqualSlices(array.child, &expected, &actual),
 
-        TypeId.Struct => |structType| {
+        .Struct => |structType| {
             inline for (structType.fields) |field| {
                 expectEqual(@field(expected, field.name), @field(actual, field.name));
             }
         },
 
-        TypeId.Union => |union_info| {
+        .Union => |union_info| {
             if (union_info.tag_type == null) {
                 @compileError("Unable to compare untagged union values");
             }
             @compileError("TODO implement testing.expectEqual for tagged unions");
         },
 
-        TypeId.Optional => {
+        .Optional => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);
@@ -105,7 +106,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             }
         },
 
-        TypeId.ErrorUnion => {
+        .ErrorUnion => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     expectEqual(expected_payload, actual_payload);

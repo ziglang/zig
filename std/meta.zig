@@ -104,8 +104,7 @@ pub fn Child(comptime T: type) type {
         TypeId.Array => |info| info.child,
         TypeId.Pointer => |info| info.child,
         TypeId.Optional => |info| info.child,
-        TypeId.Promise => |info| if (info.child) |child| child else null,
-        else => @compileError("Expected promise, pointer, optional, or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+        else => @compileError("Expected pointer, optional, or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
     };
 }
 
@@ -114,7 +113,6 @@ test "std.meta.Child" {
     testing.expect(Child(*u8) == u8);
     testing.expect(Child([]u8) == u8);
     testing.expect(Child(?u8) == u8);
-    testing.expect(Child(promise->u8) == u8);
 }
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {

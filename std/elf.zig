@@ -356,7 +356,6 @@ pub const SectionHeader = struct {
 pub const Elf = struct {
     seekable_stream: *io.SeekableStream(anyerror, anyerror),
     in_stream: *io.InStream(anyerror),
-    auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
     file_type: FileType,
@@ -368,25 +367,23 @@ pub const Elf = struct {
     string_section: *SectionHeader,
     section_headers: []SectionHeader,
     allocator: *mem.Allocator,
-    prealloc_file: File,
 
     /// Call close when done.
-    pub fn openPath(elf: *Elf, allocator: *mem.Allocator, path: []const u8) !void {
+    pub fn openPath(allocator: *mem.Allocator, path: []const u8) !Elf {
         @compileError("TODO implement");
     }
 
     /// Call close when done.
-    pub fn openFile(elf: *Elf, allocator: *mem.Allocator, file: File) !void {
+    pub fn openFile(allocator: *mem.Allocator, file: File) !Elf {
         @compileError("TODO implement");
     }
 
     pub fn openStream(
-        elf: *Elf,
         allocator: *mem.Allocator,
         seekable_stream: *io.SeekableStream(anyerror, anyerror),
         in: *io.InStream(anyerror),
-    ) !void {
-        elf.auto_close_stream = false;
+    ) !Elf {
+        var elf: Elf = undefined;
         elf.allocator = allocator;
         elf.seekable_stream = seekable_stream;
         elf.in_stream = in;
@@ -523,12 +520,12 @@ pub const Elf = struct {
             // not a string table
             return error.InvalidFormat;
         }
+
+        return elf;
     }
 
     pub fn close(elf: *Elf) void {
         elf.allocator.free(elf.section_headers);
-
-        if (elf.auto_close_stream) elf.prealloc_file.close();
     }
 
     pub fn findSection(elf: *Elf, name: []const u8) !?*SectionHeader {

@@ -982,3 +982,14 @@ test "enum literal casting to tagged union" {
         else => @panic("fail"),
     }
 }
+
+test "enum with one member and custom tag type" {
+    const E = enum(u2) {
+        One,
+    };
+    expect(@enumToInt(E.One) == 0);
+    const E2 = enum(u2) {
+        One = 2,
+    };
+    expect(@enumToInt(E2.One) == 2);
+}

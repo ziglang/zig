@@ -3,12 +3,10 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await lock.
-/// coroutines which are waiting for the lock are suspended, and
+/// Functions which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Many readers can hold the lock at the same time; however locking for writing is exclusive.
 /// When a read lock is held, it will not be released until the reader queue is empty.
@@ -28,19 +26,19 @@ pub const RwLock = struct {
         const ReadLock = 2;
     };
 
-    const Queue = std.atomic.Queue(promise);
+    const Queue = std.atomic.Queue(anyframe);
 
     pub const HeldRead = struct {
         lock: *RwLock,
 
         pub fn release(self: HeldRead) void {
             // If other readers still hold the lock, we're done.
-            if (@atomicRmw(usize, &self.lock.reader_lock_count, AtomicRmwOp.Sub, 1, AtomicOrder.SeqCst) != 1) {
+            if (@atomicRmw(usize, &self.lock.reader_lock_count, .Sub, 1, .SeqCst) != 1) {
                 return;
             }
 
-            _ = @atomicRmw(u8, &self.lock.reader_queue_empty_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-            if (@cmpxchgStrong(u8, &self.lock.shared_state, State.ReadLock, State.Unlocked, AtomicOrder.SeqCst, AtomicOrder.SeqCst) != null) {
+            _ = @atomicRmw(u8, &self.lock.reader_queue_empty_bit, .Xchg, 1, .SeqCst);
+            if (@cmpxchgStrong(u8, &self.lock.shared_state, State.ReadLock, State.Unlocked, .SeqCst, .SeqCst) != null) {
                 // Didn't unlock. Someone else's problem.
                 return;
             }
@@ -61,17 +59,17 @@ pub const RwLock = struct {
             }
 
             // We need to release the write lock. Check if any readers are waiting to grab the lock.
-            if (@atomicLoad(u8, &self.lock.reader_queue_empty_bit, AtomicOrder.SeqCst) == 0) {
+            if (@atomicLoad(u8, &self.lock.reader_queue_empty_bit, .SeqCst) == 0) {
                 // Switch to a read lock.
-                _ = @atomicRmw(u8, &self.lock.shared_state, AtomicRmwOp.Xchg, State.ReadLock, AtomicOrder.SeqCst);
+                _ = @atomicRmw(u8, &self.lock.shared_state, .Xchg, State.ReadLock, .SeqCst);
                 while (self.lock.reader_queue.get()) |node| {
                     self.lock.loop.onNextTick(node);
                 }
                 return;
             }
 
-            _ = @atomicRmw(u8, &self.lock.writer_queue_empty_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-            _ = @atomicRmw(u8, &self.lock.shared_state, AtomicRmwOp.Xchg, State.Unlocked, AtomicOrder.SeqCst);
+            _ = @atomicRmw(u8, &self.lock.writer_queue_empty_bit, .Xchg, 1, .SeqCst);
+            _ = @atomicRmw(u8, &self.lock.shared_state, .Xchg, State.Unlocked, .SeqCst);
 
             self.lock.commonPostUnlock();
         }
@@ -93,32 +91,30 @@ pub const RwLock = struct {
     /// All calls to acquire() and release() must complete before calling deinit().
     pub fn deinit(self: *RwLock) void {
         assert(self.shared_state == State.Unlocked);
-        while (self.writer_queue.get()) |node| cancel node.data;
-        while (self.reader_queue.get()) |node| cancel node.data;
+        while (self.writer_queue.get()) |node| resume node.data;
+        while (self.reader_queue.get()) |node| resume node.data;
     }
 
     pub async fn acquireRead(self: *RwLock) HeldRead {
-        _ = @atomicRmw(usize, &self.reader_lock_count, AtomicRmwOp.Add, 1, AtomicOrder.SeqCst);
+        _ = @atomicRmw(usize, &self.reader_lock_count, .Add, 1, .SeqCst);
 
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
-                .data = @handle(),
+                .data = @frame(),
                 .prev = undefined,
                 .next = undefined,
             };
 
             self.reader_queue.put(&my_tick_node);
 
-            // At this point, we are in the reader_queue, so we might have already been resumed and this coroutine
-            // frame might be destroyed. For the rest of the suspend block we cannot access the coroutine frame.
+            // At this point, we are in the reader_queue, so we might have already been resumed.
 
             // We set this bit so that later we can rely on the fact, that if reader_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.
-            _ = @atomicRmw(u8, &self.reader_queue_empty_bit, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+            _ = @atomicRmw(u8, &self.reader_queue_empty_bit, .Xchg, 0, .SeqCst);
 
             // Here we don't care if we are the one to do the locking or if it was already locked for reading.
-            const have_read_lock = if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.ReadLock, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) |old_state| old_state == State.ReadLock else true;
+            const have_read_lock = if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.ReadLock, .SeqCst, .SeqCst)) |old_state| old_state == State.ReadLock else true;
             if (have_read_lock) {
                 // Give out all the read locks.
                 if (self.reader_queue.get()) |first_node| {
@@ -134,24 +130,22 @@ pub const RwLock = struct {
 
     pub async fn acquireWrite(self: *RwLock) HeldWrite {
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
             var my_tick_node = Loop.NextTickNode{
-                .data = @handle(),
+                .data = @frame(),
                 .prev = undefined,
                 .next = undefined,
             };
 
             self.writer_queue.put(&my_tick_node);
 
-            // At this point, we are in the writer_queue, so we might have already been resumed and this coroutine
-            // frame might be destroyed. For the rest of the suspend block we cannot access the coroutine frame.
+            // At this point, we are in the writer_queue, so we might have already been resumed.
 
             // We set this bit so that later we can rely on the fact, that if writer_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.
-            _ = @atomicRmw(u8, &self.writer_queue_empty_bit, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+            _ = @atomicRmw(u8, &self.writer_queue_empty_bit, .Xchg, 0, .SeqCst);
 
             // Here we must be the one to acquire the write lock. It cannot already be locked.
-            if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.WriteLock, AtomicOrder.SeqCst, AtomicOrder.SeqCst) == null) {
+            if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.WriteLock, .SeqCst, .SeqCst) == null) {
                 // We now have a write lock.
                 if (self.writer_queue.get()) |node| {
                     // Whether this node is us or someone else, we tail resume it.
@@ -169,8 +163,8 @@ pub const RwLock = struct {
             // obtain the lock.
             // But if there's a writer_queue item or a reader_queue item,
             // we are the actor which must loop and attempt to grab the lock again.
-            if (@atomicLoad(u8, &self.writer_queue_empty_bit, AtomicOrder.SeqCst) == 0) {
-                if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.WriteLock, AtomicOrder.SeqCst, AtomicOrder.SeqCst) != null) {
+            if (@atomicLoad(u8, &self.writer_queue_empty_bit, .SeqCst) == 0) {
+                if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.WriteLock, .SeqCst, .SeqCst) != null) {
                     // We did not obtain the lock. Great, the queues are someone else's problem.
                     return;
                 }
@@ -180,13 +174,13 @@ pub const RwLock = struct {
                     return;
                 }
                 // Release the lock again.
-                _ = @atomicRmw(u8, &self.writer_queue_empty_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-                _ = @atomicRmw(u8, &self.shared_state, AtomicRmwOp.Xchg, State.Unlocked, AtomicOrder.SeqCst);
+                _ = @atomicRmw(u8, &self.writer_queue_empty_bit, .Xchg, 1, .SeqCst);
+                _ = @atomicRmw(u8, &self.shared_state, .Xchg, State.Unlocked, .SeqCst);
                 continue;
             }
 
-            if (@atomicLoad(u8, &self.reader_queue_empty_bit, AtomicOrder.SeqCst) == 0) {
-                if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.ReadLock, AtomicOrder.SeqCst, AtomicOrder.SeqCst) != null) {
+            if (@atomicLoad(u8, &self.reader_queue_empty_bit, .SeqCst) == 0) {
+                if (@cmpxchgStrong(u8, &self.shared_state, State.Unlocked, State.ReadLock, .SeqCst, .SeqCst) != null) {
                     // We did not obtain the lock. Great, the queues are someone else's problem.
                     return;
                 }
@@ -199,8 +193,8 @@ pub const RwLock = struct {
                     return;
                 }
                 // Release the lock again.
-                _ = @atomicRmw(u8, &self.reader_queue_empty_bit, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
-                if (@cmpxchgStrong(u8, &self.shared_state, State.ReadLock, State.Unlocked, AtomicOrder.SeqCst, AtomicOrder.SeqCst) != null) {
+                _ = @atomicRmw(u8, &self.reader_queue_empty_bit, .Xchg, 1, .SeqCst);
+                if (@cmpxchgStrong(u8, &self.shared_state, State.ReadLock, State.Unlocked, .SeqCst, .SeqCst) != null) {
                     // Didn't unlock. Someone else's problem.
                     return;
                 }
@@ -215,6 +209,9 @@ test "std.event.RwLock" {
     // https://github.com/ziglang/zig/issues/2377
     if (true) return error.SkipZigTest;
 
+    // https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
+
     const allocator = std.heap.direct_allocator;
 
     var loop: Loop = undefined;
@@ -224,8 +221,7 @@ test "std.event.RwLock" {
     var lock = RwLock.init(&loop);
     defer lock.deinit();
 
-    const handle = try async<allocator> testLock(&loop, &lock);
-    defer cancel handle;
+    const handle = testLock(&loop, &lock);
     loop.run();
 
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
@@ -233,28 +229,31 @@ test "std.event.RwLock" {
 }
 
 async fn testLock(loop: *Loop, lock: *RwLock) void {
-    // TODO explicitly put next tick node memory in the coroutine frame #1194
-    suspend {
-        resume @handle();
-    }
-
     var read_nodes: [100]Loop.NextTickNode = undefined;
     for (read_nodes) |*read_node| {
-        read_node.data = async readRunner(lock) catch @panic("out of memory");
+        const frame = loop.allocator.create(@Frame(readRunner)) catch @panic("memory");
+        read_node.data = frame;
+        frame.* = async readRunner(lock);
         loop.onNextTick(read_node);
     }
 
     var write_nodes: [shared_it_count]Loop.NextTickNode = undefined;
     for (write_nodes) |*write_node| {
-        write_node.data = async writeRunner(lock) catch @panic("out of memory");
+        const frame = loop.allocator.create(@Frame(writeRunner)) catch @panic("memory");
+        write_node.data = frame;
+        frame.* = async writeRunner(lock);
         loop.onNextTick(write_node);
     }
 
     for (write_nodes) |*write_node| {
-        await @ptrCast(promise->void, write_node.data);
+        const casted = @ptrCast(*const @Frame(writeRunner), write_node.data);
+        await casted;
+        loop.allocator.destroy(casted);
     }
     for (read_nodes) |*read_node| {
-        await @ptrCast(promise->void, read_node.data);
+        const casted = @ptrCast(*const @Frame(readRunner), read_node.data);
+        await casted;
+        loop.allocator.destroy(casted);
     }
 }
 
@@ -269,7 +268,7 @@ async fn writeRunner(lock: *RwLock) void {
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
         std.time.sleep(100 * std.time.microsecond);
-        const lock_promise = async lock.acquireWrite() catch @panic("out of memory");
+        const lock_promise = async lock.acquireWrite();
         const handle = await lock_promise;
         defer handle.release();
 
@@ -287,7 +286,7 @@ async fn readRunner(lock: *RwLock) void {
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
-        const lock_promise = async lock.acquireRead() catch @panic("out of memory");
+        const lock_promise = async lock.acquireRead();
         const handle = await lock_promise;
         defer handle.release();
 

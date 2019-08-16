@@ -328,9 +328,6 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        .Promise => {
-            return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
-        },
         .Enum => {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
