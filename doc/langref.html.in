@@ -9987,7 +9987,7 @@ TypeExpr &lt;- PrefixTypeOp* ErrorUnionExpr
 ErrorUnionExpr &lt;- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
 
 SuffixExpr
-    &lt;- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+    &lt;- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 
 PrimaryTypeExpr
@@ -10063,7 +10063,7 @@ FnCC
     &lt;- KEYWORD_nakedcc
      / KEYWORD_stdcallcc
      / KEYWORD_extern
-     / KEYWORD_async (LARROW TypeExpr RARROW)?
+     / KEYWORD_async
 
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
 
@@ -10167,8 +10167,6 @@ SuffixOp
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK
-
-AsyncPrefix &lt;- KEYWORD_async (LARROW PrefixExpr RARROW)?
 
 FnCallArguments &lt;- LPAREN ExprList RPAREN
 

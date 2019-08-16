@@ -284,20 +284,6 @@ fn renderExpression(
             return renderExpression(allocator, stream, tree, indent, start_col, comptime_node.expr, space);
         },
 
-        ast.Node.Id.AsyncAttribute => {
-            const async_attr = @fieldParentPtr(ast.Node.AsyncAttribute, "base", base);
-
-            if (async_attr.allocator_type) |allocator_type| {
-                try renderToken(tree, stream, async_attr.async_token, indent, start_col, Space.None); // async
-
-                try renderToken(tree, stream, tree.nextToken(async_attr.async_token), indent, start_col, Space.None); // <
-                try renderExpression(allocator, stream, tree, indent, start_col, allocator_type, Space.None); // allocator
-                return renderToken(tree, stream, tree.nextToken(allocator_type.lastToken()), indent, start_col, space); // >
-            } else {
-                return renderToken(tree, stream, async_attr.async_token, indent, start_col, space); // async
-            }
-        },
-
         ast.Node.Id.Suspend => {
             const suspend_node = @fieldParentPtr(ast.Node.Suspend, "base", base);
 
@@ -459,8 +445,8 @@ fn renderExpression(
 
             switch (suffix_op.op) {
                 @TagType(ast.Node.SuffixOp.Op).Call => |*call_info| {
-                    if (call_info.async_attr) |async_attr| {
-                        try renderExpression(allocator, stream, tree, indent, start_col, &async_attr.base, Space.Space);
+                    if (call_info.async_token) |async_token| {
+                        try renderToken(tree, stream, async_token, indent, start_col, Space.Space);
                     }
 
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
@@ -1119,10 +1105,6 @@ fn renderExpression(
 
             if (fn_proto.cc_token) |cc_token| {
                 try renderToken(tree, stream, cc_token, indent, start_col, Space.Space); // stdcallcc
-            }
-
-            if (fn_proto.async_attr) |async_attr| {
-                try renderExpression(allocator, stream, tree, indent, start_col, &async_attr.base, Space.Space);
             }
 
             const lparen = if (fn_proto.name_token) |name_token| blk: {

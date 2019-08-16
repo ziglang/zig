@@ -113,7 +113,6 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_type_op(ParseContext *pc);
 static AstNode *ast_parse_suffix_op(ParseContext *pc);
-static AstNode *ast_parse_async_prefix(ParseContext *pc);
 static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc);
 static AstNode *ast_parse_array_type_start(ParseContext *pc);
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc);
@@ -1389,22 +1388,18 @@ static AstNode *ast_parse_error_union_expr(ParseContext *pc) {
 }
 
 // SuffixExpr
-//     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+//     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
 //      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
-    AstNode *async_call = ast_parse_async_prefix(pc);
-    if (async_call != nullptr) {
+    Token *async_token = eat_token_if(pc, TokenIdKeywordAsync);
+    if (async_token != nullptr) {
         if (eat_token_if(pc, TokenIdKeywordFn) != nullptr) {
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
             //       prefix...
-            // HACK: This loop is not actually enough to put back all the
-            //       tokens. Let's hope this is fine for most code right now
-            //       and wait till we get the async rework for a syntax update.
-            do {
-                put_back_token(pc);
-            } while (peek_token(pc)->id != TokenIdKeywordAsync);
+            put_back_token(pc);
+            put_back_token(pc);
 
             return ast_parse_primary_type_expr(pc);
         }
@@ -1446,10 +1441,14 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
             ast_invalid_token_error(pc, peek_token(pc));
 
         assert(args->type == NodeTypeFnCallExpr);
-        async_call->data.fn_call_expr.fn_ref_expr = child;
-        async_call->data.fn_call_expr.params = args->data.fn_call_expr.params;
-        async_call->data.fn_call_expr.is_builtin = false;
-        return async_call;
+
+        AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async_token);
+        res->data.fn_call_expr.is_async = true;
+        res->data.fn_call_expr.seen = false;
+        res->data.fn_call_expr.fn_ref_expr = child;
+        res->data.fn_call_expr.params = args->data.fn_call_expr.params;
+        res->data.fn_call_expr.is_builtin = false;
+        return res;
     }
 
     AstNode *res = ast_parse_primary_type_expr(pc);
@@ -1501,7 +1500,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //     <- BUILTINIDENTIFIER FnCallArguments
 //      / CHAR_LITERAL
 //      / ContainerDecl
-//     / DOT IDENTIFIER
+//      / DOT IDENTIFIER
 //      / ErrorSetDecl
 //      / FLOAT
 //      / FnProto
@@ -2016,7 +2015,7 @@ static AstNode *ast_parse_link_section(ParseContext *pc) {
 //     <- KEYWORD_nakedcc
 //      / KEYWORD_stdcallcc
 //      / KEYWORD_extern
-//      / KEYWORD_async (LARROW TypeExpr RARROW)?
+//      / KEYWORD_async
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
     if (eat_token_if(pc, TokenIdKeywordNakedCC) != nullptr) {
@@ -2655,19 +2654,6 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
     }
 
     return nullptr;
-}
-
-// AsyncPrefix <- KEYWORD_async (LARROW PrefixExpr RARROW)?
-static AstNode *ast_parse_async_prefix(ParseContext *pc) {
-    Token *async = eat_token_if(pc, TokenIdKeywordAsync);
-    if (async == nullptr)
-        return nullptr;
-
-    AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async);
-    res->data.fn_call_expr.is_async = true;
-    res->data.fn_call_expr.seen = false;
-
-    return res;
 }
 
 // FnCallArguments <- LPAREN ExprList RPAREN
