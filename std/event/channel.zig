@@ -331,7 +331,7 @@ async fn testChannelGetter(loop: *Loop, channel: *Channel(i32)) void {
     const value3 = channel.getOrNull();
     testing.expect(value3 == null);
 
-    const last_put = async testPut(channel, 4444);
+    var last_put = async testPut(channel, 4444);
     const value4 = channel.getOrNull();
     testing.expect(value4.? == 4444);
     await last_put;

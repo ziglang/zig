@@ -135,7 +135,7 @@ test "std.event.Lock" {
 }
 
 async fn testLock(loop: *Loop, lock: *Lock) void {
-    const handle1 = async lockRunner(lock);
+    var handle1 = async lockRunner(lock);
     var tick_node1 = Loop.NextTickNode{
         .prev = undefined,
         .next = undefined,
@@ -143,7 +143,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     };
     loop.onNextTick(&tick_node1);
 
-    const handle2 = async lockRunner(lock);
+    var handle2 = async lockRunner(lock);
     var tick_node2 = Loop.NextTickNode{
         .prev = undefined,
         .next = undefined,
@@ -151,7 +151,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
     };
     loop.onNextTick(&tick_node2);
 
-    const handle3 = async lockRunner(lock);
+    var handle3 = async lockRunner(lock);
     var tick_node3 = Loop.NextTickNode{
         .prev = undefined,
         .next = undefined,
@@ -172,8 +172,8 @@ async fn lockRunner(lock: *Lock) void {
 
     var i: usize = 0;
     while (i < shared_test_data.len) : (i += 1) {
-        const lock_promise = async lock.acquire();
-        const handle = await lock_promise;
+        var lock_frame = async lock.acquire();
+        const handle = await lock_frame;
         defer handle.release();
 
         shared_test_index = 0;

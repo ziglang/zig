@@ -6,7 +6,7 @@ const expectEqual = std.testing.expectEqual;
 var global_x: i32 = 1;
 
 test "simple coroutine suspend and resume" {
-    const frame = async simpleAsyncFn();
+    var frame = async simpleAsyncFn();
     expect(global_x == 2);
     resume frame;
     expect(global_x == 3);
@@ -25,7 +25,7 @@ fn simpleAsyncFn() void {
 var global_y: i32 = 1;
 
 test "pass parameter to coroutine" {
-    const p = async simpleAsyncFnWithArg(2);
+    var p = async simpleAsyncFnWithArg(2);
     expect(global_y == 3);
     resume p;
     expect(global_y == 5);
@@ -60,7 +60,7 @@ test "local variable in async function" {
 
         fn doTheTest() void {
             expect(x == 0);
-            const p = async add(1, 2);
+            var p = async add(1, 2);
             expect(x == 0);
             resume p;
             expect(x == 0);
@@ -201,7 +201,7 @@ var await_final_result: i32 = 0;
 
 test "coroutine await" {
     await_seq('a');
-    const p = async await_amain();
+    var p = async await_amain();
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
@@ -210,7 +210,7 @@ test "coroutine await" {
 }
 async fn await_amain() void {
     await_seq('b');
-    const p = async await_another();
+    var p = async await_another();
     await_seq('e');
     await_final_result = await p;
     await_seq('h');
@@ -237,14 +237,14 @@ var early_final_result: i32 = 0;
 
 test "coroutine await early return" {
     early_seq('a');
-    const p = async early_amain();
+    var p = async early_amain();
     early_seq('f');
     expect(early_final_result == 1234);
     expect(std.mem.eql(u8, early_points, "abcdef"));
 }
 async fn early_amain() void {
     early_seq('b');
-    const p = async early_another();
+    var p = async early_another();
     early_seq('d');
     early_final_result = await p;
     early_seq('e');

@@ -900,8 +900,8 @@ test "std.event.Loop - call" {
     defer loop.deinit();
 
     var did_it = false;
-    const handle = async Loop.call(testEventLoop);
-    const handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
+    var handle = async Loop.call(testEventLoop);
+    var handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
 
     loop.run();
 

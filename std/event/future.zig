@@ -100,9 +100,9 @@ test "std.event.Future" {
 async fn testFuture(loop: *Loop) void {
     var future = Future(i32).init(loop);
 
-    const a = async waitOnFuture(&future);
-    const b = async waitOnFuture(&future);
-    const c = async resolveFuture(&future);
+    var a = async waitOnFuture(&future);
+    var b = async waitOnFuture(&future);
+    var c = async resolveFuture(&future);
 
     // TODO make this work:
     //const result = (await a) + (await b);

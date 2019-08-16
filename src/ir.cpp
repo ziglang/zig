@@ -12112,6 +12112,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // *@Frame(func) to anyframe->T or anyframe
     if (actual_type->id == ZigTypeIdPointer && actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        !actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == ZigTypeIdFnFrame && wanted_type->id == ZigTypeIdAnyFrame)
     {
         bool ok = true;
