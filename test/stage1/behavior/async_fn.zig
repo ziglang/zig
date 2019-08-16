@@ -111,12 +111,12 @@ test "@frameSize" {
     const S = struct {
         fn doTheTest() void {
             {
-                var ptr = @ptrCast(async fn(i32) void, other);
+                var ptr = @ptrCast(async fn (i32) void, other);
                 const size = @frameSize(ptr);
                 expect(size == @sizeOf(@Frame(other)));
             }
             {
-                var ptr = @ptrCast(async fn() void, first);
+                var ptr = @ptrCast(async fn () void, first);
                 const size = @frameSize(ptr);
                 expect(size == @sizeOf(@Frame(first)));
             }
@@ -431,7 +431,7 @@ test "heap allocated async function frame" {
 test "async function call return value" {
     const S = struct {
         var frame: anyframe = undefined;
-        var pt = Point{.x = 10, .y = 11 };
+        var pt = Point{ .x = 10, .y = 11 };
 
         fn doTheTest() void {
             expectEqual(pt.x, 10);
@@ -568,7 +568,6 @@ test "await inside an errdefer" {
             frame = @frame();
             suspend;
         }
-
     };
     S.doTheTest();
 }
@@ -632,10 +631,10 @@ test "returning a const error from async function" {
 }
 
 test "async/await typical usage" {
-    inline for ([_]bool{false, true}) |b1| {
-        inline for ([_]bool{false, true}) |b2| {
-            inline for ([_]bool{false, true}) |b3| {
-                inline for ([_]bool{false, true}) |b4| {
+    inline for ([_]bool{ false, true }) |b1| {
+        inline for ([_]bool{ false, true }) |b2| {
+            inline for ([_]bool{ false, true }) |b3| {
+                inline for ([_]bool{ false, true }) |b4| {
                     testAsyncAwaitTypicalUsage(b1, b2, b3, b4).doTheTest();
                 }
             }
@@ -647,8 +646,8 @@ fn testAsyncAwaitTypicalUsage(
     comptime simulate_fail_download: bool,
     comptime simulate_fail_file: bool,
     comptime suspend_download: bool,
-    comptime suspend_file: bool) type
-{
+    comptime suspend_file: bool,
+) type {
     return struct {
         fn doTheTest() void {
             _ = async amainWrap();
