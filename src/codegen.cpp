@@ -5470,7 +5470,9 @@ static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executab
 static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable,
         IrInstructionSuspendBegin *instruction)
 {
-    instruction->resume_bb = gen_suspend_begin(g, "SuspendResume");
+    if (fn_is_async(g->cur_fn)) {
+        instruction->resume_bb = gen_suspend_begin(g, "SuspendResume");
+    }
     return nullptr;
 }
 

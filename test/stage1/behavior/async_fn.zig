@@ -760,3 +760,17 @@ test "async call a generic function" {
     };
     _ = async S.doTheTest();
 }
+
+test "return from suspend block" {
+    const S = struct {
+        fn doTheTest() void {
+            expect(func() == 1234);
+        }
+        fn func() i32 {
+            suspend {
+                return 1234;
+            }
+        }
+    };
+    _ = async S.doTheTest();
+}

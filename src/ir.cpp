@@ -7914,7 +7914,7 @@ static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNod
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.suspend.block, susp_res));
     }
 
-    return ir_build_suspend_finish(irb, parent_scope, node, begin);
+    return ir_mark_gen(ir_build_suspend_finish(irb, parent_scope, node, begin));
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
