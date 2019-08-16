@@ -351,7 +351,7 @@ pub const Headers = struct {
             var it = self.data.iterator();
             while (it.next()) |entry| {
                 var dex = &self.index.get(entry.name).?.value;
-                dex.appendAssumeCapacity(it.next_index);
+                dex.appendAssumeCapacity(it.cursor.?+1);
             }
         }
     }
