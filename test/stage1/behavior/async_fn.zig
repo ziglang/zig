@@ -774,3 +774,46 @@ test "return from suspend block" {
     };
     _ = async S.doTheTest();
 }
+
+test "struct parameter to async function is copied to the frame" {
+    const S = struct {
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
+
+        var frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            _ = async atest();
+            resume frame;
+        }
+
+        fn atest() void {
+            var f: @Frame(foo) = undefined;
+            bar(&f);
+            clobberStack(10);
+        }
+
+        fn clobberStack(x: i32) void {
+            if (x == 0) return;
+            clobberStack(x - 1);
+            var y: i32 = x;
+        }
+
+        fn bar(f: *@Frame(foo)) void {
+            var pt = Point{ .x = 1, .y = 2 };
+            f.* = async foo(pt);
+            var result = await f;
+            expect(result == 1);
+        }
+
+        fn foo(point: Point) i32 {
+            suspend {
+                frame = @frame();
+            }
+            return point.x;
+        }
+    };
+    S.doTheTest();
+}
