@@ -22095,6 +22095,12 @@ static IrInstruction *ir_analyze_instruction_frame_type(IrAnalyze *ira, IrInstru
     if (fn == nullptr)
         return ira->codegen->invalid_instruction;
 
+    if (fn->type_entry->data.fn.is_generic) {
+        ir_add_error(ira, &instruction->base,
+                buf_sprintf("@Frame() of generic function"));
+        return ira->codegen->invalid_instruction;
+    }
+
     ZigType *ty = get_fn_frame_type(ira->codegen, fn);
     return ir_const_type(ira, &instruction->base, ty);
 }

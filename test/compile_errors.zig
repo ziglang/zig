@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "@Frame() of generic function",
+        \\export fn entry() void {
+        \\    var frame: @Frame(func) = undefined;
+        \\}
+        \\fn func(comptime T: type) void {
+        \\    var x: T = undefined;
+        \\}
+    ,
+        "tmp.zig:2:16: error: @Frame() of generic function",
+    );
+
+    cases.add(
         "@frame() causes function to be async",
         \\export fn entry() void {
         \\    func();
@@ -14,6 +26,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
         "tmp.zig:5:9: note: @frame() causes function to be async",
     );
+
     cases.add(
         "invalid suspend in exported function",
         \\export fn entry() void {

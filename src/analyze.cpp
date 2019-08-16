@@ -5197,6 +5197,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         return ErrorNone;
 
     ZigFn *fn = frame_type->data.frame.fn;
+    assert(!fn->type_entry->data.fn.is_generic);
+
     switch (fn->anal_state) {
         case FnAnalStateInvalid:
             return ErrorSemanticAnalyzeFail;
