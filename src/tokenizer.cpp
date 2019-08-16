@@ -109,11 +109,11 @@ static const struct ZigKeyword zig_keywords[] = {
     {"align", TokenIdKeywordAlign},
     {"allowzero", TokenIdKeywordAllowZero},
     {"and", TokenIdKeywordAnd},
+    {"anyframe", TokenIdKeywordAnyFrame},
     {"asm", TokenIdKeywordAsm},
     {"async", TokenIdKeywordAsync},
     {"await", TokenIdKeywordAwait},
     {"break", TokenIdKeywordBreak},
-    {"cancel", TokenIdKeywordCancel},
     {"catch", TokenIdKeywordCatch},
     {"comptime", TokenIdKeywordCompTime},
     {"const", TokenIdKeywordConst},
@@ -136,7 +136,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"or", TokenIdKeywordOr},
     {"orelse", TokenIdKeywordOrElse},
     {"packed", TokenIdKeywordPacked},
-    {"promise", TokenIdKeywordPromise},
     {"pub", TokenIdKeywordPub},
     {"resume", TokenIdKeywordResume},
     {"return", TokenIdKeywordReturn},
@@ -1531,9 +1530,9 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordAwait: return "await";
         case TokenIdKeywordResume: return "resume";
         case TokenIdKeywordSuspend: return "suspend";
-        case TokenIdKeywordCancel: return "cancel";
         case TokenIdKeywordAlign: return "align";
         case TokenIdKeywordAnd: return "and";
+        case TokenIdKeywordAnyFrame: return "anyframe";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordCatch: return "catch";
@@ -1558,7 +1557,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordOr: return "or";
         case TokenIdKeywordOrElse: return "orelse";
         case TokenIdKeywordPacked: return "packed";
-        case TokenIdKeywordPromise: return "promise";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
         case TokenIdKeywordLinkSection: return "linksection";

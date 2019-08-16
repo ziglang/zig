@@ -83,7 +83,7 @@ FILE *fmemopen(void *restrict buf, size_t size, const char *restrict mode)
 	struct mem_FILE *f;
 	int plus = !!strchr(mode, '+');
 	
-	if (!size || !strchr("rwa", *mode)) {
+	if (!strchr("rwa", *mode)) {
 		errno = EINVAL;
 		return 0;
 	}

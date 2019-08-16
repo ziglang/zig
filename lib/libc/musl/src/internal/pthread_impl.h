@@ -18,7 +18,7 @@ struct pthread {
 	 * internal (accessed via asm) ABI. Do not change. */
 	struct pthread *self;
 	uintptr_t *dtv;
-	void *unused1, *unused2;
+	struct pthread *prev, *next; /* non-ABI */
 	uintptr_t sysinfo;
 	uintptr_t canary, canary2;
 
@@ -29,15 +29,12 @@ struct pthread {
 	volatile int cancel;
 	volatile unsigned char canceldisable, cancelasync;
 	unsigned char tsd_used:1;
-	unsigned char unblock_cancel:1;
 	unsigned char dlerror_flag:1;
 	unsigned char *map_base;
 	size_t map_size;
 	void *stack;
 	size_t stack_size;
 	size_t guard_size;
-	void *start_arg;
-	void *(*start)(void *);
 	void *result;
 	struct __ptcb *cancelbuf;
 	void **tsd;
@@ -58,20 +55,10 @@ struct pthread {
 	uintptr_t *dtv_copy;
 };
 
-struct start_sched_args {
-	void *start_arg;
-	void *(*start_fn)(void *);
-	sigset_t mask;
-	pthread_attr_t *attr;
-	volatile int futex;
-};
-
 enum {
-	DT_EXITED = 0,
-	DT_EXITING,
+	DT_EXITING = 0,
 	DT_JOINABLE,
 	DT_DETACHED,
-	DT_DYNAMIC,
 };
 
 struct __timer {
@@ -143,6 +130,7 @@ hidden int __init_tp(void *);
 hidden void *__copy_tls(unsigned char *);
 hidden void __reset_tls();
 
+hidden void __membarrier_init(void);
 hidden void __dl_thread_cleanup(void);
 hidden void __testcancel();
 hidden void __do_cleanup_push(struct __ptcb *);
@@ -152,7 +140,6 @@ hidden void __pthread_tsd_run_dtors();
 hidden void __pthread_key_delete_synccall(void (*)(void *), void *);
 hidden int __pthread_key_delete_impl(pthread_key_t);
 
-extern hidden volatile int __block_new_threads;
 extern hidden volatile size_t __pthread_tsd_size;
 extern hidden void *__pthread_tsd_main[];
 extern hidden volatile int __aio_fut;
@@ -183,6 +170,12 @@ static inline void __futexwait(volatile void *addr, int val, int priv)
 hidden void __acquire_ptc(void);
 hidden void __release_ptc(void);
 hidden void __inhibit_ptc(void);
+
+hidden void __tl_lock(void);
+hidden void __tl_unlock(void);
+hidden void __tl_sync(pthread_t);
+
+extern hidden volatile int __thread_list_lock;
 
 extern hidden unsigned __default_stacksize;
 extern hidden unsigned __default_guardsize;

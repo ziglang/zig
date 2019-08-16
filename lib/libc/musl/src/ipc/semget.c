@@ -11,7 +11,7 @@ int semget(key_t key, int n, int fl)
 	 * n fits in the correct (per POSIX) userspace type, so
 	 * we have to check here. */
 	if (n > USHRT_MAX) return __syscall_ret(-EINVAL);
-#ifdef SYS_semget
+#ifndef SYS_ipc
 	return syscall(SYS_semget, key, n, fl);
 #else
 	return syscall(SYS_ipc, IPCOP_semget, key, n, fl);

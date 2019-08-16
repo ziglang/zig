@@ -28,7 +28,7 @@
  * Hyperbolic sine of a complex argument z.  See s_csinh.c for details.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 static const float huge = 0x1p127;
 

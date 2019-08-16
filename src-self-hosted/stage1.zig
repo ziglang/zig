@@ -142,7 +142,8 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     return Error.None;
 }
 
-// TODO: just use the actual self-hosted zig fmt. Until the coroutine rewrite, we use a blocking implementation.
+// TODO: just use the actual self-hosted zig fmt. Until https://github.com/ziglang/zig/issues/2377,
+// we use a blocking implementation.
 export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
     if (std.debug.runtime_safety) {
         fmtMain(argc, argv) catch unreachable;

@@ -1,9 +1,6 @@
 #define __SYSCALL_LL_E(x) (x)
 #define __SYSCALL_LL_O(x) (x)
 
-__attribute__((visibility("hidden")))
-long (__syscall)(long, ...);
-
 #define SYSCALL_RLIM_INFINITY (-1UL/2)
 
 #include <sys/stat.h>
@@ -79,16 +76,14 @@ static inline long __syscall2(long n, long a, long b)
 {
 	struct kernel_stat kst;
 	long ret;
-	register long r4 __asm__("$4");
-	register long r5 __asm__("$5");
+	register long r4 __asm__("$4") = a;
+	register long r5 __asm__("$5") = b;
 	register long r7 __asm__("$7");
 	register long r2 __asm__("$2");
 
-	r5 = b;
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
 		r5 = (long) &kst;
 
-	r4 = a;
 	__asm__ __volatile__ (
 		"daddu $2,$0,%2 ; syscall"
 		: "=&r"(r2), "=r"(r7) : "ir"(n), "0"(r2), "1"(r7),
@@ -109,18 +104,15 @@ static inline long __syscall3(long n, long a, long b, long c)
 {
 	struct kernel_stat kst;
 	long ret;
-	register long r4 __asm__("$4");
-	register long r5 __asm__("$5");
-	register long r6 __asm__("$6");
+	register long r4 __asm__("$4") = a;
+	register long r5 __asm__("$5") = b;
+	register long r6 __asm__("$6") = c;
 	register long r7 __asm__("$7");
 	register long r2 __asm__("$2");
 
-	r5 = b;
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
 		r5 = (long) &kst;
 
-	r4 = a;
-	r6 = c;
 	__asm__ __volatile__ (
 		"daddu $2,$0,%2 ; syscall"
 		: "=&r"(r2), "=r"(r7) : "ir"(n), "0"(r2), "1"(r7),
@@ -141,16 +133,12 @@ static inline long __syscall4(long n, long a, long b, long c, long d)
 {
 	struct kernel_stat kst;
 	long ret;
-	register long r4 __asm__("$4");
-	register long r5 __asm__("$5");
-	register long r6 __asm__("$6");
-	register long r7 __asm__("$7");
+	register long r4 __asm__("$4") = a;
+	register long r5 __asm__("$5") = b;
+	register long r6 __asm__("$6") = c;
+	register long r7 __asm__("$7") = d;
 	register long r2 __asm__("$2");
 
-	r4 = a;
-	r5 = b;
-	r6 = c;
-	r7 = d;
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
 		r5 = (long) &kst;
 	if (n == SYS_newfstatat)
@@ -176,48 +164,71 @@ static inline long __syscall4(long n, long a, long b, long c, long d)
 
 static inline long __syscall5(long n, long a, long b, long c, long d, long e)
 {
-	long r2;
-	long old_b = b;
-	long old_c = c;
 	struct kernel_stat kst;
+	long ret;
+	register long r4 __asm__("$4") = a;
+	register long r5 __asm__("$5") = b;
+	register long r6 __asm__("$6") = c;
+	register long r7 __asm__("$7") = d;
+	register long r8 __asm__("$8") = e;
+	register long r2 __asm__("$2");
 
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
-		b = (long) &kst;
+		r5 = (long) &kst;
 	if (n == SYS_newfstatat)
-		c = (long) &kst;
+		r6 = (long) &kst;
 
-	r2 = (__syscall)(n, a, b, c, d, e);
-	if (r2 > -4096UL) return r2;
+	__asm__ __volatile__ (
+		"daddu $2,$0,%2 ; syscall"
+		: "=&r"(r2), "=r"(r7) : "ir"(n), "0"(r2), "1"(r7),
+		  "r"(r4), "r"(r5), "r"(r6), "r"(r8)
+		: "$1", "$3", "$9", "$10", "$11", "$12", "$13",
+		  "$14", "$15", "$24", "$25", "hi", "lo", "memory");
+
+	if (r7) return -r2;
+	ret = r2;
 
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
-		__stat_fix(&kst, (struct stat *)old_b);
+		__stat_fix(&kst, (struct stat *)b);
 	if (n == SYS_newfstatat)
-		__stat_fix(&kst, (struct stat *)old_c);
+		__stat_fix(&kst, (struct stat *)c);
 
-	return r2;
+	return ret;
 }
 
 static inline long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 {
-	long r2;
-	long old_b = b;
-	long old_c = c;
 	struct kernel_stat kst;
+	long ret;
+	register long r4 __asm__("$4") = a;
+	register long r5 __asm__("$5") = b;
+	register long r6 __asm__("$6") = c;
+	register long r7 __asm__("$7") = d;
+	register long r8 __asm__("$8") = e;
+	register long r9 __asm__("$9") = f;
+	register long r2 __asm__("$2");
 
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
-		b = (long) &kst;
+		r5 = (long) &kst;
 	if (n == SYS_newfstatat)
-		c = (long) &kst;
+		r6 = (long) &kst;
 
-	r2 = (__syscall)(n, a, b, c, d, e, f);
-	if (r2 > -4096UL) return r2;
+	__asm__ __volatile__ (
+		"daddu $2,$0,%2 ; syscall"
+		: "=&r"(r2), "=r"(r7) : "ir"(n), "0"(r2), "1"(r7),
+		  "r"(r4), "r"(r5), "r"(r6), "r"(r8), "r"(r9)
+		: "$1", "$3", "$10", "$11", "$12", "$13",
+		  "$14", "$15", "$24", "$25", "hi", "lo", "memory");
+
+	if (r7) return -r2;
+	ret = r2;
 
 	if (n == SYS_stat || n == SYS_fstat || n == SYS_lstat)
-		__stat_fix(&kst, (struct stat *)old_b);
+		__stat_fix(&kst, (struct stat *)b);
 	if (n == SYS_newfstatat)
-		__stat_fix(&kst, (struct stat *)old_c);
+		__stat_fix(&kst, (struct stat *)c);
 
-	return r2;
+	return ret;
 }
 
 #define VDSO_USEFUL

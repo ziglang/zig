@@ -1,4 +1,4 @@
-#include "libm.h"
+#include "complex_impl.h"
 
 /* sin(z) = -i sinh(i z) */
 

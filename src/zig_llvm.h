@@ -211,6 +211,8 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDeclare(struct ZigLLVMDIBuilder *dibuilde
 ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, struct ZigLLVMDIScope *scope);
 
 ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
+ZIG_EXTERN_C void ZigLLVMSetTailCall(LLVMValueRef Call);
+ZIG_EXTERN_C void ZigLLVMFunctionSetPrefixData(LLVMValueRef fn, LLVMValueRef data);
 
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);

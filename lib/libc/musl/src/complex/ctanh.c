@@ -63,7 +63,7 @@
  *   precision.  I also handle large x differently.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 double complex ctanh(double complex z)
 {

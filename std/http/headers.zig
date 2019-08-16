@@ -102,9 +102,19 @@ test "HeaderEntry" {
     testing.expectEqualSlices(u8, "x", e.value);
 }
 
+fn stringEql(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
+    return mem.compare(u8, a, b) == .Equal;
+}
+
+fn stringHash(s: []const u8) u32 {
+    return @truncate(u32, std.hash.Wyhash.hash(0, s));
+}
+
 const HeaderList = std.ArrayList(HeaderEntry);
 const HeaderIndexList = std.ArrayList(usize);
-const HeaderIndex = std.AutoHashMap([]const u8, HeaderIndexList);
+const HeaderIndex = std.HashMap([]const u8, HeaderIndexList, stringHash, stringEql);
 
 pub const Headers = struct {
     // the owned header field name is stored in the index as part of the key

@@ -159,101 +159,99 @@ pub const Error = union(enum) {
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
-            // TODO https://github.com/ziglang/zig/issues/683
-            @TagType(Error).InvalidToken => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedContainerMembers => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedStringLiteral => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedPubItem => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedIdentifier => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedStatement => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedVarDecl => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedReturnType => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedAggregateKw => |*x| return x.render(tokens, stream),
-            @TagType(Error).UnattachedDocComment => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedSemiOrElse => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedLabelOrLBrace => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedLBrace => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedLabelable => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedInlinable => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedAsmOutputReturnOrType => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedCall => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedCallOrFnProto => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedSliceOrRBracket => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExtraAlignQualifier => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExtraConstQualifier => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedTypeExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedPrimaryTypeExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedParamType => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedToken => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedParamList => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedPayload => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedBlockOrAssignment => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedBlockOrExpression => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedExprOrAssignment => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedPrefixExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedLoopExpr => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
-            @TagType(Error).ExpectedSuffixOp => |*x| return x.render(tokens, stream),
+            .InvalidToken => |*x| return x.render(tokens, stream),
+            .ExpectedContainerMembers => |*x| return x.render(tokens, stream),
+            .ExpectedStringLiteral => |*x| return x.render(tokens, stream),
+            .ExpectedIntegerLiteral => |*x| return x.render(tokens, stream),
+            .ExpectedPubItem => |*x| return x.render(tokens, stream),
+            .ExpectedIdentifier => |*x| return x.render(tokens, stream),
+            .ExpectedStatement => |*x| return x.render(tokens, stream),
+            .ExpectedVarDeclOrFn => |*x| return x.render(tokens, stream),
+            .ExpectedVarDecl => |*x| return x.render(tokens, stream),
+            .ExpectedReturnType => |*x| return x.render(tokens, stream),
+            .ExpectedAggregateKw => |*x| return x.render(tokens, stream),
+            .UnattachedDocComment => |*x| return x.render(tokens, stream),
+            .ExpectedEqOrSemi => |*x| return x.render(tokens, stream),
+            .ExpectedSemiOrLBrace => |*x| return x.render(tokens, stream),
+            .ExpectedSemiOrElse => |*x| return x.render(tokens, stream),
+            .ExpectedLabelOrLBrace => |*x| return x.render(tokens, stream),
+            .ExpectedLBrace => |*x| return x.render(tokens, stream),
+            .ExpectedColonOrRParen => |*x| return x.render(tokens, stream),
+            .ExpectedLabelable => |*x| return x.render(tokens, stream),
+            .ExpectedInlinable => |*x| return x.render(tokens, stream),
+            .ExpectedAsmOutputReturnOrType => |*x| return x.render(tokens, stream),
+            .ExpectedCall => |*x| return x.render(tokens, stream),
+            .ExpectedCallOrFnProto => |*x| return x.render(tokens, stream),
+            .ExpectedSliceOrRBracket => |*x| return x.render(tokens, stream),
+            .ExtraAlignQualifier => |*x| return x.render(tokens, stream),
+            .ExtraConstQualifier => |*x| return x.render(tokens, stream),
+            .ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
+            .ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
+            .ExpectedTypeExpr => |*x| return x.render(tokens, stream),
+            .ExpectedPrimaryTypeExpr => |*x| return x.render(tokens, stream),
+            .ExpectedParamType => |*x| return x.render(tokens, stream),
+            .ExpectedExpr => |*x| return x.render(tokens, stream),
+            .ExpectedPrimaryExpr => |*x| return x.render(tokens, stream),
+            .ExpectedToken => |*x| return x.render(tokens, stream),
+            .ExpectedCommaOrEnd => |*x| return x.render(tokens, stream),
+            .ExpectedParamList => |*x| return x.render(tokens, stream),
+            .ExpectedPayload => |*x| return x.render(tokens, stream),
+            .ExpectedBlockOrAssignment => |*x| return x.render(tokens, stream),
+            .ExpectedBlockOrExpression => |*x| return x.render(tokens, stream),
+            .ExpectedExprOrAssignment => |*x| return x.render(tokens, stream),
+            .ExpectedPrefixExpr => |*x| return x.render(tokens, stream),
+            .ExpectedLoopExpr => |*x| return x.render(tokens, stream),
+            .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
+            .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
         }
     }
 
     pub fn loc(self: *const Error) TokenIndex {
         switch (self.*) {
-            // TODO https://github.com/ziglang/zig/issues/683
-            @TagType(Error).InvalidToken => |x| return x.token,
-            @TagType(Error).ExpectedContainerMembers => |x| return x.token,
-            @TagType(Error).ExpectedStringLiteral => |x| return x.token,
-            @TagType(Error).ExpectedIntegerLiteral => |x| return x.token,
-            @TagType(Error).ExpectedPubItem => |x| return x.token,
-            @TagType(Error).ExpectedIdentifier => |x| return x.token,
-            @TagType(Error).ExpectedStatement => |x| return x.token,
-            @TagType(Error).ExpectedVarDeclOrFn => |x| return x.token,
-            @TagType(Error).ExpectedVarDecl => |x| return x.token,
-            @TagType(Error).ExpectedReturnType => |x| return x.token,
-            @TagType(Error).ExpectedAggregateKw => |x| return x.token,
-            @TagType(Error).UnattachedDocComment => |x| return x.token,
-            @TagType(Error).ExpectedEqOrSemi => |x| return x.token,
-            @TagType(Error).ExpectedSemiOrLBrace => |x| return x.token,
-            @TagType(Error).ExpectedSemiOrElse => |x| return x.token,
-            @TagType(Error).ExpectedLabelOrLBrace => |x| return x.token,
-            @TagType(Error).ExpectedLBrace => |x| return x.token,
-            @TagType(Error).ExpectedColonOrRParen => |x| return x.token,
-            @TagType(Error).ExpectedLabelable => |x| return x.token,
-            @TagType(Error).ExpectedInlinable => |x| return x.token,
-            @TagType(Error).ExpectedAsmOutputReturnOrType => |x| return x.token,
-            @TagType(Error).ExpectedCall => |x| return x.node.firstToken(),
-            @TagType(Error).ExpectedCallOrFnProto => |x| return x.node.firstToken(),
-            @TagType(Error).ExpectedSliceOrRBracket => |x| return x.token,
-            @TagType(Error).ExtraAlignQualifier => |x| return x.token,
-            @TagType(Error).ExtraConstQualifier => |x| return x.token,
-            @TagType(Error).ExtraVolatileQualifier => |x| return x.token,
-            @TagType(Error).ExtraAllowZeroQualifier => |x| return x.token,
-            @TagType(Error).ExpectedTypeExpr => |x| return x.token,
-            @TagType(Error).ExpectedPrimaryTypeExpr => |x| return x.token,
-            @TagType(Error).ExpectedParamType => |x| return x.token,
-            @TagType(Error).ExpectedExpr => |x| return x.token,
-            @TagType(Error).ExpectedPrimaryExpr => |x| return x.token,
-            @TagType(Error).ExpectedToken => |x| return x.token,
-            @TagType(Error).ExpectedCommaOrEnd => |x| return x.token,
-            @TagType(Error).ExpectedParamList => |x| return x.token,
-            @TagType(Error).ExpectedPayload => |x| return x.token,
-            @TagType(Error).ExpectedBlockOrAssignment => |x| return x.token,
-            @TagType(Error).ExpectedBlockOrExpression => |x| return x.token,
-            @TagType(Error).ExpectedExprOrAssignment => |x| return x.token,
-            @TagType(Error).ExpectedPrefixExpr => |x| return x.token,
-            @TagType(Error).ExpectedLoopExpr => |x| return x.token,
-            @TagType(Error).ExpectedDerefOrUnwrap => |x| return x.token,
-            @TagType(Error).ExpectedSuffixOp => |x| return x.token,
+            .InvalidToken => |x| return x.token,
+            .ExpectedContainerMembers => |x| return x.token,
+            .ExpectedStringLiteral => |x| return x.token,
+            .ExpectedIntegerLiteral => |x| return x.token,
+            .ExpectedPubItem => |x| return x.token,
+            .ExpectedIdentifier => |x| return x.token,
+            .ExpectedStatement => |x| return x.token,
+            .ExpectedVarDeclOrFn => |x| return x.token,
+            .ExpectedVarDecl => |x| return x.token,
+            .ExpectedReturnType => |x| return x.token,
+            .ExpectedAggregateKw => |x| return x.token,
+            .UnattachedDocComment => |x| return x.token,
+            .ExpectedEqOrSemi => |x| return x.token,
+            .ExpectedSemiOrLBrace => |x| return x.token,
+            .ExpectedSemiOrElse => |x| return x.token,
+            .ExpectedLabelOrLBrace => |x| return x.token,
+            .ExpectedLBrace => |x| return x.token,
+            .ExpectedColonOrRParen => |x| return x.token,
+            .ExpectedLabelable => |x| return x.token,
+            .ExpectedInlinable => |x| return x.token,
+            .ExpectedAsmOutputReturnOrType => |x| return x.token,
+            .ExpectedCall => |x| return x.node.firstToken(),
+            .ExpectedCallOrFnProto => |x| return x.node.firstToken(),
+            .ExpectedSliceOrRBracket => |x| return x.token,
+            .ExtraAlignQualifier => |x| return x.token,
+            .ExtraConstQualifier => |x| return x.token,
+            .ExtraVolatileQualifier => |x| return x.token,
+            .ExtraAllowZeroQualifier => |x| return x.token,
+            .ExpectedTypeExpr => |x| return x.token,
+            .ExpectedPrimaryTypeExpr => |x| return x.token,
+            .ExpectedParamType => |x| return x.token,
+            .ExpectedExpr => |x| return x.token,
+            .ExpectedPrimaryExpr => |x| return x.token,
+            .ExpectedToken => |x| return x.token,
+            .ExpectedCommaOrEnd => |x| return x.token,
+            .ExpectedParamList => |x| return x.token,
+            .ExpectedPayload => |x| return x.token,
+            .ExpectedBlockOrAssignment => |x| return x.token,
+            .ExpectedBlockOrExpression => |x| return x.token,
+            .ExpectedExprOrAssignment => |x| return x.token,
+            .ExpectedPrefixExpr => |x| return x.token,
+            .ExpectedLoopExpr => |x| return x.token,
+            .ExpectedDerefOrUnwrap => |x| return x.token,
+            .ExpectedSuffixOp => |x| return x.token,
         }
     }
 
@@ -320,8 +318,19 @@ pub const Error = union(enum) {
         expected_id: Token.Id,
 
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
-            const token_name = @tagName(tokens.at(self.token).id);
-            return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+            const found_token = tokens.at(self.token);
+            switch (found_token.id) {
+                .Invalid_ampersands => {
+                    return stream.print("`&&` is invalid. Note that `and` is boolean AND.");
+                },
+                .Invalid => {
+                    return stream.print("expected {}, found invalid bytes", @tagName(self.expected_id));
+                },
+                else => {
+                    const token_name = @tagName(found_token.id);
+                    return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+                },
+            }
         }
     };
 
@@ -391,7 +400,7 @@ pub const Node = struct {
         VarType,
         ErrorType,
         FnProto,
-        PromiseType,
+        AnyFrameType,
 
         // Primary expressions
         IntegerLiteral,
@@ -425,7 +434,6 @@ pub const Node = struct {
         ErrorTag,
         AsmInput,
         AsmOutput,
-        AsyncAttribute,
         ParamDecl,
         FieldInitializer,
     };
@@ -829,36 +837,6 @@ pub const Node = struct {
         }
     };
 
-    pub const AsyncAttribute = struct {
-        base: Node,
-        async_token: TokenIndex,
-        allocator_type: ?*Node,
-        rangle_bracket: ?TokenIndex,
-
-        pub fn iterate(self: *AsyncAttribute, index: usize) ?*Node {
-            var i = index;
-
-            if (self.allocator_type) |allocator_type| {
-                if (i < 1) return allocator_type;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const AsyncAttribute) TokenIndex {
-            return self.async_token;
-        }
-
-        pub fn lastToken(self: *const AsyncAttribute) TokenIndex {
-            if (self.rangle_bracket) |rangle_bracket| {
-                return rangle_bracket;
-            }
-
-            return self.async_token;
-        }
-    };
-
     pub const FnProto = struct {
         base: Node,
         doc_comments: ?*DocComment,
@@ -870,7 +848,6 @@ pub const Node = struct {
         var_args_token: ?TokenIndex,
         extern_export_inline_token: ?TokenIndex,
         cc_token: ?TokenIndex,
-        async_attr: ?*AsyncAttribute,
         body_node: ?*Node,
         lib_name: ?*Node, // populated if this is an extern declaration
         align_expr: ?*Node, // populated if align(A) is present
@@ -926,7 +903,6 @@ pub const Node = struct {
 
         pub fn firstToken(self: *const FnProto) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
-            if (self.async_attr) |async_attr| return async_attr.firstToken();
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
             assert(self.lib_name == null);
             if (self.cc_token) |cc_token| return cc_token;
@@ -943,9 +919,9 @@ pub const Node = struct {
         }
     };
 
-    pub const PromiseType = struct {
+    pub const AnyFrameType = struct {
         base: Node,
-        promise_token: TokenIndex,
+        anyframe_token: TokenIndex,
         result: ?Result,
 
         pub const Result = struct {
@@ -953,7 +929,7 @@ pub const Node = struct {
             return_type: *Node,
         };
 
-        pub fn iterate(self: *PromiseType, index: usize) ?*Node {
+        pub fn iterate(self: *AnyFrameType, index: usize) ?*Node {
             var i = index;
 
             if (self.result) |result| {
@@ -964,13 +940,13 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *const PromiseType) TokenIndex {
-            return self.promise_token;
+        pub fn firstToken(self: *const AnyFrameType) TokenIndex {
+            return self.anyframe_token;
         }
 
-        pub fn lastToken(self: *const PromiseType) TokenIndex {
+        pub fn lastToken(self: *const AnyFrameType) TokenIndex {
             if (self.result) |result| return result.return_type.lastToken();
-            return self.promise_token;
+            return self.anyframe_token;
         }
     };
 
@@ -1690,7 +1666,7 @@ pub const Node = struct {
 
             pub const Call = struct {
                 params: ParamList,
-                async_attr: ?*AsyncAttribute,
+                async_token: ?TokenIndex,
 
                 pub const ParamList = SegmentedList(*Node, 2);
             };
@@ -1708,15 +1684,15 @@ pub const Node = struct {
             i -= 1;
 
             switch (self.op) {
-                @TagType(Op).Call => |*call_info| {
+                .Call => |*call_info| {
                     if (i < call_info.params.len) return call_info.params.at(i).*;
                     i -= call_info.params.len;
                 },
-                Op.ArrayAccess => |index_expr| {
+                .ArrayAccess => |index_expr| {
                     if (i < 1) return index_expr;
                     i -= 1;
                 },
-                @TagType(Op).Slice => |range| {
+                .Slice => |range| {
                     if (i < 1) return range.start;
                     i -= 1;
 
@@ -1725,16 +1701,16 @@ pub const Node = struct {
                         i -= 1;
                     }
                 },
-                Op.ArrayInitializer => |*exprs| {
+                .ArrayInitializer => |*exprs| {
                     if (i < exprs.len) return exprs.at(i).*;
                     i -= exprs.len;
                 },
-                Op.StructInitializer => |*fields| {
+                .StructInitializer => |*fields| {
                     if (i < fields.len) return fields.at(i).*;
                     i -= fields.len;
                 },
-                Op.UnwrapOptional,
-                Op.Deref,
+                .UnwrapOptional,
+                .Deref,
                 => {},
             }
 
@@ -1743,7 +1719,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: *const SuffixOp) TokenIndex {
             switch (self.op) {
-                @TagType(Op).Call => |*call_info| if (call_info.async_attr) |async_attr| return async_attr.firstToken(),
+                .Call => |*call_info| if (call_info.async_token) |async_token| return async_token,
                 else => {},
             }
             return self.lhs.firstToken();

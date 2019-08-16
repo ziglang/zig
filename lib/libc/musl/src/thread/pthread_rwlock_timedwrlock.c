@@ -1,6 +1,6 @@
 #include "pthread_impl.h"
 
-int pthread_rwlock_timedwrlock(pthread_rwlock_t *restrict rw, const struct timespec *restrict at)
+int __pthread_rwlock_timedwrlock(pthread_rwlock_t *restrict rw, const struct timespec *restrict at)
 {
 	int r, t;
 	
@@ -10,7 +10,7 @@ int pthread_rwlock_timedwrlock(pthread_rwlock_t *restrict rw, const struct times
 	int spins = 100;
 	while (spins-- && rw->_rw_lock && !rw->_rw_waiters) a_spin();
 
-	while ((r=pthread_rwlock_trywrlock(rw))==EBUSY) {
+	while ((r=__pthread_rwlock_trywrlock(rw))==EBUSY) {
 		if (!(r=rw->_rw_lock)) continue;
 		t = r | 0x80000000;
 		a_inc(&rw->_rw_waiters);
@@ -21,3 +21,5 @@ int pthread_rwlock_timedwrlock(pthread_rwlock_t *restrict rw, const struct times
 	}
 	return r;
 }
+
+weak_alias(__pthread_rwlock_timedwrlock, pthread_rwlock_timedwrlock);

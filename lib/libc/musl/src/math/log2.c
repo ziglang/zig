@@ -1,122 +1,122 @@
-/* origin: FreeBSD /usr/src/lib/msun/src/e_log2.c */
 /*
- * ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ * Double-precision log2(x) function.
  *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice
- * is preserved.
- * ====================================================
- */
-/*
- * Return the base 2 logarithm of x.  See log.c for most comments.
- *
- * Reduce x to 2^k (1+f) and calculate r = log(1+f) - f + f*f/2
- * as in log.c, then combine and scale in extra precision:
- *    log2(x) = (f - f*f/2 + r)/log(2) + k
+ * Copyright (c) 2018, Arm Limited.
+ * SPDX-License-Identifier: MIT
  */
 
 #include <math.h>
 #include <stdint.h>
+#include "libm.h"
+#include "log2_data.h"
 
-static const double
-ivln2hi = 1.44269504072144627571e+00, /* 0x3ff71547, 0x65200000 */
-ivln2lo = 1.67517131648865118353e-10, /* 0x3de705fc, 0x2eefa200 */
-Lg1 = 6.666666666666735130e-01,  /* 3FE55555 55555593 */
-Lg2 = 3.999999999940941908e-01,  /* 3FD99999 9997FA04 */
-Lg3 = 2.857142874366239149e-01,  /* 3FD24924 94229359 */
-Lg4 = 2.222219843214978396e-01,  /* 3FCC71C5 1D8E78AF */
-Lg5 = 1.818357216161805012e-01,  /* 3FC74664 96CB03DE */
-Lg6 = 1.531383769920937332e-01,  /* 3FC39A09 D078C69F */
-Lg7 = 1.479819860511658591e-01;  /* 3FC2F112 DF3E5244 */
+#define T __log2_data.tab
+#define T2 __log2_data.tab2
+#define B __log2_data.poly1
+#define A __log2_data.poly
+#define InvLn2hi __log2_data.invln2hi
+#define InvLn2lo __log2_data.invln2lo
+#define N (1 << LOG2_TABLE_BITS)
+#define OFF 0x3fe6000000000000
+
+/* Top 16 bits of a double.  */
+static inline uint32_t top16(double x)
+{
+	return asuint64(x) >> 48;
+}
 
 double log2(double x)
 {
-	union {double f; uint64_t i;} u = {x};
-	double_t hfsq,f,s,z,R,w,t1,t2,y,hi,lo,val_hi,val_lo;
-	uint32_t hx;
-	int k;
+	double_t z, r, r2, r4, y, invc, logc, kd, hi, lo, t1, t2, t3, p;
+	uint64_t ix, iz, tmp;
+	uint32_t top;
+	int k, i;
 
-	hx = u.i>>32;
-	k = 0;
-	if (hx < 0x00100000 || hx>>31) {
-		if (u.i<<1 == 0)
-			return -1/(x*x);  /* log(+-0)=-inf */
-		if (hx>>31)
-			return (x-x)/0.0; /* log(-#) = NaN */
-		/* subnormal number, scale x up */
-		k -= 54;
-		x *= 0x1p54;
-		u.f = x;
-		hx = u.i>>32;
-	} else if (hx >= 0x7ff00000) {
-		return x;
-	} else if (hx == 0x3ff00000 && u.i<<32 == 0)
-		return 0;
+	ix = asuint64(x);
+	top = top16(x);
+#define LO asuint64(1.0 - 0x1.5b51p-5)
+#define HI asuint64(1.0 + 0x1.6ab2p-5)
+	if (predict_false(ix - LO < HI - LO)) {
+		/* Handle close to 1.0 inputs separately.  */
+		/* Fix sign of zero with downward rounding when x==1.  */
+		if (WANT_ROUNDING && predict_false(ix == asuint64(1.0)))
+			return 0;
+		r = x - 1.0;
+#if __FP_FAST_FMA
+		hi = r * InvLn2hi;
+		lo = r * InvLn2lo + __builtin_fma(r, InvLn2hi, -hi);
+#else
+		double_t rhi, rlo;
+		rhi = asdouble(asuint64(r) & -1ULL << 32);
+		rlo = r - rhi;
+		hi = rhi * InvLn2hi;
+		lo = rlo * InvLn2hi + r * InvLn2lo;
+#endif
+		r2 = r * r; /* rounding error: 0x1p-62.  */
+		r4 = r2 * r2;
+		/* Worst-case error is less than 0.54 ULP (0.55 ULP without fma).  */
+		p = r2 * (B[0] + r * B[1]);
+		y = hi + p;
+		lo += hi - y + p;
+		lo += r4 * (B[2] + r * B[3] + r2 * (B[4] + r * B[5]) +
+			    r4 * (B[6] + r * B[7] + r2 * (B[8] + r * B[9])));
+		y += lo;
+		return eval_as_double(y);
+	}
+	if (predict_false(top - 0x0010 >= 0x7ff0 - 0x0010)) {
+		/* x < 0x1p-1022 or inf or nan.  */
+		if (ix * 2 == 0)
+			return __math_divzero(1);
+		if (ix == asuint64(INFINITY)) /* log(inf) == inf.  */
+			return x;
+		if ((top & 0x8000) || (top & 0x7ff0) == 0x7ff0)
+			return __math_invalid(x);
+		/* x is subnormal, normalize it.  */
+		ix = asuint64(x * 0x1p52);
+		ix -= 52ULL << 52;
+	}
 
-	/* reduce x into [sqrt(2)/2, sqrt(2)] */
-	hx += 0x3ff00000 - 0x3fe6a09e;
-	k += (int)(hx>>20) - 0x3ff;
-	hx = (hx&0x000fffff) + 0x3fe6a09e;
-	u.i = (uint64_t)hx<<32 | (u.i&0xffffffff);
-	x = u.f;
+	/* x = 2^k z; where z is in range [OFF,2*OFF) and exact.
+	   The range is split into N subintervals.
+	   The ith subinterval contains z and c is near its center.  */
+	tmp = ix - OFF;
+	i = (tmp >> (52 - LOG2_TABLE_BITS)) % N;
+	k = (int64_t)tmp >> 52; /* arithmetic shift */
+	iz = ix - (tmp & 0xfffULL << 52);
+	invc = T[i].invc;
+	logc = T[i].logc;
+	z = asdouble(iz);
+	kd = (double_t)k;
 
-	f = x - 1.0;
-	hfsq = 0.5*f*f;
-	s = f/(2.0+f);
-	z = s*s;
-	w = z*z;
-	t1 = w*(Lg2+w*(Lg4+w*Lg6));
-	t2 = z*(Lg1+w*(Lg3+w*(Lg5+w*Lg7)));
-	R = t2 + t1;
+	/* log2(x) = log2(z/c) + log2(c) + k.  */
+	/* r ~= z/c - 1, |r| < 1/(2*N).  */
+#if __FP_FAST_FMA
+	/* rounding error: 0x1p-55/N.  */
+	r = __builtin_fma(z, invc, -1.0);
+	t1 = r * InvLn2hi;
+	t2 = r * InvLn2lo + __builtin_fma(r, InvLn2hi, -t1);
+#else
+	double_t rhi, rlo;
+	/* rounding error: 0x1p-55/N + 0x1p-65.  */
+	r = (z - T2[i].chi - T2[i].clo) * invc;
+	rhi = asdouble(asuint64(r) & -1ULL << 32);
+	rlo = r - rhi;
+	t1 = rhi * InvLn2hi;
+	t2 = rlo * InvLn2hi + r * InvLn2lo;
+#endif
 
-	/*
-	 * f-hfsq must (for args near 1) be evaluated in extra precision
-	 * to avoid a large cancellation when x is near sqrt(2) or 1/sqrt(2).
-	 * This is fairly efficient since f-hfsq only depends on f, so can
-	 * be evaluated in parallel with R.  Not combining hfsq with R also
-	 * keeps R small (though not as small as a true `lo' term would be),
-	 * so that extra precision is not needed for terms involving R.
-	 *
-	 * Compiler bugs involving extra precision used to break Dekker's
-	 * theorem for spitting f-hfsq as hi+lo, unless double_t was used
-	 * or the multi-precision calculations were avoided when double_t
-	 * has extra precision.  These problems are now automatically
-	 * avoided as a side effect of the optimization of combining the
-	 * Dekker splitting step with the clear-low-bits step.
-	 *
-	 * y must (for args near sqrt(2) and 1/sqrt(2)) be added in extra
-	 * precision to avoid a very large cancellation when x is very near
-	 * these values.  Unlike the above cancellations, this problem is
-	 * specific to base 2.  It is strange that adding +-1 is so much
-	 * harder than adding +-ln2 or +-log10_2.
-	 *
-	 * This uses Dekker's theorem to normalize y+val_hi, so the
-	 * compiler bugs are back in some configurations, sigh.  And I
-	 * don't want to used double_t to avoid them, since that gives a
-	 * pessimization and the support for avoiding the pessimization
-	 * is not yet available.
-	 *
-	 * The multi-precision calculations for the multiplications are
-	 * routine.
-	 */
+	/* hi + lo = r/ln2 + log2(c) + k.  */
+	t3 = kd + logc;
+	hi = t3 + t1;
+	lo = t3 - hi + t1 + t2;
 
-	/* hi+lo = f - hfsq + s*(hfsq+R) ~ log(1+f) */
-	hi = f - hfsq;
-	u.f = hi;
-	u.i &= (uint64_t)-1<<32;
-	hi = u.f;
-	lo = f - hi - hfsq + s*(hfsq+R);
-
-	val_hi = hi*ivln2hi;
-	val_lo = (lo+hi)*ivln2lo + lo*ivln2hi;
-
-	/* spadd(val_hi, val_lo, y), except for not using double_t: */
-	y = k;
-	w = y + val_hi;
-	val_lo += (y - w) + val_hi;
-	val_hi = w;
-
-	return val_lo + val_hi;
+	/* log2(r+1) = r/ln2 + r^2*poly(r).  */
+	/* Evaluation is optimized assuming superscalar pipelined execution.  */
+	r2 = r * r; /* rounding error: 0x1p-54/N^2.  */
+	r4 = r2 * r2;
+	/* Worst-case error if |y| > 0x1p-4: 0.547 ULP (0.550 ULP without fma).
+	   ~ 0.5 + 2/N/ln2 + abs-poly-error*0x1p56 ULP (+ 0.003 ULP without fma).  */
+	p = A[0] + r * A[1] + r2 * (A[2] + r * A[3]) + r4 * (A[4] + r * A[5]);
+	y = lo + r2 * p + hi;
+	return eval_as_double(y);
 }

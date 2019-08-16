@@ -34,7 +34,7 @@
  * These values and the return value were taken from n1124.pdf.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 static const double huge = 0x1p1023;
 
