@@ -1181,7 +1181,6 @@ pub const Builder = struct {
             ast.Node.Id.ErrorTag => return error.Unimplemented,
             ast.Node.Id.AsmInput => return error.Unimplemented,
             ast.Node.Id.AsmOutput => return error.Unimplemented,
-            ast.Node.Id.AsyncAttribute => return error.Unimplemented,
             ast.Node.Id.ParamDecl => return error.Unimplemented,
             ast.Node.Id.FieldInitializer => return error.Unimplemented,
             ast.Node.Id.EnumLiteral => return error.Unimplemented,

@@ -1037,7 +1037,7 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
         .op = ast.Node.SuffixOp.Op{
             .Call = ast.Node.SuffixOp.Op.Call{
                 .params = ast.Node.SuffixOp.Op.Call.ParamList.init(c.a()),
-                .async_attr = null,
+                .async_token = null,
             },
         },
         .rtoken = undefined, // set after appending args
@@ -1355,7 +1355,6 @@ fn finishTransFnProto(
         .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
         .cc_token = cc_tok,
-        .async_attr = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = null,

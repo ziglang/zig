@@ -210,7 +210,7 @@ test "zig fmt: spaces around slice operator" {
 test "zig fmt: async call in if condition" {
     try testCanonical(
         \\comptime {
-        \\    if (async<a> b()) {
+        \\    if (async b()) {
         \\        a();
         \\    }
         \\}
@@ -1118,7 +1118,7 @@ test "zig fmt: first line comment in struct initializer" {
         \\pub async fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
         \\        // guaranteed allocation elision
-        \\        .held = await (async self.lock.acquire() catch unreachable),
+        \\        .held = self.lock.acquire(),
         \\        .value = &self.private_data,
         \\    };
         \\}
