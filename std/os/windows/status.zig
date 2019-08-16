@@ -1,4 +1,4 @@
-/// The operation completed successfully. 
+/// The operation completed successfully.
 pub const SUCCESS = 0x00000000;
 
 /// The data was too large to fit into the specified buffer.

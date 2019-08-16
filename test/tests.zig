@@ -170,6 +170,7 @@ pub fn addPkgTests(
     name: []const u8,
     desc: []const u8,
     modes: []const Mode,
+    single_threaded_list: []const bool,
     skip_non_native: bool,
 ) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
@@ -179,7 +180,7 @@ pub fn addPkgTests(
             continue;
         for (modes) |mode| {
             for ([_]bool{ false, true }) |link_libc| {
-                for ([_]bool{ false, true }) |single_threaded| {
+                for (single_threaded_list) |single_threaded| {
                     if (link_libc and !is_native) {
                         // don't assume we have a cross-compiling libc set up
                         continue;

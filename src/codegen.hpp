@@ -18,14 +18,13 @@
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
     OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
-    ZigLibCInstallation *libc, Buf *cache_dir);
+    ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build);
 
 CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
         ZigLibCInstallation *libc);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
-void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
 void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type);
@@ -62,5 +61,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g);
 TargetSubsystem detect_subsystem(CodeGen *g);
 
 void codegen_release_caches(CodeGen *codegen);
+bool codegen_fn_has_err_ret_tracing_arg(CodeGen *g, ZigType *return_type);
+bool codegen_fn_has_err_ret_tracing_stack(CodeGen *g, ZigFn *fn, bool is_async);
 
 #endif

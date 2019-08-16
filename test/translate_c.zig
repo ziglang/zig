@@ -1780,6 +1780,40 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     );
 
+    cases.addC("escape sequences",
+        \\const char *escapes() {
+        \\char a = '\'',
+        \\    b = '\\',
+        \\    c = '\a',
+        \\    d = '\b',
+        \\    e = '\f',
+        \\    f = '\n',
+        \\    g = '\r',
+        \\    h = '\t',
+        \\    i = '\v',
+        \\    j = '\0',
+        \\    k = '\"';
+        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
+        \\}
+        \\
+    ,
+        \\pub export fn escapes() [*c]const u8 {
+        \\    var a: u8 = u8('\'');
+        \\    var b: u8 = u8('\\');
+        \\    var c: u8 = u8('\x07');
+        \\    var d: u8 = u8('\x08');
+        \\    var e: u8 = u8('\x0c');
+        \\    var f: u8 = u8('\n');
+        \\    var g: u8 = u8('\r');
+        \\    var h: u8 = u8('\t');
+        \\    var i: u8 = u8('\x0b');
+        \\    var j: u8 = u8('\x00');
+        \\    var k: u8 = u8('\"');
+        \\    return c"\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\}
+        \\
+    );
+
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
     cases.addC("Parameterless function prototypes",
         \\void foo() {}

@@ -77,15 +77,19 @@ const Allocator = std.mem.Allocator;
 pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type {
     return struct {
         const Self = @This();
-        const prealloc_exp = blk: {
-            // we don't use the prealloc_exp constant when prealloc_item_count is 0.
-            assert(prealloc_item_count != 0);
-            assert(std.math.isPowerOfTwo(prealloc_item_count));
-
-            const value = std.math.log2_int(usize, prealloc_item_count);
-            break :blk @typeOf(1)(value);
-        };
         const ShelfIndex = std.math.Log2Int(usize);
+
+        const prealloc_exp: ShelfIndex = blk: {
+            // we don't use the prealloc_exp constant when prealloc_item_count is 0
+            // but lazy-init may still be triggered by other code so supply a value
+            if (prealloc_item_count == 0) {
+                break :blk 0;
+            } else {
+                assert(std.math.isPowerOfTwo(prealloc_item_count));
+                const value = std.math.log2_int(usize, prealloc_item_count);
+                break :blk value;
+            }
+        };
 
         prealloc_segment: [prealloc_item_count]T,
         dynamic_segments: [][*]T,
@@ -157,11 +161,12 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         /// Grows or shrinks capacity to match usage.
         pub fn setCapacity(self: *Self, new_capacity: usize) !void {
-            if (new_capacity <= usize(1) << (prealloc_exp + self.dynamic_segments.len)) {
-                return self.shrinkCapacity(new_capacity);
-            } else {
-                return self.growCapacity(new_capacity);
+            if (prealloc_item_count != 0) {
+                if (new_capacity <= usize(1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
+                    return self.shrinkCapacity(new_capacity);
+                }
             }
+            return self.growCapacity(new_capacity);
         }
 
         /// Only grows capacity, or retains current capacity
@@ -399,4 +404,6 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
         testing.expect(item == i);
         list.shrinkCapacity(list.len);
     }
+
+    try list.setCapacity(0);
 }

@@ -28,4 +28,6 @@ ConstExprValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ConstExprVal
         AstNode *source_node);
 const char *float_op_to_name(BuiltinFnId op, bool llvm_name);
 
+void ir_add_analysis_trace(IrAnalyze *ira, ErrorMsg *err_msg, Buf *text);
+
 #endif

@@ -199,17 +199,17 @@ else()
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/Writer.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm/WriterUtils.cpp"
     )
-    add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
-    add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
-    add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
-    add_library(embedded_lld_mingw ${EMBEDDED_LLD_MINGW_SOURCES})
-    add_library(embedded_lld_wasm ${EMBEDDED_LLD_WASM_SOURCES})
+    add_library(embedded_lld_lib STATIC ${EMBEDDED_LLD_LIB_SOURCES})
+    add_library(embedded_lld_elf STATIC ${EMBEDDED_LLD_ELF_SOURCES})
+    add_library(embedded_lld_coff STATIC ${EMBEDDED_LLD_COFF_SOURCES})
+    add_library(embedded_lld_mingw STATIC ${EMBEDDED_LLD_MINGW_SOURCES})
+    add_library(embedded_lld_wasm STATIC ${EMBEDDED_LLD_WASM_SOURCES})
     if(MSVC)
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
       set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-comment")
       if(MINGW)
-        set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO -Wno-pedantic-ms-format")
+        set(ZIG_LLD_COMPILE_FLAGS "${ZIG_LLD_COMPILE_FLAGS} -D__STDC_FORMAT_MACROS -D__USE_MINGW_ANSI_STDIO")
       endif()
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
@@ -400,7 +400,7 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui32_to_f128M.c"
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui64_to_f128M.c"
 )
-add_library(embedded_softfloat ${EMBEDDED_SOFTFLOAT_SOURCES})
+add_library(embedded_softfloat STATIC ${EMBEDDED_SOFTFLOAT_SOURCES})
 if(MSVC)
     set_target_properties(embedded_softfloat PROPERTIES
         COMPILE_FLAGS "-std=c99 /w"
@@ -426,7 +426,6 @@ set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
@@ -438,6 +437,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
@@ -511,19 +511,23 @@ set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
 
 set(EXE_LDFLAGS " ")
 if(MSVC)
-    set(EXE_LDFLAGS "/STACK:16777216")
+    set(EXE_LDFLAGS "${EXE_LDFLAGS} /STACK:16777216")
 elseif(MINGW) 
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -Wl,--stack,16777216")
 endif()
 
 if(ZIG_STATIC)
     if(APPLE)
-        set(EXE_LDFLAGS "-static-libgcc -static-libstdc++")
+        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static-libgcc -static-libstdc++")
     elseif(MINGW)
-        set(EXE_LDFLAGS "-static-libgcc -static-libstdc++ -Wl,-Bstatic,--whole-archive -lwinpthread -lz3 -lz -lgomp -Wl,--no-whole-archive")
-    else()
-        set(EXE_LDFLAGS "-static")
+        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static-libgcc -static-libstdc++ -Wl,-Bstatic, -lwinpthread -lz3 -lz -lgomp")
+    elseif(NOT MSVC)
+        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static")
     endif()
+else()
+    if(MINGW)
+        set(EXE_LDFLAGS "${EXE_LDFLAGS} -lz3")
+    endif() 
 endif()
 
 if(ZIG_TEST_COVERAGE)
@@ -557,11 +561,6 @@ target_link_libraries(compiler LINK_PUBLIC
 )
 if(NOT MSVC)
     target_link_libraries(compiler LINK_PUBLIC ${LIBXML2})
-endif()
-
-if(MINGW)
-    find_library(Z3_LIBRARIES NAMES z3 z3.dll)
-    target_link_libraries(compiler LINK_PUBLIC ${Z3_LIBRARIES})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)

@@ -400,7 +400,7 @@ pub const Node = struct {
         VarType,
         ErrorType,
         FnProto,
-        PromiseType,
+        AnyFrameType,
 
         // Primary expressions
         IntegerLiteral,
@@ -431,7 +431,6 @@ pub const Node = struct {
         ErrorTag,
         AsmInput,
         AsmOutput,
-        AsyncAttribute,
         ParamDecl,
         FieldInitializer,
     };
@@ -835,36 +834,6 @@ pub const Node = struct {
         }
     };
 
-    pub const AsyncAttribute = struct {
-        base: Node,
-        async_token: TokenIndex,
-        allocator_type: ?*Node,
-        rangle_bracket: ?TokenIndex,
-
-        pub fn iterate(self: *AsyncAttribute, index: usize) ?*Node {
-            var i = index;
-
-            if (self.allocator_type) |allocator_type| {
-                if (i < 1) return allocator_type;
-                i -= 1;
-            }
-
-            return null;
-        }
-
-        pub fn firstToken(self: *const AsyncAttribute) TokenIndex {
-            return self.async_token;
-        }
-
-        pub fn lastToken(self: *const AsyncAttribute) TokenIndex {
-            if (self.rangle_bracket) |rangle_bracket| {
-                return rangle_bracket;
-            }
-
-            return self.async_token;
-        }
-    };
-
     pub const FnProto = struct {
         base: Node,
         doc_comments: ?*DocComment,
@@ -876,7 +845,6 @@ pub const Node = struct {
         var_args_token: ?TokenIndex,
         extern_export_inline_token: ?TokenIndex,
         cc_token: ?TokenIndex,
-        async_attr: ?*AsyncAttribute,
         body_node: ?*Node,
         lib_name: ?*Node, // populated if this is an extern declaration
         align_expr: ?*Node, // populated if align(A) is present
@@ -932,7 +900,6 @@ pub const Node = struct {
 
         pub fn firstToken(self: *const FnProto) TokenIndex {
             if (self.visib_token) |visib_token| return visib_token;
-            if (self.async_attr) |async_attr| return async_attr.firstToken();
             if (self.extern_export_inline_token) |extern_export_inline_token| return extern_export_inline_token;
             assert(self.lib_name == null);
             if (self.cc_token) |cc_token| return cc_token;
@@ -949,9 +916,9 @@ pub const Node = struct {
         }
     };
 
-    pub const PromiseType = struct {
+    pub const AnyFrameType = struct {
         base: Node,
-        promise_token: TokenIndex,
+        anyframe_token: TokenIndex,
         result: ?Result,
 
         pub const Result = struct {
@@ -959,7 +926,7 @@ pub const Node = struct {
             return_type: *Node,
         };
 
-        pub fn iterate(self: *PromiseType, index: usize) ?*Node {
+        pub fn iterate(self: *AnyFrameType, index: usize) ?*Node {
             var i = index;
 
             if (self.result) |result| {
@@ -970,13 +937,13 @@ pub const Node = struct {
             return null;
         }
 
-        pub fn firstToken(self: *const PromiseType) TokenIndex {
-            return self.promise_token;
+        pub fn firstToken(self: *const AnyFrameType) TokenIndex {
+            return self.anyframe_token;
         }
 
-        pub fn lastToken(self: *const PromiseType) TokenIndex {
+        pub fn lastToken(self: *const AnyFrameType) TokenIndex {
             if (self.result) |result| return result.return_type.lastToken();
-            return self.promise_token;
+            return self.anyframe_token;
         }
     };
 
@@ -1696,7 +1663,7 @@ pub const Node = struct {
 
             pub const Call = struct {
                 params: ParamList,
-                async_attr: ?*AsyncAttribute,
+                async_token: ?TokenIndex,
 
                 pub const ParamList = SegmentedList(*Node, 2);
             };
@@ -1749,7 +1716,7 @@ pub const Node = struct {
 
         pub fn firstToken(self: *const SuffixOp) TokenIndex {
             switch (self.op) {
-                .Call => |*call_info| if (call_info.async_attr) |async_attr| return async_attr.firstToken(),
+                .Call => |*call_info| if (call_info.async_token) |async_token| return async_token,
                 else => {},
             }
             return self.lhs.firstToken();

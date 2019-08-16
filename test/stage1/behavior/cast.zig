@@ -508,7 +508,7 @@ test "peer type resolution: unreachable, null, slice" {
 }
 
 test "peer type resolution: unreachable, error set, unreachable" {
-    const Error = error {
+    const Error = error{
         FileDescriptorAlreadyPresentInSet,
         OperationCausesCircularLoop,
         FileDescriptorNotRegistered,
@@ -528,4 +528,9 @@ test "peer type resolution: unreachable, error set, unreachable" {
         error.Unexpected => unreachable,
     };
     expect(transformed_err == error.SystemResources);
+}
+
+test "implicit cast comptime_int to comptime_float" {
+    comptime expect(comptime_float(10) == f32(10));
+    expect(2 == 2.0);
 }

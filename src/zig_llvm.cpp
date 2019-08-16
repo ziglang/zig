@@ -42,7 +42,6 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/CodeGenCWrappers.h>
-#include <llvm/Transforms/Coroutines.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -202,8 +201,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
         PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
     }
-
-    addCoroutinePassesToExtensionPoints(*PMBuilder);
 
     // Set up the per-function pass manager.
     legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
@@ -788,23 +785,23 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
         case ZigLLVM_NoSubArch:
             return "";
         case ZigLLVM_ARMSubArch_v8_5a:
-            return "v8_5a";
+            return "v8.5a";
         case ZigLLVM_ARMSubArch_v8_4a:
-            return "v8_4a";
+            return "v8.4a";
         case ZigLLVM_ARMSubArch_v8_3a:
-            return "v8_3a";
+            return "v8.3a";
         case ZigLLVM_ARMSubArch_v8_2a:
-            return "v8_2a";
+            return "v8.2a";
         case ZigLLVM_ARMSubArch_v8_1a:
-            return "v8_1a";
+            return "v8.1a";
         case ZigLLVM_ARMSubArch_v8:
             return "v8";
         case ZigLLVM_ARMSubArch_v8r:
             return "v8r";
         case ZigLLVM_ARMSubArch_v8m_baseline:
-            return "v8m_baseline";
+            return "v8m.base";
         case ZigLLVM_ARMSubArch_v8m_mainline:
-            return "v8m_mainline";
+            return "v8m.main";
         case ZigLLVM_ARMSubArch_v7:
             return "v7";
         case ZigLLVM_ARMSubArch_v7em:
@@ -896,6 +893,14 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
         const char *name)
 {
     return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
+void ZigLLVMSetTailCall(LLVMValueRef Call) {
+    unwrap<CallInst>(Call)->setTailCallKind(CallInst::TCK_MustTail);
+} 
+
+void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
+    unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }
 
 

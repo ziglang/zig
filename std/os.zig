@@ -120,6 +120,19 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
             }
         }
     }
+    if (freebsd.is_the_target) {
+        while (true) {
+            const err = std.c.getErrno(std.c.getrandom(buf.ptr, buf.len, 0));
+
+            switch (err) {
+                0 => return,
+                EINVAL => unreachable,
+                EFAULT => unreachable,
+                EINTR => continue,
+                else => return unexpectedErrno(err),
+            }
+        }
+    }
     if (wasi.is_the_target) {
         switch (wasi.random_get(buf.ptr, buf.len)) {
             0 => return,
@@ -132,6 +145,11 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
 fn getRandomBytesDevURandom(buf: []u8) !void {
     const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
+
+    const st = try fstat(fd);
+    if (!S_ISCHR(st.mode)) {
+        return error.NoDevice;
+    }
 
     const stream = &std.fs.File.openHandle(fd).inStream().stream;
     stream.readNoEof(buf) catch return error.Unexpected;
@@ -2050,6 +2068,22 @@ pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
         EIO => return error.InputOutput,
         ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
+/// Otherwise use `access` or `accessC`.
+/// TODO currently this ignores `mode`.
+pub fn accessW(path: [*]const u16, mode: u32) windows.GetFileAttributesError!void {
+    const ret = try windows.GetFileAttributesW(path);
+    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    switch (windows.kernel32.GetLastError()) {
+        windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+        windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+        else => |err| return windows.unexpectedError(err),
     }
 }
 

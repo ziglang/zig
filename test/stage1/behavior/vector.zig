@@ -74,3 +74,9 @@ test "implicit cast vector to array" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "array to vector" {
+    var foo: f32 = 3.14;
+    var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
+    var vec: @Vector(4, f32) = arr;
+}
