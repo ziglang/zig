@@ -686,6 +686,8 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
             return "v8m_baseline";
         case ZigLLVM_ARMSubArch_v8m_mainline:
             return "v8m_mainline";
+        case ZigLLVM_ARMSubArch_v8_1m_mainline:
+            return "v8_1m_mainline";
         case ZigLLVM_ARMSubArch_v7:
             return "v7";
         case ZigLLVM_ARMSubArch_v7em:
