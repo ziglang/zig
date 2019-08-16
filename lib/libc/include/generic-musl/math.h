@@ -36,6 +36,18 @@ extern "C" {
 #define FP_SUBNORMAL 3
 #define FP_NORMAL    4
 
+#ifdef __FP_FAST_FMA
+#define FP_FAST_FMA 1
+#endif
+
+#ifdef __FP_FAST_FMAF
+#define FP_FAST_FMAF 1
+#endif
+
+#ifdef __FP_FAST_FMAL
+#define FP_FAST_FMAL 1
+#endif
+
 int __fpclassify(double);
 int __fpclassifyf(float);
 int __fpclassifyl(long double);

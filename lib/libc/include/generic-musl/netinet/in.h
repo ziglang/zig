@@ -52,6 +52,7 @@ struct ipv6_mreq {
 #define INADDR_UNSPEC_GROUP     ((in_addr_t) 0xe0000000)
 #define INADDR_ALLHOSTS_GROUP   ((in_addr_t) 0xe0000001)
 #define INADDR_ALLRTRS_GROUP    ((in_addr_t) 0xe0000002)
+#define INADDR_ALLSNOOPERS_GROUP ((in_addr_t) 0xe000006a)
 #define INADDR_MAX_LOCAL_GROUP  ((in_addr_t) 0xe00000ff)
 
 #define IN6ADDR_ANY_INIT      { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } } }
@@ -335,6 +336,8 @@ struct ip6_mtuinfo {
 #define IPV6_V6ONLY             26
 #define IPV6_JOIN_ANYCAST       27
 #define IPV6_LEAVE_ANYCAST      28
+#define IPV6_MULTICAST_ALL      29
+#define IPV6_ROUTER_ALERT_ISOLATE 30
 #define IPV6_IPSEC_POLICY       34
 #define IPV6_XFRM_POLICY        35
 #define IPV6_HDRINCL            36

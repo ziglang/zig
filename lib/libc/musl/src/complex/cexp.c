@@ -25,7 +25,7 @@
  * SUCH DAMAGE.
  */
 
-#include "libm.h"
+#include "complex_impl.h"
 
 static const uint32_t
 exp_ovfl  = 0x40862e42,  /* high bits of MAX_EXP * ln2 ~= 710 */

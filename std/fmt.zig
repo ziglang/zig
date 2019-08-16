@@ -328,9 +328,6 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        .Promise => {
-            return format(context, Errors, output, "promise@{x}", @ptrToInt(value));
-        },
         .Enum => {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
@@ -374,9 +371,10 @@ pub fn formatType(
                 return output(context, "{ ... }");
             }
             comptime var field_i = 0;
+            try output(context, "{");
             inline while (field_i < @memberCount(T)) : (field_i += 1) {
                 if (field_i == 0) {
-                    try output(context, "{ .");
+                    try output(context, " .");
                 } else {
                     try output(context, ", .");
                 }
@@ -424,6 +422,9 @@ pub fn formatType(
         .Array => |info| {
             if (info.child == u8) {
                 return formatText(value, fmt, options, context, Errors, output);
+            }
+            if (value.len == 0) {
+                return format(context, Errors, output, "[0]{}", @typeName(T.Child));
             }
             return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
         },
@@ -1437,6 +1438,21 @@ test "struct.self-referential" {
     inst.a = &inst;
 
     try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", inst);
+}
+
+test "struct.zero-size" {
+    const A = struct {
+        fn foo() void {}
+    };
+    const B = struct {
+        a: A,
+        c: i32,
+    };
+
+    const a = A{};
+    const b = B{ .a = a, .c = 0 };
+
+    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", b);
 }
 
 test "bytes.hex" {

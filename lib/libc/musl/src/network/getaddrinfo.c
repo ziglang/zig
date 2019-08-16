@@ -104,7 +104,7 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 	}
 
 	for (k=i=0; i<naddrs; i++) for (j=0; j<nservs; j++, k++) {
-		out[k].slot = i;
+		out[k].slot = k;
 		out[k].ai = (struct addrinfo){
 			.ai_family = addrs[i].family,
 			.ai_socktype = ports[j].socktype,
@@ -113,8 +113,8 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 				? sizeof(struct sockaddr_in)
 				: sizeof(struct sockaddr_in6),
 			.ai_addr = (void *)&out[k].sa,
-			.ai_canonname = outcanon,
-			.ai_next = &out[k+1].ai };
+			.ai_canonname = outcanon };
+		if (k) out[k-1].ai.ai_next = &out[k].ai;
 		switch (addrs[i].family) {
 		case AF_INET:
 			out[k].sa.sin.sin_family = AF_INET;
@@ -130,7 +130,6 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 		}
 	}
 	out[0].ref = nais;
-	out[nais-1].ai.ai_next = 0;
 	*res = &out->ai;
 	return 0;
 }

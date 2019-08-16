@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
 test "compile time recursion" {
@@ -792,5 +793,14 @@ fn scalar(x: u32) u32 {
 test "no undeclared identifier error in unanalyzed branches" {
     if (false) {
         lol_this_doesnt_exist = nonsense;
+    }
+}
+
+test "comptime assign int to optional int" {
+    comptime {
+        var x: ?i32 = null;
+        x = 2;
+        x.? *= 10;
+        expectEqual(20, x.?);
     }
 }

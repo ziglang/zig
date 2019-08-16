@@ -127,6 +127,7 @@ comptime {
     @export("__udivmoddi4", @import("compiler_rt/udivmoddi4.zig").__udivmoddi4, linkage);
     @export("__popcountdi2", @import("compiler_rt/popcountdi2.zig").__popcountdi2, linkage);
 
+    @export("__muldi3", @import("compiler_rt/muldi3.zig").__muldi3, linkage);
     @export("__divmoddi4", __divmoddi4, linkage);
     @export("__divsi3", __divsi3, linkage);
     @export("__divdi3", __divdi3, linkage);
@@ -146,6 +147,8 @@ comptime {
         @export("__aeabi_unwind_cpp_pr0", __aeabi_unwind_cpp_pr0, strong_linkage);
         @export("__aeabi_unwind_cpp_pr1", __aeabi_unwind_cpp_pr1, linkage);
         @export("__aeabi_unwind_cpp_pr2", __aeabi_unwind_cpp_pr2, linkage);
+
+        @export("__aeabi_lmul", @import("compiler_rt/muldi3.zig").__muldi3, linkage);
 
         @export("__aeabi_ldivmod", __aeabi_ldivmod, linkage);
         @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);

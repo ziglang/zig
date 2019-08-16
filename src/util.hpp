@@ -43,7 +43,7 @@ ATTRIBUTE_NORETURN
 ATTRIBUTE_PRINTF(1, 2)
 void zig_panic(const char *format, ...);
 
-#ifdef WIN32
+#ifdef _WIN32
 #define __func__ __FUNCTION__
 #endif
 

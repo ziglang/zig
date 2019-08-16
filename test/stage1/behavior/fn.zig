@@ -228,3 +228,22 @@ test "implicit cast fn call result to optional in field result" {
     S.entry();
     comptime S.entry();
 }
+
+test "discard the result of a function that returns a struct" {
+    const S = struct {
+        fn entry() void {
+            _ = func();
+        }
+
+        fn func() Foo {
+            return undefined;
+        }
+
+        const Foo = struct {
+            a: u64,
+            b: u64,
+        };
+    };
+    S.entry();
+    comptime S.entry();
+}

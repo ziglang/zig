@@ -27,6 +27,8 @@ pid_t fork(void)
 		self->tid = __syscall(SYS_gettid);
 		self->robust_list.off = 0;
 		self->robust_list.pending = 0;
+		self->next = self->prev = self;
+		__thread_list_lock = 0;
 		libc.threads_minus_1 = 0;
 	}
 	__restore_sigs(&set);

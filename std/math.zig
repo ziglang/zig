@@ -242,12 +242,76 @@ pub fn floatExponentBits(comptime T: type) comptime_int {
     };
 }
 
-pub fn min(x: var, y: var) @typeOf(x + y) {
-    return if (x < y) x else y;
+/// Given two types, returns the smallest one which is capable of holding the
+/// full range of the minimum value.
+pub fn Min(comptime A: type, comptime B: type) type {
+    switch (@typeInfo(A)) {
+        .Int => |a_info| switch (@typeInfo(B)) {
+            .Int => |b_info| if (!a_info.is_signed and !b_info.is_signed) {
+                if (a_info.bits < b_info.bits) {
+                    return A;
+                } else {
+                    return B;
+                }
+            },
+            else => {},
+        },
+        else => {},
+    }
+    return @typeOf(A(0) + B(0));
+}
+
+/// Returns the smaller number. When one of the parameter's type's full range fits in the other,
+/// the return type is the smaller type.
+pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
+    const Result = Min(@typeOf(x), @typeOf(y));
+    if (x < y) {
+        // TODO Zig should allow this as an implicit cast because x is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, x),
+            else => return x,
+        }
+    } else {
+        // TODO Zig should allow this as an implicit cast because y is immutable and in this
+        // scope it is known to fit in the return type.
+        switch (@typeInfo(Result)) {
+            .Int => return @intCast(Result, y),
+            else => return y,
+        }
+    }
 }
 
 test "math.min" {
     testing.expect(min(i32(-1), i32(2)) == -1);
+    {
+        var a: u16 = 999;
+        var b: u32 = 10;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == u16);
+        testing.expect(result == 10);
+    }
+    {
+        var a: f64 = 10.34;
+        var b: f32 = 999.12;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == f64);
+        testing.expect(result == 10.34);
+    }
+    {
+        var a: i8 = -127;
+        var b: i16 = -200;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == i16);
+        testing.expect(result == -200);
+    }
+    {
+        const a = 10.34;
+        var b: f32 = 999.12;
+        var result = min(a, b);
+        testing.expect(@typeOf(result) == f32);
+        testing.expect(result == 10.34);
+    }
 }
 
 pub fn max(x: var, y: var) @typeOf(x + y) {
@@ -309,7 +373,7 @@ test "math.shl" {
 }
 
 /// Shifts right. Overflowed bits are truncated.
-/// A negative shift amount results in a lefft shift.
+/// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);

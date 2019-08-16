@@ -627,7 +627,7 @@ fn constructLinkerArgsWasm(ctx: *Context) void {
 
 fn addFnObjects(ctx: *Context) !void {
     // at this point it's guaranteed nobody else has this lock, so we circumvent it
-    // and avoid having to be a coroutine
+    // and avoid having to be an async function
     const fn_link_set = &ctx.comp.fn_link_set.private_data;
 
     var it = fn_link_set.first;

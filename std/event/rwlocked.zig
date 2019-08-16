@@ -3,7 +3,7 @@ const RwLock = std.event.RwLock;
 const Loop = std.event.Loop;
 
 /// Thread-safe async/await RW lock that protects one piece of data.
-/// coroutines which are waiting for the lock are suspended, and
+/// Functions which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 pub fn RwLocked(comptime T: type) type {
     return struct {

@@ -17,7 +17,7 @@ int msgctl(int q, int cmd, struct msqid_ds *buf)
 		buf = &tmp;
 	}
 #endif
-#ifdef SYS_msgctl
+#ifndef SYS_ipc
 	int r = __syscall(SYS_msgctl, q, cmd | IPC_64, buf);
 #else
 	int r = __syscall(SYS_ipc, IPCOP_msgctl, q, cmd | IPC_64, 0, buf, 0);

@@ -1,74 +1,72 @@
-/* origin: FreeBSD /usr/src/lib/msun/src/e_log2f.c */
 /*
- * ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ * Single-precision log2 function.
  *
- * Developed at SunPro, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice
- * is preserved.
- * ====================================================
- */
-/*
- * See comments in log2.c.
+ * Copyright (c) 2017-2018, Arm Limited.
+ * SPDX-License-Identifier: MIT
  */
 
 #include <math.h>
 #include <stdint.h>
+#include "libm.h"
+#include "log2f_data.h"
 
-static const float
-ivln2hi =  1.4428710938e+00, /* 0x3fb8b000 */
-ivln2lo = -1.7605285393e-04, /* 0xb9389ad4 */
-/* |(log(1+s)-log(1-s))/s - Lg(s)| < 2**-34.24 (~[-4.95e-11, 4.97e-11]). */
-Lg1 = 0xaaaaaa.0p-24, /* 0.66666662693 */
-Lg2 = 0xccce13.0p-25, /* 0.40000972152 */
-Lg3 = 0x91e9ee.0p-25, /* 0.28498786688 */
-Lg4 = 0xf89e26.0p-26; /* 0.24279078841 */
+/*
+LOG2F_TABLE_BITS = 4
+LOG2F_POLY_ORDER = 4
+
+ULP error: 0.752 (nearest rounding.)
+Relative error: 1.9 * 2^-26 (before rounding.)
+*/
+
+#define N (1 << LOG2F_TABLE_BITS)
+#define T __log2f_data.tab
+#define A __log2f_data.poly
+#define OFF 0x3f330000
 
 float log2f(float x)
 {
-	union {float f; uint32_t i;} u = {x};
-	float_t hfsq,f,s,z,R,w,t1,t2,hi,lo;
-	uint32_t ix;
-	int k;
+	double_t z, r, r2, p, y, y0, invc, logc;
+	uint32_t ix, iz, top, tmp;
+	int k, i;
 
-	ix = u.i;
-	k = 0;
-	if (ix < 0x00800000 || ix>>31) {  /* x < 2**-126  */
-		if (ix<<1 == 0)
-			return -1/(x*x);  /* log(+-0)=-inf */
-		if (ix>>31)
-			return (x-x)/0.0f; /* log(-#) = NaN */
-		/* subnormal number, scale up x */
-		k -= 25;
-		x *= 0x1p25f;
-		u.f = x;
-		ix = u.i;
-	} else if (ix >= 0x7f800000) {
-		return x;
-	} else if (ix == 0x3f800000)
+	ix = asuint(x);
+	/* Fix sign of zero with downward rounding when x==1.  */
+	if (WANT_ROUNDING && predict_false(ix == 0x3f800000))
 		return 0;
+	if (predict_false(ix - 0x00800000 >= 0x7f800000 - 0x00800000)) {
+		/* x < 0x1p-126 or inf or nan.  */
+		if (ix * 2 == 0)
+			return __math_divzerof(1);
+		if (ix == 0x7f800000) /* log2(inf) == inf.  */
+			return x;
+		if ((ix & 0x80000000) || ix * 2 >= 0xff000000)
+			return __math_invalidf(x);
+		/* x is subnormal, normalize it.  */
+		ix = asuint(x * 0x1p23f);
+		ix -= 23 << 23;
+	}
 
-	/* reduce x into [sqrt(2)/2, sqrt(2)] */
-	ix += 0x3f800000 - 0x3f3504f3;
-	k += (int)(ix>>23) - 0x7f;
-	ix = (ix&0x007fffff) + 0x3f3504f3;
-	u.i = ix;
-	x = u.f;
+	/* x = 2^k z; where z is in range [OFF,2*OFF] and exact.
+	   The range is split into N subintervals.
+	   The ith subinterval contains z and c is near its center.  */
+	tmp = ix - OFF;
+	i = (tmp >> (23 - LOG2F_TABLE_BITS)) % N;
+	top = tmp & 0xff800000;
+	iz = ix - top;
+	k = (int32_t)tmp >> 23; /* arithmetic shift */
+	invc = T[i].invc;
+	logc = T[i].logc;
+	z = (double_t)asfloat(iz);
 
-	f = x - 1.0f;
-	s = f/(2.0f + f);
-	z = s*s;
-	w = z*z;
-	t1= w*(Lg2+w*Lg4);
-	t2= z*(Lg1+w*Lg3);
-	R = t2 + t1;
-	hfsq = 0.5f*f*f;
+	/* log2(x) = log1p(z/c-1)/ln2 + log2(c) + k */
+	r = z * invc - 1;
+	y0 = logc + (double_t)k;
 
-	hi = f - hfsq;
-	u.f = hi;
-	u.i &= 0xfffff000;
-	hi = u.f;
-	lo = f - hi - hfsq + s*(hfsq+R);
-	return (lo+hi)*ivln2lo + lo*ivln2hi + hi*ivln2hi + k;
+	/* Pipelined polynomial evaluation to approximate log1p(r)/ln2.  */
+	r2 = r * r;
+	y = A[1] * r + A[2];
+	y = A[0] * r2 + y;
+	p = A[3] * r + y0;
+	y = y * r2 + p;
+	return eval_as_float(y);
 }

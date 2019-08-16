@@ -863,6 +863,71 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     zig_unreachable();
 }
 
+uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_UnknownArch:
+            zig_unreachable();
+
+        case ZigLLVM_avr:
+        case ZigLLVM_msp430:
+            return 16;
+
+        case ZigLLVM_arc:
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_le32:
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_ppc:
+        case ZigLLVM_r600:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_tce:
+        case ZigLLVM_tcele:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_x86:
+        case ZigLLVM_xcore:
+        case ZigLLVM_amdil:
+        case ZigLLVM_hsail:
+        case ZigLLVM_spir:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_lanai:
+        case ZigLLVM_shave:
+        case ZigLLVM_wasm32:
+        case ZigLLVM_renderscript32:
+            return 32;
+
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_le64:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_systemz:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_spir64:
+        case ZigLLVM_wasm64:
+        case ZigLLVM_renderscript64:
+            return 64;
+
+        case ZigLLVM_x86_64:
+            return 128;
+    }
+    zig_unreachable();
+}
+
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case OsFreestanding:
@@ -1477,9 +1542,9 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsKFreeBSD:
         case OsNetBSD:
         case OsHurd:
-        case OsWindows:
             return ZigLLVM_GNU;
         case OsUefi:
+        case OsWindows:
             return ZigLLVM_MSVC;
         case OsLinux:
         case OsWASI:
@@ -1524,7 +1589,7 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_aarch64_be, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_aarch64_be, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_aarch64, OsLinux, ZigLLVM_GNU},
-    {ZigLLVM_aarch64, OsLinux, ZigLLVM_MuslEABI},
+    {ZigLLVM_aarch64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_aarch64, OsWindows, ZigLLVM_GNU},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABI},
     {ZigLLVM_armeb, OsLinux, ZigLLVM_GNUEABIHF},
@@ -1555,7 +1620,6 @@ static const AvailableLibC libcs_available[] = {
     {ZigLLVM_ppc64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_ppc, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_ppc, OsLinux, ZigLLVM_Musl},
-    {ZigLLVM_riscv32, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_riscv64, OsLinux, ZigLLVM_GNU},
     {ZigLLVM_riscv64, OsLinux, ZigLLVM_Musl},
     {ZigLLVM_systemz, OsLinux, ZigLLVM_GNU},
@@ -1654,4 +1718,48 @@ void target_libc_enum(size_t index, ZigTarget *out_target) {
 
 bool target_has_debug_info(const ZigTarget *target) {
     return !target_is_wasm(target);
+}
+
+const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+            return "aarch64";
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+            return "arm";
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+            return "mips";
+        case ZigLLVM_mips64el:
+        case ZigLLVM_mips64:
+            return "mips64";
+        case ZigLLVM_ppc:
+            return "powerpc";
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+            return "powerpc64";
+        case ZigLLVM_systemz:
+            return "s390x";
+        case ZigLLVM_x86:
+            return "i386";
+        case ZigLLVM_x86_64:
+            return "x86_64";
+        case ZigLLVM_riscv64:
+            return "riscv64";
+        default:
+            zig_unreachable();
+    }
+}
+
+bool target_supports_libunwind(const ZigTarget *target) {
+    if (target->arch == ZigLLVM_arm || target->arch == ZigLLVM_armeb) {
+        return false;
+    }
+    return true;
+}
+
+
+unsigned target_fn_align(const ZigTarget *target) {
+    return 16;
 }

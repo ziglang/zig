@@ -193,8 +193,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeUse:
-            return "Use";
+        case NodeTypeUsingNamespace:
+            return "UsingNamespace";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
         case NodeTypeNullLiteral:
@@ -249,18 +249,16 @@ static const char *node_type_str(NodeType node_type) {
             return "IfOptional";
         case NodeTypeErrorSetDecl:
             return "ErrorSetDecl";
-        case NodeTypeCancel:
-            return "Cancel";
         case NodeTypeResume:
             return "Resume";
         case NodeTypeAwaitExpr:
             return "AwaitExpr";
         case NodeTypeSuspend:
             return "Suspend";
-        case NodeTypePromiseType:
-            return "PromiseType";
         case NodeTypePointerType:
             return "PointerType";
+        case NodeTypeAnyFrameType:
+            return "AnyFrameType";
         case NodeTypeEnumLiteral:
             return "EnumLiteral";
     }
@@ -319,6 +317,9 @@ static bool is_digit(uint8_t c) {
 }
 
 static bool is_printable(uint8_t c) {
+    if (c == 0) {
+        return false;
+    }
     static const uint8_t printables[] =
         " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.~`!@#$%^&*()_-+=\\{}[];'\"?/<>,:";
     for (size_t i = 0; i < array_length(printables); i += 1) {
@@ -337,20 +338,12 @@ static void string_literal_escape(Buf *source, Buf *dest) {
             buf_append_str(dest, "\\\"");
         } else if (c == '\\') {
             buf_append_str(dest, "\\\\");
-        } else if (c == '\a') {
-            buf_append_str(dest, "\\a");
-        } else if (c == '\b') {
-            buf_append_str(dest, "\\b");
-        } else if (c == '\f') {
-            buf_append_str(dest, "\\f");
         } else if (c == '\n') {
             buf_append_str(dest, "\\n");
         } else if (c == '\r') {
             buf_append_str(dest, "\\r");
         } else if (c == '\t') {
             buf_append_str(dest, "\\t");
-        } else if (c == '\v') {
-            buf_append_str(dest, "\\v");
         } else if (is_printable(c)) {
             buf_append_char(dest, c);
         } else {
@@ -630,7 +623,19 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeCharLiteral:
             {
                 uint8_t c = node->data.char_literal.value;
-                if (is_printable(c)) {
+                if (c == '\'') {
+                    fprintf(ar->f, "'\\''");
+                } else if (c == '\"') {
+                    fprintf(ar->f, "'\\\"'");
+                } else if (c == '\\') {
+                    fprintf(ar->f, "'\\\\'");
+                } else if (c == '\n') {
+                    fprintf(ar->f, "'\\n'");
+                } else if (c == '\r') {
+                    fprintf(ar->f, "'\\r'");
+                } else if (c == '\t') {
+                    fprintf(ar->f, "'\\t'");
+                } else if (is_printable(c)) {
                     fprintf(ar->f, "'%c'", c);
                 } else {
                     fprintf(ar->f, "'\\x%02x'", (int)c);
@@ -692,13 +697,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "@");
                 }
                 if (node->data.fn_call_expr.is_async) {
-                    fprintf(ar->f, "async");
-                    if (node->data.fn_call_expr.async_allocator != nullptr) {
-                        fprintf(ar->f, "<");
-                        render_node_extra(ar, node->data.fn_call_expr.async_allocator, true);
-                        fprintf(ar->f, ">");
-                    }
-                    fprintf(ar->f, " ");
+                    fprintf(ar->f, "async ");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
                 bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypePointerType);
@@ -791,7 +790,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     AstNode *decls_node = node->data.container_decl.decls.at(decl_i);
                     render_node_grouped(ar, decls_node);
 
-                    if (decls_node->type == NodeTypeUse ||
+                    if (decls_node->type == NodeTypeUsingNamespace ||
                         decls_node->type == NodeTypeVariableDeclaration ||
                         decls_node->type == NodeTypeFnProto)
                     {
@@ -855,15 +854,14 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, node->data.inferred_array_type.child_type);
                 break;
             }
-        case NodeTypePromiseType:
-            {
-                fprintf(ar->f, "promise");
-                if (node->data.promise_type.payload_type != nullptr) {
-                    fprintf(ar->f, "->");
-                    render_node_grouped(ar, node->data.promise_type.payload_type);
-                }
-                break;
+        case NodeTypeAnyFrameType: {
+            fprintf(ar->f, "anyframe");
+            if (node->data.anyframe_type.payload_type != nullptr) {
+                fprintf(ar->f, "->");
+                render_node_grouped(ar, node->data.anyframe_type.payload_type);
             }
+            break;
+        }
         case NodeTypeErrorType:
             fprintf(ar->f, "anyerror");
             break;
@@ -1136,12 +1134,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "}");
                 break;
             }
-        case NodeTypeCancel:
-            {
-                fprintf(ar->f, "cancel ");
-                render_node_grouped(ar, node->data.cancel_expr.expr);
-                break;
-            }
         case NodeTypeResume:
             {
                 fprintf(ar->f, "resume ");
@@ -1156,9 +1148,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeSuspend:
             {
-                fprintf(ar->f, "suspend");
                 if (node->data.suspend.block != nullptr) {
+                    fprintf(ar->f, "suspend ");
                     render_node_grouped(ar, node->data.suspend.block);
+                } else {
+                    fprintf(ar->f, "suspend\n");
                 }
                 break;
             }
@@ -1170,7 +1164,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:
-        case NodeTypeUse:
+        case NodeTypeUsingNamespace:
             zig_panic("TODO more ast rendering");
     }
 }
@@ -1183,4 +1177,10 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
     ar.indent = 0;
 
     render_node_grouped(&ar, node);
+}
+
+void AstNode::src() {
+    fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize "\n",
+            buf_ptr(this->owner->data.structure.root_struct->path),
+            this->line + 1, this->column + 1);
 }

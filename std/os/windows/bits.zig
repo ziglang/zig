@@ -209,7 +209,7 @@ pub const FILE_INFORMATION_CLASS = extern enum {
     FileLinkInformationExBypassAccessCheck,
     FileStorageReserveIdInformation,
     FileCaseSensitiveInformationForceAccessCheck,
-    FileMaximumInformation
+    FileMaximumInformation,
 };
 
 pub const OVERLAPPED = extern struct {

@@ -1,7 +1,7 @@
 #ifndef UNISTD_H
 #define UNISTD_H
 
-#include_next "unistd.h"
+#include "../../include/unistd.h"
 
 extern char **__environ;
 

@@ -8,5 +8,4 @@ dlsym:
 	.localentry dlsym,.-dlsym
 	mflr    5                      # The return address is arg3.
 	b       __dlsym
-	.end    dlsym
 	.size   dlsym, .-dlsym

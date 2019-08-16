@@ -122,16 +122,19 @@ pub fn build(b: *Builder) !void {
     }
     const modes = chosen_modes[0..chosen_mode_index];
 
+    const multi_and_single = [_]bool{ false, true };
+    const just_multi = [_]bool{false};
+
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
     test_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, multi_and_single, skip_non_native));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes, multi_and_single, skip_non_native));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, just_multi, skip_non_native));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
@@ -372,7 +375,9 @@ fn addLibUserlandStep(b: *Builder) void {
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.linkSystemLibrary("c");
-    artifact.linkSystemLibrary("ntdll");
+    if (builtin.os == .windows) {
+        artifact.linkSystemLibrary("ntdll");
+    }
     const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
     libuserland_step.dependOn(&artifact.step);
 

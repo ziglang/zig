@@ -38,3 +38,6 @@
 #define F_GETOWN_EX 16
 
 #define F_GETOWNER_UIDS 17
+
+#define POSIX_FADV_DONTNEED   6
+#define POSIX_FADV_NOREUSE    7
