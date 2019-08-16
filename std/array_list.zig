@@ -207,23 +207,25 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         pub const Iterator = struct {
             list: *Self,
 
-            // index of the next element to return
-            next_index: usize = 0,
+            // index of the last element we returned, or null
+            // if we haven't called `next` yet.
+            cursor: ?usize = null,
 
             // the last index we removed
             removed_index: ?usize = null,
 
             pub fn next(it: *Iterator) ?T {
-                if (it.next_index >= it.list.len) return null;
-                const val = it.list.at(it.next_index);
-
-                it.next_index += 1;
-
-                return val;
+                var idx: usize = 0;
+                if (it.cursor) |cursor| {
+                    idx = cursor + 1;
+                }
+                if (idx >= it.list.len) return null;
+                it.cursor = idx;
+                return it.list.at(idx);
             }
 
             pub fn reset(it: *Iterator) void {
-                it.next_index = 0;
+                it.cursor = null;
                 it.removed_index = null;
             }
 
@@ -233,14 +235,12 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             //
 
             pub inline fn swapRemove(it: *Iterator) T {
-                if (it.list.len == 0) @panic("attempt to remove element from empty list");
-
+                const cursor = it.cursor orelse @panic("must call next at least once");
                 if (it.removed_index == null or
-                    it.removed_index.? != it.next_index)
-                {
-                    if (it.next_index > 0) it.next_index -= 1;
-                    it.removed_index = it.next_index;
-                    return it.list.swapRemove(it.next_index);
+                    it.removed_index.? != cursor
+                ) {
+                    it.removed_index = cursor;
+                    return it.list.swapRemove(cursor);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
                     else => @panic("removed element more than once"),
@@ -248,14 +248,12 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             }
 
             pub inline fn orderedRemove(it: *Iterator) T {
-                if (it.list.len == 0) @panic("attempt to remove element from empty list");
-
+                const cursor = it.cursor orelse @panic("must call next at least once");
                 if (it.removed_index == null or
-                    it.removed_index.? != it.next_index)
-                {
-                    if (it.next_index > 0) it.next_index -= 1;
-                    it.removed_index = it.next_index;
-                    return it.list.orderedRemove(it.next_index);
+                    it.removed_index.? != cursor
+                ) {
+                    it.removed_index = cursor;
+                    return it.list.orderedRemove(cursor);
                 } else switch (builtin.mode) {
                     .ReleaseFast => unreachable,
                     else => @panic("removed element more than once"),
@@ -495,6 +493,7 @@ test "std.ArrayList.iterator.swapRemove" {
     {
         var last_elem = list.at(list.len-1);
         var itr = list.iterator();
+        _ = itr.next();
         _ = itr.swapRemove();
         testing.expectEqual(list.at(0), last_elem);
         try list.insert(0, 1); // put the number back in.
@@ -532,6 +531,7 @@ test "std.ArrayList.iterator.orderedRemove" {
     {
         var second_elem = list.at(1);
         var itr = list.iterator();
+        _ = itr.next();
         _ = itr.orderedRemove();
         testing.expectEqual(list.at(0), second_elem);
         try list.insert(0, 1); // put the number back in.
