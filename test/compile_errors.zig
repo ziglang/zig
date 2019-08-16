@@ -3,6 +3,27 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "prevent bad implicit casting of anyframe types",
+        \\export fn a() void {
+        \\    var x: anyframe = undefined;
+        \\    var y: anyframe->i32 = x;
+        \\}
+        \\export fn b() void {
+        \\    var x: i32 = undefined;
+        \\    var y: anyframe->i32 = x;
+        \\}
+        \\export fn c() void {
+        \\    var x: @Frame(func) = undefined;
+        \\    var y: anyframe->i32 = &x;
+        \\}
+        \\fn func() void {}
+    ,
+        "tmp.zig:3:28: error: expected type 'anyframe->i32', found 'anyframe'",
+        "tmp.zig:7:28: error: expected type 'anyframe->i32', found 'i32'",
+        "tmp.zig:11:29: error: expected type 'anyframe->i32', found '*@Frame(func)'",
+    );
+
+    cases.add(
         "wrong frame type used for async call",
         \\export fn entry() void {
         \\    var frame: @Frame(foo) = undefined;
