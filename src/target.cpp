@@ -651,7 +651,63 @@ ZigLLVM_SubArchType target_subarch_enum(SubArchList sub_arch_list, size_t i) {
 }
 
 const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
-    return ZigLLVMGetSubArchTypeName(subarch);
+    switch (subarch) {
+        case ZigLLVM_NoSubArch:
+            return "";
+        case ZigLLVM_ARMSubArch_v8_5a:
+            return "v8_5a";
+        case ZigLLVM_ARMSubArch_v8_4a:
+            return "v8_4a";
+        case ZigLLVM_ARMSubArch_v8_3a:
+            return "v8_3a";
+        case ZigLLVM_ARMSubArch_v8_2a:
+            return "v8_2a";
+        case ZigLLVM_ARMSubArch_v8_1a:
+            return "v8_1a";
+        case ZigLLVM_ARMSubArch_v8:
+            return "v8";
+        case ZigLLVM_ARMSubArch_v8r:
+            return "v8r";
+        case ZigLLVM_ARMSubArch_v8m_baseline:
+            return "v8m_baseline";
+        case ZigLLVM_ARMSubArch_v8m_mainline:
+            return "v8m_mainline";
+        case ZigLLVM_ARMSubArch_v7:
+            return "v7";
+        case ZigLLVM_ARMSubArch_v7em:
+            return "v7em";
+        case ZigLLVM_ARMSubArch_v7m:
+            return "v7m";
+        case ZigLLVM_ARMSubArch_v7s:
+            return "v7s";
+        case ZigLLVM_ARMSubArch_v7k:
+            return "v7k";
+        case ZigLLVM_ARMSubArch_v7ve:
+            return "v7ve";
+        case ZigLLVM_ARMSubArch_v6:
+            return "v6";
+        case ZigLLVM_ARMSubArch_v6m:
+            return "v6m";
+        case ZigLLVM_ARMSubArch_v6k:
+            return "v6k";
+        case ZigLLVM_ARMSubArch_v6t2:
+            return "v6t2";
+        case ZigLLVM_ARMSubArch_v5:
+            return "v5";
+        case ZigLLVM_ARMSubArch_v5te:
+            return "v5te";
+        case ZigLLVM_ARMSubArch_v4t:
+            return "v4t";
+        case ZigLLVM_KalimbaSubArch_v3:
+            return "v3";
+        case ZigLLVM_KalimbaSubArch_v4:
+            return "v4";
+        case ZigLLVM_KalimbaSubArch_v5:
+            return "v5";
+        case ZigLLVM_MipsSubArch_r6:
+            return "r6";
+    }
+    zig_unreachable();
 }
 
 size_t target_subarch_list_count(void) {
