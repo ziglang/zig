@@ -740,3 +740,23 @@ test "no reason to resolve frame still works" {
 fn simpleNothing() void {
     var x: i32 = 1234;
 }
+
+test "async call a generic function" {
+    const S = struct {
+        fn doTheTest() void {
+            var f = async func(i32, 2);
+            const result = await f;
+            expect(result == 3);
+        }
+
+        fn func(comptime T: type, inc: T) T {
+            var x: T = 1;
+            suspend {
+                resume @frame();
+            }
+            x += inc;
+            return x;
+        }
+    };
+    _ = async S.doTheTest();
+}
