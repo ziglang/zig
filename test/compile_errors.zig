@@ -3,6 +3,40 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "result location incompatibility mismatching handle_is_ptr (generic call)",
+        \\export fn entry() void {
+        \\    var damn = Container{
+        \\        .not_optional = getOptional(i32),
+        \\    };
+        \\}
+        \\pub fn getOptional(comptime T: type) ?T {
+        \\    return 0;
+        \\}
+        \\pub const Container = struct {
+        \\    not_optional: i32,
+        \\};
+    ,
+        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+    );
+
+    cases.add(
+        "result location incompatibility mismatching handle_is_ptr",
+        \\export fn entry() void {
+        \\    var damn = Container{
+        \\        .not_optional = getOptional(),
+        \\    };
+        \\}
+        \\pub fn getOptional() ?i32 {
+        \\    return 0;
+        \\}
+        \\pub const Container = struct {
+        \\    not_optional: i32,
+        \\};
+    ,
+        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+    );
+
+    cases.add(
         "const frame cast to anyframe",
         \\export fn a() void {
         \\    const f = async func();

@@ -9615,6 +9615,10 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             return cur_type;
         }
 
+        if (prev_type == cur_type) {
+            continue;
+        }
+
         if (prev_type->id == ZigTypeIdUnreachable) {
             prev_inst = cur_inst;
             continue;
@@ -14921,7 +14925,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
     ZigType *frame_type = get_fn_frame_type(ira->codegen, fn_entry);
     IrInstruction *result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
             frame_type, nullptr, true, true, false);
-    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
+    if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
         return result_loc;
     }
     result_loc = ir_implicit_cast(ira, result_loc, get_pointer_to_type(ira->codegen, frame_type, false));
@@ -15638,10 +15642,14 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                     impl_fn_type_id->return_type, nullptr, true, true, false);
-            if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) ||
-                        instr_is_unreachable(result_loc)))
-            {
-                return result_loc;
+            if (result_loc != nullptr) {
+                if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+                    return result_loc;
+                }
+                if (!handle_is_ptr(result_loc->value.type->data.pointer.child_type)) {
+                    ir_reset_result(call_instruction->result_loc);
+                    result_loc = nullptr;
+                }
             }
         } else {
             result_loc = nullptr;
@@ -15791,8 +15799,14 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                 return_type, nullptr, true, true, false);
-        if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc))) {
-            return result_loc;
+        if (result_loc != nullptr) {
+            if (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)) {
+                return result_loc;
+            }
+            if (!handle_is_ptr(result_loc->value.type->data.pointer.child_type)) {
+                ir_reset_result(call_instruction->result_loc);
+                result_loc = nullptr;
+            }
         }
     } else {
         result_loc = nullptr;
