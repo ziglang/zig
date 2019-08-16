@@ -3,6 +3,22 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "wrong frame type used for async call",
+        \\export fn entry() void {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    frame = async bar();
+        \\}
+        \\fn foo() void {
+        \\    suspend;
+        \\}
+        \\fn bar() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:3:5: error: expected type '*@Frame(bar)', found '*@Frame(foo)'",
+    );
+
+    cases.add(
         "@Frame() of generic function",
         \\export fn entry() void {
         \\    var frame: @Frame(func) = undefined;
