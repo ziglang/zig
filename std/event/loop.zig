@@ -149,14 +149,15 @@ pub const Loop = struct {
                 .overlapped = ResumeNode.overlapped_init,
             },
         };
-        // We need an extra one of these in case the fs thread wants to use onNextTick
+        // We need at least one of these in case the fs thread wants to use onNextTick
+        const extra_thread_count = thread_count - 1;
+        const resume_node_count = std.math.max(extra_thread_count, 1);
         self.eventfd_resume_nodes = try self.allocator.alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
-            thread_count,
+            resume_node_count,
         );
         errdefer self.allocator.free(self.eventfd_resume_nodes);
 
-        const extra_thread_count = thread_count - 1;
         self.extra_threads = try self.allocator.alloc(*Thread, extra_thread_count);
         errdefer self.allocator.free(self.extra_threads);
 

@@ -97,28 +97,27 @@ test "std.event.Future" {
     loop.run();
 }
 
-async fn testFuture(loop: *Loop) void {
+fn testFuture(loop: *Loop) void {
     var future = Future(i32).init(loop);
 
     var a = async waitOnFuture(&future);
     var b = async waitOnFuture(&future);
-    var c = async resolveFuture(&future);
+    resolveFuture(&future);
 
-    // TODO make this work:
+    // TODO https://github.com/ziglang/zig/issues/3077
     //const result = (await a) + (await b);
     const a_result = await a;
     const b_result = await b;
     const result = a_result + b_result;
 
-    await c;
     testing.expect(result == 12);
 }
 
-async fn waitOnFuture(future: *Future(i32)) i32 {
+fn waitOnFuture(future: *Future(i32)) i32 {
     return future.get().*;
 }
 
-async fn resolveFuture(future: *Future(i32)) void {
+fn resolveFuture(future: *Future(i32)) void {
     future.data = 6;
     future.resolve();
 }
