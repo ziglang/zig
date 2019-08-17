@@ -817,3 +817,30 @@ test "struct parameter to async function is copied to the frame" {
     };
     S.doTheTest();
 }
+
+test "cast fn to async fn when it is inferred to be async" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            var ptr: async fn () i32 = undefined;
+            ptr = func;
+            var buf: [100]u8 align(16) = undefined;
+            var result: i32 = undefined;
+            _ = await @asyncCall(&buf, &result, ptr);
+            expect(result == 1234);
+            ok = true;
+        }
+
+        fn func() i32 {
+            suspend {
+                frame = @frame();
+            }
+            return 1234;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.frame;
+    expect(S.ok);
+}

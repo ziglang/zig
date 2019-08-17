@@ -9485,10 +9485,6 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.id = ConstCastResultIdFnAlign;
             return result;
         }
-        if (wanted_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
-            result.id = ConstCastResultIdFnCC;
-            return result;
-        }
         if (wanted_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
             result.id = ConstCastResultIdFnVarArgs;
             return result;
@@ -9545,6 +9541,11 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
                 result.data.arg_no_alias.arg_index = i;
                 return result;
             }
+        }
+        if (wanted_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
+            // ConstCastResultIdFnCC is guaranteed to be the last one reported, meaning everything else is ok.
+            result.id = ConstCastResultIdFnCC;
+            return result;
         }
         return result;
     }
@@ -11780,8 +11781,11 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             add_error_note(ira->codegen, parent_msg, source_node,
                     buf_sprintf("only one of the functions is generic"));
             break;
+        case ConstCastResultIdFnCC:
+            add_error_note(ira->codegen, parent_msg, source_node,
+                    buf_sprintf("calling convention mismatch"));
+            break;
         case ConstCastResultIdFnAlign: // TODO
-        case ConstCastResultIdFnCC: // TODO
         case ConstCastResultIdFnVarArgs: // TODO
         case ConstCastResultIdFnReturnType: // TODO
         case ConstCastResultIdFnArgCount: // TODO
@@ -11889,6 +11893,21 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ira->codegen->invalid_instruction;
     if (const_cast_result.id == ConstCastResultIdOk) {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop);
+    }
+
+    if (const_cast_result.id == ConstCastResultIdFnCC) {
+        ir_assert(value->value.type->id == ZigTypeIdFn, source_instr);
+        // ConstCastResultIdFnCC is guaranteed to be the last one reported, meaning everything else is ok.
+        if (wanted_type->data.fn.fn_type_id.cc == CallingConventionAsync &&
+            actual_type->data.fn.fn_type_id.cc == CallingConventionUnspecified)
+        {
+            ir_assert(value->value.data.x_ptr.special == ConstPtrSpecialFunction, source_instr);
+            ZigFn *fn = value->value.data.x_ptr.data.fn.fn_entry;
+            if (fn->inferred_async_node == nullptr) {
+                fn->inferred_async_node = source_instr->source_node;
+            }
+            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop);
+        }
     }
 
     // cast from T to ?T
