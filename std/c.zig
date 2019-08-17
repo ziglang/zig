@@ -69,6 +69,7 @@ pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: u64) isize;
 pub extern "c" fn preadv(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: usize) isize;
+pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) isize;
 pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: usize) isize;
 pub extern "c" fn stat(noalias path: [*]const u8, noalias buf: *Stat) c_int;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;

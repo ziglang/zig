@@ -149,13 +149,14 @@ pub const Loop = struct {
                 .overlapped = ResumeNode.overlapped_init,
             },
         };
-        const extra_thread_count = thread_count - 1;
+        // We need an extra one of these in case the fs thread wants to use onNextTick
         self.eventfd_resume_nodes = try self.allocator.alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
-            extra_thread_count,
+            thread_count,
         );
         errdefer self.allocator.free(self.eventfd_resume_nodes);
 
+        const extra_thread_count = thread_count - 1;
         self.extra_threads = try self.allocator.alloc(*Thread, extra_thread_count);
         errdefer self.allocator.free(self.extra_threads);
 
@@ -197,7 +198,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -454,12 +455,12 @@ pub const Loop = struct {
         self.finishOneEvent();
     }
 
-    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
+    pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
         defer self.linuxRemoveFd(fd);
         suspend {
             var resume_node = ResumeNode.Basic{
                 .base = ResumeNode{
-                    .id = ResumeNode.Id.Basic,
+                    .id = .Basic,
                     .handle = @frame(),
                     .overlapped = ResumeNode.overlapped_init,
                 },
@@ -793,8 +794,8 @@ pub const Loop = struct {
 
     fn posixFsRun(self: *Loop) void {
         while (true) {
-            if (builtin.os == builtin.Os.linux) {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+            if (builtin.os == .linux) {
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, .Xchg, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
@@ -833,14 +834,14 @@ pub const Loop = struct {
                 self.finishOneEvent();
             }
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
                         0, os.EINTR, os.EAGAIN => continue,
                         else => unreachable,
                     }
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
                     _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
