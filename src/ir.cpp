@@ -15160,6 +15160,20 @@ no_mem_slot:
     return var_ptr_instruction;
 }
 
+// This function is called when a comptime value becomes accessible at runtime.
+static void mark_comptime_value_escape(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *val) {
+    ir_assert(value_is_comptime(val), source_instr);
+    if (val->special == ConstValSpecialUndef)
+        return;
+
+    if (val->type->id == ZigTypeIdFn && val->type->data.fn.fn_type_id.cc == CallingConventionUnspecified) {
+        ir_assert(val->data.x_ptr.special == ConstPtrSpecialFunction, source_instr);
+        if (val->data.x_ptr.data.fn.fn_entry->non_async_node == nullptr) {
+            val->data.x_ptr.data.fn.fn_entry->non_async_node = source_instr->source_node;
+        }
+    }
+}
+
 static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *ptr, IrInstruction *uncasted_value, bool allow_write_through_const)
 {
@@ -15254,6 +15268,10 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
             zig_unreachable();
         case ReqCompTimeNo:
             break;
+    }
+
+    if (instr_is_comptime(value)) {
+        mark_comptime_value_escape(ira, source_instr, &value->value);
     }
 
     IrInstructionStorePtr *store_ptr = ir_build_store_ptr(&ira->new_irb, source_instr->scope,

@@ -1396,6 +1396,7 @@ struct ZigFn {
     AstNode *set_cold_node;
     const AstNode *inferred_async_node;
     ZigFn *inferred_async_fn;
+    AstNode *non_async_node;
 
     ZigList<GlobalExport> export_list;
     ZigList<IrInstructionCallGen *> call_list;

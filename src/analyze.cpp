@@ -4144,8 +4144,15 @@ void semantic_analyze(CodeGen *g) {
 
     // second pass over functions for detecting async
     for (g->fn_defs_index = 0; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
-        ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
-        analyze_fn_async(g, fn_entry, true);
+        ZigFn *fn = g->fn_defs.at(g->fn_defs_index);
+        analyze_fn_async(g, fn, true);
+        if (fn_is_async(fn) && fn->non_async_node != nullptr) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("'%s' cannot be async", buf_ptr(&fn->symbol_name)));
+            add_error_note(g, msg, fn->non_async_node,
+                buf_sprintf("required to be non-async here"));
+            add_async_error_notes(g, msg, fn);
+        }
     }
 }
 

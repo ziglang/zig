@@ -3,6 +3,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "non-async function pointer eventually is inferred to become async",
+        \\export fn a() void {
+        \\    var non_async_fn: fn () void = undefined;
+        \\    non_async_fn = func;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:5:1: error: 'func' cannot be async",
+        "tmp.zig:3:20: note: required to be non-async here",
+        "tmp.zig:6:5: note: suspends here",
+    );
+
+    cases.add(
         "bad alignment in @asyncCall",
         \\export fn entry() void {
         \\    var ptr: async fn () void = func;
