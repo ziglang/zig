@@ -285,7 +285,7 @@ pub fn formatType(
     if (comptime std.mem.eql(u8, fmt, "*")) {
         try output(context, @typeName(@typeOf(value).Child));
         try output(context, "@");
-        try formatInt(@ptrToInt(value), 16, false, 0, context, Errors, output);
+        try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
         return;
     }
 
@@ -434,9 +434,9 @@ fn formatValue(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
-        return formatBytes(value, options.width, 1000, context, Errors, output);
+        return formatBytes(value, options, 1000, context, Errors, output);
     } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        return formatBytes(value, options.width, 1024, context, Errors, output);
+        return formatBytes(value, options, 1024, context, Errors, output);
     }
 
     const T = @typeOf(value);
@@ -469,7 +469,7 @@ pub fn formatIntValue(
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeOf(int_value).bit_count <= 8) {
-            return formatAsciiChar(u8(int_value), context, Errors, output);
+            return formatAsciiChar(u8(int_value), options, context, Errors, output);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
@@ -486,7 +486,7 @@ pub fn formatIntValue(
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
 
-    return formatInt(int_value, radix, uppercase, options.width orelse 0, context, Errors, output);
+    return formatInt(int_value, radix, uppercase, options, context, Errors, output);
 }
 
 fn formatFloatValue(
@@ -498,9 +498,9 @@ fn formatFloatValue(
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        return formatFloatScientific(value, options.precision, context, Errors, output);
+        return formatFloatScientific(value, options, context, Errors, output);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        return formatFloatDecimal(value, options.precision, context, Errors, output);
+        return formatFloatDecimal(value, options, context, Errors, output);
     } else {
         @compileError("Unknown format string: '" ++ fmt ++ "'");
     }
@@ -517,11 +517,10 @@ pub fn formatText(
     if (fmt.len == 0) {
         return output(context, bytes);
     } else if (comptime std.mem.eql(u8, fmt, "s")) {
-        if (options.width) |w| return formatBuf(bytes, w, context, Errors, output);
-        return formatBuf(bytes, 0, context, Errors, output);
+        return formatBuf(bytes, options, context, Errors, output);
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
         for (bytes) |c| {
-            try formatInt(c, 16, fmt[0] == 'X', 2, context, Errors, output);
+            try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, context, Errors, output);
         }
         return;
     } else {
@@ -531,6 +530,7 @@ pub fn formatText(
 
 pub fn formatAsciiChar(
     c: u8,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -540,15 +540,16 @@ pub fn formatAsciiChar(
 
 pub fn formatBuf(
     buf: []const u8,
-    width: usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
     try output(context, buf);
 
+    const width = options.width orelse 0;
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
-    const pad_byte: u8 = ' ';
+    const pad_byte: u8 = options.fill;
     while (leftover_padding > 0) : (leftover_padding -= 1) {
         try output(context, (*const [1]u8)(&pad_byte)[0..1]);
     }
@@ -559,7 +560,7 @@ pub fn formatBuf(
 // same type unambiguously.
 pub fn formatFloatScientific(
     value: var,
-    maybe_precision: ?usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -581,7 +582,7 @@ pub fn formatFloatScientific(
     if (x == 0.0) {
         try output(context, "0");
 
-        if (maybe_precision) |precision| {
+        if (options.precision) |precision| {
             if (precision != 0) {
                 try output(context, ".");
                 var i: usize = 0;
@@ -600,7 +601,7 @@ pub fn formatFloatScientific(
     var buffer: [32]u8 = undefined;
     var float_decimal = errol.errol3(x, buffer[0..]);
 
-    if (maybe_precision) |precision| {
+    if (options.precision) |precision| {
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
 
         try output(context, float_decimal.digits[0..1]);
@@ -640,13 +641,13 @@ pub fn formatFloatScientific(
         if (exp > -10 and exp < 10) {
             try output(context, "0");
         }
-        try formatInt(exp, 10, false, 0, context, Errors, output);
+        try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
     } else {
         try output(context, "-");
         if (exp > -10 and exp < 10) {
             try output(context, "0");
         }
-        try formatInt(-exp, 10, false, 0, context, Errors, output);
+        try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
     }
 }
 
@@ -654,7 +655,7 @@ pub fn formatFloatScientific(
 // By default floats are printed at full precision (no rounding).
 pub fn formatFloatDecimal(
     value: var,
-    maybe_precision: ?usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -676,7 +677,7 @@ pub fn formatFloatDecimal(
     if (x == 0.0) {
         try output(context, "0");
 
-        if (maybe_precision) |precision| {
+        if (options.precision) |precision| {
             if (precision != 0) {
                 try output(context, ".");
                 var i: usize = 0;
@@ -697,7 +698,7 @@ pub fn formatFloatDecimal(
     var buffer: [32]u8 = undefined;
     var float_decimal = errol.errol3(x, buffer[0..]);
 
-    if (maybe_precision) |precision| {
+    if (options.precision) |precision| {
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
         // exp < 0 means the leading is always 0 as errol result is normalized.
@@ -799,7 +800,7 @@ pub fn formatFloatDecimal(
 
 pub fn formatBytes(
     value: var,
-    width: ?usize,
+    comptime options: FormatOptions,
     comptime radix: usize,
     context: var,
     comptime Errors: type,
@@ -823,7 +824,7 @@ pub fn formatBytes(
         else => unreachable,
     };
 
-    try formatFloatDecimal(new_value, width, context, Errors, output);
+    try formatFloatDecimal(new_value, options, context, Errors, output);
 
     if (suffix == ' ') {
         return output(context, "B");
@@ -841,7 +842,7 @@ pub fn formatInt(
     value: var,
     base: u8,
     uppercase: bool,
-    width: usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -853,9 +854,9 @@ pub fn formatInt(
         value;
 
     if (@typeOf(int_value).is_signed) {
-        return formatIntSigned(int_value, base, uppercase, width, context, Errors, output);
+        return formatIntSigned(int_value, base, uppercase, options, context, Errors, output);
     } else {
-        return formatIntUnsigned(int_value, base, uppercase, width, context, Errors, output);
+        return formatIntUnsigned(int_value, base, uppercase, options, context, Errors, output);
     }
 }
 
@@ -863,26 +864,30 @@ fn formatIntSigned(
     value: var,
     base: u8,
     uppercase: bool,
-    width: usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
+    const new_options = FormatOptions{
+        .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
+        .precision = options.precision,
+        .fill = options.fill,
+    };
+
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
         try output(context, (*const [1]u8)(&minus_sign)[0..]);
         const new_value = @intCast(uint, -(value + 1)) + 1;
-        const new_width = if (width == 0) 0 else (width - 1);
-        return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
-    } else if (width == 0) {
-        return formatIntUnsigned(@intCast(uint, value), base, uppercase, width, context, Errors, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
+    } else if (options.width == null or options.width.? == 0) {
+        return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
     } else {
         const plus_sign: u8 = '+';
         try output(context, (*const [1]u8)(&plus_sign)[0..]);
         const new_value = @intCast(uint, value);
-        const new_width = if (width == 0) 0 else (width - 1);
-        return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     }
 }
 
@@ -890,7 +895,7 @@ fn formatIntUnsigned(
     value: var,
     base: u8,
     uppercase: bool,
-    width: usize,
+    comptime options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -911,31 +916,32 @@ fn formatIntUnsigned(
     }
 
     const digits_buf = buf[index..];
+    const width = options.width orelse 0;
     const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
 
     if (padding > index) {
-        const zero_byte: u8 = '0';
+        const zero_byte: u8 = options.fill;
         var leftover_padding = padding - index;
         while (true) {
             try output(context, (*const [1]u8)(&zero_byte)[0..]);
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
-        mem.set(u8, buf[0..index], '0');
+        mem.set(u8, buf[0..index], options.fill);
         return output(context, buf);
     } else {
         const padded_buf = buf[index - padding ..];
-        mem.set(u8, padded_buf[0..padding], '0');
+        mem.set(u8, padded_buf[0..padding], options.fill);
         return output(context, padded_buf);
     }
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, width: usize) usize {
+pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, comptime options: FormatOptions) usize {
     var context = FormatIntBuf{
         .out_buf = out_buf,
         .index = 0,
     };
-    formatInt(value, base, uppercase, width, &context, error{}, formatIntCallback) catch unreachable;
+    formatInt(value, base, uppercase, options, &context, error{}, formatIntCallback) catch unreachable;
     return context.index;
 }
 const FormatIntBuf = struct {
@@ -1078,23 +1084,23 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, FormatOptions{}), "-12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, FormatOptions{}), "-bc614e"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, FormatOptions{}), "12345678"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, FormatOptions{ .width = 6 }), "   666"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, FormatOptions{ .width = 3 }), "+42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, FormatOptions{ .width = 3 }), "-42"));
 }
 
-fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: usize) []u8 {
-    return buf[0..formatIntBuf(buf, value, base, uppercase, width)];
+fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, comptime options: FormatOptions) []u8 {
+    return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
 test "parse u64 digit too big" {
@@ -1152,7 +1158,8 @@ test "int.specifier" {
 }
 
 test "int.padded" {
-    try testFmt("u8: '0001'", "u8: '{:4}'", u8(1));
+    try testFmt("u8: '   1'", "u8: '{:4}'", u8(1));
+    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", u8(1));
 }
 
 test "buffer" {
@@ -1227,7 +1234,7 @@ test "cstr" {
 
 test "filesize" {
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
-    try testFmt("file size: 66.06MB\n", "file size: {B:2}\n", usize(63 * 1024 * 1024));
+    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", usize(63 * 1024 * 1024));
 }
 
 test "struct" {

@@ -124,7 +124,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
         \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
         \\}
-    , "Hello, world!\n0012 012 a\n");
+    , "Hello, world!\n  12  12 a\n");
 
     cases.addC("number literals",
         \\const builtin = @import("builtin");
