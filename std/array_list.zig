@@ -233,6 +233,10 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             // NOTE: inlining these removal routines is important.
             // It gains ~5% in debug mode, and ~8% in release-safe; within 1% of the performance of ArrayList.swapRemove/orderedRemove.
             //
+            // Also note that you'd think that just checking for the index==0 in the removal routines would be
+            // good for making it illegal if next has not been called yet.
+            // But no, it is slower to do this for release-safe, and debug modes.
+            //
 
             pub inline fn swapRemove(it: *Iterator) T {
                 const cursor = it.cursor orelse @panic("must call next at least once");
