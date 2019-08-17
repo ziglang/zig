@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "variable in inline assembly template cannot be found",
+        \\export fn entry() void {
+        \\    var sp = asm volatile (
+        \\        "mov %[foo], sp"
+        \\        : [bar] "=r" (-> usize)
+        \\    );
+        \\}
+    ,
+        "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs."
+    );
+
+    cases.add(
         "indirect recursion of async functions detected",
         \\var frame: ?anyframe = null;
         \\
