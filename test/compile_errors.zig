@@ -15,6 +15,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "atomic orderings of fence Acquire or stricter",
+        \\export fn entry() void {
+        \\    @fence(.Monotonic);
+        \\}
+    ,
+        "tmp.zig:2:12: error: atomic ordering must be Acquire or stricter",
+    );
+
+    cases.add(
         "bad alignment in implicit cast from array pointer to slice",
         \\export fn a() void {
         \\    var x: [10]u8 = undefined;

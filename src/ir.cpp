@@ -20860,6 +20860,12 @@ static IrInstruction *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstruction
     if (!ir_resolve_atomic_order(ira, order_value, &order))
         return ira->codegen->invalid_instruction;
 
+    if (order < AtomicOrderAcquire) {
+        ir_add_error(ira, order_value,
+                buf_sprintf("atomic ordering must be Acquire or stricter"));
+        return ira->codegen->invalid_instruction;
+    }
+
     IrInstruction *result = ir_build_fence(&ira->new_irb,
         instruction->base.scope, instruction->base.source_node, order_value, order);
     result->value.type = ira->codegen->builtin_types.entry_void;
