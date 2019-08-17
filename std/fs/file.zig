@@ -302,6 +302,14 @@ pub const File = struct {
         return os.write(self.handle, bytes);
     }
 
+    pub fn writev_iovec(self: File, iovecs: []const os.iovec_const) WriteError!void {
+        if (std.event.Loop.instance) |loop| {
+            return std.event.fs.writevPosix(loop, self.handle, iovecs);
+        } else {
+            return os.writev(self.handle, iovecs);
+        }
+    }
+
     pub fn inStream(file: File) InStream {
         return InStream{
             .file = file,

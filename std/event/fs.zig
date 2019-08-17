@@ -23,12 +23,21 @@ pub const Request = struct {
     };
 
     pub const Msg = union(enum) {
+        WriteV: WriteV,
         PWriteV: PWriteV,
         PReadV: PReadV,
         Open: Open,
         Close: Close,
         WriteFile: WriteFile,
         End, // special - means the fs thread should exit
+
+        pub const WriteV = struct {
+            fd: fd_t,
+            iov: []const os.iovec_const,
+            result: Error!void,
+
+            pub const Error = os.WriteError;
+        };
 
         pub const PWriteV = struct {
             fd: fd_t,
@@ -77,7 +86,7 @@ pub const Request = struct {
 pub const PWriteVError = error{OutOfMemory} || File.WriteError;
 
 /// data - just the inner references - must live until pwritev frame completes.
-pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
+pub fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) PWriteVError!void {
     switch (builtin.os) {
         .macosx,
         .linux,
@@ -94,31 +103,31 @@ pub async fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: us
                 };
             }
 
-            return await (async pwritevPosix(loop, fd, iovecs, offset) catch unreachable);
+            return pwritevPosix(loop, fd, iovecs, offset);
         },
         .windows => {
             const data_copy = try std.mem.dupe(loop.allocator, []const u8, data);
             defer loop.allocator.free(data_copy);
-            return await (async pwritevWindows(loop, fd, data, offset) catch unreachable);
+            return pwritevWindows(loop, fd, data, offset);
         },
         else => @compileError("Unsupported OS"),
     }
 }
 
 /// data must outlive the returned frame
-pub async fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
+pub fn pwritevWindows(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) os.WindowsWriteError!void {
     if (data.len == 0) return;
-    if (data.len == 1) return await (async pwriteWindows(loop, fd, data[0], offset) catch unreachable);
+    if (data.len == 1) return pwriteWindows(loop, fd, data[0], offset);
 
     // TODO do these in parallel
     var off = offset;
     for (data) |buf| {
-        try await (async pwriteWindows(loop, fd, buf, off) catch unreachable);
+        try pwriteWindows(loop, fd, buf, off);
         off += buf.len;
     }
 }
 
-pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteError!void {
+pub fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteError!void {
     var resume_node = Loop.ResumeNode.Basic{
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
@@ -158,7 +167,7 @@ pub async fn pwriteWindows(loop: *Loop, fd: fd_t, data: []const u8, offset: u64)
 }
 
 /// iovecs must live until pwritev frame completes.
-pub async fn pwritevPosix(
+pub fn pwritevPosix(
     loop: *Loop,
     fd: fd_t,
     iovecs: []const os.iovec_const,
@@ -195,10 +204,44 @@ pub async fn pwritevPosix(
     return req_node.data.msg.PWriteV.result;
 }
 
+/// iovecs must live until pwritev frame completes.
+pub fn writevPosix(
+    loop: *Loop,
+    fd: fd_t,
+    iovecs: []const os.iovec_const,
+) os.WriteError!void {
+    var req_node = RequestNode{
+        .prev = null,
+        .next = null,
+        .data = Request{
+            .msg = Request.Msg{
+                .WriteV = Request.Msg.WriteV{
+                    .fd = fd,
+                    .iov = iovecs,
+                    .result = undefined,
+                },
+            },
+            .finish = Request.Finish{
+                .TickNode = Loop.NextTickNode{
+                    .prev = null,
+                    .next = null,
+                    .data = @frame(),
+                },
+            },
+        },
+    };
+
+    suspend {
+        loop.posixFsRequest(&req_node);
+    }
+
+    return req_node.data.msg.WriteV.result;
+}
+
 pub const PReadVError = error{OutOfMemory} || File.ReadError;
 
 /// data - just the inner references - must live until preadv frame completes.
-pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
+pub fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVError!usize {
     assert(data.len != 0);
     switch (builtin.os) {
         .macosx,
@@ -216,21 +259,21 @@ pub async fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PR
                 };
             }
 
-            return await (async preadvPosix(loop, fd, iovecs, offset) catch unreachable);
+            return preadvPosix(loop, fd, iovecs, offset);
         },
         .windows => {
             const data_copy = try std.mem.dupe(loop.allocator, []u8, data);
             defer loop.allocator.free(data_copy);
-            return await (async preadvWindows(loop, fd, data_copy, offset) catch unreachable);
+            return preadvWindows(loop, fd, data_copy, offset);
         },
         else => @compileError("Unsupported OS"),
     }
 }
 
 /// data must outlive the returned frame
-pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) !usize {
+pub fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u64) !usize {
     assert(data.len != 0);
-    if (data.len == 1) return await (async preadWindows(loop, fd, data[0], offset) catch unreachable);
+    if (data.len == 1) return preadWindows(loop, fd, data[0], offset);
 
     // TODO do these in parallel?
     var off: usize = 0;
@@ -238,7 +281,7 @@ pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u6
     var inner_off: usize = 0;
     while (true) {
         const v = data[iov_i];
-        const amt_read = try await (async preadWindows(loop, fd, v[inner_off .. v.len - inner_off], offset + off) catch unreachable);
+        const amt_read = try preadWindows(loop, fd, v[inner_off .. v.len - inner_off], offset + off);
         off += amt_read;
         inner_off += amt_read;
         if (inner_off == v.len) {
@@ -252,7 +295,7 @@ pub async fn preadvWindows(loop: *Loop, fd: fd_t, data: []const []u8, offset: u6
     }
 }
 
-pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
+pub fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
     var resume_node = Loop.ResumeNode.Basic{
         .base = Loop.ResumeNode{
             .id = Loop.ResumeNode.Id.Basic,
@@ -291,7 +334,7 @@ pub async fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize
 }
 
 /// iovecs must live until preadv frame completes
-pub async fn preadvPosix(
+pub fn preadvPosix(
     loop: *Loop,
     fd: fd_t,
     iovecs: []const os.iovec,
@@ -328,7 +371,7 @@ pub async fn preadvPosix(
     return req_node.data.msg.PReadV.result;
 }
 
-pub async fn openPosix(
+pub fn openPosix(
     loop: *Loop,
     path: []const u8,
     flags: u32,
@@ -367,11 +410,11 @@ pub async fn openPosix(
     return req_node.data.msg.Open.result;
 }
 
-pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
+pub fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
         .macosx, .linux, .freebsd, .netbsd => {
             const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
-            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
+            return openPosix(loop, path, flags, File.default_mode);
         },
 
         .windows => return windows.CreateFile(
@@ -390,12 +433,12 @@ pub async fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
 
 /// Creates if does not exist. Truncates the file if it exists.
 /// Uses the default mode.
-pub async fn openWrite(loop: *Loop, path: []const u8) File.OpenError!fd_t {
-    return await (async openWriteMode(loop, path, File.default_mode) catch unreachable);
+pub fn openWrite(loop: *Loop, path: []const u8) File.OpenError!fd_t {
+    return openWriteMode(loop, path, File.default_mode);
 }
 
 /// Creates if does not exist. Truncates the file if it exists.
-pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenError!fd_t {
+pub fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenError!fd_t {
     switch (builtin.os) {
         .macosx,
         .linux,
@@ -403,7 +446,7 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.
         .netbsd,
         => {
             const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
-            return await (async openPosix(loop, path, flags, File.default_mode) catch unreachable);
+            return openPosix(loop, path, flags, File.default_mode);
         },
         .windows => return windows.CreateFile(
             path,
@@ -419,7 +462,7 @@ pub async fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.
 }
 
 /// Creates if does not exist. Does not truncate.
-pub async fn openReadWrite(
+pub fn openReadWrite(
     loop: *Loop,
     path: []const u8,
     mode: File.Mode,
@@ -427,7 +470,7 @@ pub async fn openReadWrite(
     switch (builtin.os) {
         .macosx, .linux, .freebsd, .netbsd => {
             const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
-            return await (async openPosix(loop, path, flags, mode) catch unreachable);
+            return openPosix(loop, path, flags, mode);
         },
 
         .windows => return windows.CreateFile(
@@ -576,24 +619,24 @@ pub const CloseOperation = struct {
 
 /// contents must remain alive until writeFile completes.
 /// TODO make this atomic or provide writeFileAtomic and rename this one to writeFileTruncate
-pub async fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !void {
-    return await (async writeFileMode(loop, path, contents, File.default_mode) catch unreachable);
+pub fn writeFile(loop: *Loop, path: []const u8, contents: []const u8) !void {
+    return writeFileMode(loop, path, contents, File.default_mode);
 }
 
 /// contents must remain alive until writeFile completes.
-pub async fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
+pub fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     switch (builtin.os) {
         .linux,
         .macosx,
         .freebsd,
         .netbsd,
-        => return await (async writeFileModeThread(loop, path, contents, mode) catch unreachable),
-        .windows => return await (async writeFileWindows(loop, path, contents) catch unreachable),
+        => return writeFileModeThread(loop, path, contents, mode),
+        .windows => return writeFileWindows(loop, path, contents),
         else => @compileError("Unsupported OS"),
     }
 }
 
-async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
+fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !void {
     const handle = try windows.CreateFile(
         path,
         windows.GENERIC_WRITE,
@@ -605,10 +648,10 @@ async fn writeFileWindows(loop: *Loop, path: []const u8, contents: []const u8) !
     );
     defer os.close(handle);
 
-    try await (async pwriteWindows(loop, handle, contents, 0) catch unreachable);
+    try pwriteWindows(loop, handle, contents, 0);
 }
 
-async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
+fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8, mode: File.Mode) !void {
     const path_with_null = try std.cstr.addNullByte(loop.allocator, path);
     defer loop.allocator.free(path_with_null);
 
@@ -646,11 +689,11 @@ async fn writeFileModeThread(loop: *Loop, path: []const u8, contents: []const u8
 /// The frame resumes when the last data has been confirmed written, but before the file handle
 /// is closed.
 /// Caller owns returned memory.
-pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8 {
+pub fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8 {
     var close_op = try CloseOperation.start(loop);
     defer close_op.finish();
 
-    const fd = try await (async openRead(loop, file_path) catch unreachable);
+    const fd = try openRead(loop, file_path);
     close_op.setHandle(fd);
 
     var list = std.ArrayList(u8).init(loop.allocator);
@@ -660,7 +703,7 @@ pub async fn readFile(loop: *Loop, file_path: []const u8, max_size: usize) ![]u8
         try list.ensureCapacity(list.len + mem.page_size);
         const buf = list.items[list.len..];
         const buf_array = [_][]u8{buf};
-        const amt = try await (async preadv(loop, fd, buf_array, list.len) catch unreachable);
+        const amt = try preadv(loop, fd, buf_array, list.len);
         list.len += amt;
         if (list.len > max_size) {
             return error.FileTooBig;
@@ -1273,11 +1316,11 @@ const test_tmp_dir = "std_event_fs_test";
 //    return result;
 //}
 
-async fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
-    result.* = await (async testFsWatch(loop) catch unreachable);
+fn testFsWatchCantFail(loop: *Loop, result: *(anyerror!void)) void {
+    result.* = testFsWatch(loop);
 }
 
-async fn testFsWatch(loop: *Loop) !void {
+fn testFsWatch(loop: *Loop) !void {
     const file_path = try std.fs.path.join(loop.allocator, [][]const u8{ test_tmp_dir, "file.txt" });
     defer loop.allocator.free(file_path);
 
@@ -1288,27 +1331,27 @@ async fn testFsWatch(loop: *Loop) !void {
     const line2_offset = 7;
 
     // first just write then read the file
-    try await try async writeFile(loop, file_path, contents);
+    try writeFile(loop, file_path, contents);
 
-    const read_contents = try await try async readFile(loop, file_path, 1024 * 1024);
+    const read_contents = try readFile(loop, file_path, 1024 * 1024);
     testing.expectEqualSlices(u8, contents, read_contents);
 
     // now watch the file
     var watch = try Watch(void).create(loop, 0);
     defer watch.destroy();
 
-    testing.expect((try await try async watch.addFile(file_path, {})) == null);
+    testing.expect((try watch.addFile(file_path, {})) == null);
 
-    const ev = try async watch.channel.get();
+    const ev = async watch.channel.get();
     var ev_consumed = false;
     defer if (!ev_consumed) await ev;
 
     // overwrite line 2
-    const fd = try await try async openReadWrite(loop, file_path, File.default_mode);
+    const fd = try await openReadWrite(loop, file_path, File.default_mode);
     {
         defer os.close(fd);
 
-        try await try async pwritev(loop, fd, []const []const u8{"lorem ipsum"}, line2_offset);
+        try pwritev(loop, fd, []const []const u8{"lorem ipsum"}, line2_offset);
     }
 
     ev_consumed = true;
@@ -1316,7 +1359,7 @@ async fn testFsWatch(loop: *Loop) !void {
         WatchEventId.CloseWrite => {},
         WatchEventId.Delete => @panic("wrong event"),
     }
-    const contents_updated = try await try async readFile(loop, file_path, 1024 * 1024);
+    const contents_updated = try readFile(loop, file_path, 1024 * 1024);
     testing.expectEqualSlices(u8,
         \\line 1
         \\lorem ipsum

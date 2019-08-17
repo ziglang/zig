@@ -442,6 +442,8 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
     }
 }
 
+/// TODO: separate this API into the one that opens directory handles to then subsequently open
+/// files, and into the one that reads files from an open directory handle.
 pub const Dir = struct {
     handle: Handle,
     allocator: *Allocator,
@@ -562,6 +564,17 @@ pub const Dir = struct {
             .netbsd => return self.nextBsd(),
             else => @compileError("unimplemented"),
         }
+    }
+
+    pub fn openRead(self: Dir, file_path: []const u8) os.OpenError!File {
+        const path_c = try os.toPosixPath(file_path);
+        return self.openReadC(&path_c);
+    }
+
+    pub fn openReadC(self: Dir, file_path: [*]const u8) OpenError!File {
+        const flags = os.O_LARGEFILE | os.O_RDONLY;
+        const fd = try os.openatC(self.handle.fd, file_path, flags, 0);
+        return File.openHandle(fd);
     }
 
     fn nextDarwin(self: *Dir) !?Entry {

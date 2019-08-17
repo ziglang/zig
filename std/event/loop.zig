@@ -89,12 +89,15 @@ pub const Loop = struct {
     pub const IoMode = enum {
         blocking,
         evented,
+        mixed,
     };
     pub const io_mode: IoMode = if (@hasDecl(root, "io_mode")) root.io_mode else IoMode.blocking;
     var global_instance_state: Loop = undefined;
+    threadlocal var per_thread_instance: ?*Loop = null;
     const default_instance: ?*Loop = switch (io_mode) {
         .blocking => null,
         .evented => &global_instance_state,
+        .mixed => per_thread_instance,
     };
     pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
@@ -796,6 +799,9 @@ pub const Loop = struct {
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
                     .End => return,
+                    .WriteV => |*msg| {
+                        msg.result = os.writev(msg.fd, msg.iov);
+                    },
                     .PWriteV => |*msg| {
                         msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
                     },

@@ -64,6 +64,7 @@ pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: isize, whence: c_int) isize;
 pub extern "c" fn open(path: [*]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn openat(fd: c_int, path: [*]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: fd_t, buf: [*]u8, nbyte: usize) isize;
 pub extern "c" fn pread(fd: fd_t, buf: [*]u8, nbyte: usize, offset: u64) isize;
@@ -112,7 +113,6 @@ pub extern "c" fn accept4(sockfd: fd_t, addr: *sockaddr, addrlen: *socklen_t, fl
 pub extern "c" fn getsockopt(sockfd: fd_t, level: c_int, optname: c_int, optval: *c_void, optlen: *socklen_t) c_int;
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
-pub extern "c" fn openat(fd: c_int, path: [*]const u8, flags: c_int) c_int;
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setuid(uid: c_uint) c_int;
 pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;

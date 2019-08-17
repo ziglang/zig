@@ -783,6 +783,7 @@ pub const socklen_t = u32;
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
+    un: sockaddr_un,
 };
 
 pub const sockaddr_in = extern struct {

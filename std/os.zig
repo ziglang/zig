@@ -440,6 +440,33 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
 
 /// Write multiple buffers to a file descriptor. Keeps trying if it gets interrupted.
 /// This function is for blocking file descriptors only. For non-blocking, see
+/// `writevAsync`.
+pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
+    while (true) {
+        // TODO handle the case when iov_len is too large and get rid of this @intCast
+        const rc = system.writev(fd, iov.ptr, @intCast(u32, iov.len));
+        switch (errno(rc)) {
+            0 => return,
+            EINTR => continue,
+            EINVAL => unreachable,
+            EFAULT => unreachable,
+            EAGAIN => unreachable, // This function is for blocking writes.
+            EBADF => unreachable, // Always a race condition.
+            EDESTADDRREQ => unreachable, // `connect` was never called.
+            EDQUOT => return error.DiskQuota,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            ENOSPC => return error.NoSpaceLeft,
+            EPERM => return error.AccessDenied,
+            EPIPE => return error.BrokenPipe,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+/// Write multiple buffers to a file descriptor, with a position offset.
+/// Keeps trying if it gets interrupted.
+/// This function is for blocking file descriptors only. For non-blocking, see
 /// `pwritevAsync`.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void {
     if (darwin.is_the_target) {
@@ -524,7 +551,6 @@ pub const OpenError = error{
 };
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
-/// `file_path` needs to be copied in memory to add a null terminating byte.
 /// See also `openC`.
 pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
@@ -537,6 +563,47 @@ pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
 pub fn openC(file_path: [*]const u8, flags: u32, perm: usize) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
+        switch (errno(rc)) {
+            0 => return @intCast(fd_t, rc),
+            EINTR => continue,
+
+            EFAULT => unreachable,
+            EINVAL => unreachable,
+            EACCES => return error.AccessDenied,
+            EFBIG => return error.FileTooBig,
+            EOVERFLOW => return error.FileTooBig,
+            EISDIR => return error.IsDir,
+            ELOOP => return error.SymLinkLoop,
+            EMFILE => return error.ProcessFdQuotaExceeded,
+            ENAMETOOLONG => return error.NameTooLong,
+            ENFILE => return error.SystemFdQuotaExceeded,
+            ENODEV => return error.NoDevice,
+            ENOENT => return error.FileNotFound,
+            ENOMEM => return error.SystemResources,
+            ENOSPC => return error.NoSpaceLeft,
+            ENOTDIR => return error.NotDir,
+            EPERM => return error.AccessDenied,
+            EEXIST => return error.PathAlreadyExists,
+            EBUSY => return error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+/// Open and possibly create a file. Keeps trying if it gets interrupted.
+/// `file_path` is relative to the open directory handle `dir_fd`.
+/// See also `openatC`.
+pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: usize) OpenError!fd_t {
+    const file_path_c = try toPosixPath(file_path);
+    return openatC(dir_fd, &file_path_c, flags, mode);
+}
+
+/// Open and possibly create a file. Keeps trying if it gets interrupted.
+/// `file_path` is relative to the open directory handle `dir_fd`.
+/// See also `openat`.
+pub fn openatC(dir_fd: fd_t, file_path: [*]const u8, flags: u32, mode: usize) OpenError!fd_t {
+    while (true) {
+        const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
             0 => return @intCast(fd_t, rc),
             EINTR => continue,
@@ -1655,7 +1722,7 @@ pub const ConnectError = error{
 /// For non-blocking, see `connect_async`.
 pub fn connect(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, sock_addr, @sizeOf(sockaddr)))) {
+        switch (errno(system.connect(sockfd, sock_addr, len))) {
             0 => return,
             EACCES => return error.PermissionDenied,
             EPERM => return error.PermissionDenied,
@@ -1683,7 +1750,8 @@ pub fn connect(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!v
 /// It expects to receive EINPROGRESS`.
 pub fn connect_async(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, sock_addr, @sizeOf(sockaddr)))) {
+        switch (errno(system.connect(sockfd, sock_addr, len))) {
+            EINVAL => unreachable,
             EINTR => continue,
             0, EINPROGRESS => return,
             EACCES => return error.PermissionDenied,
