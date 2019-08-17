@@ -12110,7 +12110,26 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             array_type->data.array.child_type, source_node,
             !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
         {
-            return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type, result_loc);
+            // If the pointers both have ABI align, it works.
+            bool ok_align = slice_ptr_type->data.pointer.explicit_alignment == 0 &&
+                actual_type->data.pointer.explicit_alignment == 0;
+            if (!ok_align) {
+                // If either one has non ABI align, we have to resolve them both
+                if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                if ((err = type_resolve(ira->codegen, slice_ptr_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
+            }
+            if (ok_align) {
+                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type, result_loc);
+            }
         }
     }
 
@@ -15421,7 +15440,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     IrInstruction *casted_new_stack = nullptr;
     if (call_instruction->new_stack != nullptr) {
         ZigType *u8_ptr = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
-                false, false, PtrLenUnknown, 0, 0, 0, false);
+                false, false, PtrLenUnknown, target_fn_align(ira->codegen->zig_target), 0, 0, false);
         ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
         IrInstruction *new_stack = call_instruction->new_stack->child;
         if (type_is_invalid(new_stack->value.type))

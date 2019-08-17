@@ -30,7 +30,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() void {
-        \\    var bytes: [1]u8 = undefined;
+        \\    var bytes: [1]u8 align(16) = undefined;
         \\    var ptr = other;
         \\    var frame = @asyncCall(&bytes, {}, ptr);
         \\}

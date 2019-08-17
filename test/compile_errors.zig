@@ -3,6 +3,28 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "bad alignment in @asyncCall",
+        \\export fn entry() void {
+        \\    var ptr: async fn () void = func;
+        \\    var bytes: [64]u8 = undefined;
+        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\async fn func() void {}
+    ,
+        "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
+    );
+
+    cases.add(
+        "bad alignment in implicit cast from array pointer to slice",
+        \\export fn a() void {
+        \\    var x: [10]u8 = undefined;
+        \\    var y: []align(16) u8 = &x;
+        \\}
+    ,
+        "tmp.zig:3:30: error: expected type '[]align(16) u8', found '*[10]u8'",
+    );
+
+    cases.add(
         "result location incompatibility mismatching handle_is_ptr (generic call)",
         \\export fn entry() void {
         \\    var damn = Container{
@@ -164,7 +186,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "non async function pointer passed to @asyncCall",
         \\export fn entry() void {
         \\    var ptr = afunc;
-        \\    var bytes: [100]u8 = undefined;
+        \\    var bytes: [100]u8 align(16) = undefined;
         \\    _ = @asyncCall(&bytes, {}, ptr);
         \\}
         \\fn afunc() void { }
