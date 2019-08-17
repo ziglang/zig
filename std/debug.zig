@@ -508,12 +508,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                 if (line_info.column == 0) {
                     try out_stream.write("\n");
                 } else {
-                    {
-                        var col_i: usize = 1;
-                        while (col_i < line_info.column) : (col_i += 1) {
-                            try out_stream.writeByte(' ');
-                        }
-                    }
+                    try printSpaces(out_stream, line_info.column - 1);
                     setTtyColor(TtyColor.Green);
                     try out_stream.write("^");
                     setTtyColor(TtyColor.Reset);
@@ -761,6 +756,16 @@ pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, addres
     return printSourceAtAddressDwarf(debug_info, out_stream, address, tty_color, printLineFromFileAnyOs);
 }
 
+fn printSpaces(out_stream: var, want_spaces: usize) !void {
+    var left = want_spaces;
+    const spaces = " " ** 80;
+    while (left > 0) {
+        const print_this_time = std.math.min(left, spaces.len);
+        try out_stream.write(spaces[0..print_this_time]);
+        left -= print_this_time;
+    }
+}
+
 fn printLineInfo(
     out_stream: var,
     line_info: LineInfo,
@@ -784,12 +789,7 @@ fn printLineInfo(
             if (line_info.column == 0) {
                 try out_stream.write("\n");
             } else {
-                {
-                    var col_i: usize = 1;
-                    while (col_i < line_info.column) : (col_i += 1) {
-                        try out_stream.writeByte(' ');
-                    }
-                }
+                try printSpaces(out_stream, line_info.column - 1);
                 try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
             }
         } else |err| switch (err) {
@@ -1161,23 +1161,30 @@ fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
     var line: usize = 1;
     var column: usize = 1;
     var abs_index: usize = 0;
+    var start_of_line_pos: ?usize = if (line == line_info.line) usize(0) else null;
     while (true) {
         const amt_read = try f.read(buf[0..]);
         const slice = buf[0..amt_read];
 
-        for (slice) |byte| {
-            if (line == line_info.line) {
-                try out_stream.writeByte(byte);
-                if (byte == '\n') {
-                    return;
-                }
-            }
+        for (slice) |byte, pos| {
             if (byte == '\n') {
                 line += 1;
                 column = 1;
+                if (line == line_info.line) {
+                    // start of line
+                    start_of_line_pos = pos+1;
+                } else if (start_of_line_pos) |s| {
+                    // end of line
+                    try out_stream.write(slice[s..pos+1]);
+                    return;
+                }
             } else {
                 column += 1;
             }
+        }
+
+        if (start_of_line_pos) |s| {
+            try out_stream.write(slice[s..]);
         }
 
         if (amt_read < buf.len) return error.EndOfFile;
