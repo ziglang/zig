@@ -17179,7 +17179,7 @@ static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name,
             buf_sprintf("dependency on dynamic library '%s' requires enabling Position Independent Code",
                 buf_ptr(lib_name)));
         add_error_note(ira->codegen, msg, source_node,
-                buf_sprintf("fixed by `--library %s` or `--enable-pic`", buf_ptr(lib_name)));
+                buf_sprintf("fixed by `--library %s` or `-fPIC`", buf_ptr(lib_name)));
         ira->codegen->reported_bad_link_libc_error = true;
     }
 
