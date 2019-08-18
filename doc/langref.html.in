@@ -9326,8 +9326,8 @@ const c = @cImport({
         {#code_begin|syntax#}
 const warn = @import("std").debug.warn;
 
-pub fn main() void { // the 'packed' keyword provides C ABI compatability
-    const quick_struct = packed struct {
+pub fn main() void { // 'extern' is needed for this to work with C pointers
+    const quick_struct = extern struct {
         int_member: i32,
     };
     var struct_instance = quick_struct {
