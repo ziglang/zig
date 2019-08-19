@@ -1,5 +1,6 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
 
 test "arrays" {
     var array: [5]u32 = undefined;
@@ -273,4 +274,21 @@ test "double nested array to const slice cast in array literal" {
     };
     S.entry(2);
     comptime S.entry(2);
+}
+
+test "read/write through global variable array of struct fields initialized via array mult" {
+    const S = struct {
+        fn doTheTest() void {
+            expect(storage[0].term == 1);
+            storage[0] = MyStruct{ .term = 123 };
+            expect(storage[0].term == 123);
+        }
+
+        pub const MyStruct = struct {
+            term: usize,
+        };
+
+        var storage: [1]MyStruct = [_]MyStruct{MyStruct{ .term = 1 }} ** 1;
+    };
+    S.doTheTest();
 }

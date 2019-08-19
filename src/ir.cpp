@@ -13963,8 +13963,11 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
     uint64_t i = 0;
     for (uint64_t x = 0; x < mult_amt; x += 1) {
         for (uint64_t y = 0; y < old_array_len; y += 1) {
-            copy_const_val(&out_val->data.x_array.data.s_none.elements[i],
-                &array_val->data.x_array.data.s_none.elements[y], false);
+            ConstExprValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
+            copy_const_val(elem_dest_val, &array_val->data.x_array.data.s_none.elements[y], false);
+            elem_dest_val->parent.id = ConstParentIdArray;
+            elem_dest_val->parent.data.p_array.array_val = out_val;
+            elem_dest_val->parent.data.p_array.elem_index = i;
             i += 1;
         }
     }
