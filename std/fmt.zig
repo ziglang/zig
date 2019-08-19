@@ -276,7 +276,7 @@ pub fn format(
 pub fn formatType(
     value: var,
     comptime fmt: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -428,7 +428,7 @@ pub fn formatType(
 fn formatValue(
     value: var,
     comptime fmt: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -450,7 +450,7 @@ fn formatValue(
 pub fn formatIntValue(
     value: var,
     comptime fmt: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -492,7 +492,7 @@ pub fn formatIntValue(
 fn formatFloatValue(
     value: var,
     comptime fmt: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -509,7 +509,7 @@ fn formatFloatValue(
 pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -530,7 +530,7 @@ pub fn formatText(
 
 pub fn formatAsciiChar(
     c: u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -540,7 +540,7 @@ pub fn formatAsciiChar(
 
 pub fn formatBuf(
     buf: []const u8,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -560,7 +560,7 @@ pub fn formatBuf(
 // same type unambiguously.
 pub fn formatFloatScientific(
     value: var,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -655,7 +655,7 @@ pub fn formatFloatScientific(
 // By default floats are printed at full precision (no rounding).
 pub fn formatFloatDecimal(
     value: var,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -800,7 +800,7 @@ pub fn formatFloatDecimal(
 
 pub fn formatBytes(
     value: var,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     comptime radix: usize,
     context: var,
     comptime Errors: type,
@@ -842,7 +842,7 @@ pub fn formatInt(
     value: var,
     base: u8,
     uppercase: bool,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -864,7 +864,7 @@ fn formatIntSigned(
     value: var,
     base: u8,
     uppercase: bool,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -895,7 +895,7 @@ fn formatIntUnsigned(
     value: var,
     base: u8,
     uppercase: bool,
-    comptime options: FormatOptions,
+    options: FormatOptions,
     context: var,
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
@@ -936,7 +936,7 @@ fn formatIntUnsigned(
     }
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, comptime options: FormatOptions) usize {
+pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
     var context = FormatIntBuf{
         .out_buf = out_buf,
         .index = 0,
@@ -1099,7 +1099,7 @@ test "bufPrintInt" {
     testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, FormatOptions{ .width = 3 }), "-42"));
 }
 
-fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, comptime options: FormatOptions) []u8 {
+fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
 }
 
@@ -1339,7 +1339,7 @@ test "custom" {
         pub fn format(
             self: SelfType,
             comptime fmt: []const u8,
-            comptime options: FormatOptions,
+            options: FormatOptions,
             context: var,
             comptime Errors: type,
             output: fn (@typeOf(context), []const u8) Errors!void,
@@ -1545,7 +1545,7 @@ test "formatType max_depth" {
         pub fn format(
             self: SelfType,
             comptime fmt: []const u8,
-            comptime options: FormatOptions,
+            options: FormatOptions,
             context: var,
             comptime Errors: type,
             output: fn (@typeOf(context), []const u8) Errors!void,
