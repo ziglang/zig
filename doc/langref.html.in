@@ -9317,31 +9317,13 @@ const c = @cImport({
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
       </ul>
-      <p>When a C pointer is pointing to a struct, deference the C pointer to 
+      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to 
         access to the struct's fields or member data. That syntax looks like 
         this: </p>
         <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>
         <p>This is comparable to doing {#syntax#}->{#endsyntax#} in C.</p>
-        <p class="file">c_ptr_test.zig</p>
-        {#code_begin|syntax#}
-const warn = @import("std").debug.warn;
-
-pub fn main() void { // 'extern' is needed for this to work with C pointers
-    const quick_struct = extern struct {
-        int_member: i32,
-    };
-    var struct_instance = quick_struct {
-        .int_member = 3,
-    };
-    // This is just a syntax example. You should only use C pointers to be
-    // compatible with generated C code.
-    var test_c_ptr: [*c]quick_struct = &struct_instance;
-    warn("struct member value = {}\n", test_c_ptr.*.int_member);
-}
-        {#code_end#}
-        <pre><code class="shell">$ zig build-exe c_ptr_test.zig
-$ ./c_ptr_test
-struct member value = 3</code></pre>
+        <p> When a C pointer is pointing to an array of structs, the syntax reverts to this:</p>
+        <p>{#syntax#}ptr_to_struct_array[index].struct_member{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|Exporting a C Library#}
