@@ -13940,8 +13940,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
     uint64_t old_array_len = array_type->data.array.len;
     uint64_t new_array_len;
 
-    if (mul_u64_overflow(old_array_len, mult_amt, &new_array_len))
-    {
+    if (mul_u64_overflow(old_array_len, mult_amt, &new_array_len)) {
         ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
         return ira->codegen->invalid_instruction;
     }
@@ -13954,6 +13953,15 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
     if (array_val->data.x_array.special == ConstArraySpecialUndef) {
         out_val->data.x_array.special = ConstArraySpecialUndef;
         return result;
+    }
+
+    switch (type_has_one_possible_value(ira->codegen, result->value.type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            return result;
+        case OnePossibleValueNo:
+            break;
     }
 
     // TODO optimize the buf case
