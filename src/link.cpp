@@ -1753,7 +1753,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
 
     // libc dep
-    if (g->libc_link_lib != nullptr) {
+    if (g->libc_link_lib != nullptr && g->out_type != OutTypeObj) {
         if (g->libc != nullptr) {
             if (!g->have_dynamic_link) {
                 lj->args.append("--start-group");
