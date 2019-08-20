@@ -6743,6 +6743,25 @@ static Error parse_asm_template(IrBuilder *irb, AstNode *source_node, Buf *asm_t
     return ErrorNone;
 }
 
+static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok, Buf *src_template) {
+    const char *ptr = buf_ptr(src_template) + tok->start + 2;
+    size_t len = tok->end - tok->start - 2;
+    size_t result = 0;
+    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
+        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+        if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
+        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+        if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    return SIZE_MAX;
+}
+
 static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
     Error err;
     assert(node->type == NodeTypeAsmExpr);
@@ -6828,6 +6847,22 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
             return irb->codegen->invalid_instruction;
 
         input_list[i] = input_value;
+    }
+
+    for (size_t token_i = 0; token_i < tok_list.length; token_i += 1) {
+        AsmToken asm_token = tok_list.at(token_i);
+        if (asm_token.id == AsmTokenIdVar) {
+            size_t index = find_asm_index(irb->codegen, node, &asm_token, template_buf);
+            if (index == SIZE_MAX) {
+                const char *ptr = buf_ptr(template_buf) + asm_token.start + 2;
+                uint32_t len = asm_token.end - asm_token.start - 2;
+
+                add_node_error(irb->codegen, node,
+                    buf_sprintf("could not find '%.*s' in the inputs or outputs.",
+                        len, ptr));
+                return irb->codegen->invalid_instruction;
+            }
+        }
     }
 
     return ir_build_asm(irb, scope, node, template_buf, tok_list.items, tok_list.length,
