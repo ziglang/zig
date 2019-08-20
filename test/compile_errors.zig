@@ -2,17 +2,24 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.add(
-        "variable in inline assembly template cannot be found",
-        \\export fn entry() void {
-        \\    var sp = asm volatile (
-        \\        "mov %[foo], sp"
-        \\        : [bar] "=r" (-> usize)
-        \\    );
-        \\}
-    ,
-        "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs."
-    );
+    cases.addCase(x: {
+        var tc = cases.create("variable in inline assembly template cannot be found",
+            \\export fn entry() void {
+            \\    var sp = asm volatile (
+            \\        "mov %[foo], sp"
+            \\        : [bar] "=r" (-> usize)
+            \\    );
+            \\}
+        , "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs.");
+        tc.target = tests.Target{
+            .Cross = tests.CrossTarget{
+                .arch = .x86_64,
+                .os = .linux,
+                .abi = .gnu,
+            },
+        };
+        break :x tc;
+    });
 
     cases.add(
         "indirect recursion of async functions detected",
