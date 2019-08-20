@@ -99,19 +99,30 @@ pub const GetRandomError = OpenError;
 /// When linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
-pub fn getrandom(buf: []u8) GetRandomError!void {
+pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (windows.is_the_target) {
-        return windows.RtlGenRandom(buf);
+        return windows.RtlGenRandom(buffer);
     }
-    if (linux.is_the_target) {
-        while (true) {
-            const err = if (std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok) blk: {
-                break :blk errno(std.c.getrandom(buf.ptr, buf.len, 0));
+    if (linux.is_the_target or freebsd.is_the_target) {
+        var buf = buffer;
+        const use_c = !linux.is_the_target or
+            std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+
+        while (buf.len != 0) {
+            var err: u16 = undefined;
+
+            const num_read = if (use_c) blk: {
+                const rc = std.c.getrandom(buf.ptr, buf.len, 0);
+                err = std.c.getErrno(rc);
+                break :blk @bitCast(usize, rc);
             } else blk: {
-                break :blk linux.getErrno(linux.getrandom(buf.ptr, buf.len, 0));
+                const rc = linux.getrandom(buf.ptr, buf.len, 0);
+                err = linux.getErrno(rc);
+                break :blk rc;
             };
+
             switch (err) {
-                0 => return,
+                0 => buf = buf[num_read..],
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 EINTR => continue,
@@ -119,27 +130,15 @@ pub fn getrandom(buf: []u8) GetRandomError!void {
                 else => return unexpectedErrno(err),
             }
         }
-    }
-    if (freebsd.is_the_target) {
-        while (true) {
-            const err = std.c.getErrno(std.c.getrandom(buf.ptr, buf.len, 0));
-
-            switch (err) {
-                0 => return,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                else => return unexpectedErrno(err),
-            }
-        }
+        return;
     }
     if (wasi.is_the_target) {
-        switch (wasi.random_get(buf.ptr, buf.len)) {
+        switch (wasi.random_get(buffer.ptr, buffer.len)) {
             0 => return,
             else => |err| return unexpectedErrno(err),
         }
     }
-    return getRandomBytesDevURandom(buf);
+    return getRandomBytesDevURandom(buffer);
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
