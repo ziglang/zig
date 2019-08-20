@@ -4029,7 +4029,7 @@ _mm_storeu_si128(__m128i_u *__p, __m128i __b)
 /// \param __b
 ///    A 128-bit integer vector containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_storeu_si64(void const *__p, __m128i __b)
+_mm_storeu_si64(void *__p, __m128i __b)
 {
   struct __storeu_si64 {
     long long __v;
@@ -4050,7 +4050,7 @@ _mm_storeu_si64(void const *__p, __m128i __b)
 /// \param __b
 ///    A 128-bit integer vector containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_storeu_si32(void const *__p, __m128i __b)
+_mm_storeu_si32(void *__p, __m128i __b)
 {
   struct __storeu_si32 {
     int __v;
@@ -4071,7 +4071,7 @@ _mm_storeu_si32(void const *__p, __m128i __b)
 /// \param __b
 ///    A 128-bit integer vector containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_storeu_si16(void const *__p, __m128i __b)
+_mm_storeu_si16(void *__p, __m128i __b)
 {
   struct __storeu_si16 {
     short __v;

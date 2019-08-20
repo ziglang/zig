@@ -126,7 +126,7 @@ typedef double double8 __attribute__((ext_vector_type(8)));
 typedef double double16 __attribute__((ext_vector_type(16)));
 #endif
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #define NULL ((void*)0)
 #endif
 
@@ -276,7 +276,7 @@ typedef uint cl_mem_fence_flags;
  */
 #define CLK_GLOBAL_MEM_FENCE   0x02
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 typedef enum memory_scope {
   memory_scope_work_item = __OPENCL_MEMORY_SCOPE_WORK_ITEM,
@@ -288,9 +288,6 @@ typedef enum memory_scope {
 #endif
 } memory_scope;
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
-
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
 /**
  * Queue a memory fence to ensure correct ordering of memory
  * operations between work-items of a work-group to
@@ -313,7 +310,7 @@ typedef enum memory_order
   memory_order_seq_cst = __ATOMIC_SEQ_CST
 } memory_order;
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.3, v1.2 s6.12.14, v2.0 s6.13.14 - Image Read and Write Functions
 
@@ -389,14 +386,10 @@ typedef enum memory_order
 #endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
 
 // OpenCL v2.0 s6.13.16 - Pipe Functions
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #define CLK_NULL_RESERVE_ID (__builtin_astype(((void*)(__SIZE_MAX__)), reserve_id_t))
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
-
 
 // OpenCL v2.0 s6.13.17 - Enqueue Kernels
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-
 #define CL_COMPLETE                                 0x0
 #define CL_RUNNING                                  0x1
 #define CL_SUBMITTED                                0x2
@@ -435,7 +428,7 @@ typedef struct {
   size_t localWorkSize[MAX_WORK_DIM];
 } ndrange_t;
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 #ifdef cl_intel_device_side_avc_motion_estimation
 #pragma OPENCL EXTENSION cl_intel_device_side_avc_motion_estimation : begin
