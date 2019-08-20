@@ -4144,8 +4144,15 @@ void semantic_analyze(CodeGen *g) {
 
     // second pass over functions for detecting async
     for (g->fn_defs_index = 0; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
-        ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
-        analyze_fn_async(g, fn_entry, true);
+        ZigFn *fn = g->fn_defs.at(g->fn_defs_index);
+        analyze_fn_async(g, fn, true);
+        if (fn_is_async(fn) && fn->non_async_node != nullptr) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("'%s' cannot be async", buf_ptr(&fn->symbol_name)));
+            add_error_note(g, msg, fn->non_async_node,
+                buf_sprintf("required to be non-async here"));
+            add_async_error_notes(g, msg, fn);
+        }
     }
 }
 
@@ -5190,6 +5197,27 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     return fn_type;
 }
 
+static void emit_error_notes_for_type_loop(CodeGen *g, ErrorMsg *msg, ZigType *stop_type,
+        ZigType *ty, AstNode *src_node)
+{
+    ErrorMsg *note = add_error_note(g, msg, src_node,
+        buf_sprintf("when analyzing type '%s' here", buf_ptr(&ty->name)));
+    if (ty == stop_type)
+        return;
+    switch (ty->id) {
+        case ZigTypeIdFnFrame: {
+            ty->data.frame.reported_loop_err = true;
+            ZigType *depending_type = ty->data.frame.resolve_loop_type;
+            if (depending_type == nullptr)
+                return;
+            emit_error_notes_for_type_loop(g, note, stop_type,
+                depending_type, ty->data.frame.resolve_loop_src_node);
+        }
+        default:
+            return;
+    }
+}
+
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     Error err;
 
@@ -5198,6 +5226,20 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     ZigFn *fn = frame_type->data.frame.fn;
     assert(!fn->type_entry->data.fn.is_generic);
+
+    if (frame_type->data.frame.resolve_loop_type != nullptr) {
+        if (!frame_type->data.frame.reported_loop_err) {
+            frame_type->data.frame.reported_loop_err = true;
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                    buf_sprintf("'%s' depends on itself", buf_ptr(&frame_type->name)));
+            emit_error_notes_for_type_loop(g, msg,
+                    frame_type,
+                    frame_type->data.frame.resolve_loop_type,
+                    frame_type->data.frame.resolve_loop_src_node);
+            emit_error_notes_for_ref_stack(g, msg);
+        }
+        return ErrorSemanticAnalyzeFail;
+    }
 
     switch (fn->anal_state) {
         case FnAnalStateInvalid:
@@ -5292,6 +5334,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
+        ZigType *callee_frame_type = get_fn_frame_type(g, callee);
+        frame_type->data.frame.resolve_loop_type = callee_frame_type;
+        frame_type->data.frame.resolve_loop_src_node = call->base.source_node;
+
         analyze_fn_body(g, callee);
         if (callee->anal_state == FnAnalStateInvalid) {
             frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
@@ -5300,8 +5346,6 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         analyze_fn_async(g, callee, true);
         if (!fn_is_async(callee))
             continue;
-
-        ZigType *callee_frame_type = get_fn_frame_type(g, callee);
 
         IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
         alloca_gen->base.id = IrInstructionIdAllocaGen;
@@ -5371,9 +5415,13 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 continue;
             }
         }
+
+        frame_type->data.frame.resolve_loop_type = child_type;
+        frame_type->data.frame.resolve_loop_src_node = instruction->base.source_node;
         if ((err = type_resolve(g, child_type, ResolveStatusSizeKnown))) {
             return err;
         }
+
         const char *name;
         if (*instruction->name_hint == 0) {
             name = buf_ptr(buf_sprintf("@local%" ZIG_PRI_usize, alloca_i));

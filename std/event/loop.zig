@@ -89,12 +89,15 @@ pub const Loop = struct {
     pub const IoMode = enum {
         blocking,
         evented,
+        mixed,
     };
     pub const io_mode: IoMode = if (@hasDecl(root, "io_mode")) root.io_mode else IoMode.blocking;
     var global_instance_state: Loop = undefined;
+    threadlocal var per_thread_instance: ?*Loop = null;
     const default_instance: ?*Loop = switch (io_mode) {
         .blocking => null,
         .evented => &global_instance_state,
+        .mixed => per_thread_instance,
     };
     pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
@@ -146,10 +149,12 @@ pub const Loop = struct {
                 .overlapped = ResumeNode.overlapped_init,
             },
         };
+        // We need at least one of these in case the fs thread wants to use onNextTick
         const extra_thread_count = thread_count - 1;
+        const resume_node_count = std.math.max(extra_thread_count, 1);
         self.eventfd_resume_nodes = try self.allocator.alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
-            extra_thread_count,
+            resume_node_count,
         );
         errdefer self.allocator.free(self.eventfd_resume_nodes);
 
@@ -194,7 +199,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -451,12 +456,12 @@ pub const Loop = struct {
         self.finishOneEvent();
     }
 
-    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
+    pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
         defer self.linuxRemoveFd(fd);
         suspend {
             var resume_node = ResumeNode.Basic{
                 .base = ResumeNode{
-                    .id = ResumeNode.Id.Basic,
+                    .id = .Basic,
                     .handle = @frame(),
                     .overlapped = ResumeNode.overlapped_init,
                 },
@@ -790,12 +795,15 @@ pub const Loop = struct {
 
     fn posixFsRun(self: *Loop) void {
         while (true) {
-            if (builtin.os == builtin.Os.linux) {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+            if (builtin.os == .linux) {
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, .Xchg, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
                     .End => return,
+                    .WriteV => |*msg| {
+                        msg.result = os.writev(msg.fd, msg.iov);
+                    },
                     .PWriteV => |*msg| {
                         msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
@@ -827,14 +835,14 @@ pub const Loop = struct {
                 self.finishOneEvent();
             }
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
                         0, os.EINTR, os.EAGAIN => continue,
                         else => unreachable,
                     }
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
                     _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;

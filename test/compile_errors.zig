@@ -2,6 +2,107 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addCase(x: {
+        var tc = cases.create("variable in inline assembly template cannot be found",
+            \\export fn entry() void {
+            \\    var sp = asm volatile (
+            \\        "mov %[foo], sp"
+            \\        : [bar] "=r" (-> usize)
+            \\    );
+            \\}
+        , "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs.");
+        tc.target = tests.Target{
+            .Cross = tests.CrossTarget{
+                .arch = .x86_64,
+                .os = .linux,
+                .abi = .gnu,
+            },
+        };
+        break :x tc;
+    });
+
+    cases.add(
+        "indirect recursion of async functions detected",
+        \\var frame: ?anyframe = null;
+        \\
+        \\export fn a() void {
+        \\    _ = async rangeSum(10);
+        \\    while (frame) |f| resume f;
+        \\}
+        \\
+        \\fn rangeSum(x: i32) i32 {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\    frame = null;
+        \\
+        \\    if (x == 0) return 0;
+        \\    var child = rangeSumIndirect(x - 1);
+        \\    return child + 1;
+        \\}
+        \\
+        \\fn rangeSumIndirect(x: i32) i32 {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\    frame = null;
+        \\
+        \\    if (x == 0) return 0;
+        \\    var child = rangeSum(x - 1);
+        \\    return child + 1;
+        \\}
+    ,
+        "tmp.zig:8:1: error: '@Frame(rangeSum)' depends on itself",
+        "tmp.zig:15:33: note: when analyzing type '@Frame(rangeSumIndirect)' here",
+        "tmp.zig:26:25: note: when analyzing type '@Frame(rangeSum)' here",
+    );
+
+    cases.add(
+        "non-async function pointer eventually is inferred to become async",
+        \\export fn a() void {
+        \\    var non_async_fn: fn () void = undefined;
+        \\    non_async_fn = func;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:5:1: error: 'func' cannot be async",
+        "tmp.zig:3:20: note: required to be non-async here",
+        "tmp.zig:6:5: note: suspends here",
+    );
+
+    cases.add(
+        "bad alignment in @asyncCall",
+        \\export fn entry() void {
+        \\    var ptr: async fn () void = func;
+        \\    var bytes: [64]u8 = undefined;
+        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\async fn func() void {}
+    ,
+        "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
+    );
+
+    cases.add(
+        "atomic orderings of fence Acquire or stricter",
+        \\export fn entry() void {
+        \\    @fence(.Monotonic);
+        \\}
+    ,
+        "tmp.zig:2:12: error: atomic ordering must be Acquire or stricter",
+    );
+
+    cases.add(
+        "bad alignment in implicit cast from array pointer to slice",
+        \\export fn a() void {
+        \\    var x: [10]u8 = undefined;
+        \\    var y: []align(16) u8 = &x;
+        \\}
+    ,
+        "tmp.zig:3:30: error: expected type '[]align(16) u8', found '*[10]u8'",
+    );
+
     cases.add(
         "result location incompatibility mismatching handle_is_ptr (generic call)",
         \\export fn entry() void {
@@ -164,7 +265,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "non async function pointer passed to @asyncCall",
         \\export fn entry() void {
         \\    var ptr = afunc;
-        \\    var bytes: [100]u8 = undefined;
+        \\    var bytes: [100]u8 align(16) = undefined;
         \\    _ = @asyncCall(&bytes, {}, ptr);
         \\}
         \\fn afunc() void { }

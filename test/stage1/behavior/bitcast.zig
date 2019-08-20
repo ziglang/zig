@@ -125,3 +125,17 @@ test "implicit cast to error union by returning" {
     S.entry();
     comptime S.entry();
 }
+
+// issue #3010: compiler segfault
+test "bitcast literal [4]u8 param to u32" {
+    const ip = @bitCast(u32, [_]u8{ 255, 255, 255, 255 });
+    expect(ip == maxInt(u32));
+}
+
+test "bitcast packed struct literal to byte" {
+    const Foo = packed struct {
+        value: u8,
+    };
+    const casted = @bitCast(u8, Foo{ .value = 0xF });
+    expect(casted == 0xf);
+}

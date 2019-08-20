@@ -280,7 +280,7 @@ test "async fn pointer in a struct field" {
         bar: async fn (*i32) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
-    var bytes: [64]u8 = undefined;
+    var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, &data);
     comptime expect(@typeOf(f) == anyframe->void);
     expect(data == 2);
@@ -317,7 +317,7 @@ test "@asyncCall with return type" {
         }
     };
     var foo = Foo{ .bar = Foo.middle };
-    var bytes: [150]u8 = undefined;
+    var bytes: [150]u8 align(16) = undefined;
     var aresult: i32 = 0;
     _ = @asyncCall(&bytes, &aresult, foo.bar);
     expect(aresult == 0);
@@ -816,4 +816,31 @@ test "struct parameter to async function is copied to the frame" {
         }
     };
     S.doTheTest();
+}
+
+test "cast fn to async fn when it is inferred to be async" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            var ptr: async fn () i32 = undefined;
+            ptr = func;
+            var buf: [100]u8 align(16) = undefined;
+            var result: i32 = undefined;
+            _ = await @asyncCall(&buf, &result, ptr);
+            expect(result == 1234);
+            ok = true;
+        }
+
+        fn func() i32 {
+            suspend {
+                frame = @frame();
+            }
+            return 1234;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.frame;
+    expect(S.ok);
 }

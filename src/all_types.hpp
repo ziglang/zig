@@ -1279,6 +1279,12 @@ struct ZigTypeOpaque {
 struct ZigTypeFnFrame {
     ZigFn *fn;
     ZigType *locals_struct;
+
+    // This is set to the type that resolving the frame currently depends on, null if none.
+    // It's for generating a helpful error message.
+    ZigType *resolve_loop_type;
+    AstNode *resolve_loop_src_node;
+    bool reported_loop_err;
 };
 
 struct ZigTypeAnyFrame {
@@ -1396,6 +1402,7 @@ struct ZigFn {
     AstNode *set_cold_node;
     const AstNode *inferred_async_node;
     ZigFn *inferred_async_fn;
+    AstNode *non_async_node;
 
     ZigList<GlobalExport> export_list;
     ZigList<IrInstructionCallGen *> call_list;

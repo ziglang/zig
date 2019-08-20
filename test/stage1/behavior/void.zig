@@ -33,3 +33,8 @@ test "void optional" {
     var x: ?void = {};
     expect(x != null);
 }
+
+test "void array as a local variable initializer" {
+    var x = [_]void{{}} ** 1004;
+    var y = x[0];
+}

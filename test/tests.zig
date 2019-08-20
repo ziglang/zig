@@ -2,6 +2,8 @@ const std = @import("std");
 const debug = std.debug;
 const warn = debug.warn;
 const build = std.build;
+pub const Target = build.Target;
+pub const CrossTarget = build.CrossTarget;
 const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
@@ -20,24 +22,18 @@ const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const gen_h = @import("gen_h.zig");
 
-const TestTarget = struct {
-    os: builtin.Os,
-    arch: builtin.Arch,
-    abi: builtin.Abi,
-};
-
-const test_targets = [_]TestTarget{
-    TestTarget{
+const test_targets = [_]CrossTarget{
+    CrossTarget{
         .os = .linux,
         .arch = .x86_64,
         .abi = .gnu,
     },
-    TestTarget{
+    CrossTarget{
         .os = .macosx,
         .arch = .x86_64,
         .abi = .gnu,
     },
-    TestTarget{
+    CrossTarget{
         .os = .windows,
         .arch = .x86_64,
         .abi = .msvc,
@@ -568,6 +564,7 @@ pub const CompileErrorContext = struct {
         link_libc: bool,
         is_exe: bool,
         is_test: bool,
+        target: Target = .Native,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -654,6 +651,14 @@ pub const CompileErrorContext = struct {
 
             zig_args.append("--output-dir") catch unreachable;
             zig_args.append(b.pathFromRoot(b.cache_root)) catch unreachable;
+
+            switch (self.case.target) {
+                .Native => {},
+                .Cross => {
+                    try zig_args.append("-target");
+                    try zig_args.append(try self.case.target.zigTriple(b.allocator));
+                },
+            }
 
             switch (self.build_mode) {
                 Mode.Debug => {},

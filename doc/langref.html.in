@@ -6379,7 +6379,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@asyncCall#}
-      <pre>{#syntax#}@asyncCall(frame_buffer: []u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
+      <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
       <p>
       {#syntax#}@asyncCall{#endsyntax#} performs an {#syntax#}async{#endsyntax#} call on a function pointer,
       which may or may not be an {#link|async function|Async Functions#}.
@@ -6405,7 +6405,7 @@ test "async fn pointer in a struct field" {
         bar: async fn (*i32) void,
     };
     var foo = Foo{ .bar = func };
-    var bytes: [64]u8 = undefined;
+    var bytes: [64]u8 align(@alignOf(@Frame(func))) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, &data);
     assert(data == 2);
     resume f;
@@ -7322,17 +7322,22 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@newStackCall#}
-      <pre>{#syntax#}@newStackCall(new_stack: []u8, function: var, args: ...) var{#endsyntax#}</pre>
+      <pre>{#syntax#}@newStackCall(new_stack: []align(target_stack_align) u8, function: var, args: ...) var{#endsyntax#}</pre>
       <p>
       This calls a function, in the same way that invoking an expression with parentheses does. However,
       instead of using the same stack as the caller, the function uses the stack provided in the {#syntax#}new_stack{#endsyntax#}
       parameter.
       </p>
+      <p>
+      The new stack must be aligned to {#syntax#}target_stack_align{#endsyntax#} bytes. This is a target-specific
+      number. A safe value that will work on all targets is {#syntax#}16{#endsyntax#}. This value can
+      also be obtained by using {#link|@sizeOf#} on the {#link|@Frame#} type of {#link|Async Functions#}.
+      </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-var new_stack_bytes: [1024]u8 = undefined;
+var new_stack_bytes: [1024]u8 align(16) = undefined;
 
 test "calling a function with a new stack" {
     const arg = 1234;
@@ -9318,6 +9323,13 @@ const c = @cImport({
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
       </ul>
+      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to 
+        access to the struct's fields or member data. That syntax looks like 
+        this: </p>
+        <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>
+        <p>This is comparable to doing {#syntax#}->{#endsyntax#} in C.</p>
+        <p> When a C pointer is pointing to an array of structs, the syntax reverts to this:</p>
+        <p>{#syntax#}ptr_to_struct_array[index].struct_member{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|Exporting a C Library#}
