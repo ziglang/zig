@@ -12,6 +12,7 @@
 
 #include <__config>
 #include <chrono>
+#include <iosfwd>
 #include <errno.h>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
@@ -393,6 +394,86 @@ int __libcpp_tls_set(__libcpp_tls_key __key, void *__p)
 }
 
 #endif // !_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL || _LIBCPP_BUILDING_THREAD_LIBRARY_EXTERNAL
+
+class _LIBCPP_TYPE_VIS thread;
+class _LIBCPP_TYPE_VIS __thread_id;
+
+namespace this_thread
+{
+
+_LIBCPP_INLINE_VISIBILITY __thread_id get_id() _NOEXCEPT;
+
+}  // this_thread
+
+template<> struct hash<__thread_id>;
+
+class _LIBCPP_TEMPLATE_VIS __thread_id
+{
+    // FIXME: pthread_t is a pointer on Darwin but a long on Linux.
+    // NULL is the no-thread value on Darwin.  Someone needs to check
+    // on other platforms.  We assume 0 works everywhere for now.
+    __libcpp_thread_id __id_;
+
+public:
+    _LIBCPP_INLINE_VISIBILITY
+    __thread_id() _NOEXCEPT : __id_(0) {}
+
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator==(__thread_id __x, __thread_id __y) _NOEXCEPT
+        { // don't pass id==0 to underlying routines
+        if (__x.__id_ == 0) return __y.__id_ == 0;
+        if (__y.__id_ == 0) return false;
+        return __libcpp_thread_id_equal(__x.__id_, __y.__id_);
+        }
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator!=(__thread_id __x, __thread_id __y) _NOEXCEPT
+        {return !(__x == __y);}
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator< (__thread_id __x, __thread_id __y) _NOEXCEPT
+        { // id==0 is always less than any other thread_id
+        if (__x.__id_ == 0) return __y.__id_ != 0;
+        if (__y.__id_ == 0) return false;
+        return  __libcpp_thread_id_less(__x.__id_, __y.__id_);
+        }
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator<=(__thread_id __x, __thread_id __y) _NOEXCEPT
+        {return !(__y < __x);}
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator> (__thread_id __x, __thread_id __y) _NOEXCEPT
+        {return   __y < __x ;}
+    friend _LIBCPP_INLINE_VISIBILITY
+        bool operator>=(__thread_id __x, __thread_id __y) _NOEXCEPT
+        {return !(__x < __y);}
+
+    _LIBCPP_INLINE_VISIBILITY
+    void __reset() { __id_ = 0; }
+    
+    template<class _CharT, class _Traits>
+    friend
+    _LIBCPP_INLINE_VISIBILITY
+    basic_ostream<_CharT, _Traits>&
+    operator<<(basic_ostream<_CharT, _Traits>& __os, __thread_id __id);
+
+private:
+    _LIBCPP_INLINE_VISIBILITY
+    __thread_id(__libcpp_thread_id __id) : __id_(__id) {}
+
+    friend __thread_id this_thread::get_id() _NOEXCEPT;
+    friend class _LIBCPP_TYPE_VIS thread;
+    friend struct _LIBCPP_TEMPLATE_VIS hash<__thread_id>;
+};
+
+namespace this_thread
+{
+
+inline _LIBCPP_INLINE_VISIBILITY
+__thread_id
+get_id() _NOEXCEPT
+{
+    return __libcpp_thread_get_current_id();
+}
+
+}  // this_thread
 
 _LIBCPP_END_NAMESPACE_STD
 

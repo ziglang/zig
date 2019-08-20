@@ -280,7 +280,7 @@ class _LIBCPP_TYPE_VIS recursive_timed_mutex
     mutex              __m_;
     condition_variable __cv_;
     size_t             __count_;
-    __libcpp_thread_id __id_;
+    __thread_id        __id_;
 public:
      recursive_timed_mutex();
      ~recursive_timed_mutex();
@@ -307,9 +307,9 @@ bool
 recursive_timed_mutex::try_lock_until(const chrono::time_point<_Clock, _Duration>& __t)
 {
     using namespace chrono;
-    __libcpp_thread_id __id = __libcpp_thread_get_current_id();
+    __thread_id __id = this_thread::get_id();
     unique_lock<mutex> lk(__m_);
-    if (__libcpp_thread_id_equal(__id, __id_))
+    if (__id == __id_)
     {
         if (__count_ == numeric_limits<size_t>::max())
             return false;
