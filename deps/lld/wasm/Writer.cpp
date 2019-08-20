@@ -898,7 +898,7 @@ void Writer::run() {
     createCallCtorsFunction();
   }
 
-  if (config->sharedMemory && !config->shared)
+  if (!config->relocatable && config->sharedMemory && !config->shared)
     createInitTLSFunction();
 
   if (errorCount())

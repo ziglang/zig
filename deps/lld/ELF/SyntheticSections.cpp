@@ -3177,11 +3177,23 @@ static bool isDuplicateArmExidxSec(InputSection *prev, InputSection *cur) {
 
 // The .ARM.exidx table must be sorted in ascending order of the address of the
 // functions the table describes. Optionally duplicate adjacent table entries
-// can be removed. At the end of the function the ExecutableSections must be
+// can be removed. At the end of the function the executableSections must be
 // sorted in ascending order of address, Sentinel is set to the InputSection
 // with the highest address and any InputSections that have mergeable
 // .ARM.exidx table entries are removed from it.
 void ARMExidxSyntheticSection::finalizeContents() {
+  if (script->hasSectionsCommand) {
+    // The executableSections and exidxSections that we use to derive the
+    // final contents of this SyntheticSection are populated before the
+    // linker script assigns InputSections to OutputSections. The linker script
+    // SECTIONS command may have a /DISCARD/ entry that removes executable
+    // InputSections and their dependent .ARM.exidx section that we recorded
+    // earlier.
+    auto isDiscarded = [](const InputSection *isec) { return !isec->isLive(); };
+    llvm::erase_if(executableSections, isDiscarded);
+    llvm::erase_if(exidxSections, isDiscarded);
+  }
+
   // Sort the executable sections that may or may not have associated
   // .ARM.exidx sections by order of ascending address. This requires the
   // relative positions of InputSections to be known.

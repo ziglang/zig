@@ -80,6 +80,8 @@ def require_defined_eq: J<"require-defined=">, Alias<require_defined>;
 def _HASH_HASH_HASH : Flag<["-"], "###">,
     HelpText<"Print (but do not run) the commands to run for this compilation">;
 def appcontainer: F<"appcontainer">, HelpText<"Set the appcontainer flag in the executable">;
+def delayload: S<"delayload">, HelpText<"DLL to load only on demand">;
+def delayload_eq: J<"delayload=">, Alias<delayload>;
 def mllvm: S<"mllvm">;
 def pdb: S<"pdb">, HelpText<"Output PDB debug info file, chosen implicitly if the argument is empty">;
 def pdb_eq: J<"pdb=">, Alias<pdb>;

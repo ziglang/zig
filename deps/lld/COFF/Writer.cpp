@@ -1095,6 +1095,13 @@ Optional<coff_symbol16> Writer::createSymbol(Defined *def) {
   }
   }
 
+  // Symbols that are runtime pseudo relocations don't point to the actual
+  // symbol data itself (as they are imported), but points to the IAT entry
+  // instead. Avoid emitting them to the symbol table, as they can confuse
+  // debuggers.
+  if (def->isRuntimePseudoReloc)
+    return None;
+
   StringRef name = def->getName();
   if (name.size() > COFF::NameSize) {
     sym.Name.Offset.Zeroes = 0;

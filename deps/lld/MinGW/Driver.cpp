@@ -303,6 +303,8 @@ bool mingw::link(ArrayRef<const char *> argsArr, raw_ostream &diag) {
     add("-include:" + StringRef(a->getValue()));
   for (auto *a : args.filtered(OPT_undefined))
     add("-includeoptional:" + StringRef(a->getValue()));
+  for (auto *a : args.filtered(OPT_delayload))
+    add("-delayload:" + StringRef(a->getValue()));
 
   std::vector<StringRef> searchPaths;
   for (auto *a : args.filtered(OPT_L)) {

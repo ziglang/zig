@@ -7,9 +7,10 @@
 # RUN: llvm-ar rcs %t-implib.a %t-dabcdh.o %t-dabcds00000.o %t-dabcdt.o
 
 # RUN: llvm-mc -triple=x86_64-windows-gnu %s -filetype=obj -o %t.obj
-# RUN: lld-link -lldmingw -out:%t.exe -entry:main %t.obj %t-implib.a -verbose
+# RUN: lld-link -lldmingw -debug:symtab -out:%t.exe -entry:main %t.obj %t-implib.a -verbose
 
 # RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
+# RUN: llvm-nm %t.exe | FileCheck -check-prefix=SYMBOLS %s
 
 # IMPORTS: Import {
 # IMPORTS-NEXT: Name: foo.dll
@@ -17,6 +18,10 @@
 # IMPORTS-NEXT: ImportAddressTableRVA:
 # IMPORTS-NEXT: Symbol: data (0)
 # IMPORTS-NEXT: }
+
+# Check that the automatically imported symbol "data" is not listed in
+# the symbol table.
+# SYMBOLS-NOT: {{ }}data
 
     .global main
     .text

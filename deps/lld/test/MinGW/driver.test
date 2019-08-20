@@ -200,3 +200,7 @@ APPCONTAINER: -appcontainer
 # RUN: ld.lld -m i386pep --help 2>&1 | FileCheck -check-prefix=HELP %s
 # HELP: USAGE:
 # HELP: --enable-auto-import
+
+RUN: ld.lld -### -m i386pep foo.o -delayload user32.dll --delayload shell32.dll | FileCheck -check-prefix DELAYLOAD %s
+RUN: ld.lld -### -m i386pep foo.o -delayload=user32.dll --delayload=shell32.dll | FileCheck -check-prefix DELAYLOAD %s
+DELAYLOAD: -delayload:user32.dll -delayload:shell32.dll

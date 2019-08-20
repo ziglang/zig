@@ -28,6 +28,15 @@ ELF Improvements
   ``$ ld.lld --call-shared`` now prints
   ``unknown argument '--call-shared', did you mean '--call_shared'``.
 
+* lld now supports replacing ``JAL`` with ``JALX`` instructions in case
+  of MIPS - microMIPS cross-mode jumps.
+
+* lld now creates LA25 thunks for MIPS R6 code.
+
+* Put MIPS-specific .reginfo, .MIPS.options, and .MIPS.abiflags sections
+  into corresponding PT_MIPS_REGINFO, PT_MIPS_OPTIONS, and PT_MIPS_ABIFLAGS
+  segments.
+
 * ...
 
 COFF Improvements

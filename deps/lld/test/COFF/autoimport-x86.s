@@ -5,11 +5,12 @@
 # RUN: lld-link -out:%t-lib.dll -dll -entry:DllMainCRTStartup %t-lib.obj -lldmingw -implib:%t-lib.lib
 
 # RUN: llvm-mc -triple=x86_64-windows-gnu %s -filetype=obj -o %t.obj
-# RUN: lld-link -lldmingw -out:%t.exe -entry:main %t.obj %t-lib.lib -verbose
+# RUN: lld-link -lldmingw -debug:symtab -out:%t.exe -entry:main %t.obj %t-lib.lib -verbose
 
 # RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=DISASM %s
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=CONTENTS %s
+# RUN: llvm-nm %t.exe | FileCheck -check-prefix=SYMBOLS %s
 
 # IMPORTS: Import {
 # IMPORTS-NEXT: Name: autoimport-x86.s.tmp-lib.dll
@@ -20,7 +21,7 @@
 
 # DISASM: Disassembly of section .text:
 # DISASM-EMPTY:
-# DISASM: .text:
+# DISASM: main:
 # Relative offset at 0x1002 pointing at the IAT at 0x2080.
 # DISASM: 140001000:      8b 05 7a 10 00 00       movl    4218(%rip), %eax
 # DISASM: 140001006:      c3      retq
@@ -40,6 +41,10 @@
 # CONTENTS: Contents of section .data:
 # CONTENTS:  140003000 80200040 01000000 00200040 01000000
 # CONTENTS:  140003010 24200040 01000000
+
+# Check that the automatically imported symbol "variable" is not listed in
+# the symbol table.
+# SYMBOLS-NOT: variable
 
     .global main
     .text

@@ -184,8 +184,10 @@ void LinkerDriver::addBuffer(std::unique_ptr<MemoryBuffer> mb,
     if (wholeArchive) {
       std::unique_ptr<Archive> file =
           CHECK(Archive::create(mbref), filename + ": failed to parse archive");
+      Archive *archive = file.get();
+      make<std::unique_ptr<Archive>>(std::move(file)); // take ownership
 
-      for (MemoryBufferRef m : getArchiveMembers(file.get()))
+      for (MemoryBufferRef m : getArchiveMembers(archive))
         addArchiveBuffer(m, "<whole-archive>", filename, 0);
       return;
     }

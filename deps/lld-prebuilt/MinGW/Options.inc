@@ -37,6 +37,9 @@ OPTION(prefix_2, "Bdynamic", Bdynamic, Flag, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_2, "Bstatic", Bstatic, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not link against shared libraries", nullptr, nullptr)
 OPTION(prefix_2, "build-id", anonymous_1, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "delayload=", delayload_eq, Joined, INVALID, delayload, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "delayload", delayload, Separate, INVALID, INVALID, nullptr, 0, 0,
+       "DLL to load only on demand", nullptr, nullptr)
 OPTION(prefix_2, "disable-auto-image-base", anonymous_2, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_2, "dynamicbase", dynamicbase, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Enable ASLR", nullptr, nullptr)
