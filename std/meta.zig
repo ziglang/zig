@@ -115,6 +115,177 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
+
+/// Returns the type for the given TypeInfo
+pub fn infoType(comptime typeInfo: TypeInfo) type {
+    return switch (typeInfo) {
+        .Pointer => |ptr| infoTypePointer(ptr),
+        else => @compileError("infoType does not handle TypeInfo with TypeID '" ++ @tagName(typeInfo) ++ "'"),
+    };
+}
+
+/// Returns the type for the given TypeInfo.Pointer
+pub fn infoTypePointer(comptime ptrTypeInfo: TypeInfo.Pointer) type {
+    switch (ptrTypeInfo.size) {
+        .One => {
+            if (ptrTypeInfo.is_const) {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return *const volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return *const volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return *const align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return *const align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            } else {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return *volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return *volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return *align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return *align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            }
+        },
+        .Many => {
+            if (ptrTypeInfo.is_const) {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return [*]const volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return [*]const volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return [*]const align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return [*]const align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            } else {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return [*]volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return [*]volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return [*]align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return [*]align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            }
+        },
+        .Slice => {
+            if (ptrTypeInfo.is_const) {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return []const volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return []const volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return []const align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return []const align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            } else {
+                if (ptrTypeInfo.is_volatile) {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return []volatile align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return []volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                } else {
+                    if (ptrTypeInfo.is_allowzero) {
+                        return []align(ptrTypeInfo.alignment) allowzero ptrTypeInfo.child;
+                    } else {
+                        return []align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                    }
+                }
+            }
+        },
+        .C => {
+            if (ptrTypeInfo.is_const) {
+                if (ptrTypeInfo.is_volatile) {
+                    return [*c]const volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                } else {
+                    return [*c]const align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                }
+            } else {
+                if (ptrTypeInfo.is_volatile) {
+                    return [*c]volatile align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                } else {
+                    return [*c]align(ptrTypeInfo.alignment) ptrTypeInfo.child;
+                }
+            }
+        },
+    }
+}
+
+test "std.meta.infoType" {
+    const testTypes = [_]type {
+        // One Value Pointer Types
+        *u8, *const u8,
+        *volatile u8, *const volatile u8,
+        *align(4) u8, *const align(4) u8,
+        *volatile align(4) u8, *const volatile align(4) u8,
+        *align(8) u8, *const align(8) u8,
+        *volatile align(8) u8, *const volatile align(8) u8,
+        *allowzero u8, *const allowzero u8,
+        *volatile allowzero u8, *const volatile allowzero u8,
+        *align(4) allowzero u8, *const align(4) allowzero u8,
+        *volatile align(4) allowzero u8, *const volatile align(4) allowzero u8,
+        // Many Values Pointer Types
+        [*]u8, [*]const u8,
+        [*]volatile u8, [*]const volatile u8,
+        [*]align(4) u8, [*]const align(4) u8,
+        [*]volatile align(4) u8, [*]const volatile align(4) u8,
+        [*]align(8) u8, [*]const align(8) u8,
+        [*]volatile align(8) u8, [*]const volatile align(8) u8,
+        [*]allowzero u8, [*]const allowzero u8,
+        [*]volatile allowzero u8, [*]const volatile allowzero u8,
+        [*]align(4) allowzero u8, [*]const align(4) allowzero u8,
+        [*]volatile align(4) allowzero u8, [*]const volatile align(4) allowzero u8,
+        // Slice Types
+        []u8, []const u8,
+        []volatile u8, []const volatile u8,
+        []align(4) u8, []const align(4) u8,
+        []volatile align(4) u8, []const volatile align(4) u8,
+        []align(8) u8, []const align(8) u8,
+        []volatile align(8) u8, []const volatile align(8) u8,
+        []allowzero u8, []const allowzero u8,
+        []volatile allowzero u8, []const volatile allowzero u8,
+        []align(4) allowzero u8, []const align(4) allowzero u8,
+        []volatile align(4) allowzero u8, []const volatile align(4) allowzero u8,
+        // C Pointer Types
+        [*c]u8, [*c]const u8,
+        [*c]volatile u8, [*c]const volatile u8,
+        [*c]align(4) u8, [*c]const align(4) u8,
+        [*c]volatile align(4) u8, [*c]const volatile align(4) u8,
+        [*c]align(8) u8, [*c]const align(8) u8,
+        [*c]volatile align(8) u8, [*c]const volatile align(8) u8,
+    };
+    inline for (testTypes) |testType| {
+        testing.expect(testType == infoType(@typeInfo(testType)));
+    }
+}
+
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
     return switch (@typeInfo(T)) {
         TypeId.Struct => |info| info.layout,
