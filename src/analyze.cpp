@@ -20,7 +20,7 @@
 
 static const size_t default_backward_branch_quota = 1000;
 
-static Error resolve_struct_type(CodeGen *g, ZigType *struct_type);
+static Error ATTRIBUTE_MUST_USE resolve_struct_type(CodeGen *g, ZigType *struct_type);
 
 static Error ATTRIBUTE_MUST_USE resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type);
 static Error ATTRIBUTE_MUST_USE resolve_struct_alignment(CodeGen *g, ZigType *struct_type);
@@ -271,6 +271,8 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
             return type_entry->data.structure.resolve_status >= status;
         case ZigTypeIdUnion:
             return type_entry->data.unionation.resolve_status >= status;
+        case ZigTypeIdEnum:
+            return type_entry->data.enumeration.resolve_status >= status;
         case ZigTypeIdFnFrame:
             switch (status) {
                 case ResolveStatusInvalid:
@@ -285,23 +287,6 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
                 case ResolveStatusLLVMFull:
                     return type_entry->llvm_type != nullptr;
             }
-        case ZigTypeIdEnum:
-            switch (status) {
-                case ResolveStatusUnstarted:
-                    return true;
-                case ResolveStatusInvalid:
-                    zig_unreachable();
-                case ResolveStatusZeroBitsKnown:
-                    return type_entry->data.enumeration.zero_bits_known;
-                case ResolveStatusAlignmentKnown:
-                    return type_entry->data.enumeration.zero_bits_known;
-                case ResolveStatusSizeKnown:
-                    return type_entry->data.enumeration.complete;
-                case ResolveStatusLLVMFwdDecl:
-                case ResolveStatusLLVMFull:
-                    return type_entry->llvm_di_type != nullptr;
-            }
-            zig_unreachable();
         case ZigTypeIdOpaque:
             return status < ResolveStatusSizeKnown;
         case ZigTypeIdMetaType:
@@ -865,7 +850,7 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         return table_entry->value;
     }
     if (fn_type_id->return_type != nullptr) {
-        if ((err = ensure_complete_type(g, fn_type_id->return_type)))
+        if ((err = type_resolve(g, fn_type_id->return_type, ResolveStatusSizeKnown)))
             return g->builtin_types.entry_invalid;
         assert(fn_type_id->return_type->id != ZigTypeIdOpaque);
     } else {
@@ -1404,7 +1389,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         add_node_error(g, proto_node,
             buf_sprintf("TODO implement inferred return types https://github.com/ziglang/zig/issues/447"));
         return g->builtin_types.entry_invalid;
-        //return get_generic_fn_type(g, &fn_type_id);
     }
 
     ZigType *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
@@ -1490,7 +1474,7 @@ bool type_is_invalid(ZigType *type_entry) {
         case ZigTypeIdUnion:
             return type_entry->data.unionation.resolve_status == ResolveStatusInvalid;
         case ZigTypeIdEnum:
-            return type_entry->data.enumeration.is_invalid;
+            return type_entry->data.enumeration.resolve_status == ResolveStatusInvalid;
         default:
             return false;
     }
@@ -1602,9 +1586,8 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
-            emit_error_notes_for_ref_stack(g, msg);
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("struct '%s' depends on its own size", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -1728,14 +1711,13 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
     if (union_type->data.unionation.resolve_status >= ResolveStatusAlignmentKnown)
         return ErrorNone;
 
+    AstNode *decl_node = union_type->data.structure.decl_node;
+
     if (union_type->data.unionation.resolve_loop_flag) {
-        if (!union_type->data.unionation.reported_infinite_err) {
-            AstNode *decl_node = union_type->data.unionation.decl_node;
-            union_type->data.unionation.reported_infinite_err = true;
+        if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node,
-                    buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
-            emit_error_notes_for_ref_stack(g, msg);
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("union '%s' depends on its own alignment", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -1752,13 +1734,12 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
         if (field->gen_index == UINT32_MAX)
             continue;
 
+        src_assert(field->type_entry != nullptr, decl_node);
+
         size_t this_field_align;
         if (packed) {
             // TODO: https://github.com/ziglang/zig/issues/1512
             this_field_align = 1;
-        // This is the same hack as resolve_struct_alignment. See the comment there.
-        } else if (field->type_entry == nullptr) {
-            this_field_align = g->builtin_types.entry_usize->abi_align;
         } else {
             if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -1839,12 +1820,10 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     size_t union_size_in_bits = 0;
 
     if (union_type->data.unionation.resolve_loop_flag) {
-        if (!union_type->data.unionation.reported_infinite_err) {
-            union_type->data.unionation.reported_infinite_err = true;
+        if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node,
-                    buf_sprintf("union '%s' depends on its own size", buf_ptr(&union_type->name)));
-            emit_error_notes_for_ref_stack(g, msg);
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("union '%s' depends on its own size", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -1925,24 +1904,25 @@ static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     assert(enum_type->id == ZigTypeIdEnum);
 
-    if (enum_type->data.enumeration.is_invalid)
+    if (enum_type->data.enumeration.resolve_status == ResolveStatusInvalid)
         return ErrorSemanticAnalyzeFail;
-
-    if (enum_type->data.enumeration.zero_bits_known)
+    if (enum_type->data.enumeration.resolve_status >= ResolveStatusZeroBitsKnown)
         return ErrorNone;
-
-    if (enum_type->data.enumeration.zero_bits_loop_flag) {
-        ErrorMsg *msg = add_node_error(g, enum_type->data.enumeration.decl_node,
-            buf_sprintf("'%s' depends on itself", buf_ptr(&enum_type->name)));
-        emit_error_notes_for_ref_stack(g, msg);
-        enum_type->data.enumeration.is_invalid = true;
-        return ErrorSemanticAnalyzeFail;
-    }
-
-    enum_type->data.enumeration.zero_bits_loop_flag = true;
 
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
     assert(decl_node->type == NodeTypeContainerDecl);
+
+    if (enum_type->data.enumeration.resolve_loop_flag) {
+        if (enum_type->data.enumeration.resolve_status != ResolveStatusInvalid) {
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("circular dependency: whether enum '%s' has non-zero size",
+                    buf_ptr(&enum_type->name)));
+        }
+        return ErrorSemanticAnalyzeFail;
+    }
+
+    enum_type->data.enumeration.resolve_loop_flag = true;
 
     assert(!enum_type->data.enumeration.fields);
     uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
@@ -1951,9 +1931,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         enum_type->data.enumeration.src_field_count = field_count;
         enum_type->data.enumeration.fields = nullptr;
-        enum_type->data.enumeration.is_invalid = true;
-        enum_type->data.enumeration.zero_bits_loop_flag = false;
-        enum_type->data.enumeration.zero_bits_known = true;
+        enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
         return ErrorSemanticAnalyzeFail;
     }
 
@@ -1982,14 +1960,14 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     if (decl_node->data.container_decl.init_arg_expr != nullptr) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
-            enum_type->data.enumeration.is_invalid = true;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
         } else if (wanted_tag_int_type->id != ZigTypeIdInt) {
-            enum_type->data.enumeration.is_invalid = true;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
         } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
                    !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
-            enum_type->data.enumeration.is_invalid = true;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("'%s' is not a valid tag type for an extern enum",
                             buf_ptr(&wanted_tag_int_type->name)));
@@ -2029,7 +2007,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             ErrorMsg *msg = add_node_error(g, field_node,
                 buf_sprintf("duplicate enum field: '%s'", buf_ptr(type_enum_field->name)));
             add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
-            enum_type->data.enumeration.is_invalid = true;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             continue;
         }
 
@@ -2039,7 +2017,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             // A user-specified value is available
             ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
             if (type_is_invalid(result->type)) {
-                enum_type->data.enumeration.is_invalid = true;
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
                 continue;
             }
 
@@ -2060,7 +2038,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             if (!bigint_fits_in_bits(&type_enum_field->value,
                                      tag_int_type->size_in_bits,
                                      tag_int_type->data.integral.is_signed)) {
-                enum_type->data.enumeration.is_invalid = true;
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
 
                 Buf *val_buf = buf_alloc();
                 bigint_append_buf(val_buf, &type_enum_field->value, 10);
@@ -2075,7 +2053,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         // Make sure the value is unique
         auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
         if (entry != nullptr) {
-            enum_type->data.enumeration.is_invalid = true;
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
 
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &type_enum_field->value, 10);
@@ -2089,12 +2067,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         last_enum_field = type_enum_field;
     }
 
-    enum_type->data.enumeration.zero_bits_loop_flag = false;
-    enum_type->data.enumeration.zero_bits_known = true;
-    enum_type->data.enumeration.complete = true;
-
-    if (enum_type->data.enumeration.is_invalid)
+    if (enum_type->data.enumeration.resolve_status == ResolveStatusInvalid)
         return ErrorSemanticAnalyzeFail;
+
+    enum_type->data.enumeration.resolve_loop_flag = false;
+    enum_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
 
     return ErrorNone;
 }
@@ -2113,12 +2090,13 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
 
     if (struct_type->data.structure.resolve_loop_flag) {
-        // TODO This is a problem. I believe it can be solved with lazy values.
-        struct_type->size_in_bits = SIZE_MAX;
-        struct_type->abi_size = SIZE_MAX;
-        struct_type->data.structure.resolve_status = ResolveStatusZeroBitsKnown;
-        struct_type->data.structure.resolve_loop_flag = false;
-        return ErrorNone;
+        if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("circular dependency: whether struct '%s' has non-zero size",
+                    buf_ptr(&struct_type->name)));
+        }
+        return ErrorSemanticAnalyzeFail;
     }
 
     struct_type->data.structure.resolve_loop_flag = true;
@@ -2237,9 +2215,8 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
-            emit_error_notes_for_ref_stack(g, msg);
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("struct '%s' depends on its own alignment", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2255,20 +2232,12 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         if (field->gen_index == SIZE_MAX)
             continue;
 
+        src_assert(field->type_entry != nullptr, decl_node);
+
         size_t this_field_align;
         if (packed) {
             // TODO: https://github.com/ziglang/zig/issues/1512
             this_field_align = 1;
-        // TODO If we have no type_entry for the field, we've already failed to
-        // compile the program correctly. This stage1 compiler needs a deeper
-        // reworking to make this correct, or we can ignore the problem
-        // and make sure it is fixed in stage2. This workaround is for when
-        // there is a false positive of a dependency loop, of alignment depending
-        // on itself. When this false positive happens we assume a pointer-aligned
-        // field, which is usually fine but could be incorrectly over-aligned or
-        // even under-aligned. See https://github.com/ziglang/zig/issues/1512
-        } else if (field->type_entry == nullptr) {
-            this_field_align = g->builtin_types.entry_usize->abi_align;
         } else {
             if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2304,22 +2273,20 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     if (union_type->data.unionation.resolve_status >= ResolveStatusZeroBitsKnown)
         return ErrorNone;
 
+    AstNode *decl_node = union_type->data.unionation.decl_node;
+    assert(decl_node->type == NodeTypeContainerDecl);
+
     if (union_type->data.unionation.resolve_loop_flag) {
-        // If we get here it's due to recursion. From this we conclude that the struct is
-        // not zero bits.
-        // TODO actually it could still be zero bits. Here we should continue analyzing
-        // the union from the next field index.
-        union_type->data.unionation.resolve_status = ResolveStatusZeroBitsKnown;
-        union_type->data.unionation.resolve_loop_flag = false;
-        union_type->abi_size = SIZE_MAX;
-        union_type->size_in_bits = SIZE_MAX;
-        return ErrorNone;
+        if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
+            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+            g->trace_err = add_node_error(g, decl_node,
+                buf_sprintf("circular dependency: whether union '%s' has non-zero size",
+                    buf_ptr(&union_type->name)));
+        }
+        return ErrorSemanticAnalyzeFail;
     }
 
     union_type->data.unionation.resolve_loop_flag = true;
-
-    AstNode *decl_node = union_type->data.unionation.decl_node;
-    assert(decl_node->type == NodeTypeContainerDecl);
 
     assert(union_type->data.unionation.fields == nullptr);
     uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
@@ -2380,14 +2347,13 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->size_in_bits = tag_int_type->size_in_bits;
 
         tag_type->data.enumeration.tag_int_type = tag_int_type;
-        tag_type->data.enumeration.zero_bits_known = true;
+        tag_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
         tag_type->data.enumeration.decl_node = decl_node;
         tag_type->data.enumeration.layout = ContainerLayoutAuto;
         tag_type->data.enumeration.src_field_count = field_count;
         tag_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
-        tag_type->data.enumeration.complete = true;
     } else if (enum_type_node != nullptr) {
         ZigType *enum_type = analyze_type_expr(g, scope, enum_type_node);
         if (type_is_invalid(enum_type)) {
@@ -3185,9 +3151,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     ZigType *explicit_type = nullptr;
     if (var_decl->type) {
         if (tld_var->analyzing_type) {
-            ErrorMsg *msg = add_node_error(g, var_decl->type,
+            g->trace_err = add_node_error(g, var_decl->type,
                 buf_sprintf("type of '%s' depends on itself", buf_ptr(tld_var->base.name)));
-            emit_error_notes_for_ref_stack(g, msg);
             explicit_type = g->builtin_types.entry_invalid;
         } else {
             tld_var->analyzing_type = true;
@@ -3386,7 +3351,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
 
     assert(tld->resolution != TldResolutionResolving);
     tld->resolution = TldResolutionResolving;
-    g->tld_ref_source_node_stack.append(source_node);
 
     switch (tld->id) {
         case TldIdVar:
@@ -3424,7 +3388,10 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
     }
 
     tld->resolution = TldResolutionOk;
-    g->tld_ref_source_node_stack.pop();
+
+    if (g->trace_err != nullptr && source_node != nullptr) {
+        g->trace_err = add_error_note(g, g->trace_err, source_node, buf_create_from_str("referenced here"));
+    }
 }
 
 Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name) {
@@ -3550,7 +3517,7 @@ TypeUnionField *find_union_field_by_tag(ZigType *type_entry, const BigInt *tag) 
 }
 
 TypeEnumField *find_enum_field_by_tag(ZigType *enum_type, const BigInt *tag) {
-    assert(enum_type->data.enumeration.zero_bits_known);
+    assert(type_is_resolved(enum_type, ResolveStatusZeroBitsKnown));
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *field = &enum_type->data.enumeration.fields[i];
         if (bigint_cmp(&field->value, tag) == CmpEQ) {
@@ -3617,43 +3584,6 @@ ZigType *container_ref_type(ZigType *type_entry) {
     assert(is_container_ref(type_entry));
     return is_ref(type_entry) ?
         type_entry->data.pointer.child_type : type_entry;
-}
-
-Error resolve_container_type(CodeGen *g, ZigType *type_entry) {
-    switch (type_entry->id) {
-        case ZigTypeIdStruct:
-            return resolve_struct_type(g, type_entry);
-        case ZigTypeIdEnum:
-            return resolve_enum_zero_bits(g, type_entry);
-        case ZigTypeIdUnion:
-            return resolve_union_type(g, type_entry);
-        case ZigTypeIdPointer:
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdArray:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdFn:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdInvalid:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            zig_unreachable();
-    }
-    zig_unreachable();
 }
 
 ZigType *get_src_ptr_type(ZigType *type) {
@@ -3906,7 +3836,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
             &fn->analyzed_executable, fn_type_id->return_type, return_type_node);
     fn->src_implicit_return_type = block_return_type;
 
-    if (type_is_invalid(block_return_type) || fn->analyzed_executable.invalid) {
+    if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
         assert(g->errors.length > 0);
         fn->anal_state = FnAnalStateInvalid;
         return;
@@ -3990,7 +3920,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     assert(!fn_type->data.fn.is_generic);
 
     ir_gen_fn(g, fn_table_entry);
-    if (fn_table_entry->ir_executable.invalid) {
+    if (fn_table_entry->ir_executable.first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
@@ -4128,12 +4058,14 @@ void semantic_analyze(CodeGen *g) {
     {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
+            g->trace_err = nullptr;
             AstNode *source_node = nullptr;
             resolve_top_level_decl(g, tld, source_node);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
             ZigFn *fn_entry = g->fn_defs.at(g->fn_defs_index);
+            g->trace_err = nullptr;
             analyze_fn_body(g, fn_entry);
         }
     }
@@ -4145,6 +4077,7 @@ void semantic_analyze(CodeGen *g) {
     // second pass over functions for detecting async
     for (g->fn_defs_index = 0; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
         ZigFn *fn = g->fn_defs.at(g->fn_defs_index);
+        g->trace_err = nullptr;
         analyze_fn_async(g, fn, true);
         if (fn_is_async(fn) && fn->non_async_node != nullptr) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
@@ -5143,34 +5076,6 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 }
 
 
-void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
-    Error err;
-    ZigType *wanted_type = const_val->type;
-    if (wanted_type->id == ZigTypeIdArray) {
-        const_val->special = ConstValSpecialStatic;
-        const_val->data.x_array.special = ConstArraySpecialUndef;
-    } else if (wanted_type->id == ZigTypeIdStruct) {
-        if ((err = ensure_complete_type(g, wanted_type))) {
-            return;
-        }
-
-        const_val->special = ConstValSpecialStatic;
-        size_t field_count = wanted_type->data.structure.src_field_count;
-        const_val->data.x_struct.fields = create_const_vals(field_count);
-        for (size_t i = 0; i < field_count; i += 1) {
-            ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
-            field_val->type = wanted_type->data.structure.fields[i].type_entry;
-            assert(field_val->type);
-            init_const_undefined(g, field_val);
-            field_val->parent.id = ConstParentIdStruct;
-            field_val->parent.data.p_struct.struct_val = const_val;
-            field_val->parent.data.p_struct.field_index = i;
-        }
-    } else {
-        const_val->special = ConstValSpecialUndef;
-    }
-}
-
 ConstExprValue *create_const_vals(size_t count) {
     ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count);
     ConstExprValue *vals = allocate<ConstExprValue>(count);
@@ -5178,10 +5083,6 @@ ConstExprValue *create_const_vals(size_t count) {
         vals[i].global_refs = &global_refs[i];
     }
     return vals;
-}
-
-Error ensure_complete_type(CodeGen *g, ZigType *type_entry) {
-    return type_resolve(g, type_entry, ResolveStatusSizeKnown);
 }
 
 static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
@@ -5197,27 +5098,6 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     return fn_type;
 }
 
-static void emit_error_notes_for_type_loop(CodeGen *g, ErrorMsg *msg, ZigType *stop_type,
-        ZigType *ty, AstNode *src_node)
-{
-    ErrorMsg *note = add_error_note(g, msg, src_node,
-        buf_sprintf("when analyzing type '%s' here", buf_ptr(&ty->name)));
-    if (ty == stop_type)
-        return;
-    switch (ty->id) {
-        case ZigTypeIdFnFrame: {
-            ty->data.frame.reported_loop_err = true;
-            ZigType *depending_type = ty->data.frame.resolve_loop_type;
-            if (depending_type == nullptr)
-                return;
-            emit_error_notes_for_type_loop(g, note, stop_type,
-                depending_type, ty->data.frame.resolve_loop_src_node);
-        }
-        default:
-            return;
-    }
-}
-
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     Error err;
 
@@ -5230,13 +5110,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     if (frame_type->data.frame.resolve_loop_type != nullptr) {
         if (!frame_type->data.frame.reported_loop_err) {
             frame_type->data.frame.reported_loop_err = true;
-            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+            g->trace_err = add_node_error(g, fn->proto_node,
                     buf_sprintf("'%s' depends on itself", buf_ptr(&frame_type->name)));
-            emit_error_notes_for_type_loop(g, msg,
-                    frame_type,
-                    frame_type->data.frame.resolve_loop_type,
-                    frame_type->data.frame.resolve_loop_src_node);
-            emit_error_notes_for_ref_stack(g, msg);
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -5252,11 +5127,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 return ErrorSemanticAnalyzeFail;
             break;
         case FnAnalStateProbing: {
-            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+            g->trace_err = add_node_error(g, fn->proto_node,
                     buf_sprintf("cannot resolve '%s': function not fully analyzed yet",
                         buf_ptr(&frame_type->name)));
-            ir_add_analysis_trace(fn->ir_executable.analysis, msg,
-                    buf_sprintf("depends on its own frame here"));
             return ErrorSemanticAnalyzeFail;
         }
     }
@@ -5327,10 +5200,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (callee->anal_state == FnAnalStateProbing) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("unable to determine async function frame of '%s'", buf_ptr(&fn->symbol_name)));
-            ErrorMsg *note = add_error_note(g, msg, call->base.source_node,
+            g->trace_err = add_error_note(g, msg, call->base.source_node,
                 buf_sprintf("analysis of function '%s' depends on the frame", buf_ptr(&callee->symbol_name)));
-            ir_add_analysis_trace(callee->ir_executable.analysis, note,
-                    buf_sprintf("depends on the frame here"));
             return ErrorSemanticAnalyzeFail;
         }
 
@@ -6229,6 +6100,40 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
     zig_unreachable();
 }
 
+static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
+    Error err;
+    ZigType *wanted_type = const_val->type;
+    if (wanted_type->id == ZigTypeIdArray) {
+        const_val->special = ConstValSpecialStatic;
+        const_val->data.x_array.special = ConstArraySpecialUndef;
+    } else if (wanted_type->id == ZigTypeIdStruct) {
+        if ((err = type_resolve(g, wanted_type, ResolveStatusZeroBitsKnown))) {
+            return;
+        }
+
+        const_val->special = ConstValSpecialStatic;
+        size_t field_count = wanted_type->data.structure.src_field_count;
+        const_val->data.x_struct.fields = create_const_vals(field_count);
+        for (size_t i = 0; i < field_count; i += 1) {
+            ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
+            field_val->type = wanted_type->data.structure.fields[i].type_entry;
+            assert(field_val->type);
+            init_const_undefined(g, field_val);
+            field_val->parent.id = ConstParentIdStruct;
+            field_val->parent.data.p_struct.struct_val = const_val;
+            field_val->parent.data.p_struct.field_index = i;
+        }
+    } else {
+        const_val->special = ConstValSpecialUndef;
+    }
+}
+
+void expand_undef_struct(CodeGen *g, ConstExprValue *const_val) {
+    if (const_val->special == ConstValSpecialUndef) {
+        init_const_undefined(g, const_val);
+    }
+}
+
 // Canonicalize the array value as ConstArraySpecialNone
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     size_t elem_count;
@@ -6707,19 +6612,6 @@ bool ptr_allows_addr_zero(ZigType *ptr_type) {
     return false;
 }
 
-void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg) {
-    size_t i = g->tld_ref_source_node_stack.length;
-    for (;;) {
-        if (i == 0)
-            break;
-        i -= 1;
-        AstNode *source_node = g->tld_ref_source_node_stack.at(i);
-        if (source_node) {
-            msg = add_error_note(g, msg, source_node, buf_sprintf("referenced here"));
-        }
-    }
-}
-
 Buf *type_bare_name(ZigType *type_entry) {
     if (is_slice(type_entry)) {
         return &type_entry->name;
@@ -7122,10 +7014,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     struct_type->data.structure.resolve_status = ResolveStatusLLVMFull;
 }
 
-static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
-    assert(!enum_type->data.enumeration.is_invalid);
-    assert(enum_type->data.enumeration.complete);
-    if (enum_type->llvm_di_type != nullptr) return;
+static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatus wanted_resolve_status) {
+    assert(enum_type->data.enumeration.resolve_status >= ResolveStatusSizeKnown);
+    if (enum_type->data.enumeration.resolve_status >= wanted_resolve_status) return;
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
     ZigType *import = get_scope_import(scope);
@@ -7146,6 +7037,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
                 debug_align_in_bits,
                 ZigLLVM_DIFlags_Zero,
                 nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+        enum_type->data.enumeration.resolve_status = ResolveStatusLLVMFull;
         return;
     }
 
@@ -7178,6 +7070,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type) {
             get_llvm_di_type(g, tag_int_type), "");
 
     enum_type->llvm_di_type = tag_di_type;
+    enum_type->data.enumeration.resolve_status = ResolveStatusLLVMFull;
 }
 
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveStatus wanted_resolve_status) {
@@ -7909,7 +7802,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             else
                 return resolve_llvm_types_struct(g, type, wanted_resolve_status, nullptr);
         case ZigTypeIdEnum:
-            return resolve_llvm_types_enum(g, type);
+            return resolve_llvm_types_enum(g, type, wanted_resolve_status);
         case ZigTypeIdUnion:
             return resolve_llvm_types_union(g, type, wanted_resolve_status);
         case ZigTypeIdPointer:

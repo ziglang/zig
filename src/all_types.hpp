@@ -69,9 +69,9 @@ struct IrExecutable {
     IrExecutable *source_exec;
     IrAnalyze *analysis;
     Scope *begin_scope;
+    ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
-    bool invalid;
     bool is_inline;
     bool is_generic_instantiation;
     bool need_err_code_spill;
@@ -1129,11 +1129,10 @@ struct ZigTypeStruct {
     ResolveStatus resolve_status;
 
     bool is_slice;
-    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
-    bool reported_infinite_err;
     // whether any of the fields require comptime
     // known after ResolveStatusZeroBitsKnown
     bool requires_comptime;
+    bool resolve_loop_flag;
 };
 
 struct ZigTypeOptional {
@@ -1155,26 +1154,20 @@ struct ZigTypeErrorSet {
 
 struct ZigTypeEnum {
     AstNode *decl_node;
-    ContainerLayout layout;
-    uint32_t src_field_count;
     TypeEnumField *fields;
-    bool is_invalid; // true if any fields are invalid
     ZigType *tag_int_type;
 
     ScopeDecls *decls_scope;
 
-    // set this flag temporarily to detect infinite loops
-    bool embedded_in_current;
-    bool reported_infinite_err;
-    // whether we've finished resolving it
-    bool complete;
-
-    bool zero_bits_loop_flag;
-    bool zero_bits_known;
-
     LLVMValueRef name_function;
 
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
+    uint32_t src_field_count;
+
+    ContainerLayout layout;
+    ResolveStatus resolve_status;
+
+    bool resolve_loop_flag;
 };
 
 uint32_t type_ptr_hash(const ZigType *ptr);
@@ -1199,11 +1192,10 @@ struct ZigTypeUnion {
     ResolveStatus resolve_status;
 
     bool have_explicit_tag_type;
-    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
-    bool reported_infinite_err;
     // whether any of the fields require comptime
     // the value is not valid until zero_bits_known == true
     bool requires_comptime;
+    bool resolve_loop_flag;
 };
 
 struct FnGenParamInfo {
@@ -1715,6 +1707,7 @@ struct CodeGen {
     //////////////////////////// Runtime State
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
+    ErrorMsg *trace_err;
     LLVMBuilderRef builder;
     ZigLLVMDIBuilder *dbuilder;
     ZigLLVMDICompileUnit *compile_unit;
@@ -1767,7 +1760,6 @@ struct CodeGen {
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
     ZigList<TimeEvent> timing_events;
-    ZigList<AstNode *> tld_ref_source_node_stack;
     ZigList<ZigFn *> inline_fns;
     ZigList<ZigFn *> test_fns;
     ZigList<ErrorTableEntry *> errors_by_index;
@@ -1852,7 +1844,6 @@ struct CodeGen {
     ZigFn *main_fn;
     ZigFn *panic_fn;
     TldFn *panic_tld_fn;
-    AstNode *root_export_decl;
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;

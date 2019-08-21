@@ -14,7 +14,6 @@ void semantic_analyze(CodeGen *g);
 ErrorMsg *add_node_error(CodeGen *g, const AstNode *node, Buf *msg);
 ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, Buf *msg);
-void emit_error_notes_for_ref_stack(CodeGen *g, ErrorMsg *msg);
 ZigType *new_type_table_entry(ZigTypeId id);
 ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn);
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const);
@@ -71,7 +70,6 @@ bool type_is_complete(ZigType *type_entry);
 bool type_is_resolved(ZigType *type_entry, ResolveStatus status);
 bool type_is_invalid(ZigType *type_entry);
 bool type_is_global_error_set(ZigType *err_set_type);
-Error resolve_container_type(CodeGen *g, ZigType *type_entry);
 ScopeDecls *get_container_scope(ZigType *type_entry);
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name);
 TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name);
@@ -95,7 +93,6 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
-Error ATTRIBUTE_MUST_USE ensure_complete_type(CodeGen *g, ZigType *type_entry);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
 bool ir_get_var_is_comptime(ZigVar *var);
@@ -169,12 +166,11 @@ ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t
 void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end);
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
-void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
-
 ConstExprValue *create_const_vals(size_t count);
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
+void expand_undef_struct(CodeGen *g, ConstExprValue *const_val);
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
 
 const char *type_id_name(ZigTypeId id);
