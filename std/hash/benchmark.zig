@@ -15,6 +15,7 @@ var prng = std.rand.DefaultPrng.init(0);
 const Hash = struct {
     ty: type,
     name: []const u8,
+    has_iterative_api: bool = true,
     init_u8s: ?[]const u8 = null,
     init_u64: ?u64 = null,
 };
@@ -22,11 +23,62 @@ const Hash = struct {
 const siphash_key = "0123456789abcdef";
 
 const hashes = [_]Hash{
-    Hash{ .ty = hash.Wyhash, .name = "wyhash", .init_u64 = 0 },
-    Hash{ .ty = hash.SipHash64(1, 3), .name = "siphash(1,3)", .init_u8s = siphash_key },
-    Hash{ .ty = hash.SipHash64(2, 4), .name = "siphash(2,4)", .init_u8s = siphash_key },
-    Hash{ .ty = hash.Fnv1a_64, .name = "fnv1a" },
-    Hash{ .ty = hash.Crc32, .name = "crc32" },
+    Hash{
+        .ty = hash.Wyhash,
+        .name = "wyhash",
+        .init_u64 = 0,
+    },
+    Hash{
+        .ty = hash.SipHash64(1, 3),
+        .name = "siphash(1,3)",
+        .init_u8s = siphash_key,
+    },
+    Hash{
+        .ty = hash.SipHash64(2, 4),
+        .name = "siphash(2,4)",
+        .init_u8s = siphash_key,
+    },
+    Hash{
+        .ty = hash.Fnv1a_64,
+        .name = "fnv1a",
+    },
+    Hash{
+        .ty = hash.Adler32,
+        .name = "adler32",
+    },
+    Hash{
+        .ty = hash.crc.Crc32WithPoly(.IEEE),
+        .name = "crc32-slicing-by-8",
+    },
+    Hash{
+        .ty = hash.crc.Crc32SmallWithPoly(.IEEE),
+        .name = "crc32-half-byte-lookup",
+    },
+    Hash{
+        .ty = hash.CityHash32,
+        .name = "cityhash-32",
+        .has_iterative_api = false,
+    },
+    Hash{
+        .ty = hash.CityHash64,
+        .name = "cityhash-64",
+        .has_iterative_api = false,
+    },
+    Hash{
+        .ty = hash.Murmur2_32,
+        .name = "murmur2-32",
+        .has_iterative_api = false,
+    },
+    Hash{
+        .ty = hash.Murmur2_64,
+        .name = "murmur2-64",
+        .has_iterative_api = false,
+    },
+    Hash{
+        .ty = hash.Murmur3_32,
+        .name = "murmur3-32",
+        .has_iterative_api = false,
+    },
 };
 
 const Result = struct {
@@ -78,10 +130,8 @@ pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !R
 
     var sum: u64 = 0;
     while (i < key_count) : (i += 1) {
-        const o = i % (block_size - key_size);
-        const small_key = block[o .. key_size + o];
-
-        const result = blk: {
+        const small_key = block[0..key_size];
+        sum +%= blk: {
             if (H.init_u8s) |init| {
                 break :blk H.ty.hash(init, small_key);
             }
@@ -90,8 +140,6 @@ pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !R
             }
             break :blk H.ty.hash(small_key);
         };
-
-        sum +%= result;
     }
     const end = timer.read();
 
@@ -142,6 +190,7 @@ pub fn main() !void {
     var filter: ?[]u8 = "";
     var count: usize = mode(128 * MiB);
     var key_size: usize = 32;
+    var seed: u32 = 0;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -155,8 +204,8 @@ pub fn main() !void {
                 std.os.exit(1);
             }
 
-            const seed = try std.fmt.parseUnsigned(u32, args[i], 10);
-            prng.seed(seed);
+            seed = try std.fmt.parseUnsigned(u32, args[i], 10);
+            // we seed later
         } else if (std.mem.eql(u8, args[i], "--filter")) {
             i += 1;
             if (i == args.len) {
@@ -197,11 +246,18 @@ pub fn main() !void {
 
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const result = try benchmarkHash(H, count);
-            const result_small = try benchmarkHashSmallKeys(H, key_size, count);
-
             try stdout.print("{}\n", H.name);
-            try stdout.print("   iterative: {:4} MiB/s [{x:0<16}]\n", result.throughput / (1 * MiB), result.hash);
+
+            // Always reseed prior to every call so we are hashing the same buffer contents.
+            // This allows easier comparison between different implementations.
+            if (H.has_iterative_api) {
+                prng.seed(seed);
+                const result = try benchmarkHash(H, count);
+                try stdout.print("   iterative: {:4} MiB/s [{x:0<16}]\n", result.throughput / (1 * MiB), result.hash);
+            }
+
+            prng.seed(seed);
+            const result_small = try benchmarkHashSmallKeys(H, key_size, count);
             try stdout.print("  small keys: {:4} MiB/s [{x:0<16}]\n", result_small.throughput / (1 * MiB), result_small.hash);
         }
     }
