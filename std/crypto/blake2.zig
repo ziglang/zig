@@ -269,8 +269,8 @@ pub const Blake2b512 = Blake2b(512);
 fn Blake2b(comptime out_len: usize) type {
     return struct {
         const Self = @This();
-        const block_length = 128;
-        const digest_length = out_len / 8;
+        pub const block_length = 128;
+        pub const digest_length = out_len / 8;
 
         const iv = [8]u64{
             0x6a09e667f3bcc908,

@@ -1,3 +1,5 @@
+// zig run benchmark.zig --release-fast --override-std-dir ..
+
 const builtin = @import("builtin");
 const std = @import("std");
 const time = std.time;
@@ -32,6 +34,8 @@ const Result = struct {
     throughput: u64,
 };
 
+const block_size: usize = 8192;
+
 pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     var h = blk: {
         if (H.init_u8s) |init| {
@@ -43,7 +47,7 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
         break :blk H.ty.init();
     };
 
-    var block: [8192]u8 = undefined;
+    var block: [block_size]u8 = undefined;
     prng.random.bytes(block[0..]);
 
     var offset: usize = 0;
@@ -59,6 +63,43 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
 
     return Result{
         .hash = h.final(),
+        .throughput = throughput,
+    };
+}
+
+pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !Result {
+    const key_count = bytes / key_size;
+    var block: [block_size]u8 = undefined;
+    prng.random.bytes(block[0..]);
+
+    var i: usize = 0;
+    var timer = try Timer.start();
+    const start = timer.lap();
+
+    var sum: u64 = 0;
+    while (i < key_count) : (i += 1) {
+        const o = i % (block_size - key_size);
+        const small_key = block[o .. key_size + o];
+
+        const result = blk: {
+            if (H.init_u8s) |init| {
+                break :blk H.ty.hash(init, small_key);
+            }
+            if (H.init_u64) |init| {
+                break :blk H.ty.hash(init, small_key);
+            }
+            break :blk H.ty.hash(small_key);
+        };
+
+        sum +%= result;
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+
+    return Result{
+        .hash = sum,
         .throughput = throughput,
     };
 }
@@ -100,10 +141,14 @@ pub fn main() !void {
 
     var filter: ?[]u8 = "";
     var count: usize = mode(128 * MiB);
+    var key_size: usize = 32;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--seed")) {
+        if (std.mem.eql(u8, args[i], "--mode")) {
+            try stdout.print("{}\n", builtin.mode);
+            return;
+        } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
             if (i == args.len) {
                 usage();
@@ -127,8 +172,20 @@ pub fn main() !void {
                 std.os.exit(1);
             }
 
-            const c = try std.fmt.parseUnsigned(u32, args[i], 10);
+            const c = try std.fmt.parseUnsigned(usize, args[i], 10);
             count = c * MiB;
+        } else if (std.mem.eql(u8, args[i], "--key-size")) {
+            i += 1;
+            if (i == args.len) {
+                usage();
+                std.os.exit(1);
+            }
+
+            key_size = try std.fmt.parseUnsigned(usize, args[i], 10);
+            if (key_size > block_size) {
+                try stdout.print("key_size cannot exceed block size of {}\n", block_size);
+                std.os.exit(1);
+            }
         } else if (std.mem.eql(u8, args[i], "--help")) {
             usage();
             return;
@@ -141,8 +198,11 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const result = try benchmarkHash(H, count);
-            try printPad(stdout, H.name);
-            try stdout.print(": {:4} MiB/s [{:16}]\n", result.throughput / (1 * MiB), result.hash);
+            const result_small = try benchmarkHashSmallKeys(H, key_size, count);
+
+            try stdout.print("{}\n", H.name);
+            try stdout.print("   iterative: {:4} MiB/s [{x:0<16}]\n", result.throughput / (1 * MiB), result.hash);
+            try stdout.print("  small keys: {:4} MiB/s [{x:0<16}]\n", result_small.throughput / (1 * MiB), result_small.hash);
         }
     }
 }
