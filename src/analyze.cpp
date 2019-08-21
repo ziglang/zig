@@ -6051,12 +6051,12 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
         entry->abi_size = LLVMABISizeOfType(g->target_data_ref, entry->llvm_type);
         entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
 
-        if (size_in_bits >= 128) {
+        if (size_in_bits >= 128 && entry->abi_align < 16) {
             // Override the incorrect alignment reported by LLVM. Clang does this as well.
             // On x86_64 there are some instructions like CMPXCHG16B which require this.
             // On all targets, integers 128 bits and above have ABI alignment of 16.
+            // However for some targets, LLVM incorrectly reports this as 8.
             // See: https://github.com/ziglang/zig/issues/2987
-            assert(entry->abi_align == 8); // if this trips we can remove the workaround
             entry->abi_align = 16;
         }
     }
