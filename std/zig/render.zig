@@ -206,7 +206,20 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             } else if (field.type_expr != null and field.value_expr == null) {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
-                return renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
+
+                if (field.align_expr) |align_value_expr| {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
+                    const lparen_token = tree.prevToken(align_value_expr.firstToken());
+                    const align_kw = tree.prevToken(lparen_token);
+                    const rparen_token = tree.nextToken(align_value_expr.lastToken());
+                    try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
+                    try renderToken(tree, stream, lparen_token, indent, start_col, Space.None); // (
+                    try renderExpression(allocator, stream, tree, indent, start_col, align_value_expr, Space.None); // alignment
+                    try renderToken(tree, stream, rparen_token, indent, start_col, Space.Comma); // )
+                } else {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
+                }
+
             } else if (field.type_expr == null and field.value_expr != null) {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.Space); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
