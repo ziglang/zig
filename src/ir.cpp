@@ -11058,14 +11058,21 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
 }
 
 static IrInstruction *ir_analyze_frame_ptr_to_anyframe(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *value, ZigType *wanted_type)
+        IrInstruction *frame_ptr, ZigType *wanted_type)
 {
-    if (instr_is_comptime(value)) {
-        zig_panic("TODO comptime frame pointer");
+    if (instr_is_comptime(frame_ptr)) {
+        ConstExprValue *ptr_val = ir_resolve_const(ira, frame_ptr, UndefBad);
+        if (ptr_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        ir_assert(ptr_val->type->id == ZigTypeIdPointer, source_instr);
+        if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
+            zig_panic("TODO comptime frame pointer");
+        }
     }
 
     IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node,
-            wanted_type, value, CastOpBitCast);
+            wanted_type, frame_ptr, CastOpBitCast);
     result->value.type = wanted_type;
     return result;
 }
@@ -13618,21 +13625,34 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
         if (type_is_invalid(casted_op2->value.type))
             return ira->codegen->invalid_instruction;
 
-        if (op1->value.special == ConstValSpecialUndef || casted_op2->value.special == ConstValSpecialUndef) {
-            IrInstruction *result = ir_const(ira, &instruction->base, op1->value.type);
-            result->value.special = ConstValSpecialUndef;
-            return result;
+        // If either operand is undef, result is undef.
+        ConstExprValue *op1_val = nullptr;
+        ConstExprValue *op2_val = nullptr;
+        if (instr_is_comptime(op1)) {
+            op1_val = ir_resolve_const(ira, op1, UndefOk);
+            if (op1_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (op1_val->special == ConstValSpecialUndef)
+                return ir_const_undef(ira, &instruction->base, op1->value.type);
         }
-        if (casted_op2->value.special == ConstValSpecialStatic && op1->value.special == ConstValSpecialStatic &&
+        if (instr_is_comptime(casted_op2)) {
+            op2_val = ir_resolve_const(ira, casted_op2, UndefOk);
+            if (op2_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (op2_val->special == ConstValSpecialUndef)
+                return ir_const_undef(ira, &instruction->base, op1->value.type);
+        }
+
+        if (op2_val != nullptr && op1_val != nullptr &&
             (op1->value.data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
             op1->value.data.x_ptr.special == ConstPtrSpecialNull))
         {
-            uint64_t start_addr = (op1->value.data.x_ptr.special == ConstPtrSpecialNull) ?
-                0 : op1->value.data.x_ptr.data.hard_coded_addr.addr;
+            uint64_t start_addr = (op1_val->data.x_ptr.special == ConstPtrSpecialNull) ?
+                0 : op1_val->data.x_ptr.data.hard_coded_addr.addr;
             uint64_t elem_offset;
             if (!ir_resolve_usize(ira, casted_op2, &elem_offset))
                 return ira->codegen->invalid_instruction;
-            ZigType *elem_type = op1->value.type->data.pointer.child_type;
+            ZigType *elem_type = op1_val->type->data.pointer.child_type;
             if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
                 return ira->codegen->invalid_instruction;
             uint64_t byte_offset = type_size(ira->codegen, elem_type) * elem_offset;
@@ -13644,7 +13664,7 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
             } else {
                 zig_unreachable();
             }
-            IrInstruction *result = ir_const(ira, &instruction->base, op1->value.type);
+            IrInstruction *result = ir_const(ira, &instruction->base, op1_val->type);
             result->value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
             result->value.data.x_ptr.mut = ConstPtrMutRuntimeVar;
             result->value.data.x_ptr.data.hard_coded_addr.addr = new_addr;
@@ -14213,9 +14233,13 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
         break;
     case ReqCompTimeNo:
-        if (init_val != nullptr) {
-            if (init_val->special == ConstValSpecialStatic &&
-                init_val->type->id == ZigTypeIdFn &&
+        if (init_val != nullptr && value_is_comptime(init_val)) {
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                    decl_var_instruction->base.source_node, init_val, UndefOk)))
+            {
+                result_type = ira->codegen->builtin_types.entry_invalid;
+            } else if (init_val->type->id == ZigTypeIdFn &&
+                init_val->special != ConstValSpecialUndef &&
                 init_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
                 init_val->data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
             {
@@ -14273,7 +14297,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
     }
 
-    if (init_val != nullptr && init_val->special != ConstValSpecialRuntime) {
+    if (init_val != nullptr && value_is_comptime(init_val)) {
         // Resolve ConstPtrMutInfer
         if (var->gen_is_const) {
             var_ptr->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
@@ -14292,7 +14316,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             ir_analyze_store_ptr(ira, var_ptr, var_ptr, deref, false);
         }
 
-        if (var_ptr->value.special == ConstValSpecialStatic && var->mem_slot_index != SIZE_MAX) {
+        if (instr_is_comptime(var_ptr) && var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
             ConstExprValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
             copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
@@ -15222,7 +15246,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     if (linkage_makes_it_runtime)
         goto no_mem_slot;
 
-    if (var->const_value->special == ConstValSpecialStatic) {
+    if (value_is_comptime(var->const_value)) {
         mem_slot = var->const_value;
     } else {
         if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
@@ -19361,7 +19385,10 @@ static IrInstruction *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruct
     ZigType *u8_ptr_type = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
             true, false, PtrLenUnknown, 0, 0, 0, false);
     ZigType *str_type = get_slice_type(ira->codegen, u8_ptr_type);
-    if (casted_value->value.special == ConstValSpecialStatic) {
+    if (instr_is_comptime(casted_value)) {
+        ConstExprValue *val = ir_resolve_const(ira, casted_value, UndefBad);
+        if (val == nullptr)
+            return ira->codegen->invalid_instruction;
         ErrorTableEntry *err = casted_value->value.data.x_err_set;
         if (!err->cached_error_name_val) {
             ConstExprValue *array_val = create_const_str_lit(ira->codegen, &err->name);
@@ -21524,64 +21551,75 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
         return ira->codegen->invalid_instruction;
 
     // TODO test this at comptime with u8 and non-u8 types
-    if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
-        casted_byte->value.special == ConstValSpecialStatic &&
-        casted_count->value.special == ConstValSpecialStatic &&
-        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
-        casted_dest_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+    if (instr_is_comptime(casted_dest_ptr) &&
+        instr_is_comptime(casted_byte) &&
+        instr_is_comptime(casted_count))
     {
-        ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
-
-        ConstExprValue *dest_elements;
-        size_t start;
-        size_t bound_end;
-        switch (dest_ptr_val->data.x_ptr.special) {
-            case ConstPtrSpecialInvalid:
-            case ConstPtrSpecialDiscard:
-                zig_unreachable();
-            case ConstPtrSpecialRef:
-                dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
-                start = 0;
-                bound_end = 1;
-                break;
-            case ConstPtrSpecialBaseArray:
-                {
-                    ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
-                    expand_undef_array(ira->codegen, array_val);
-                    dest_elements = array_val->data.x_array.data.s_none.elements;
-                    start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
-                    bound_end = array_val->type->data.array.len;
-                    break;
-                }
-            case ConstPtrSpecialBaseStruct:
-                zig_panic("TODO memset on const inner struct");
-            case ConstPtrSpecialBaseErrorUnionCode:
-                zig_panic("TODO memset on const inner error union code");
-            case ConstPtrSpecialBaseErrorUnionPayload:
-                zig_panic("TODO memset on const inner error union payload");
-            case ConstPtrSpecialBaseOptionalPayload:
-                zig_panic("TODO memset on const inner optional payload");
-            case ConstPtrSpecialHardCodedAddr:
-                zig_unreachable();
-            case ConstPtrSpecialFunction:
-                zig_panic("TODO memset on ptr cast from function");
-            case ConstPtrSpecialNull:
-                zig_panic("TODO memset on null ptr");
-        }
-
-        size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
-        size_t end = start + count;
-        if (end > bound_end) {
-            ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
+        ConstExprValue *dest_ptr_val = ir_resolve_const(ira, casted_dest_ptr, UndefBad);
+        if (dest_ptr_val == nullptr)
             return ira->codegen->invalid_instruction;
-        }
 
-        ConstExprValue *byte_val = &casted_byte->value;
-        for (size_t i = start; i < end; i += 1) {
-            copy_const_val(&dest_elements[i], byte_val, true);
-        }
+        ConstExprValue *byte_val = ir_resolve_const(ira, casted_byte, UndefOk);
+        if (byte_val == nullptr)
+            return ira->codegen->invalid_instruction;
 
-        return ir_const_void(ira, &instruction->base);
+        ConstExprValue *count_val = ir_resolve_const(ira, casted_count, UndefBad);
+        if (count_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        if (casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
+            casted_dest_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
+        {
+            ConstExprValue *dest_elements;
+            size_t start;
+            size_t bound_end;
+            switch (dest_ptr_val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
+                    start = 0;
+                    bound_end = 1;
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    {
+                        ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
+                        expand_undef_array(ira->codegen, array_val);
+                        dest_elements = array_val->data.x_array.data.s_none.elements;
+                        start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
+                        bound_end = array_val->type->data.array.len;
+                        break;
+                    }
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO memset on const inner struct");
+                case ConstPtrSpecialBaseErrorUnionCode:
+                    zig_panic("TODO memset on const inner error union code");
+                case ConstPtrSpecialBaseErrorUnionPayload:
+                    zig_panic("TODO memset on const inner error union payload");
+                case ConstPtrSpecialBaseOptionalPayload:
+                    zig_panic("TODO memset on const inner optional payload");
+                case ConstPtrSpecialHardCodedAddr:
+                    zig_unreachable();
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO memset on ptr cast from function");
+                case ConstPtrSpecialNull:
+                    zig_panic("TODO memset on null ptr");
+            }
+
+            size_t count = bigint_as_unsigned(&count_val->data.x_bigint);
+            size_t end = start + count;
+            if (end > bound_end) {
+                ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
+                return ira->codegen->invalid_instruction;
+            }
+
+            for (size_t i = start; i < end; i += 1) {
+                copy_const_val(&dest_elements[i], byte_val, true);
+            }
+
+            return ir_const_void(ira, &instruction->base);
+        }
     }
 
     IrInstruction *result = ir_build_memset(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
@@ -21649,107 +21687,118 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
 
     // TODO test this at comptime with u8 and non-u8 types
     // TODO test with dest ptr being a global runtime variable
-    if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
-        casted_src_ptr->value.special == ConstValSpecialStatic &&
-        casted_count->value.special == ConstValSpecialStatic &&
-        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
+    if (instr_is_comptime(casted_dest_ptr) &&
+        instr_is_comptime(casted_src_ptr) &&
+        instr_is_comptime(casted_count))
     {
-        size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
-
-        ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
-        ConstExprValue *dest_elements;
-        size_t dest_start;
-        size_t dest_end;
-        switch (dest_ptr_val->data.x_ptr.special) {
-            case ConstPtrSpecialInvalid:
-            case ConstPtrSpecialDiscard:
-                zig_unreachable();
-            case ConstPtrSpecialRef:
-                dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
-                dest_start = 0;
-                dest_end = 1;
-                break;
-            case ConstPtrSpecialBaseArray:
-                {
-                    ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
-                    expand_undef_array(ira->codegen, array_val);
-                    dest_elements = array_val->data.x_array.data.s_none.elements;
-                    dest_start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
-                    dest_end = array_val->type->data.array.len;
-                    break;
-                }
-            case ConstPtrSpecialBaseStruct:
-                zig_panic("TODO memcpy on const inner struct");
-            case ConstPtrSpecialBaseErrorUnionCode:
-                zig_panic("TODO memcpy on const inner error union code");
-            case ConstPtrSpecialBaseErrorUnionPayload:
-                zig_panic("TODO memcpy on const inner error union payload");
-            case ConstPtrSpecialBaseOptionalPayload:
-                zig_panic("TODO memcpy on const inner optional payload");
-            case ConstPtrSpecialHardCodedAddr:
-                zig_unreachable();
-            case ConstPtrSpecialFunction:
-                zig_panic("TODO memcpy on ptr cast from function");
-            case ConstPtrSpecialNull:
-                zig_panic("TODO memcpy on null ptr");
-        }
-
-        if (dest_start + count > dest_end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+        ConstExprValue *dest_ptr_val = ir_resolve_const(ira, casted_dest_ptr, UndefBad);
+        if (dest_ptr_val == nullptr)
             return ira->codegen->invalid_instruction;
-        }
 
-        ConstExprValue *src_ptr_val = &casted_src_ptr->value;
-        ConstExprValue *src_elements;
-        size_t src_start;
-        size_t src_end;
-
-        switch (src_ptr_val->data.x_ptr.special) {
-            case ConstPtrSpecialInvalid:
-            case ConstPtrSpecialDiscard:
-                zig_unreachable();
-            case ConstPtrSpecialRef:
-                src_elements = src_ptr_val->data.x_ptr.data.ref.pointee;
-                src_start = 0;
-                src_end = 1;
-                break;
-            case ConstPtrSpecialBaseArray:
-                {
-                    ConstExprValue *array_val = src_ptr_val->data.x_ptr.data.base_array.array_val;
-                    expand_undef_array(ira->codegen, array_val);
-                    src_elements = array_val->data.x_array.data.s_none.elements;
-                    src_start = src_ptr_val->data.x_ptr.data.base_array.elem_index;
-                    src_end = array_val->type->data.array.len;
-                    break;
-                }
-            case ConstPtrSpecialBaseStruct:
-                zig_panic("TODO memcpy on const inner struct");
-            case ConstPtrSpecialBaseErrorUnionCode:
-                zig_panic("TODO memcpy on const inner error union code");
-            case ConstPtrSpecialBaseErrorUnionPayload:
-                zig_panic("TODO memcpy on const inner error union payload");
-            case ConstPtrSpecialBaseOptionalPayload:
-                zig_panic("TODO memcpy on const inner optional payload");
-            case ConstPtrSpecialHardCodedAddr:
-                zig_unreachable();
-            case ConstPtrSpecialFunction:
-                zig_panic("TODO memcpy on ptr cast from function");
-            case ConstPtrSpecialNull:
-                zig_panic("TODO memcpy on null ptr");
-        }
-
-        if (src_start + count > src_end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+        ConstExprValue *src_ptr_val = ir_resolve_const(ira, casted_src_ptr, UndefBad);
+        if (src_ptr_val == nullptr)
             return ira->codegen->invalid_instruction;
+
+        ConstExprValue *count_val = ir_resolve_const(ira, casted_count, UndefBad);
+        if (count_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        if (dest_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            size_t count = bigint_as_unsigned(&count_val->data.x_bigint);
+
+            ConstExprValue *dest_elements;
+            size_t dest_start;
+            size_t dest_end;
+            switch (dest_ptr_val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
+                    dest_start = 0;
+                    dest_end = 1;
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    {
+                        ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
+                        expand_undef_array(ira->codegen, array_val);
+                        dest_elements = array_val->data.x_array.data.s_none.elements;
+                        dest_start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
+                        dest_end = array_val->type->data.array.len;
+                        break;
+                    }
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO memcpy on const inner struct");
+                case ConstPtrSpecialBaseErrorUnionCode:
+                    zig_panic("TODO memcpy on const inner error union code");
+                case ConstPtrSpecialBaseErrorUnionPayload:
+                    zig_panic("TODO memcpy on const inner error union payload");
+                case ConstPtrSpecialBaseOptionalPayload:
+                    zig_panic("TODO memcpy on const inner optional payload");
+                case ConstPtrSpecialHardCodedAddr:
+                    zig_unreachable();
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO memcpy on ptr cast from function");
+                case ConstPtrSpecialNull:
+                    zig_panic("TODO memcpy on null ptr");
+            }
+
+            if (dest_start + count > dest_end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+                return ira->codegen->invalid_instruction;
+            }
+
+            ConstExprValue *src_elements;
+            size_t src_start;
+            size_t src_end;
+
+            switch (src_ptr_val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    src_elements = src_ptr_val->data.x_ptr.data.ref.pointee;
+                    src_start = 0;
+                    src_end = 1;
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    {
+                        ConstExprValue *array_val = src_ptr_val->data.x_ptr.data.base_array.array_val;
+                        expand_undef_array(ira->codegen, array_val);
+                        src_elements = array_val->data.x_array.data.s_none.elements;
+                        src_start = src_ptr_val->data.x_ptr.data.base_array.elem_index;
+                        src_end = array_val->type->data.array.len;
+                        break;
+                    }
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO memcpy on const inner struct");
+                case ConstPtrSpecialBaseErrorUnionCode:
+                    zig_panic("TODO memcpy on const inner error union code");
+                case ConstPtrSpecialBaseErrorUnionPayload:
+                    zig_panic("TODO memcpy on const inner error union payload");
+                case ConstPtrSpecialBaseOptionalPayload:
+                    zig_panic("TODO memcpy on const inner optional payload");
+                case ConstPtrSpecialHardCodedAddr:
+                    zig_unreachable();
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO memcpy on ptr cast from function");
+                case ConstPtrSpecialNull:
+                    zig_panic("TODO memcpy on null ptr");
+            }
+
+            if (src_start + count > src_end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+                return ira->codegen->invalid_instruction;
+            }
+
+            // TODO check for noalias violations - this should be generalized to work for any function
+
+            for (size_t i = 0; i < count; i += 1) {
+                copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i], true);
+            }
+
+            return ir_const_void(ira, &instruction->base);
         }
-
-        // TODO check for noalias violations - this should be generalized to work for any function
-
-        for (size_t i = 0; i < count; i += 1) {
-            copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i], true);
-        }
-
-        return ir_const_void(ira, &instruction->base);
     }
 
     IrInstruction *result = ir_build_memcpy(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
@@ -22412,13 +22461,26 @@ static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstr
     if (type_is_invalid(casted_result_ptr->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (casted_op1->value.special == ConstValSpecialStatic &&
-        casted_op2->value.special == ConstValSpecialStatic &&
-        casted_result_ptr->value.special == ConstValSpecialStatic)
+    if (instr_is_comptime(casted_op1) &&
+        instr_is_comptime(casted_op2) &&
+        instr_is_comptime(casted_result_ptr))
     {
-        BigInt *op1_bigint = &casted_op1->value.data.x_bigint;
-        BigInt *op2_bigint = &casted_op2->value.data.x_bigint;
-        ConstExprValue *pointee_val = const_ptr_pointee(ira, ira->codegen, &casted_result_ptr->value, casted_result_ptr->source_node);
+        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *result_val = ir_resolve_const(ira, casted_result_ptr, UndefBad);
+        if (result_val == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        BigInt *op1_bigint = &op1_val->data.x_bigint;
+        BigInt *op2_bigint = &op2_val->data.x_bigint;
+        ConstExprValue *pointee_val = const_ptr_pointee(ira, ira->codegen, result_val,
+                casted_result_ptr->source_node);
         if (pointee_val == nullptr)
             return ira->codegen->invalid_instruction;
         BigInt *dest_bigint = &pointee_val->data.x_bigint;
@@ -22839,9 +22901,9 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
             return ir_const_type(ira, &instruction->base, get_generic_fn_type(ira->codegen, &fn_type_id));
         } else {
             IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->child;
-            if (type_is_invalid(param_type_value->value.type))
-                return ira->codegen->invalid_instruction;
             ZigType *param_type = ir_resolve_type(ira, param_type_value);
+            if (type_is_invalid(param_type))
+                return ira->codegen->invalid_instruction;
             switch (type_requires_comptime(ira->codegen, param_type, nullptr)) {
             case ReqCompTimeYes:
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
@@ -23271,7 +23333,12 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        if (val->special == ConstValSpecialStatic) {
+        if (value_is_comptime(val)) {
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                    source_instr->source_node, val, UndefBad)))
+            {
+                return ira->codegen->invalid_instruction;
+            }
             bool is_addr_zero = val->data.x_ptr.special == ConstPtrSpecialNull ||
                 (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
                     val->data.x_ptr.data.hard_coded_addr.addr == 0);
