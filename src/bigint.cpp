@@ -15,6 +15,8 @@
 #include <limits>
 #include <algorithm>
 
+static uint64_t bigint_as_unsigned(const BigInt *bigint);
+
 static void bigint_normalize(BigInt *dest) {
     const uint64_t *digits = bigint_ptr(dest);
 
@@ -1660,7 +1662,7 @@ size_t bigint_clz(const BigInt *bi, size_t bit_count) {
     return count;
 }
 
-uint64_t bigint_as_unsigned(const BigInt *bigint) {
+static uint64_t bigint_as_unsigned(const BigInt *bigint) {
     assert(!bigint->is_negative);
     if (bigint->digit_count == 0) {
         return 0;
@@ -1669,6 +1671,25 @@ uint64_t bigint_as_unsigned(const BigInt *bigint) {
     } else {
         zig_unreachable();
     }
+}
+
+uint64_t bigint_as_u64(const BigInt *bigint)
+{
+    return bigint_as_unsigned(bigint);
+}
+
+uint32_t bigint_as_u32(const BigInt *bigint) {
+    uint64_t value64 = bigint_as_unsigned(bigint);
+    uint32_t value32 = (uint32_t)value64;
+    assert (value64 == value32);
+    return value32;
+}
+
+size_t bigint_as_usize(const BigInt *bigint) {
+    uint64_t value64 = bigint_as_unsigned(bigint);
+    size_t valueUsize = (size_t)value64;
+    assert (value64 == valueUsize);
+    return valueUsize;
 }
 
 int64_t bigint_as_signed(const BigInt *bigint) {
