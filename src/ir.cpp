@@ -10814,10 +10814,6 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
 
     if (!allow_lazy) {
         if ((err = ir_resolve_lazy(codegen, node, result))) {
-            if (codegen->trace_err != nullptr) {
-                codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
-                    buf_create_from_str("referenced here"));
-            }
             return &codegen->invalid_instruction->value;
         }
     }
@@ -25429,7 +25425,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
     zig_unreachable();
 }
 
-Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
+static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
     Error err;
     if (val->special != ConstValSpecialLazy)
         return ErrorNone;
@@ -25490,4 +25486,16 @@ Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *va
         }
     }
     zig_unreachable();
+}
+
+Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
+    Error err;
+    if ((err = ir_resolve_lazy_raw(codegen, source_node, val))) {
+        if (codegen->trace_err != nullptr) {
+            codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
+                buf_create_from_str("referenced here"));
+        }
+        return err;
+    }
+    return ErrorNone;
 }
