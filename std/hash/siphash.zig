@@ -152,8 +152,8 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
         pub fn hash(key: []const u8, input: []const u8) T {
             var c = Self.init(key);
-            c.update(input);
-            return c.final();
+            @inlineCall(c.update, input);
+            return @inlineCall(c.final);
         }
     };
 }
