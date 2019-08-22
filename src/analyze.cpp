@@ -1036,7 +1036,7 @@ static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_
     if (type_is_invalid(align_result->type))
         return false;
 
-    uint32_t align_bytes = bigint_as_unsigned(&align_result->data.x_bigint);
+    uint32_t align_bytes = bigint_as_u32(&align_result->data.x_bigint);
     if (align_bytes == 0) {
         add_node_error(g, node, buf_sprintf("alignment must be >= 1"));
         return false;
@@ -1068,7 +1068,7 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
         return true;
     }
     expand_undef_array(g, array_val);
-    size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
+    size_t len = bigint_as_usize(&len_field->data.x_bigint);
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
@@ -1078,7 +1078,7 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
             add_node_error(g, node, buf_sprintf("use of undefined value"));
             return false;
         }
-        uint64_t big_c = bigint_as_unsigned(&char_val->data.x_bigint);
+        uint64_t big_c = bigint_as_u64(&char_val->data.x_bigint);
         assert(big_c <= UINT8_MAX);
         uint8_t c = (uint8_t)big_c;
         buf_ptr(result)[i] = c;
@@ -5976,7 +5976,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             {
                 if (is_slice(type_entry)) {
                     ConstExprValue *len_val = &const_val->data.x_struct.fields[slice_len_index];
-                    size_t len = bigint_as_unsigned(&len_val->data.x_bigint);
+                    size_t len = bigint_as_usize(&len_val->data.x_bigint);
 
                     ConstExprValue *ptr_val = &const_val->data.x_struct.fields[slice_ptr_index];
                     if (ptr_val->special == ConstValSpecialUndef) {

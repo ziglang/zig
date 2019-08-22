@@ -2872,7 +2872,7 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
         eval_min_max_value_int(g, int_type, &biggest_possible_err_val, true);
 
         if (bigint_fits_in_bits(&biggest_possible_err_val, 64, false) &&
-            bigint_as_unsigned(&biggest_possible_err_val) < g->errors_by_index.length)
+            bigint_as_usize(&biggest_possible_err_val) < g->errors_by_index.length)
         {
             ok_bit = neq_zero_bit;
         } else {
