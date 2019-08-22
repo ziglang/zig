@@ -47,6 +47,12 @@ struct ResultLocPeer;
 struct ResultLocPeerParent;
 struct ResultLocBitCast;
 
+enum PtrLen {
+    PtrLenUnknown,
+    PtrLenSingle,
+    PtrLenC,
+};
+
 enum X64CABIClass {
     X64CABIClass_Unknown,
     X64CABIClass_MEMORY,
@@ -255,6 +261,7 @@ enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
     ConstValSpecialUndef,
+    ConstValSpecialLazy,
 };
 
 enum RuntimeHintErrorUnion {
@@ -291,6 +298,44 @@ struct ConstGlobalRefs {
     uint32_t align;
 };
 
+enum LazyValueId {
+    LazyValueIdInvalid,
+    LazyValueIdAlignOf,
+    LazyValueIdPtrType,
+    LazyValueIdSliceType,
+};
+
+struct LazyValue {
+    LazyValueId id;
+    IrExecutable *exec;
+};
+
+struct LazyValueAlignOf {
+    LazyValue base;
+    ZigType *target_type;
+};
+
+struct LazyValueSliceType {
+    LazyValue base;
+    ZigType *elem_type;
+    ConstExprValue *align_val; // can be null
+    bool is_const;
+    bool is_volatile;
+    bool is_allowzero;
+};
+
+struct LazyValuePtrType {
+    LazyValue base;
+    ZigType *elem_type;
+    ConstExprValue *align_val; // can be null
+    PtrLen ptr_len;
+    uint32_t bit_offset_in_host;
+    uint32_t host_int_bytes;
+    bool is_const;
+    bool is_volatile;
+    bool is_allowzero;
+};
+
 struct ConstExprValue {
     ZigType *type;
     ConstValSpecial special;
@@ -318,6 +363,7 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
         Buf *x_enum_literal;
+        LazyValue *x_lazy;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -1039,12 +1085,6 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
-enum PtrLen {
-    PtrLenUnknown,
-    PtrLenSingle,
-    PtrLenC,
-};
-
 struct ZigTypePointer {
     ZigType *child_type;
     ZigType *slice_parent;
@@ -1073,7 +1113,8 @@ struct ZigTypeArray {
 
 struct TypeStructField {
     Buf *name;
-    ZigType *type_entry;
+    ZigType *type_entry; // available after ResolveStatusSizeKnown
+    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
     size_t src_index;
     size_t gen_index;
     size_t offset; // byte offset from beginning of struct
@@ -1931,7 +1972,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
-    Buf *version_script_path; 
+    Buf *version_script_path;
 
     const char **llvm_argv;
     size_t llvm_argv_len;
@@ -3648,13 +3689,13 @@ enum ResultLocId {
     ResultLocIdBitCast,
 };
 
-// Additions to this struct may need to be handled in 
+// Additions to this struct may need to be handled in
 // ir_reset_result
 struct ResultLoc {
     ResultLocId id;
     bool written;
     bool allow_write_through_const;
-    IrInstruction *resolved_loc; // result ptr 
+    IrInstruction *resolved_loc; // result ptr
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc
     ZigType *implicit_elem_type;

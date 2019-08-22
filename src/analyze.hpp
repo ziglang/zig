@@ -221,7 +221,7 @@ enum ReqCompTime {
     ReqCompTimeNo,
     ReqCompTimeYes,
 };
-ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
+ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry, ZigType *parent_type);
 
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 
@@ -241,6 +241,8 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
 ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name);
+ConstExprValue *analyze_const_value_allow_lazy(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+        Buf *type_name, bool allow_lazy);
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
