@@ -10813,8 +10813,13 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
     ConstExprValue *result = ir_exec_const_result(codegen, analyzed_executable);
 
     if (!allow_lazy) {
-        if ((err = ir_resolve_lazy(codegen, node, result)))
+        if ((err = ir_resolve_lazy(codegen, node, result))) {
+            if (codegen->trace_err != nullptr) {
+                codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
+                    buf_create_from_str("referenced here"));
+            }
             return &codegen->invalid_instruction->value;
+        }
     }
 
     return result;

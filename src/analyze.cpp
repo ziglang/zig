@@ -1918,7 +1918,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         if (enum_type->data.enumeration.resolve_status != ResolveStatusInvalid) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
-                buf_sprintf("circular dependency: whether enum '%s' has non-zero size",
+                buf_sprintf("dependency loop: whether enum '%s' has non-zero size",
                     buf_ptr(&enum_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2095,7 +2095,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
-                buf_sprintf("circular dependency: whether struct '%s' has non-zero size",
+                buf_sprintf("dependency loop: whether struct '%s' has non-zero size",
                     buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2282,7 +2282,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
-                buf_sprintf("circular dependency: whether union '%s' has non-zero size",
+                buf_sprintf("dependency loop: whether union '%s' has non-zero size",
                     buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
