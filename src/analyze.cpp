@@ -2255,9 +2255,21 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         if (field->gen_index == SIZE_MAX)
             continue;
 
-        size_t this_field_align;
-        if (packed) {
+        uint32_t this_field_align;
+
+        // TODO: Sets the field alignment in the type, but doesn't do anything
+        // to actually make that happen yet.
+        AstNode *align_expr = field->decl_node->data.struct_field.align_expr;
+        if (align_expr != nullptr) {
+            if (!analyze_const_align(g, &struct_type->data.structure.decls_scope->base, align_expr, &this_field_align)) {
+                field->type_entry = g->builtin_types.entry_invalid;
+            } else {
+                field->align = this_field_align;
+            }
+        } else if (packed) {
             // TODO: https://github.com/ziglang/zig/issues/1512
+            // TODO: Validate requested alignment is possible, given packed,
+            // and given other field alignments.
             this_field_align = 1;
         // TODO If we have no type_entry for the field, we've already failed to
         // compile the program correctly. This stage1 compiler needs a deeper
