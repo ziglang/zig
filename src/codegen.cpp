@@ -3688,7 +3688,7 @@ static void render_async_spills(CodeGen *g) {
         }
         if (ir_get_var_is_comptime(var))
             continue;
-        switch (type_requires_comptime(g, var->var_type, nullptr)) {
+        switch (type_requires_comptime(g, var->var_type)) {
             case ReqCompTimeInvalid:
                 zig_unreachable();
             case ReqCompTimeYes:
@@ -7049,7 +7049,7 @@ static void do_code_gen(CodeGen *g) {
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            switch (type_requires_comptime(g, var->var_type, nullptr)) {
+            switch (type_requires_comptime(g, var->var_type)) {
                 case ReqCompTimeInvalid:
                     zig_unreachable();
                 case ReqCompTimeYes:

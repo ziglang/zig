@@ -14234,7 +14234,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
     }
 
-    switch (type_requires_comptime(ira->codegen, result_type, nullptr)) {
+    switch (type_requires_comptime(ira->codegen, result_type)) {
     case ReqCompTimeInvalid:
         result_type = ira->codegen->builtin_types.entry_invalid;
         break;
@@ -15200,7 +15200,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     }
 
     if (!comptime_arg) {
-        switch (type_requires_comptime(ira->codegen, casted_arg->value.type, nullptr)) {
+        switch (type_requires_comptime(ira->codegen, casted_arg->value.type)) {
         case ReqCompTimeYes:
             ir_add_error(ira, casted_arg,
                 buf_sprintf("parameter of type '%s' requires comptime", buf_ptr(&casted_arg->value.type->name)));
@@ -15401,7 +15401,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         }
     }
 
-    switch (type_requires_comptime(ira->codegen, child_type, nullptr)) {
+    switch (type_requires_comptime(ira->codegen, child_type)) {
         case ReqCompTimeInvalid:
             return ira->codegen->invalid_instruction;
         case ReqCompTimeYes:
@@ -15794,7 +15794,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 inst_fn_type_id.return_type = specified_return_type;
             }
 
-            switch (type_requires_comptime(ira->codegen, specified_return_type, nullptr)) {
+            switch (type_requires_comptime(ira->codegen, specified_return_type)) {
             case ReqCompTimeYes:
                 // Throw out our work and call the function as if it were comptime.
                 return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr,
@@ -16601,7 +16601,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         break;
     }
 
-    switch (type_requires_comptime(ira->codegen, resolved_type, nullptr)) {
+    switch (type_requires_comptime(ira->codegen, resolved_type)) {
     case ReqCompTimeInvalid:
         return ira->codegen->invalid_instruction;
     case ReqCompTimeYes:
@@ -17049,7 +17049,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         }
     } else {
         // runtime known element index
-        switch (type_requires_comptime(ira->codegen, return_type, nullptr)) {
+        switch (type_requires_comptime(ira->codegen, return_type)) {
         case ReqCompTimeYes:
             ir_add_error(ira, elem_index,
                 buf_sprintf("values of type '%s' must be comptime known, but index value is runtime known",
@@ -19034,7 +19034,7 @@ static IrInstruction *ir_analyze_union_init(IrAnalyze *ira, IrInstruction *sourc
     }
 
     bool is_comptime = ir_should_inline(ira->new_irb.exec, source_instruction->scope)
-        || type_requires_comptime(ira->codegen, union_type, nullptr) == ReqCompTimeYes;
+        || type_requires_comptime(ira->codegen, union_type) == ReqCompTimeYes;
 
     IrInstruction *result = ir_get_deref(ira, source_instruction, result_loc, nullptr);
     if (is_comptime && !instr_is_comptime(result)) {
@@ -19082,7 +19082,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
     ZigList<IrInstruction *> const_ptrs = {};
 
     bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope)
-        || type_requires_comptime(ira->codegen, container_type, nullptr) == ReqCompTimeYes;
+        || type_requires_comptime(ira->codegen, container_type) == ReqCompTimeYes;
 
 
     // Here we iterate over the fields that have been initialized, and emit
@@ -19260,7 +19260,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     }
 
     bool is_comptime;
-    switch (type_requires_comptime(ira->codegen, container_type, nullptr)) {
+    switch (type_requires_comptime(ira->codegen, container_type)) {
         case ReqCompTimeInvalid:
             return ira->codegen->invalid_instruction;
         case ReqCompTimeNo:
@@ -25502,7 +25502,7 @@ static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, As
                     lazy_fn_type->param_types[fn_type_id.next_param_index]);
             if (type_is_invalid(param_type))
                 return nullptr;
-            switch (type_requires_comptime(codegen, param_type, nullptr)) {
+            switch (type_requires_comptime(codegen, param_type)) {
             case ReqCompTimeYes:
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                     exec_add_error_node(codegen, exec, source_node,

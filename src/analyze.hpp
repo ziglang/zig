@@ -221,7 +221,7 @@ enum ReqCompTime {
     ReqCompTimeNo,
     ReqCompTimeYes,
 };
-ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry, ZigType *parent_type);
+ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 

@@ -685,7 +685,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     entry->data.structure.fields_by_name.put(ptr_field_name, &entry->data.structure.fields[slice_ptr_index]);
     entry->data.structure.fields_by_name.put(len_field_name, &entry->data.structure.fields[slice_len_index]);
 
-    switch (type_requires_comptime(g, ptr_type, entry)) {
+    switch (type_requires_comptime(g, ptr_type)) {
         case ReqCompTimeInvalid:
             zig_unreachable();
         case ReqCompTimeNo:
@@ -1016,9 +1016,9 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
     zig_unreachable();
 }
 
-static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type) {
+static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue *type_val) {
     if (type_val->special != ConstValSpecialLazy) {
-        return type_requires_comptime(g, type_val->data.x_type, parent_type);
+        return type_requires_comptime(g, type_val->data.x_type);
     }
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
@@ -1028,17 +1028,17 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
             if (type_is_invalid(lazy_slice_type->elem_type))
                 return ReqCompTimeInvalid;
-            return type_requires_comptime(g, lazy_slice_type->elem_type, parent_type);
+            return type_requires_comptime(g, lazy_slice_type->elem_type);
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type_val, parent_type);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type_val);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
             if (lazy_fn_type->is_generic)
                 return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type, parent_type)) {
+            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type)) {
                 case ReqCompTimeInvalid:
                     return ReqCompTimeInvalid;
                 case ReqCompTimeYes:
@@ -1051,7 +1051,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
                 AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
                 bool param_is_var_args = param_node->data.param_decl.is_var_args;
                 if (param_is_var_args) break;
-                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i], parent_type)) {
+                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i])) {
                     case ReqCompTimeInvalid:
                         return ReqCompTimeInvalid;
                     case ReqCompTimeYes:
@@ -1517,7 +1517,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdVector:
             case ZigTypeIdFnFrame:
             case ZigTypeIdAnyFrame:
-                switch (type_requires_comptime(g, type_entry, fn_entry->type_entry)) {
+                switch (type_requires_comptime(g, type_entry)) {
                     case ReqCompTimeNo:
                         break;
                     case ReqCompTimeYes:
@@ -1613,7 +1613,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
-            switch (type_requires_comptime(g, fn_type_id.return_type, fn_entry->type_entry)) {
+            switch (type_requires_comptime(g, fn_type_id.return_type)) {
                 case ReqCompTimeInvalid:
                     return g->builtin_types.entry_invalid;
                 case ReqCompTimeYes:
@@ -1745,7 +1745,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
-    if (struct_type->data.structure.resolve_loop_flag) {
+    if (struct_type->data.structure.resolve_loop_flag_other) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
@@ -1760,7 +1760,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     size_t field_count = struct_type->data.structure.src_field_count;
 
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
-    struct_type->data.structure.resolve_loop_flag = true;
+    struct_type->data.structure.resolve_loop_flag_other = true;
 
     uint32_t *host_int_bytes = packed ? allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
 
@@ -1877,7 +1877,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     struct_type->size_in_bits = size_in_bits;
     struct_type->data.structure.resolve_status = ResolveStatusSizeKnown;
     struct_type->data.structure.gen_field_count = (uint32_t)gen_field_index;
-    struct_type->data.structure.resolve_loop_flag = false;
+    struct_type->data.structure.resolve_loop_flag_other = false;
     struct_type->data.structure.host_int_bytes = host_int_bytes;
 
     return ErrorNone;
@@ -2275,7 +2275,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     AstNode *decl_node = struct_type->data.structure.decl_node;
     assert(decl_node->type == NodeTypeContainerDecl);
 
-    if (struct_type->data.structure.resolve_loop_flag) {
+    if (struct_type->data.structure.resolve_loop_flag_zero_bits) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
@@ -2285,7 +2285,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
-    struct_type->data.structure.resolve_loop_flag = true;
+    struct_type->data.structure.resolve_loop_flag_zero_bits = true;
 
     assert(!struct_type->data.structure.fields);
     size_t field_count = decl_node->data.container_decl.fields.length;
@@ -2343,7 +2343,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
 
-        switch (type_val_resolve_requires_comptime(g, field_type_val, struct_type)) {
+        switch (type_val_resolve_requires_comptime(g, field_type_val)) {
             case ReqCompTimeYes:
                 struct_type->data.structure.requires_comptime = true;
                 break;
@@ -2370,7 +2370,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         gen_field_index += 1;
     }
 
-    struct_type->data.structure.resolve_loop_flag = false;
+    struct_type->data.structure.resolve_loop_flag_zero_bits = false;
     struct_type->data.structure.gen_field_count = (uint32_t)gen_field_index;
     if (gen_field_index != 0) {
         struct_type->abi_size = SIZE_MAX;
@@ -2400,7 +2400,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
-    if (struct_type->data.structure.resolve_loop_flag) {
+    if (struct_type->data.structure.resolve_loop_flag_other) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
@@ -2409,7 +2409,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
-    struct_type->data.structure.resolve_loop_flag = true;
+    struct_type->data.structure.resolve_loop_flag_other = true;
     assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
@@ -2444,7 +2444,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         }
     }
 
-    struct_type->data.structure.resolve_loop_flag = false;
+    struct_type->data.structure.resolve_loop_flag_other = false;
 
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid) {
         return ErrorSemanticAnalyzeFail;
@@ -2614,7 +2614,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
-        switch (type_requires_comptime(g, field_type, union_type)) {
+        switch (type_requires_comptime(g, field_type)) {
             case ReqCompTimeInvalid:
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
@@ -4959,11 +4959,8 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
-ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty, ZigType *parent_type) {
+ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     Error err;
-    if (ty == parent_type) {
-        return ReqCompTimeNo;
-    }
     switch (ty->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -4977,8 +4974,12 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty, ZigType *parent_type
         case ZigTypeIdArgTuple:
             return ReqCompTimeYes;
         case ZigTypeIdArray:
-            return type_requires_comptime(g, ty->data.array.child_type, parent_type);
+            return type_requires_comptime(g, ty->data.array.child_type);
         case ZigTypeIdStruct:
+            if (ty->data.structure.resolve_loop_flag_zero_bits) {
+                // Does a struct which contains a pointer field to itself require comptime? No.
+                return ReqCompTimeNo;
+            }
             if ((err = type_resolve(g, ty, ResolveStatusZeroBitsKnown)))
                 return ReqCompTimeInvalid;
             return ty->data.structure.requires_comptime ? ReqCompTimeYes : ReqCompTimeNo;
@@ -4987,14 +4988,14 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty, ZigType *parent_type
                 return ReqCompTimeInvalid;
             return ty->data.unionation.requires_comptime ? ReqCompTimeYes : ReqCompTimeNo;
         case ZigTypeIdOptional:
-            return type_requires_comptime(g, ty->data.maybe.child_type, parent_type);
+            return type_requires_comptime(g, ty->data.maybe.child_type);
         case ZigTypeIdErrorUnion:
-            return type_requires_comptime(g, ty->data.error_union.payload_type, parent_type);
+            return type_requires_comptime(g, ty->data.error_union.payload_type);
         case ZigTypeIdPointer:
             if (ty->data.pointer.child_type->id == ZigTypeIdOpaque) {
                 return ReqCompTimeNo;
             } else {
-                return type_requires_comptime(g, ty->data.pointer.child_type, parent_type);
+                return type_requires_comptime(g, ty->data.pointer.child_type);
             }
         case ZigTypeIdFn:
             return ty->data.fn.is_generic ? ReqCompTimeYes : ReqCompTimeNo;

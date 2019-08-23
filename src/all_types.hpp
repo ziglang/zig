@@ -1190,7 +1190,8 @@ struct ZigTypeStruct {
     // whether any of the fields require comptime
     // known after ResolveStatusZeroBitsKnown
     bool requires_comptime;
-    bool resolve_loop_flag;
+    bool resolve_loop_flag_zero_bits;
+    bool resolve_loop_flag_other;
 };
 
 struct ZigTypeOptional {
