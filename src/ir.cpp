@@ -912,6 +912,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeInfo *) {
     return IrInstructionIdTypeInfo;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionType *) {
+    return IrInstructionIdType;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionHasField *) {
     return IrInstructionIdHasField;
 }
@@ -2903,6 +2907,15 @@ static IrInstruction *ir_build_type_info(IrBuilder *irb, Scope *scope, AstNode *
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_info) {
+    IrInstructionType *instruction = ir_build_instruction<IrInstructionType>(irb, scope, source_node);
+    instruction->type_info = type_info;
+
+    ir_ref_instruction(type_info, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5045,6 +5058,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *type_info = ir_build_type_info(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, type_info, lval, result_loc);
+            }
+        case BuiltinFnIdType:
+            {
+                AstNode *arg_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg = ir_gen_node(irb, arg_node, scope);
+                if (arg == irb->codegen->invalid_instruction)
+                    return arg;
+
+                IrInstruction *type = ir_build_type(irb, scope, node, arg);
+                return ir_lval_wrap(irb, scope, type, lval, result_loc);
             }
         case BuiltinFnIdBreakpoint:
             return ir_lval_wrap(irb, scope, ir_build_breakpoint(irb, scope, node), lval, result_loc);
@@ -20104,6 +20127,18 @@ static uint32_t ptr_len_to_size_enum_index(PtrLen ptr_len) {
     zig_unreachable();
 }
 
+static PtrLen size_enum_index_to_ptr_len(uint32_t size_enum_index) {
+    switch (size_enum_index) {
+        case 0:
+            return PtrLenSingle;
+        case 1:
+            return PtrLenUnknown;
+        case 3:
+            return PtrLenC;
+    }
+    zig_unreachable();
+}
+
 static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
     Error err;
     ZigType *attrs_type;
@@ -20787,6 +20822,147 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
     }
 
     return result;
+}
+
+static ConstExprValue *get_const_field(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
+{
+    ensure_field_index(struct_value->type, name, field_index);
+    assert(struct_value->data.x_struct.fields[field_index].special == ConstValSpecialStatic);
+    return &struct_value->data.x_struct.fields[field_index];
+}
+
+static bool get_const_field_bool(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
+{
+    ConstExprValue *value = get_const_field(ira, struct_value, name, field_index);
+    assert(value->type == ira->codegen->builtin_types.entry_bool);
+    return value->data.x_bool;
+}
+
+static BigInt *get_const_field_lit_int(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
+{
+    ConstExprValue *value = get_const_field(ira, struct_value, name, field_index);
+    assert(value->type == ira->codegen->builtin_types.entry_num_lit_int);
+    return &value->data.x_bigint;
+}
+
+static ZigType *get_const_field_meta_type(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
+{
+    ConstExprValue *value = get_const_field(ira, struct_value, name, field_index);
+    assert(value->type == ira->codegen->builtin_types.entry_type);
+    return value->data.x_type;
+}
+
+static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, ZigTypeId tagTypeId, ConstExprValue *payload) {
+    switch (tagTypeId) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdMetaType:
+            return ira->codegen->builtin_types.entry_type;
+        case ZigTypeIdVoid:
+            return ira->codegen->builtin_types.entry_void;
+        case ZigTypeIdBool:
+            return ira->codegen->builtin_types.entry_bool;
+        case ZigTypeIdUnreachable:
+            return ira->codegen->builtin_types.entry_unreachable;
+        case ZigTypeIdInt:
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Int", nullptr));
+            return get_int_type(ira->codegen,
+                get_const_field_bool(ira, payload, "is_signed", 0),
+                bigint_as_u32(get_const_field_lit_int(ira, payload, "bits", 1)));
+        case ZigTypeIdFloat:
+            {
+                assert(payload->special == ConstValSpecialStatic);
+                assert(payload->type == ir_type_info_get_type(ira, "Float", nullptr));
+                uint32_t bits = bigint_as_u32(get_const_field_lit_int(ira, payload, "bits", 0));
+                switch (bits) {
+                    case  16: return ira->codegen->builtin_types.entry_f16;
+                    case  32: return ira->codegen->builtin_types.entry_f32;
+                    case  64: return ira->codegen->builtin_types.entry_f64;
+                    case 128: return ira->codegen->builtin_types.entry_f128;
+                }
+                ir_add_error(ira, instruction,
+                    buf_sprintf("%d-bit float unsupported", bits));
+                return nullptr;
+            }
+        case ZigTypeIdPointer:
+            {
+                ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
+                assert(payload->special == ConstValSpecialStatic);
+                assert(payload->type == type_info_pointer_type);
+                ConstExprValue *size_value = get_const_field(ira, payload, "size", 0);
+                assert(size_value->type == ir_type_info_get_type(ira, "Size", type_info_pointer_type));
+                uint32_t size_enum_index = bigint_as_u32(&size_value->data.x_enum_tag);
+                PtrLen ptr_len;
+                if (size_enum_index == 2) {
+                    ptr_len = PtrLenUnknown; // TODO: is this right?
+                } else {
+                    ptr_len = size_enum_index_to_ptr_len(size_enum_index);
+                }
+                ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen,
+                    get_const_field_meta_type(ira, payload, "child", 4),
+                    get_const_field_bool(ira, payload, "is_const", 1),
+                    get_const_field_bool(ira, payload, "is_volatile", 2),
+                    ptr_len,
+                    bigint_as_u32(get_const_field_lit_int(ira, payload, "alignment", 3)),
+                    0, // bit_offset_in_host???
+                    0, // host_int_bytes???
+                    get_const_field_bool(ira, payload, "is_allowzero", 5)
+                );
+                if (size_enum_index != 2)
+                    return ptr_type;
+                return get_slice_type(ira->codegen, ptr_type);
+            }
+        case ZigTypeIdComptimeFloat:
+            return ira->codegen->builtin_types.entry_num_lit_float;
+        case ZigTypeIdComptimeInt:
+            return ira->codegen->builtin_types.entry_num_lit_int;
+        case ZigTypeIdUndefined:
+            return ira->codegen->builtin_types.entry_undef;
+        case ZigTypeIdNull:
+            return ira->codegen->builtin_types.entry_null;
+        case ZigTypeIdArray:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdVector:
+        case ZigTypeIdEnumLiteral:
+            ir_add_error(ira, instruction, buf_sprintf(
+                "TODO implement @Type forr 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907\n", type_id_name(tagTypeId)));
+            return nullptr;
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdStruct:
+            ir_add_error(ira, instruction, buf_sprintf(
+                "@Type not availble for 'TypeInfo.%s'\n", type_id_name(tagTypeId)));
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
+static IrInstruction *ir_analyze_instruction_type(IrAnalyze *ira, IrInstructionType *instruction) {
+    IrInstruction *type_info_ir = instruction->type_info->child;
+    if (type_is_invalid(type_info_ir->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_ir = ir_implicit_cast(ira, type_info_ir, ir_type_info_get_type(ira, nullptr, nullptr));
+    if (type_is_invalid(casted_ir->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ConstExprValue *type_info_value = ir_resolve_const(ira, casted_ir, UndefBad);
+    if (!type_info_value)
+        return ira->codegen->invalid_instruction;
+    ZigTypeId typeId = type_id_at_index(bigint_as_usize(&type_info_value->data.x_union.tag));
+    ZigType *type = type_info_to_type(ira, type_info_ir, typeId, type_info_value->data.x_union.payload);
+    if (!type)
+        return ira->codegen->invalid_instruction;
+    return ir_const_type(ira, &instruction->base, type);
 }
 
 static IrInstruction *ir_analyze_instruction_type_id(IrAnalyze *ira,
@@ -25295,6 +25471,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_bit_offset_of(ira, (IrInstructionBitOffsetOf *)instruction);
         case IrInstructionIdTypeInfo:
             return ir_analyze_instruction_type_info(ira, (IrInstructionTypeInfo *) instruction);
+        case IrInstructionIdType:
+            return ir_analyze_instruction_type(ira, (IrInstructionType *)instruction);
         case IrInstructionIdHasField:
             return ir_analyze_instruction_has_field(ira, (IrInstructionHasField *) instruction);
         case IrInstructionIdTypeId:
@@ -25598,6 +25776,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
+        case IrInstructionIdType:
         case IrInstructionIdHasField:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:

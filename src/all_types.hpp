@@ -1534,6 +1534,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemberName,
     BuiltinFnIdField,
     BuiltinFnIdTypeInfo,
+    BuiltinFnIdType,
     BuiltinFnIdHasField,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
@@ -2436,6 +2437,7 @@ enum IrInstructionId {
     IrInstructionIdByteOffsetOf,
     IrInstructionIdBitOffsetOf,
     IrInstructionIdTypeInfo,
+    IrInstructionIdType,
     IrInstructionIdHasField,
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
@@ -3470,6 +3472,12 @@ struct IrInstructionTypeInfo {
     IrInstruction base;
 
     IrInstruction *type_value;
+};
+
+struct IrInstructionType {
+    IrInstruction base;
+
+    IrInstruction *type_info;
 };
 
 struct IrInstructionHasField {
