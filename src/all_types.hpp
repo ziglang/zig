@@ -303,11 +303,12 @@ enum LazyValueId {
     LazyValueIdAlignOf,
     LazyValueIdPtrType,
     LazyValueIdSliceType,
+    LazyValueIdFnType,
 };
 
 struct LazyValue {
-    LazyValueId id;
     IrExecutable *exec;
+    LazyValueId id;
 };
 
 struct LazyValueAlignOf {
@@ -317,23 +318,35 @@ struct LazyValueAlignOf {
 
 struct LazyValueSliceType {
     LazyValue base;
-    ZigType *elem_type;
-    ConstExprValue *align_val; // can be null
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+
+    ZigType *elem_type;
+    ConstExprValue *align_val; // can be null
 };
 
 struct LazyValuePtrType {
     LazyValue base;
+    bool is_const;
+    bool is_volatile;
+    bool is_allowzero;
+
     ZigType *elem_type;
     ConstExprValue *align_val; // can be null
     PtrLen ptr_len;
     uint32_t bit_offset_in_host;
     uint32_t host_int_bytes;
-    bool is_const;
-    bool is_volatile;
-    bool is_allowzero;
+};
+
+struct LazyValueFnType {
+    LazyValue base;
+    bool is_generic;
+
+    AstNode *proto_node;
+    ConstExprValue **param_types;
+    ConstExprValue *align_val; // can be null
+    ConstExprValue *return_type;
 };
 
 struct ConstExprValue {

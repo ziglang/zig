@@ -986,11 +986,16 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
         case LazyValueIdSliceType:
             *is_zero_bits = false;
             return ErrorNone;
+        case LazyValueIdFnType: {
+            LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
+            *is_zero_bits = lazy_fn_type->is_generic;
+            return ErrorNone;
+        }
     }
     zig_unreachable();
 }
 
-static Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
+Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         *is_opaque_type = (type_val->data.x_type->id == ZigTypeIdOpaque);
@@ -1002,6 +1007,7 @@ static Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_va
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
+        case LazyValueIdFnType:
             *is_opaque_type = false;
             return ErrorNone;
     }
@@ -1028,6 +1034,34 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
                 return ReqCompTimeInvalid;
             return type_requires_comptime(g, lazy_ptr_type->elem_type, parent_type);
         }
+        case LazyValueIdFnType: {
+            LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
+            if (lazy_fn_type->is_generic)
+                return ReqCompTimeYes;
+            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type, parent_type)) {
+                case ReqCompTimeInvalid:
+                    return ReqCompTimeInvalid;
+                case ReqCompTimeYes:
+                    return ReqCompTimeYes;
+                case ReqCompTimeNo:
+                    break;
+            }
+            size_t param_count = lazy_fn_type->proto_node->data.fn_proto.params.length;
+            for (size_t i = 0; i < param_count; i += 1) {
+                AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
+                bool param_is_var_args = param_node->data.param_decl.is_var_args;
+                if (param_is_var_args) break;
+                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i], parent_type)) {
+                    case ReqCompTimeInvalid:
+                        return ReqCompTimeInvalid;
+                    case ReqCompTimeYes:
+                        return ReqCompTimeYes;
+                    case ReqCompTimeNo:
+                        break;
+                }
+            }
+            return ReqCompTimeNo;
+        }
     }
     zig_unreachable();
 }
@@ -1047,6 +1081,7 @@ static Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, si
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
+        case LazyValueIdFnType:
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
     }
@@ -1061,8 +1096,9 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
             zig_unreachable();
-        case LazyValueIdSliceType:
-            return OnePossibleValueNo; // it has the len field
+        case LazyValueIdSliceType: // it has the len field
+        case LazyValueIdFnType:
+            return OnePossibleValueNo;
         case LazyValueIdPtrType: {
             Error err;
             bool zero_bits;
@@ -2395,10 +2431,12 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         } else if (packed) {
             field->align = 1;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            size_t result_abi_align;
+            if ((err = type_val_resolve_abi_align(g, field->type_val, &result_abi_align))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 return err;
             }
+            field->align = result_abi_align;
         }
 
         if (field->align > struct_type->abi_align) {

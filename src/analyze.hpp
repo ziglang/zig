@@ -247,4 +247,6 @@ ConstExprValue *analyze_const_value_allow_lazy(CodeGen *g, Scope *scope, AstNode
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
 
+Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type);
+
 #endif
