@@ -23298,12 +23298,7 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        if (value_is_comptime(val)) {
-            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
-                    source_instr->source_node, val, UndefBad)))
-            {
-                return ira->codegen->invalid_instruction;
-            }
+        if (value_is_comptime(val) && val->special != ConstValSpecialUndef) {
             bool is_addr_zero = val->data.x_ptr.special == ConstPtrSpecialNull ||
                 (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr &&
                     val->data.x_ptr.data.hard_coded_addr.addr == 0);
