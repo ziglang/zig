@@ -116,8 +116,8 @@ pub const Wyhash = struct {
 
     pub fn hash(seed: u64, input: []const u8) u64 {
         var c = Wyhash.init(seed);
-        c.update(input);
-        return c.final();
+        @inlineCall(c.update, input);
+        return @inlineCall(c.final);
     }
 };
 

@@ -782,24 +782,26 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
     return res;
 }
 
-// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 static AstNode *ast_parse_container_field(ParseContext *pc) {
     Token *identifier = eat_token_if(pc, TokenIdSymbol);
     if (identifier == nullptr)
         return nullptr;
 
     AstNode *type_expr = nullptr;
-    if (eat_token_if(pc, TokenIdColon) != nullptr)
+    if (eat_token_if(pc, TokenIdColon) != nullptr) {
         type_expr = ast_expect(pc, ast_parse_type_expr);
+    }
+    AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *expr = nullptr;
     if (eat_token_if(pc, TokenIdEq) != nullptr)
         expr = ast_expect(pc, ast_parse_expr);
-
 
     AstNode *res = ast_create_node(pc, NodeTypeStructField, identifier);
     res->data.struct_field.name = token_buf(identifier);
     res->data.struct_field.type = type_expr;
     res->data.struct_field.value = expr;
+    res->data.struct_field.align_expr = align_expr;
     return res;
 }
 

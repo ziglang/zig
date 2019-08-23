@@ -895,6 +895,8 @@ struct AstNodeStructField {
     Buf *name;
     AstNode *type;
     AstNode *value;
+    // populated if the "align(A)" is present
+    AstNode *align_expr;
 };
 
 struct AstNodeStringLiteral {

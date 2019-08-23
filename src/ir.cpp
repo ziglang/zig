@@ -5768,7 +5768,7 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
                     buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
             return irb->codegen->invalid_instruction;
         }
-        bit_offset_start = bigint_as_unsigned(node->data.pointer_type.bit_offset_start);
+        bit_offset_start = bigint_as_u32(node->data.pointer_type.bit_offset_start);
     }
 
     uint32_t host_int_bytes = 0;
@@ -5780,7 +5780,7 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
                     buf_sprintf("value %s too large for u32 byte count", buf_ptr(val_buf)));
             return irb->codegen->invalid_instruction;
         }
-        host_int_bytes = bigint_as_unsigned(node->data.pointer_type.host_int_bytes);
+        host_int_bytes = bigint_as_u32(node->data.pointer_type.host_int_bytes);
     }
 
     if (host_int_bytes != 0 && bit_offset_start >= host_int_bytes * 8) {
@@ -11589,7 +11589,7 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
                 return ira->codegen->invalid_instruction;
             }
 
-            size_t index = bigint_as_unsigned(&val->data.x_bigint);
+            size_t index = bigint_as_usize(&val->data.x_bigint);
             result->value.data.x_err_set = ira->codegen->errors_by_index.at(index);
             return result;
         } else {
@@ -12554,7 +12554,7 @@ static bool ir_resolve_const_align(CodeGen *codegen, IrExecutable *exec, AstNode
     if ((err = ir_resolve_const_val(codegen, exec, source_node, const_val, UndefBad)))
         return false;
 
-    uint32_t align_bytes = bigint_as_unsigned(&const_val->data.x_bigint);
+    uint32_t align_bytes = bigint_as_u32(&const_val->data.x_bigint);
     if (align_bytes == 0) {
         exec_add_error_node(codegen, exec, source_node, buf_sprintf("alignment must be >= 1"));
         return false;
@@ -12594,7 +12594,7 @@ static bool ir_resolve_unsigned(IrAnalyze *ira, IrInstruction *value, ZigType *i
     if (!const_val)
         return false;
 
-    *out = bigint_as_unsigned(&const_val->data.x_bigint);
+    *out = bigint_as_u64(&const_val->data.x_bigint);
     return true;
 }
 
@@ -12642,7 +12642,7 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
     if (!const_val)
         return false;
 
-    *out = (AtomicOrder)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    *out = (AtomicOrder)bigint_as_u32(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -12662,7 +12662,7 @@ static bool ir_resolve_atomic_rmw_op(IrAnalyze *ira, IrInstruction *value, Atomi
     if (!const_val)
         return false;
 
-    *out = (AtomicRmwOp)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    *out = (AtomicRmwOp)bigint_as_u32(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -12682,7 +12682,7 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, Glob
     if (!const_val)
         return false;
 
-    *out = (GlobalLinkageId)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    *out = (GlobalLinkageId)bigint_as_u32(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -12702,7 +12702,7 @@ static bool ir_resolve_float_mode(IrAnalyze *ira, IrInstruction *value, FloatMod
     if (!const_val)
         return false;
 
-    *out = (FloatMode)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    *out = (FloatMode)bigint_as_u32(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -12731,7 +12731,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
         return array_val->data.x_array.data.s_buf;
     }
     expand_undef_array(ira->codegen, array_val);
-    size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
+    size_t len = bigint_as_usize(&len_field->data.x_bigint);
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
@@ -12741,7 +12741,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
             ir_add_error(ira, casted_value, buf_sprintf("use of undefined value"));
             return nullptr;
         }
-        uint64_t big_c = bigint_as_unsigned(&char_val->data.x_bigint);
+        uint64_t big_c = bigint_as_u64(&char_val->data.x_bigint);
         assert(big_c <= UINT8_MAX);
         uint8_t c = (uint8_t)big_c;
         buf_ptr(result)[i] = c;
@@ -13891,7 +13891,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         ConstExprValue *len_val = &op1_val->data.x_struct.fields[slice_len_index];
-        op1_array_end = op1_array_index + bigint_as_unsigned(&len_val->data.x_bigint);
+        op1_array_end = op1_array_index + bigint_as_usize(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
@@ -13924,7 +13924,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         ConstExprValue *len_val = &op2_val->data.x_struct.fields[slice_len_index];
-        op2_array_end = op2_array_index + bigint_as_unsigned(&len_val->data.x_bigint);
+        op2_array_end = op2_array_index + bigint_as_usize(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
@@ -16803,7 +16803,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
     uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
     uint64_t ptr_align = get_ptr_align(ira->codegen, return_type);
     if (instr_is_comptime(casted_elem_index)) {
-        uint64_t index = bigint_as_unsigned(&casted_elem_index->value.data.x_bigint);
+        uint64_t index = bigint_as_u64(&casted_elem_index->value.data.x_bigint);
         if (array_type->id == ZigTypeIdArray) {
             uint64_t array_len = array_type->data.array.len;
             if (index >= array_len) {
@@ -16965,7 +16965,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
                     IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
                     ConstExprValue *out_val = &result->value;
-                    uint64_t slice_len = bigint_as_unsigned(&len_field->data.x_bigint);
+                    uint64_t slice_len = bigint_as_u64(&len_field->data.x_bigint);
                     if (index >= slice_len) {
                         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                             buf_sprintf("index %" ZIG_PRI_u64 " outside slice of size %" ZIG_PRI_u64,
@@ -21250,7 +21250,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
 
         ConstExprValue *len_val = &val->data.x_struct.fields[slice_len_index];
         if (value_is_comptime(len_val)) {
-            known_len = bigint_as_unsigned(&len_val->data.x_bigint);
+            known_len = bigint_as_u64(&len_val->data.x_bigint);
             have_known_len = true;
         }
     }
@@ -21607,7 +21607,7 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
                     zig_panic("TODO memset on null ptr");
             }
 
-            size_t count = bigint_as_unsigned(&count_val->data.x_bigint);
+            size_t count = bigint_as_usize(&count_val->data.x_bigint);
             size_t end = start + count;
             if (end > bound_end) {
                 ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
@@ -21704,7 +21704,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
             return ira->codegen->invalid_instruction;
 
         if (dest_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-            size_t count = bigint_as_unsigned(&count_val->data.x_bigint);
+            size_t count = bigint_as_usize(&count_val->data.x_bigint);
 
             ConstExprValue *dest_elements;
             size_t dest_start;
@@ -21988,7 +21988,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 case ConstPtrSpecialBaseArray:
                     array_val = parent_ptr->data.x_ptr.data.base_array.array_val;
                     abs_offset = parent_ptr->data.x_ptr.data.base_array.elem_index;
-                    rel_end = bigint_as_unsigned(&len_val->data.x_bigint);
+                    rel_end = bigint_as_usize(&len_val->data.x_bigint);
                     break;
                 case ConstPtrSpecialBaseStruct:
                     zig_panic("TODO slice const inner struct");
@@ -22001,7 +22001,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
                     abs_offset = 0;
-                    rel_end = bigint_as_unsigned(&len_val->data.x_bigint);
+                    rel_end = bigint_as_usize(&len_val->data.x_bigint);
                     break;
                 case ConstPtrSpecialFunction:
                     zig_panic("TODO slice of slice cast from function");
@@ -22012,7 +22012,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             zig_unreachable();
         }
 
-        uint64_t start_scalar = bigint_as_unsigned(&casted_start->value.data.x_bigint);
+        uint64_t start_scalar = bigint_as_u64(&casted_start->value.data.x_bigint);
         if (!ptr_is_undef && start_scalar > rel_end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
             return ira->codegen->invalid_instruction;
@@ -22020,7 +22020,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
 
         uint64_t end_scalar;
         if (end) {
-            end_scalar = bigint_as_unsigned(&end->value.data.x_bigint);
+            end_scalar = bigint_as_u64(&end->value.data.x_bigint);
         } else {
             end_scalar = rel_end;
         }
@@ -23622,7 +23622,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                 BigInt bn;
                 bigint_read_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count,
                         codegen->is_big_endian, false);
-                val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
+                val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_usize(&bn);
                 return ErrorNone;
             }
         case ZigTypeIdArray:
@@ -23815,7 +23815,7 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        uint64_t addr = bigint_as_unsigned(&val->data.x_bigint);
+        uint64_t addr = bigint_as_u64(&val->data.x_bigint);
         if (!ptr_allows_addr_zero(ptr_type) && addr == 0) {
             ir_add_error(ira, source_instr,
                     buf_sprintf("pointer type '%s' does not allow address zero", buf_ptr(&ptr_type->name)));
