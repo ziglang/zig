@@ -332,7 +332,8 @@ struct LazyValuePtrType {
     bool is_volatile;
     bool is_allowzero;
 
-    ZigType *elem_type;
+    ConstExprValue *elem_type_val;
+    AstNode *elem_type_src_node;
     ConstExprValue *align_val; // can be null
     PtrLen ptr_len;
     uint32_t bit_offset_in_host;

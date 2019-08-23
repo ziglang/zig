@@ -10850,17 +10850,32 @@ static ZigType *ir_resolve_const_type(CodeGen *codegen, IrExecutable *exec, AstN
     return val->data.x_type;
 }
 
-static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
+static ConstExprValue *ir_resolve_type_lazy(IrAnalyze *ira, IrInstruction *type_value) {
     if (type_is_invalid(type_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
 
     if (type_value->value.type->id != ZigTypeIdMetaType) {
         ir_add_error(ira, type_value,
                 buf_sprintf("expected type 'type', found '%s'", buf_ptr(&type_value->value.type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
+        return nullptr;
     }
 
-    return ir_resolve_const_type(ira->codegen, ira->new_irb.exec, type_value->source_node, &type_value->value);
+    Error err;
+    if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, type_value->source_node,
+                    &type_value->value, LazyOk)))
+    {
+        return nullptr;
+    }
+
+    return &type_value->value;
+}
+
+static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
+    ConstExprValue *val = ir_resolve_type_lazy(ira, type_value);
+    if (val == nullptr)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    return ir_resolve_const_type(ira->codegen, ira->new_irb.exec, type_value->source_node, val);
 }
 
 static ZigType *ir_resolve_int_type(IrAnalyze *ira, IrInstruction *type_value) {
@@ -23907,30 +23922,10 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
     lazy_ptr_type->base.id = LazyValueIdPtrType;
     lazy_ptr_type->base.exec = ira->new_irb.exec;
 
-    ZigType *child_type = ir_resolve_type(ira, instruction->child_type->child);
-    if (type_is_invalid(child_type))
+    lazy_ptr_type->elem_type_val = ir_resolve_type_lazy(ira, instruction->child_type->child);
+    if (lazy_ptr_type->elem_type_val == nullptr)
         return ira->codegen->invalid_instruction;
-    lazy_ptr_type->elem_type = child_type;
-
-    if (child_type->id == ZigTypeIdUnreachable) {
-        ir_add_error(ira, &instruction->base, buf_sprintf("pointer to noreturn not allowed"));
-        return ira->codegen->invalid_instruction;
-    } else if (child_type->id == ZigTypeIdOpaque && instruction->ptr_len == PtrLenUnknown) {
-        ir_add_error(ira, &instruction->base, buf_sprintf("unknown-length pointer to opaque"));
-        return ira->codegen->invalid_instruction;
-    } else if (instruction->ptr_len == PtrLenC) {
-        if (!type_allowed_in_extern(ira->codegen, child_type)) {
-            ir_add_error(ira, &instruction->base,
-                buf_sprintf("C pointers cannot point to non-C-ABI-compatible type '%s'", buf_ptr(&child_type->name)));
-            return ira->codegen->invalid_instruction;
-        } else if (child_type->id == ZigTypeIdOpaque) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("C pointers cannot point opaque types"));
-            return ira->codegen->invalid_instruction;
-        } else if (instruction->is_allow_zero) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("C pointers always allow address zero"));
-            return ira->codegen->invalid_instruction;
-        }
-    }
+    lazy_ptr_type->elem_type_src_node = instruction->child_type->source_node;
 
     if (instruction->align_value != nullptr) {
         lazy_ptr_type->align_val = ir_resolve_const(ira, instruction->align_value->child, LazyOk);
@@ -25593,15 +25588,45 @@ static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstEx
                 if (!ir_resolve_const_align(codegen, exec, source_node, lazy_ptr_type->align_val, &align_bytes))
                     return ErrorSemanticAnalyzeFail;
             }
+            ZigType *elem_type = ir_resolve_const_type(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                    lazy_ptr_type->elem_type_val);
+            if (type_is_invalid(elem_type))
+                return ErrorSemanticAnalyzeFail;
+
+            if (elem_type->id == ZigTypeIdUnreachable) {
+                exec_add_error_node(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                        buf_create_from_str("pointer to noreturn not allowed"));
+                return ErrorSemanticAnalyzeFail;
+            } else if (elem_type->id == ZigTypeIdOpaque && lazy_ptr_type->ptr_len == PtrLenUnknown) {
+                exec_add_error_node(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                        buf_create_from_str("unknown-length pointer to opaque"));
+                return ErrorSemanticAnalyzeFail;
+            } else if (lazy_ptr_type->ptr_len == PtrLenC) {
+                if (!type_allowed_in_extern(codegen, elem_type)) {
+                    exec_add_error_node(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                        buf_sprintf("C pointers cannot point to non-C-ABI-compatible type '%s'",
+                            buf_ptr(&elem_type->name)));
+                    return ErrorSemanticAnalyzeFail;
+                } else if (elem_type->id == ZigTypeIdOpaque) {
+                    exec_add_error_node(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                            buf_sprintf("C pointers cannot point opaque types"));
+                    return ErrorSemanticAnalyzeFail;
+                } else if (lazy_ptr_type->is_allowzero) {
+                    exec_add_error_node(codegen, exec, lazy_ptr_type->elem_type_src_node,
+                            buf_sprintf("C pointers always allow address zero"));
+                    return ErrorSemanticAnalyzeFail;
+                }
+            }
+
             ResolveStatus needed_status = (align_bytes == 0) ?
                 ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
-            if ((err = type_resolve(codegen, lazy_ptr_type->elem_type, needed_status)))
+            if ((err = type_resolve(codegen, elem_type, needed_status)))
                 return err;
-            if (!type_has_bits(lazy_ptr_type->elem_type))
+            if (!type_has_bits(elem_type))
                 align_bytes = 0;
             bool allow_zero = lazy_ptr_type->is_allowzero || lazy_ptr_type->ptr_len == PtrLenC;
             assert(val->type->id == ZigTypeIdMetaType);
-            val->data.x_type = get_pointer_to_type_extra(codegen, lazy_ptr_type->elem_type,
+            val->data.x_type = get_pointer_to_type_extra(codegen, elem_type,
                     lazy_ptr_type->is_const, lazy_ptr_type->is_volatile, lazy_ptr_type->ptr_len, align_bytes,
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
                     allow_zero);

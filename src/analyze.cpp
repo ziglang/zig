@@ -956,7 +956,7 @@ ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, Zig
 }
 
 static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
-        bool *is_zero_bits)
+        ConstExprValue *parent_type_val, bool *is_zero_bits)
 {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
@@ -972,15 +972,17 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            if (lazy_ptr_type->elem_type == parent_type) {
+
+            if (parent_type_val == lazy_ptr_type->elem_type_val) {
                 // Does a struct which contains a pointer field to itself have bits? Yes.
                 *is_zero_bits = false;
                 return ErrorNone;
             } else {
-                if ((err = type_resolve(g, lazy_ptr_type->elem_type, ResolveStatusZeroBitsKnown)))
-                    return err;
-                *is_zero_bits = type_has_bits(lazy_ptr_type->elem_type);
-                return ErrorNone;
+                if (parent_type_val == nullptr) {
+                    parent_type_val = type_val;
+                }
+                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type_val, parent_type,
+                        parent_type_val, is_zero_bits);
             }
         }
         case LazyValueIdSliceType:
@@ -1030,9 +1032,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            if (type_is_invalid(lazy_ptr_type->elem_type))
-                return ReqCompTimeInvalid;
-            return type_requires_comptime(g, lazy_ptr_type->elem_type, parent_type);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type_val, parent_type);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
@@ -1102,7 +1102,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdPtrType: {
             Error err;
             bool zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, type_val, nullptr, &zero_bits))) {
+            if ((err = type_val_resolve_zero_bits(g, type_val, nullptr, nullptr, &zero_bits))) {
                 return OnePossibleValueInvalid;
             }
             if (zero_bits) {
@@ -2359,7 +2359,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         }
 
         bool field_is_zero_bits;
-        if ((err = type_val_resolve_zero_bits(g, field_type_val, struct_type, &field_is_zero_bits))) {
+        if ((err = type_val_resolve_zero_bits(g, field_type_val, struct_type, nullptr, &field_is_zero_bits))) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
