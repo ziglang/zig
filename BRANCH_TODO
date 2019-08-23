@@ -1,3 +1,0 @@
-* slice type and ptr type instructions need to implicit cast alignment
-* fix regressions of error notes with "called from here"
-* fix tests
