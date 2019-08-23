@@ -992,6 +992,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
                         parent_type_val, is_zero_bits);
             }
         }
+        case LazyValueIdOptType:
         case LazyValueIdSliceType:
             *is_zero_bits = false;
             return ErrorNone;
@@ -1017,6 +1018,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
         case LazyValueIdFnType:
+        case LazyValueIdOptType:
             *is_opaque_type = false;
             return ErrorNone;
     }
@@ -1040,6 +1042,10 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
             return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type_val);
+        }
+        case LazyValueIdOptType: {
+            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type_val);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
@@ -1091,6 +1097,10 @@ static Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, si
         case LazyValueIdFnType:
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
+        case LazyValueIdOptType: {
+            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
+            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type_val, abi_align);
+        }
     }
     zig_unreachable();
 }
@@ -1104,6 +1114,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdAlignOf:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
+        case LazyValueIdOptType: // it has the optional bit
         case LazyValueIdFnType:
             return OnePossibleValueNo;
         case LazyValueIdPtrType: {

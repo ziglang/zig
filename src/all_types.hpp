@@ -302,6 +302,7 @@ enum LazyValueId {
     LazyValueIdInvalid,
     LazyValueIdAlignOf,
     LazyValueIdPtrType,
+    LazyValueIdOptType,
     LazyValueIdSliceType,
     LazyValueIdFnType,
 };
@@ -338,6 +339,13 @@ struct LazyValuePtrType {
     PtrLen ptr_len;
     uint32_t bit_offset_in_host;
     uint32_t host_int_bytes;
+};
+
+struct LazyValueOptType {
+    LazyValue base;
+
+    ConstExprValue *payload_type_val;
+    AstNode *payload_type_src_node;
 };
 
 struct LazyValueFnType {

@@ -8212,6 +8212,7 @@ static Error eval_comptime_ptr_reinterpret(IrAnalyze *ira, CodeGen *codegen, Ast
 {
     Error err;
     assert(ptr_val->type->id == ZigTypeIdPointer);
+    assert(ptr_val->special == ConstValSpecialStatic);
     ConstExprValue tmp = {};
     tmp.special = ConstValSpecialStatic;
     tmp.type = ptr_val->type->data.pointer.child_type;
@@ -16150,51 +16151,21 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_optional_type(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
-    Error err;
-    IrInstruction *value = un_op_instruction->value->child;
-    ZigType *type_entry = ir_resolve_type(ira, value);
-    if (type_is_invalid(type_entry))
-        return ira->codegen->invalid_instruction;
-    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
-        return ira->codegen->invalid_instruction;
+static IrInstruction *ir_analyze_optional_type(IrAnalyze *ira, IrInstructionUnOp *instruction) {
+    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
+    result->value.special = ConstValSpecialLazy;
 
-    switch (type_entry->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdVector:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            return ir_const_type(ira, &un_op_instruction->base, get_optional_type(ira->codegen, type_entry));
+    LazyValueOptType *lazy_opt_type = allocate<LazyValueOptType>(1);
+    result->value.data.x_lazy = &lazy_opt_type->base;
+    lazy_opt_type->base.id = LazyValueIdOptType;
+    lazy_opt_type->base.exec = ira->new_irb.exec;
 
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdOpaque:
-            ir_add_error_node(ira, un_op_instruction->base.source_node,
-                    buf_sprintf("type '%s' not optional", buf_ptr(&type_entry->name)));
-            return ira->codegen->invalid_instruction;
-    }
-    zig_unreachable();
+    lazy_opt_type->payload_type_val = ir_resolve_type_lazy(ira, instruction->value->child);
+    if (lazy_opt_type->payload_type_val == nullptr)
+        return ira->codegen->invalid_instruction;
+    lazy_opt_type->payload_type_src_node = instruction->value->source_node;
+
+    return result;
 }
 
 static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInstruction *source_instr, ZigType *scalar_type,
@@ -19658,11 +19629,9 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
 
     ZigVar *var = tld->var;
 
-    if ((err = type_resolve(ira->codegen, var->const_value->type, ResolveStatusSizeKnown)))
-        return ira->codegen->builtin_types.entry_invalid;
-
     assert(var->const_value->type->id == ZigTypeIdMetaType);
-    return var->const_value->data.x_type;
+
+    return ir_resolve_const_type(ira->codegen, ira->new_irb.exec, nullptr, var->const_value);
 }
 
 static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *out_val,
@@ -25630,6 +25599,28 @@ static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstEx
                     lazy_ptr_type->is_const, lazy_ptr_type->is_volatile, lazy_ptr_type->ptr_len, align_bytes,
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
                     allow_zero);
+            val->special = ConstValSpecialStatic;
+            return ErrorNone;
+        }
+        case LazyValueIdOptType: {
+            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(val->data.x_lazy);
+
+            ZigType *payload_type = ir_resolve_const_type(codegen, exec, lazy_opt_type->payload_type_src_node,
+                    lazy_opt_type->payload_type_val);
+            if (type_is_invalid(payload_type))
+                return ErrorSemanticAnalyzeFail;
+
+            if (payload_type->id == ZigTypeIdOpaque || payload_type->id == ZigTypeIdUnreachable) {
+                exec_add_error_node(codegen, exec, lazy_opt_type->payload_type_src_node,
+                        buf_sprintf("type '%s' cannot be optional", buf_ptr(&payload_type->name)));
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            if ((err = type_resolve(codegen, payload_type, ResolveStatusSizeKnown)))
+                return err;
+
+            assert(val->type->id == ZigTypeIdMetaType);
+            val->data.x_type = get_optional_type(codegen, payload_type);
             val->special = ConstValSpecialStatic;
             return ErrorNone;
         }
