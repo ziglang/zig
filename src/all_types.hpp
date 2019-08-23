@@ -423,6 +423,7 @@ enum TldResolution {
     TldResolutionUnresolved,
     TldResolutionResolving,
     TldResolutionInvalid,
+    TldResolutionOkLazy,
     TldResolutionOk,
 };
 

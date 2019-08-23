@@ -3091,7 +3091,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
     Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
-    resolve_top_level_decl(g, tld, tld->source_node);
+    resolve_top_level_decl(g, tld, tld->source_node, false);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     tld_var->var->const_value = value;
@@ -3333,7 +3333,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     return variable_entry;
 }
 
-static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
+static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     AstNode *source_node = tld_var->base.source_node;
     AstNodeVariableDeclaration *var_decl = &source_node->data.variable_declaration;
 
@@ -3364,7 +3364,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     if (explicit_type && explicit_type->id == ZigTypeIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
-        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type, var_decl->symbol);
+        init_value = analyze_const_value_allow_lazy(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
+                var_decl->symbol, allow_lazy);
         assert(init_value);
         implicit_type = init_value->type;
 
@@ -3539,49 +3540,56 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
     }
 }
 
-void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node) {
-    if (tld->resolution != TldResolutionUnresolved)
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool allow_lazy) {
+    bool want_resolve_lazy = tld->resolution == TldResolutionOkLazy && !allow_lazy;
+    if (tld->resolution != TldResolutionUnresolved && !want_resolve_lazy)
         return;
 
-    assert(tld->resolution != TldResolutionResolving);
     tld->resolution = TldResolutionResolving;
 
     switch (tld->id) {
-        case TldIdVar:
-            {
-                TldVar *tld_var = (TldVar *)tld;
-                resolve_decl_var(g, tld_var);
-                break;
+        case TldIdVar: {
+            TldVar *tld_var = (TldVar *)tld;
+            if (want_resolve_lazy) {
+                ir_resolve_lazy(g, source_node, tld_var->var->const_value);
+            } else {
+                resolve_decl_var(g, tld_var, allow_lazy);
             }
-        case TldIdFn:
-            {
-                TldFn *tld_fn = (TldFn *)tld;
-                resolve_decl_fn(g, tld_fn);
-                break;
-            }
-        case TldIdContainer:
-            {
-                TldContainer *tld_container = (TldContainer *)tld;
-                resolve_decl_container(g, tld_container);
-                break;
-            }
-        case TldIdCompTime:
-            {
-                TldCompTime *tld_comptime = (TldCompTime *)tld;
-                resolve_decl_comptime(g, tld_comptime);
-                break;
-            }
+            tld->resolution = allow_lazy ? TldResolutionOkLazy : TldResolutionOk;
+            break;
+        }
+        case TldIdFn: {
+            TldFn *tld_fn = (TldFn *)tld;
+            resolve_decl_fn(g, tld_fn);
+
+            tld->resolution = TldResolutionOk;
+            break;
+        }
+        case TldIdContainer: {
+            TldContainer *tld_container = (TldContainer *)tld;
+            resolve_decl_container(g, tld_container);
+
+            tld->resolution = TldResolutionOk;
+            break;
+        }
+        case TldIdCompTime: {
+            TldCompTime *tld_comptime = (TldCompTime *)tld;
+            resolve_decl_comptime(g, tld_comptime);
+
+            tld->resolution = TldResolutionOk;
+            break;
+        }
         case TldIdUsingNamespace: {
             TldUsingNamespace *tld_using_namespace = (TldUsingNamespace *)tld;
             assert(tld_using_namespace->base.parent_scope->id == ScopeIdDecls);
             ScopeDecls *dest_decls_scope = (ScopeDecls *)tld_using_namespace->base.parent_scope;
             preview_use_decl(g, tld_using_namespace, dest_decls_scope);
             resolve_use_decl(g, tld_using_namespace, dest_decls_scope);
+
+            tld->resolution = TldResolutionOk;
             break;
         }
     }
-
-    tld->resolution = TldResolutionOk;
 
     if (g->trace_err != nullptr && source_node != nullptr) {
         g->trace_err = add_error_note(g, g->trace_err, source_node, buf_create_from_str("referenced here"));
@@ -4254,7 +4262,7 @@ void semantic_analyze(CodeGen *g) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             g->trace_err = nullptr;
             AstNode *source_node = nullptr;
-            resolve_top_level_decl(g, tld, source_node);
+            resolve_top_level_decl(g, tld, source_node, false);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
@@ -6602,7 +6610,7 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b) {
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, nullptr);
+    resolve_top_level_decl(codegen, tld, nullptr, false);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     ConstExprValue *var_value = tld_var->var->const_value;

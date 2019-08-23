@@ -8896,7 +8896,7 @@ static void gen_root_source(CodeGen *g) {
         }
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, nullptr);
+        resolve_top_level_decl(g, panic_tld, nullptr, false);
     }
 
 

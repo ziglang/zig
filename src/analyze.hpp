@@ -58,7 +58,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *abs_full_path, Bu
 ZigVar *find_variable(CodeGen *g, Scope *orig_context, Buf *name, ScopeFnDef **crossed_fndef_scope);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 Tld *find_container_decl(CodeGen *g, ScopeDecls *decls_scope, Buf *name);
-void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node);
+void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool allow_lazy);
 
 ZigType *get_src_ptr_type(ZigType *type);
 ZigType *get_codegen_ptr_type(ZigType *type);

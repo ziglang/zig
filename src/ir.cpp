@@ -17074,7 +17074,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node);
+            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
@@ -17317,7 +17317,7 @@ static IrInstruction *ir_error_dependency_loop(IrAnalyze *ira, IrInstruction *so
 }
 
 static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
-    resolve_top_level_decl(ira->codegen, tld, source_instruction->source_node);
+    resolve_top_level_decl(ira->codegen, tld, source_instruction->source_node, true);
     if (tld->resolution == TldResolutionInvalid) {
         return ira->codegen->invalid_instruction;
     }
@@ -19682,7 +19682,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
     while ((curr_entry = decl_it.next()) != nullptr) {
         // If the declaration is unresolved, force it to be resolved again.
         if (curr_entry->value->resolution == TldResolutionUnresolved) {
-            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node);
+            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
             if (curr_entry->value->resolution != TldResolutionOk) {
                 return ErrorSemanticAnalyzeFail;
             }
