@@ -380,16 +380,18 @@ fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-/// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+/// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const name_token = eatToken(it, .Identifier) orelse return null;
 
-    const type_expr = if (eatToken(it, .Colon)) |_|
-        try expectNode(arena, it, tree, parseTypeExpr, AstError{
+    var align_expr: ?*Node = null;
+    var type_expr: ?*Node = null;
+    if (eatToken(it, .Colon)) |_| {
+        type_expr = try expectNode(arena, it, tree, parseTypeExpr, AstError{
             .ExpectedTypeExpr = AstError.ExpectedTypeExpr{ .token = it.index },
-        })
-    else
-        null;
+        });
+        align_expr = try parseByteAlign(arena, it, tree);
+    }
 
     const value_expr = if (eatToken(it, .Equal)) |_|
         try expectNode(arena, it, tree, parseExpr, AstError{
@@ -406,6 +408,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
         .name_token = name_token,
         .type_expr = type_expr,
         .value_expr = value_expr,
+        .align_expr = align_expr,
     };
     return &node.base;
 }

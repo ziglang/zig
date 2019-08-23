@@ -761,6 +761,7 @@ pub const Node = struct {
         name_token: TokenIndex,
         type_expr: ?*Node,
         value_expr: ?*Node,
+        align_expr: ?*Node,
 
         pub fn iterate(self: *ContainerField, index: usize) ?*Node {
             var i = index;
