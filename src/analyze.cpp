@@ -961,6 +961,13 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
+        if (type_val->data.x_type->id == ZigTypeIdStruct &&
+            type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits)
+        {
+            // Does a struct which contains a pointer field to itself have bits? Yes.
+            *is_zero_bits = false;
+            return ErrorNone;
+        }
         if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusZeroBitsKnown)))
             return err;
         *is_zero_bits = (type_val->data.x_type->abi_size == 0);
