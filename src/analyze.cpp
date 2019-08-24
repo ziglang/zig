@@ -7198,8 +7198,13 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     ZigType *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
     if (most_aligned_union_member == nullptr) {
-        union_type->llvm_type = get_llvm_type(g, tag_type);
-        union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        if (tag_type == nullptr) {
+            union_type->llvm_type = g->builtin_types.entry_void->llvm_type;
+            union_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        } else {
+            union_type->llvm_type = get_llvm_type(g, tag_type);
+            union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        }
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFull;
         return;
     }
