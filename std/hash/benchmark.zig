@@ -29,6 +29,11 @@ const hashes = [_]Hash{
         .init_u64 = 0,
     },
     Hash{
+        .ty = hash.WyhashStateless,
+        .name = "wyhash-stateless",
+        .init_u64 = 0,
+    },
+    Hash{
         .ty = hash.SipHash64(1, 3),
         .name = "siphash(1,3)",
         .init_u8s = siphash_key,
