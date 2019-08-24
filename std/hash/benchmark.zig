@@ -47,11 +47,11 @@ const hashes = [_]Hash{
         .name = "adler32",
     },
     Hash{
-        .ty = hash.crc.Crc32WithPoly(.IEEE),
+        .ty = hash.crc.Crc32WithPoly(hash.crc.Polynomial.IEEE),
         .name = "crc32-slicing-by-8",
     },
     Hash{
-        .ty = hash.crc.Crc32SmallWithPoly(.IEEE),
+        .ty = hash.crc.Crc32SmallWithPoly(hash.crc.Polynomial.IEEE),
         .name = "crc32-half-byte-lookup",
     },
     Hash{
