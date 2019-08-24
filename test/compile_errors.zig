@@ -1083,6 +1083,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "@bitCast with different sizes inside an expression",
+        \\export fn entry() void {
+        \\    var foo = (@bitCast(u8, f32(1.0)) == 0xf);
+        \\}
+    ,
+        "tmp.zig:2:25: error: destination type 'u8' has size 1 but source type 'f32' has size 4",
+    );
+
+    cases.add(
         "attempted `&&`",
         \\export fn entry(a: bool, b: bool) i32 {
         \\    if (a && b) {

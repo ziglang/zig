@@ -14822,6 +14822,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 bitcasted_value = nullptr;
             }
 
+            if (bitcasted_value == nullptr || type_is_invalid(bitcasted_value->value.type)) {
+                return bitcasted_value;
+            }
+
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
                     dest_type, bitcasted_value, force_runtime, non_null_comptime, true);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
