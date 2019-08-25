@@ -17085,7 +17085,8 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
                 }
             }
             IrInstruction *result;
-            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
+            if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer ||
+                    ptr_val->data.x_ptr.mut == ConstPtrMutRuntimeVar) {
                 result = ir_build_struct_field_ptr(&ira->new_irb, source_instr->scope,
                         source_instr->source_node, struct_ptr, field);
                 result->value.type = ptr_type;
