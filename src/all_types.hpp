@@ -489,10 +489,12 @@ struct TypeEnumField {
 
 struct TypeUnionField {
     Buf *name;
+    ZigType *type_entry; // available after ResolveStatusSizeKnown
+    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
     TypeEnumField *enum_field;
-    ZigType *type_entry;
     AstNode *decl_node;
     uint32_t gen_index;
+    uint32_t align;
 };
 
 enum NodeType {
@@ -1247,7 +1249,7 @@ struct ZigTypeUnion {
     HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
     ZigType *tag_type; // always an enum or null
     LLVMTypeRef union_llvm_type;
-    ZigType *most_aligned_union_member;
+    TypeUnionField *most_aligned_union_member;
     size_t gen_union_index;
     size_t gen_tag_index;
     size_t union_abi_size;
@@ -1262,7 +1264,8 @@ struct ZigTypeUnion {
     // whether any of the fields require comptime
     // the value is not valid until zero_bits_known == true
     bool requires_comptime;
-    bool resolve_loop_flag;
+    bool resolve_loop_flag_zero_bits;
+    bool resolve_loop_flag_other;
 };
 
 struct FnGenParamInfo {

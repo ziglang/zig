@@ -6568,7 +6568,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     uint64_t pad_bytes = type_entry->data.unionation.union_abi_size - field_type_bytes;
                     LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value, "");
                     make_unnamed_struct = is_llvm_value_unnamed_type(g, payload_value->type, correctly_typed_value) ||
-                        payload_value->type != type_entry->data.unionation.most_aligned_union_member;
+                        payload_value->type != type_entry->data.unionation.most_aligned_union_member->type_entry;
 
                     {
                         if (pad_bytes == 0) {
