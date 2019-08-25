@@ -1950,6 +1950,12 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             }
         } else if (packed) {
             field->align = 1;
+        } else if (field->type_entry != nullptr) {
+            if ((err = type_resolve(g, field->type_entry, ResolveStatusAlignmentKnown))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return err;
+            }
+            field->align = field->type_entry->abi_align;
         } else {
             if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2040,12 +2046,14 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
 
-        if ((err = ir_resolve_lazy(g, field_source_node, union_field->type_val))) {
-            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            return err;
+        if (union_field->type_entry == nullptr) {
+            if ((err = ir_resolve_lazy(g, field_source_node, union_field->type_val))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return err;
+            }
+            union_field->type_entry = union_field->type_val->data.x_type;
         }
-        ZigType *field_type = union_field->type_val->data.x_type;
-        union_field->type_entry = field_type;
+        ZigType *field_type = union_field->type_entry;
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -4999,7 +5007,11 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdUnion:
             if (type_entry->data.unionation.src_field_count > 1)
                 return OnePossibleValueNo;
-            return type_has_one_possible_value(g, type_entry->data.unionation.fields[0].type_entry);
+            TypeUnionField *only_field = &type_entry->data.unionation.fields[0];
+            if (only_field->type_entry != nullptr) {
+                return type_has_one_possible_value(g, only_field->type_entry);
+            }
+            return type_val_resolve_has_one_possible_value(g, only_field->type_val);
     }
     zig_unreachable();
 }
