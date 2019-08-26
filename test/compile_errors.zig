@@ -10,7 +10,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\        : [bar] "=r" (-> usize)
             \\    );
             \\}
-        , "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs.");
+        , "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs");
         tc.target = tests.Target{
             .Cross = tests.CrossTarget{
                 .arch = .x86_64,
@@ -53,8 +53,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:8:1: error: '@Frame(rangeSum)' depends on itself",
-        "tmp.zig:15:33: note: when analyzing type '@Frame(rangeSumIndirect)' here",
-        "tmp.zig:26:25: note: when analyzing type '@Frame(rangeSum)' here",
+        "tmp.zig:15:33: note: when analyzing type '@Frame(rangeSum)' here",
+        "tmp.zig:26:25: note: when analyzing type '@Frame(rangeSumIndirect)' here",
     );
 
     cases.add(
@@ -245,7 +245,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:4:1: error: unable to determine async function frame of 'amain'",
         "tmp.zig:5:10: note: analysis of function 'other' depends on the frame",
-        "tmp.zig:8:13: note: depends on the frame here",
+        "tmp.zig:8:13: note: referenced here",
     );
 
     cases.add(
@@ -258,7 +258,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet",
-        "tmp.zig:5:13: note: depends on its own frame here",
+        "tmp.zig:5:13: note: referenced here",
     );
 
     cases.add(
@@ -1091,7 +1091,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 5678;
         \\}
     ,
-        "tmp.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
+        "tmp.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND",
     );
 
     cases.add(

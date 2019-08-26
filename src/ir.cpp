@@ -152,12 +152,6 @@ struct ConstCastBadAllowsZero {
 };
 
 
-enum UndefAllowed {
-    UndefOk,
-    UndefBad,
-    LazyOk,
-};
-
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval,
         ResultLoc *result_loc);
@@ -6836,7 +6830,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
         const char modifier = *buf_ptr(asm_output->constraint);
         if (modifier != '=') {
             add_node_error(irb->codegen, node,
-                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported."
+                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported"
                     " Compiler TODO: see https://github.com/ziglang/zig/issues/215",
                     buf_ptr(asm_output->asm_symbolic_name), modifier));
             return irb->codegen->invalid_instruction;
@@ -6860,7 +6854,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
                 uint32_t len = asm_token.end - asm_token.start - 2;
 
                 add_node_error(irb->codegen, node,
-                    buf_sprintf("could not find '%.*s' in the inputs or outputs.",
+                    buf_sprintf("could not find '%.*s' in the inputs or outputs",
                         len, ptr));
                 return irb->codegen->invalid_instruction;
             }
@@ -8114,6 +8108,9 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
     }
     IrInstruction *result = ir_gen_node_raw(irb, node, scope, lval, result_loc);
     if (result == irb->codegen->invalid_instruction) {
+        if (irb->exec->first_err_trace_msg == nullptr) {
+            irb->exec->first_err_trace_msg = irb->codegen->trace_err;
+        }
         src_assert(irb->exec->first_err_trace_msg != nullptr, node);
     }
     return result;

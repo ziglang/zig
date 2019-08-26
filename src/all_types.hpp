@@ -53,6 +53,13 @@ enum PtrLen {
     PtrLenC,
 };
 
+enum UndefAllowed {
+    UndefOk,
+    UndefBad,
+    LazyOkNoUndef,
+    LazyOk,
+};
+
 enum X64CABIClass {
     X64CABIClass_Unknown,
     X64CABIClass_MEMORY,

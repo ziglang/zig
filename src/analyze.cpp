@@ -59,6 +59,7 @@ ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg) {
             root_struct->source_code, root_struct->line_offsets, msg);
 
     g->errors.append(err);
+    g->trace_err = err;
     return err;
 }
 
@@ -1793,7 +1794,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag_other) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("struct '%s' depends on its own size", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -1947,7 +1948,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
     if (union_type->data.unionation.resolve_loop_flag_other) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("union '%s' depends on its own alignment", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2058,7 +2059,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     if (union_type->data.unionation.resolve_loop_flag_other) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("union '%s' depends on its own size", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2160,7 +2161,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     if (enum_type->data.enumeration.resolve_loop_flag) {
         if (enum_type->data.enumeration.resolve_status != ResolveStatusInvalid) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("enum '%s' depends on itself",
                     buf_ptr(&enum_type->name)));
         }
@@ -2337,7 +2338,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag_zero_bits) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("struct '%s' depends on itself",
                     buf_ptr(&struct_type->name)));
         }
@@ -2462,7 +2463,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     if (struct_type->data.structure.resolve_loop_flag_other) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("struct '%s' depends on its own alignment", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2530,7 +2531,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     if (union_type->data.unionation.resolve_loop_flag_zero_bits) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-            g->trace_err = add_node_error(g, decl_node,
+            add_node_error(g, decl_node,
                 buf_sprintf("union '%s' depends on itself",
                     buf_ptr(&union_type->name)));
         }
@@ -3423,7 +3424,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     ZigType *explicit_type = nullptr;
     if (var_decl->type) {
         if (tld_var->analyzing_type) {
-            g->trace_err = add_node_error(g, var_decl->type,
+            add_node_error(g, var_decl->type,
                 buf_sprintf("type of '%s' depends on itself", buf_ptr(tld_var->base.name)));
             explicit_type = g->builtin_types.entry_invalid;
         } else {
@@ -4001,6 +4002,13 @@ static void resolve_async_fn_frame(CodeGen *g, ZigFn *fn) {
     ZigType *frame_type = get_fn_frame_type(g, fn);
     Error err;
     if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown))) {
+        if (g->trace_err != nullptr && frame_type->data.frame.resolve_loop_src_node != nullptr &&
+            !frame_type->data.frame.reported_loop_err)
+        {
+            frame_type->data.frame.reported_loop_err = true;
+            g->trace_err = add_error_note(g, g->trace_err, frame_type->data.frame.resolve_loop_src_node,
+                buf_sprintf("when analyzing type '%s' here", buf_ptr(&frame_type->name)));
+        }
         fn->anal_state = FnAnalStateInvalid;
         return;
     }
@@ -5406,8 +5414,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     if (frame_type->data.frame.resolve_loop_type != nullptr) {
         if (!frame_type->data.frame.reported_loop_err) {
-            frame_type->data.frame.reported_loop_err = true;
-            g->trace_err = add_node_error(g, fn->proto_node,
+            add_node_error(g, fn->proto_node,
                     buf_sprintf("'%s' depends on itself", buf_ptr(&frame_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -5424,7 +5431,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 return ErrorSemanticAnalyzeFail;
             break;
         case FnAnalStateProbing: {
-            g->trace_err = add_node_error(g, fn->proto_node,
+            add_node_error(g, fn->proto_node,
                     buf_sprintf("cannot resolve '%s': function not fully analyzed yet",
                         buf_ptr(&frame_type->name)));
             return ErrorSemanticAnalyzeFail;
