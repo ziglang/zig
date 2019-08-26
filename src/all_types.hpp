@@ -1124,6 +1124,7 @@ struct ZigTypePointer {
     bool is_const;
     bool is_volatile;
     bool allow_zero;
+    bool resolve_loop_flag_zero_bits;
 };
 
 struct ZigTypeInt {

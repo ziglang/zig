@@ -9367,6 +9367,14 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.id = ConstCastResultIdInvalid;
             return result;
         }
+        if ((err = type_resolve(g, wanted_type, ResolveStatusZeroBitsKnown))) {
+            result.id = ConstCastResultIdInvalid;
+            return result;
+        }
+        if ((err = type_resolve(g, actual_type, ResolveStatusZeroBitsKnown))) {
+            result.id = ConstCastResultIdInvalid;
+            return result;
+        }
         bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
         if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr) &&
             type_has_bits(wanted_type) == type_has_bits(actual_type) &&

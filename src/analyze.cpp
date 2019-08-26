@@ -983,7 +983,9 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
         if ((type_val->data.x_type->id == ZigTypeIdStruct &&
             type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
             (type_val->data.x_type->id == ZigTypeIdUnion &&
-             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits))
+             type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
+            (type_val->data.x_type->id == ZigTypeIdPointer &&
+            type_val->data.x_type->data.pointer.resolve_loop_flag_zero_bits))
         {
             // Does a struct/union which contains a pointer field to itself have bits? Yes.
             *is_zero_bits = false;
@@ -1105,6 +1107,10 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         ZigType *ty = type_val->data.x_type;
+        if (ty->id == ZigTypeIdPointer) {
+            *abi_align = g->builtin_types.entry_usize->abi_align;
+            return ErrorNone;
+        }
         if ((err = type_resolve(g, ty, ResolveStatusAlignmentKnown)))
             return err;
         *abi_align = ty->abi_align;
@@ -5610,6 +5616,14 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
 
     if (ty->abi_size != SIZE_MAX)
         return ErrorNone;
+
+    if (ty->data.pointer.resolve_loop_flag_zero_bits) {
+        ty->abi_size = g->builtin_types.entry_usize->abi_size;
+        ty->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+        ty->abi_align = g->builtin_types.entry_usize->abi_align;
+        return ErrorNone;
+    }
+    ty->data.pointer.resolve_loop_flag_zero_bits = true;
 
     ZigType *elem_type = ty->data.pointer.child_type;
 
