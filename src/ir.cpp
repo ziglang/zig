@@ -10818,6 +10818,8 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
     }
 
     ConstExprValue *result = ir_exec_const_result(codegen, analyzed_executable);
+    if (type_is_invalid(result->type))
+        return &codegen->invalid_instruction->value;
 
     if ((err = ir_resolve_const_val(codegen, analyzed_executable, node, result, undef_allowed)))
         return &codegen->invalid_instruction->value;
@@ -14330,6 +14332,10 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             // since it's a comptime val there are no instructions for it.
             // we memcpy the init value here
             IrInstruction *deref = ir_get_deref(ira, var_ptr, var_ptr, nullptr);
+            if (type_is_invalid(deref->value.type)) {
+                var->var_type = ira->codegen->builtin_types.entry_invalid;
+                return ira->codegen->invalid_instruction;
+            }
             // If this assertion trips, something is wrong with the IR instructions, because
             // we expected the above deref to return a constant value, but it created a runtime
             // instruction.
@@ -21957,6 +21963,11 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             if (slice_ptr == nullptr)
                 return ira->codegen->invalid_instruction;
 
+            if (slice_ptr->special == ConstValSpecialUndef) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice of undefined"));
+                return ira->codegen->invalid_instruction;
+            }
+
             parent_ptr = &slice_ptr->data.x_struct.fields[slice_ptr_index];
             if (parent_ptr->special == ConstValSpecialUndef) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of undefined"));
@@ -22836,6 +22847,7 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
     size_t param_count = proto_node->data.fn_proto.params.length;
     lazy_fn_type->proto_node = proto_node;
     lazy_fn_type->param_types = allocate<ConstExprValue *>(param_count);
+    lazy_fn_type->param_type_src_nodes = allocate<AstNode *>(param_count);
 
     for (size_t param_index = 0; param_index < param_count; param_index += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(param_index);
@@ -22865,6 +22877,7 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
         if (param_type_val == nullptr)
             return ira->codegen->invalid_instruction;
         lazy_fn_type->param_types[param_index] = param_type_val;
+        lazy_fn_type->param_type_src_nodes[param_index] = instruction->param_types[param_index]->source_node;
     }
 
     if (instruction->align_value != nullptr) {
@@ -22876,6 +22889,7 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
     lazy_fn_type->return_type = ir_resolve_const(ira, instruction->return_type->child, LazyOk);
     if (lazy_fn_type->return_type == nullptr)
          return ira->codegen->invalid_instruction;
+    lazy_fn_type->return_type_src_node = instruction->return_type->source_node;
 
     return result;
 }
@@ -25187,7 +25201,10 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
                 } else {
                     new_exec->first_err_trace_msg = ira->codegen->trace_err;
                 }
-                if (new_exec->first_err_trace_msg != nullptr) {
+                if (new_exec->first_err_trace_msg != nullptr &&
+                    !old_instruction->source_node->already_traced_this_node)
+                {
+                    old_instruction->source_node->already_traced_this_node = true;
                     new_exec->first_err_trace_msg = add_error_note(ira->codegen, new_exec->first_err_trace_msg,
                             old_instruction->source_node, buf_create_from_str("referenced here"));
                 }
@@ -25204,7 +25221,10 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
 
     if (new_exec->first_err_trace_msg != nullptr) {
         codegen->trace_err = new_exec->first_err_trace_msg;
-        if (codegen->trace_err != nullptr) {
+        if (codegen->trace_err != nullptr && new_exec->source_node != nullptr &&
+            !new_exec->source_node->already_traced_this_node)
+        {
+            new_exec->source_node->already_traced_this_node = true;
             codegen->trace_err = add_error_note(codegen, codegen->trace_err,
                     new_exec->source_node, buf_create_from_str("referenced here"));
         }
@@ -25435,14 +25455,15 @@ static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, As
             param_info->type = nullptr;
             return get_generic_fn_type(codegen, &fn_type_id);
         } else {
-            ZigType *param_type = ir_resolve_const_type(codegen, exec, source_node,
+            AstNode *param_src_node = lazy_fn_type->param_type_src_nodes[fn_type_id.next_param_index];
+            ZigType *param_type = ir_resolve_const_type(codegen, exec, param_src_node,
                     lazy_fn_type->param_types[fn_type_id.next_param_index]);
             if (type_is_invalid(param_type))
                 return nullptr;
             switch (type_requires_comptime(codegen, param_type)) {
             case ReqCompTimeYes:
                 if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                    exec_add_error_node(codegen, exec, source_node,
+                    exec_add_error_node(codegen, exec, param_src_node,
                         buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
                             buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
                     return nullptr;
@@ -25459,7 +25480,7 @@ static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, As
                 if ((err = type_resolve(codegen, param_type, ResolveStatusZeroBitsKnown)))
                     return nullptr;
                 if (!type_has_bits(param_type)) {
-                    exec_add_error_node(codegen, exec, source_node,
+                    exec_add_error_node(codegen, exec, param_src_node,
                         buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
                             buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
                     return nullptr;
@@ -25474,11 +25495,13 @@ static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, As
             return nullptr;
     }
 
-    fn_type_id.return_type = ir_resolve_const_type(codegen, exec, source_node, lazy_fn_type->return_type);
+    fn_type_id.return_type = ir_resolve_const_type(codegen, exec, lazy_fn_type->return_type_src_node,
+            lazy_fn_type->return_type);
     if (type_is_invalid(fn_type_id.return_type))
         return nullptr;
     if (fn_type_id.return_type->id == ZigTypeIdOpaque) {
-        exec_add_error_node(codegen, exec, source_node, buf_create_from_str("return type cannot be opaque"));
+        exec_add_error_node(codegen, exec, lazy_fn_type->return_type_src_node,
+            buf_create_from_str("return type cannot be opaque"));
         return nullptr;
     }
 
@@ -25653,11 +25676,15 @@ static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstEx
 Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
     Error err;
     if ((err = ir_resolve_lazy_raw(codegen, source_node, val))) {
-        if (codegen->trace_err != nullptr) {
+        if (codegen->trace_err != nullptr && !source_node->already_traced_this_node) {
+            source_node->already_traced_this_node = true;
             codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
                 buf_create_from_str("referenced here"));
         }
         return err;
+    }
+    if (type_is_invalid(val->type)) {
+        return ErrorSemanticAnalyzeFail;
     }
     return ErrorNone;
 }

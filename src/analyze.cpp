@@ -63,10 +63,11 @@ ErrorMsg *add_token_error(CodeGen *g, ZigType *owner, Token *token, Buf *msg) {
     return err;
 }
 
-ErrorMsg *add_node_error(CodeGen *g, const AstNode *node, Buf *msg) {
+ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     Token fake_token;
     fake_token.start_line = node->line;
     fake_token.start_column = node->column;
+    node->already_traced_this_node = true;
     return add_token_error(g, node->owner, &fake_token, msg);
 }
 
@@ -1782,7 +1783,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' depends on its own size", buf_ptr(&struct_type->name)));
+                buf_sprintf("struct '%s' depends on itself", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -1936,7 +1937,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node,
-                buf_sprintf("union '%s' depends on its own alignment", buf_ptr(&union_type->name)));
+                buf_sprintf("union '%s' depends on itself", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2047,7 +2048,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node,
-                buf_sprintf("union '%s' depends on its own size", buf_ptr(&union_type->name)));
+                buf_sprintf("union '%s' depends on itself", buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -2452,7 +2453,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node,
-                buf_sprintf("struct '%s' depends on its own alignment", buf_ptr(&struct_type->name)));
+                buf_sprintf("struct '%s' depends on itself", buf_ptr(&struct_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
     }
@@ -3661,8 +3662,9 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
         }
     }
 
-    if (g->trace_err != nullptr && source_node != nullptr) {
+    if (g->trace_err != nullptr && source_node != nullptr && !source_node->already_traced_this_node) {
         g->trace_err = add_error_note(g, g->trace_err, source_node, buf_create_from_str("referenced here"));
+        source_node->already_traced_this_node = true;
     }
 }
 

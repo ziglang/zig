@@ -363,8 +363,10 @@ struct LazyValueFnType {
 
     AstNode *proto_node;
     ConstExprValue **param_types;
+    AstNode **param_type_src_nodes;
     ConstExprValue *align_val; // can be null
     ConstExprValue *return_type;
+    AstNode *return_type_src_node;
 };
 
 struct ConstExprValue {
@@ -1026,6 +1028,7 @@ struct AstNodeEnumLiteral {
 
 struct AstNode {
     enum NodeType type;
+    bool already_traced_this_node;
     size_t line;
     size_t column;
     ZigType *owner;
