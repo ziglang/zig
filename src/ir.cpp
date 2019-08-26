@@ -398,7 +398,7 @@ static void ir_ref_var(ZigVar *var) {
 ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
     ConstExprValue *result = ir_eval_const_value(ira->codegen, scope, node, ira->codegen->builtin_types.entry_type,
             ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr, nullptr,
-            node, nullptr, ira->new_irb.exec, nullptr, false);
+            node, nullptr, ira->new_irb.exec, nullptr, UndefBad);
 
     if (type_is_invalid(result->type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -10734,14 +10734,14 @@ static Error ir_resolve_const_val(CodeGen *codegen, IrExecutable *exec, AstNode 
                         buf_sprintf("unable to evaluate constant expression"));
                 return ErrorSemanticAnalyzeFail;
             case ConstValSpecialUndef:
-                if (undef_allowed == UndefOk)
+                if (undef_allowed == UndefOk || undef_allowed == LazyOk)
                     return ErrorNone;
 
                 exec_add_error_node(codegen, exec, source_node,
                         buf_sprintf("use of undefined value here causes undefined behavior"));
                 return ErrorSemanticAnalyzeFail;
             case ConstValSpecialLazy:
-                if (undef_allowed == LazyOk)
+                if (undef_allowed == LazyOk || undef_allowed == LazyOkNoUndef)
                     return ErrorNone;
 
                 if ((err = ir_resolve_lazy(codegen, source_node, val)))
@@ -10765,7 +10765,7 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigType *expected_type, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
-        IrExecutable *parent_exec, AstNode *expected_type_source_node, bool allow_lazy)
+        IrExecutable *parent_exec, AstNode *expected_type_source_node, UndefAllowed undef_allowed)
 {
     Error err;
 
@@ -10819,11 +10819,8 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
 
     ConstExprValue *result = ir_exec_const_result(codegen, analyzed_executable);
 
-    if (!allow_lazy) {
-        if ((err = ir_resolve_lazy(codegen, node, result))) {
-            return &codegen->invalid_instruction->value;
-        }
-    }
+    if ((err = ir_resolve_const_val(codegen, analyzed_executable, node, result, undef_allowed)))
+        return &codegen->invalid_instruction->value;
 
     return result;
 }
@@ -15578,7 +15575,8 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             AstNode *body_node = fn_entry->body_node;
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
-                nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec, return_type_node, false);
+                nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec, return_type_node,
+                UndefOk);
 
             if (inferred_err_set_type != nullptr) {
                 inferred_err_set_type->data.error_set.infer_fn = nullptr;
@@ -15776,7 +15774,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     fn_proto_node->data.fn_proto.align_expr, get_align_amt_type(ira->codegen),
                     ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
                     nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec,
-                    nullptr, false);
+                    nullptr, UndefBad);
             IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                     impl_fn->child_scope, fn_proto_node->data.fn_proto.align_expr);
             copy_const_val(&const_instruction->base.value, align_result, true);
@@ -19129,7 +19127,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
             Scope *analyze_scope = &get_container_scope(container_type)->base;
             // memoize it
             field->init_val = analyze_const_value(ira->codegen, analyze_scope, init_node,
-                    field->type_entry, nullptr);
+                    field->type_entry, nullptr, UndefOk);
         }
         if (type_is_invalid(field->init_val->type))
             return ira->codegen->invalid_instruction;
@@ -20640,7 +20638,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
     ZigType *void_type = ira->codegen->builtin_types.entry_void;
     ConstExprValue *cimport_result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
         ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
-        &cimport_scope->buf, block_node, nullptr, nullptr, nullptr, false);
+        &cimport_scope->buf, block_node, nullptr, nullptr, nullptr, UndefBad);
     if (type_is_invalid(cimport_result->type))
         return ira->codegen->invalid_instruction;
 

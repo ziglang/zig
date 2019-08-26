@@ -961,18 +961,14 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-ConstExprValue *analyze_const_value_allow_lazy(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
-        Buf *type_name, bool allow_lazy)
+ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+        Buf *type_name, UndefAllowed undef)
 {
     size_t backward_branch_count = 0;
     size_t backward_branch_quota = default_backward_branch_quota;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, &backward_branch_quota,
-            nullptr, nullptr, node, type_name, nullptr, nullptr, allow_lazy);
-}
-
-ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry, Buf *type_name) {
-    return analyze_const_value_allow_lazy(g, scope, node, type_entry, type_name, false);
+            nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
 }
 
 static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
@@ -1162,22 +1158,12 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
-    ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
+    ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
+            nullptr, UndefBad);
     if (type_is_invalid(result->type))
         return g->builtin_types.entry_invalid;
-
-    assert(result->special != ConstValSpecialRuntime);
-    // Reject undefined as valid `type` type even though the specification
-    // allows it to be casted to anything.
-    // See also ir_resolve_type()
-    if (result->special == ConstValSpecialUndef) {
-        add_node_error(g, node,
-            buf_sprintf("expected type 'type', found '%s'",
-                buf_ptr(&g->builtin_types.entry_undef->name)));
-        return g->builtin_types.entry_invalid;
-    }
-
-    assert(result->data.x_type != nullptr);
+    src_assert(result->special == ConstValSpecialStatic, node);
+    src_assert(result->data.x_type != nullptr, node);
     return result->data.x_type;
 }
 
@@ -1225,7 +1211,8 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
 }
 
 static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_t *result) {
-    ConstExprValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g), nullptr);
+    ConstExprValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g),
+            nullptr, UndefBad);
     if (type_is_invalid(align_result->type))
         return false;
 
@@ -1247,7 +1234,7 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     ZigType *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, 0, 0, 0, false);
     ZigType *str_type = get_slice_type(g, ptr_type);
-    ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr);
+    ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr, UndefBad);
     if (type_is_invalid(result_val->type))
         return false;
 
@@ -2261,7 +2248,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         if (tag_value != nullptr) {
             // A user-specified value is available
-            ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+            ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+                    nullptr, UndefBad);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
                 continue;
@@ -2377,8 +2365,8 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
-        ConstExprValue *field_type_val = analyze_const_value_allow_lazy(g, scope,
-                field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, true);
+        ConstExprValue *field_type_val = analyze_const_value(g, scope,
+                field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
         if (type_is_invalid(field_type_val->type)) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
@@ -2660,8 +2648,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 return ErrorSemanticAnalyzeFail;
             }
         } else {
-            ConstExprValue *field_type_val = analyze_const_value_allow_lazy(g, scope,
-                    field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, true);
+            ConstExprValue *field_type_val = analyze_const_value(g, scope,
+                    field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
             if (type_is_invalid(field_type_val->type)) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
@@ -2726,7 +2714,8 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             // In a second pass we will fill in the unspecified ones.
             if (tag_value != nullptr) {
                 ZigType *tag_int_type = tag_type->data.enumeration.tag_int_type;
-                ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+                ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+                        nullptr, UndefBad);
                 if (type_is_invalid(result->type)) {
                     union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                     return ErrorSemanticAnalyzeFail;
@@ -2929,7 +2918,7 @@ void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn) {
     fake_decl->data.symbol_expr.symbol = tld_fn->base.name;
 
     // call this for the side effects of casting to panic_fn_type
-    analyze_const_value(g, tld_fn->base.parent_scope, fake_decl, panic_fn_type, nullptr);
+    analyze_const_value(g, tld_fn->base.parent_scope, fake_decl, panic_fn_type, nullptr, UndefBad);
 }
 
 ZigType *get_test_fn_type(CodeGen *g) {
@@ -3075,7 +3064,8 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 static void resolve_decl_comptime(CodeGen *g, TldCompTime *tld_comptime) {
     assert(tld_comptime->base.source_node->type == NodeTypeCompTime);
     AstNode *expr_node = tld_comptime->base.source_node->data.comptime_expr.expr;
-    analyze_const_value(g, tld_comptime->base.parent_scope, expr_node, g->builtin_types.entry_void, nullptr);
+    analyze_const_value(g, tld_comptime->base.parent_scope, expr_node, g->builtin_types.entry_void,
+            nullptr, UndefBad);
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
@@ -3443,8 +3433,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     if (explicit_type && explicit_type->id == ZigTypeIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
-        init_value = analyze_const_value_allow_lazy(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
-                var_decl->symbol, allow_lazy);
+        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
+                var_decl->symbol, allow_lazy ? LazyOk : UndefOk);
         assert(init_value);
         implicit_type = init_value->type;
 
@@ -3599,7 +3589,8 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
     using_namespace->base.resolution = TldResolutionResolving;
     assert(using_namespace->base.source_node->type == NodeTypeUsingNamespace);
     ConstExprValue *result = analyze_const_value(g, &dest_decls_scope->base,
-        using_namespace->base.source_node->data.using_namespace.expr, g->builtin_types.entry_type, nullptr);
+        using_namespace->base.source_node->data.using_namespace.expr, g->builtin_types.entry_type,
+        nullptr, UndefBad);
     using_namespace->using_namespace_value = result;
 
     if (type_is_invalid(result->type)) {

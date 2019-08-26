@@ -404,7 +404,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo: Foo = undefined;
         \\}
     ,
-        "tmp.zig:2:8: error: expected type 'type', found '(undefined)'",
+        "tmp.zig:2:8: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
