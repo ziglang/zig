@@ -9006,7 +9006,8 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     }
 
     ConstExprValue *const_val = ir_resolve_const(ira, instruction, UndefBad);
-    assert(const_val != nullptr);
+    if (const_val == nullptr)
+        return false;
 
     bool const_val_is_int = (const_val->type->id == ZigTypeIdInt || const_val->type->id == ZigTypeIdComptimeInt);
     bool const_val_is_float = (const_val->type->id == ZigTypeIdFloat || const_val->type->id == ZigTypeIdComptimeFloat);
