@@ -984,8 +984,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
             type_val->data.x_type->data.structure.resolve_loop_flag_zero_bits) ||
             (type_val->data.x_type->id == ZigTypeIdUnion &&
              type_val->data.x_type->data.unionation.resolve_loop_flag_zero_bits) ||
-            (type_val->data.x_type->id == ZigTypeIdPointer &&
-            type_val->data.x_type->data.pointer.resolve_loop_flag_zero_bits))
+            type_val->data.x_type->id == ZigTypeIdPointer)
         {
             // Does a struct/union which contains a pointer field to itself have bits? Yes.
             *is_zero_bits = false;
@@ -2162,7 +2161,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         if (enum_type->data.enumeration.resolve_status != ResolveStatusInvalid) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
-                buf_sprintf("dependency loop: whether enum '%s' has non-zero size",
+                buf_sprintf("enum '%s' depends on itself",
                     buf_ptr(&enum_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
@@ -2532,7 +2531,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         if (union_type->data.unionation.resolve_status != ResolveStatusInvalid) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             g->trace_err = add_node_error(g, decl_node,
-                buf_sprintf("dependency loop: whether union '%s' has non-zero size",
+                buf_sprintf("union '%s' depends on itself",
                     buf_ptr(&union_type->name)));
         }
         return ErrorSemanticAnalyzeFail;
