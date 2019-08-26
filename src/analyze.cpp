@@ -2633,7 +2633,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 decl_node->data.container_decl.init_arg_expr != nullptr)
             {
                 union_field->type_entry = g->builtin_types.entry_void;
-                field_is_zero_bits = false;
+                field_is_zero_bits = true;
             } else {
                 add_node_error(g, field_node, buf_sprintf("union field missing type"));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -5593,6 +5593,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
 static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
     Error err;
+
+    if (ty->abi_size != SIZE_MAX)
+        return ErrorNone;
+
     ZigType *elem_type = ty->data.pointer.child_type;
 
     if ((err = type_resolve(g, elem_type, ResolveStatusZeroBitsKnown)))
@@ -5641,6 +5645,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
                     return resolve_union_alignment(g, ty);
                 case ZigTypeIdFnFrame:
                     return resolve_async_frame(g, ty);
+                case ZigTypeIdPointer:
+                    return resolve_pointer_zero_bits(g, ty);
                 default:
                     return ErrorNone;
             }
@@ -5654,6 +5660,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
                     return resolve_union_type(g, ty);
                 case ZigTypeIdFnFrame:
                     return resolve_async_frame(g, ty);
+                case ZigTypeIdPointer:
+                    return resolve_pointer_zero_bits(g, ty);
                 default:
                     return ErrorNone;
             }
@@ -7386,7 +7394,8 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
     TypeUnionField *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
-    if (most_aligned_union_member == nullptr) {
+    uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
+    if (gen_field_count == 0) {
         union_type->llvm_type = get_llvm_type(g, tag_type);
         union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFull;
@@ -7410,7 +7419,6 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
     ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
     uint32_t field_count = union_type->data.unionation.src_field_count;
     for (uint32_t i = 0; i < field_count; i += 1) {
@@ -7540,6 +7548,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
 
 static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
     if (type->llvm_di_type != nullptr) return;
+
+    if (resolve_pointer_zero_bits(g, type) != ErrorNone)
+        zig_unreachable();
 
     if (!type_has_bits(type)) {
         type->llvm_type = g->builtin_types.entry_void->llvm_type;
