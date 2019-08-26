@@ -25582,12 +25582,12 @@ static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstEx
                 }
             }
 
-            ResolveStatus needed_status = (align_bytes == 0) ?
-                ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
-            if ((err = type_resolve(codegen, elem_type, needed_status)))
-                return err;
-            if (!type_has_bits(elem_type))
-                align_bytes = 0;
+            if (align_bytes != 0) {
+                if ((err = type_resolve(codegen, elem_type, ResolveStatusAlignmentKnown)))
+                    return err;
+                if (!type_has_bits(elem_type))
+                    align_bytes = 0;
+            }
             bool allow_zero = lazy_ptr_type->is_allowzero || lazy_ptr_type->ptr_len == PtrLenC;
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = get_pointer_to_type_extra(codegen, elem_type,

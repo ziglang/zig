@@ -474,15 +474,21 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
                 buf_ptr(&child_type->name));
     }
 
-    if (type_has_bits(child_type)) {
-        entry->abi_size = g->builtin_types.entry_usize->abi_size;
-        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
-        entry->abi_align = g->builtin_types.entry_usize->abi_align;
+    if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
+        if (type_has_bits(child_type)) {
+            entry->abi_size = g->builtin_types.entry_usize->abi_size;
+            entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            entry->abi_align = g->builtin_types.entry_usize->abi_align;
+        } else {
+            assert(byte_alignment == 0);
+            entry->abi_size = 0;
+            entry->size_in_bits = 0;
+            entry->abi_align = 0;
+        }
     } else {
-        assert(byte_alignment == 0);
-        entry->abi_size = 0;
-        entry->size_in_bits = 0;
-        entry->abi_align = 0;
+        entry->abi_size = SIZE_MAX;
+        entry->size_in_bits = SIZE_MAX;
+        entry->abi_align = UINT32_MAX;
     }
 
     entry->data.pointer.ptr_len = ptr_len;
@@ -5585,6 +5591,25 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     return ErrorNone;
 }
 
+static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
+    Error err;
+    ZigType *elem_type = ty->data.pointer.child_type;
+
+    if ((err = type_resolve(g, elem_type, ResolveStatusZeroBitsKnown)))
+        return err;
+
+    if (type_has_bits(elem_type)) {
+        ty->abi_size = g->builtin_types.entry_usize->abi_size;
+        ty->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+        ty->abi_align = g->builtin_types.entry_usize->abi_align;
+    } else {
+        ty->abi_size = 0;
+        ty->size_in_bits = 0;
+        ty->abi_align = 0;
+    }
+    return ErrorNone;
+}
+
 Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
     if (type_is_invalid(ty))
         return ErrorSemanticAnalyzeFail;
@@ -5594,36 +5619,44 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
         case ResolveStatusInvalid:
             zig_unreachable();
         case ResolveStatusZeroBitsKnown:
-            if (ty->id == ZigTypeIdStruct) {
-                return resolve_struct_zero_bits(g, ty);
-            } else if (ty->id == ZigTypeIdEnum) {
-                return resolve_enum_zero_bits(g, ty);
-            } else if (ty->id == ZigTypeIdUnion) {
-                return resolve_union_zero_bits(g, ty);
+            switch (ty->id) {
+                case ZigTypeIdStruct:
+                    return resolve_struct_zero_bits(g, ty);
+                case ZigTypeIdEnum:
+                    return resolve_enum_zero_bits(g, ty);
+                case ZigTypeIdUnion:
+                    return resolve_union_zero_bits(g, ty);
+                case ZigTypeIdPointer:
+                    return resolve_pointer_zero_bits(g, ty);
+                default:
+                    return ErrorNone;
             }
-            return ErrorNone;
         case ResolveStatusAlignmentKnown:
-            if (ty->id == ZigTypeIdStruct) {
-                return resolve_struct_alignment(g, ty);
-            } else if (ty->id == ZigTypeIdEnum) {
-                return resolve_enum_zero_bits(g, ty);
-            } else if (ty->id == ZigTypeIdUnion) {
-                return resolve_union_alignment(g, ty);
-            } else if (ty->id == ZigTypeIdFnFrame) {
-                return resolve_async_frame(g, ty);
+            switch (ty->id) {
+                case ZigTypeIdStruct:
+                    return resolve_struct_alignment(g, ty);
+                case ZigTypeIdEnum:
+                    return resolve_enum_zero_bits(g, ty);
+                case ZigTypeIdUnion:
+                    return resolve_union_alignment(g, ty);
+                case ZigTypeIdFnFrame:
+                    return resolve_async_frame(g, ty);
+                default:
+                    return ErrorNone;
             }
-            return ErrorNone;
         case ResolveStatusSizeKnown:
-            if (ty->id == ZigTypeIdStruct) {
-                return resolve_struct_type(g, ty);
-            } else if (ty->id == ZigTypeIdEnum) {
-                return resolve_enum_zero_bits(g, ty);
-            } else if (ty->id == ZigTypeIdUnion) {
-                return resolve_union_type(g, ty);
-            } else if (ty->id == ZigTypeIdFnFrame) {
-                return resolve_async_frame(g, ty);
+            switch (ty->id) {
+                case ZigTypeIdStruct:
+                    return resolve_struct_type(g, ty);
+                case ZigTypeIdEnum:
+                    return resolve_enum_zero_bits(g, ty);
+                case ZigTypeIdUnion:
+                    return resolve_union_type(g, ty);
+                case ZigTypeIdFnFrame:
+                    return resolve_async_frame(g, ty);
+                default:
+                    return ErrorNone;
             }
-            return ErrorNone;
         case ResolveStatusLLVMFwdDecl:
         case ResolveStatusLLVMFull:
             resolve_llvm_types(g, ty, status);
