@@ -11210,6 +11210,9 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type,
             is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
 
+    if ((err = type_resolve(ira->codegen, ptr_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
     IrInstruction *result_loc;
     if (type_has_bits(ptr_type) && !handle_is_ptr(value->value.type)) {
         result_loc = ir_resolve_result(ira, source_instruction, no_result_loc(), value->value.type, nullptr, true,
