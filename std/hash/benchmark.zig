@@ -29,11 +29,6 @@ const hashes = [_]Hash{
         .init_u64 = 0,
     },
     Hash{
-        .ty = hash.WyhashStateless,
-        .name = "wyhash-stateless",
-        .init_u64 = 0,
-    },
-    Hash{
         .ty = hash.SipHash64(1, 3),
         .name = "siphash(1,3)",
         .init_u8s = siphash_key,
@@ -91,7 +86,7 @@ const Result = struct {
     throughput: u64,
 };
 
-const block_size: usize = 8192;
+const block_size: usize = 8 * 8192;
 
 pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     var h = blk: {

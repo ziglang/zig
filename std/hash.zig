@@ -29,7 +29,6 @@ pub const CityHash64 = cityhash.CityHash64;
 
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
-pub const WyhashStateless = wyhash.WyhashStateless;
 
 test "hash" {
     _ = @import("hash/adler.zig");
