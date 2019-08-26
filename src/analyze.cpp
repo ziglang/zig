@@ -289,13 +289,26 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
             }
         case ZigTypeIdOpaque:
             return status < ResolveStatusSizeKnown;
+        case ZigTypeIdPointer:
+            switch (status) {
+                case ResolveStatusInvalid:
+                    zig_unreachable();
+                case ResolveStatusUnstarted:
+                    return true;
+                case ResolveStatusZeroBitsKnown:
+                case ResolveStatusAlignmentKnown:
+                case ResolveStatusSizeKnown:
+                    return type_entry->abi_size != SIZE_MAX;
+                case ResolveStatusLLVMFwdDecl:
+                case ResolveStatusLLVMFull:
+                    return type_entry->llvm_type != nullptr;
+            }
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
         case ZigTypeIdUnreachable:
         case ZigTypeIdInt:
         case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
         case ZigTypeIdArray:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:

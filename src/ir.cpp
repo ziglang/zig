@@ -23338,6 +23338,12 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
 
     IrInstruction *casted_ptr = ir_build_ptr_cast_gen(ira, source_instr, dest_type, ptr, safety_check_on);
 
+    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
     if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
         ErrorMsg *msg = ir_add_error(ira, source_instr,
             buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
@@ -25435,6 +25441,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, AstNode *source_node,
         LazyValueFnType *lazy_fn_type)
 {
+    Error err;
     AstNode *proto_node = lazy_fn_type->proto_node;
 
     FnTypeId fn_type_id = {0};
@@ -25482,11 +25489,15 @@ static ZigType *ir_resolve_lazy_fn_type(CodeGen *codegen, IrExecutable *exec, As
             case ReqCompTimeNo:
                 break;
             }
-            if (!type_has_bits(param_type) && !calling_convention_allows_zig_types(fn_type_id.cc)) {
-                exec_add_error_node(codegen, exec, source_node,
-                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
-                        buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
-                return nullptr;
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+                if ((err = type_resolve(codegen, param_type, ResolveStatusZeroBitsKnown)))
+                    return nullptr;
+                if (!type_has_bits(param_type)) {
+                    exec_add_error_node(codegen, exec, source_node,
+                        buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
+                            buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
+                    return nullptr;
+                }
             }
             param_info->type = param_type;
         }
