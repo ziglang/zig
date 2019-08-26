@@ -314,7 +314,9 @@ struct LazyValue {
 
 struct LazyValueAlignOf {
     LazyValue base;
-    ZigType *target_type;
+
+    ConstExprValue *target_type_val;
+    AstNode *target_type_src_node;
 };
 
 struct LazyValueSliceType {

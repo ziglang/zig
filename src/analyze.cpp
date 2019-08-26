@@ -1100,13 +1100,14 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
     zig_unreachable();
 }
 
-static Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align) {
+Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align) {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
-        if ((err = type_resolve(g, type_val->data.x_type, ResolveStatusAlignmentKnown)))
+        ZigType *ty = type_val->data.x_type;
+        if ((err = type_resolve(g, ty, ResolveStatusAlignmentKnown)))
             return err;
-        *abi_align = type_val->data.x_type->abi_align;
+        *abi_align = ty->abi_align;
         return ErrorNone;
     }
     switch (type_val->data.x_lazy->id) {

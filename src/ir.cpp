@@ -22325,63 +22325,24 @@ static IrInstruction *ir_analyze_instruction_frame_size(IrAnalyze *ira, IrInstru
 }
 
 static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
-    IrInstruction *type_value = instruction->type_value->child;
-    if (type_is_invalid(type_value->value.type))
-        return ira->codegen->invalid_instruction;
-    ZigType *type_entry = ir_resolve_type(ira, type_value);
-
-    switch (type_entry->id) {
-        case ZigTypeIdInvalid:
-            zig_unreachable();
-        case ZigTypeIdMetaType:
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdVoid:
-        case ZigTypeIdOpaque:
-            ir_add_error(ira, instruction->type_value,
-                    buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
-            return ira->codegen->invalid_instruction;
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            break;
-    }
-
-    if (type_is_resolved(type_entry, ResolveStatusAlignmentKnown)) {
-        uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
-        return ir_const_unsigned(ira, &instruction->base, align_in_bytes);
-    }
-
     // Here we create a lazy value in order to avoid resolving the alignment of the type
     // immediately. This avoids false positive dependency loops such as:
     // const Node = struct {
     //     field: []align(@alignOf(Node)) Node,
     // };
-    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1);
-    lazy_align_of->base.id = LazyValueIdAlignOf;
-    lazy_align_of->base.exec = ira->new_irb.exec;
-    lazy_align_of->target_type = type_entry;
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
     result->value.special = ConstValSpecialLazy;
+
+    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1);
     result->value.data.x_lazy = &lazy_align_of->base;
+    lazy_align_of->base.id = LazyValueIdAlignOf;
+    lazy_align_of->base.exec = ira->new_irb.exec;
+
+    lazy_align_of->target_type_val = ir_resolve_type_lazy(ira, instruction->type_value->child);
+    if (lazy_align_of->target_type_val == nullptr)
+        return ira->codegen->invalid_instruction;
+    lazy_align_of->target_type_src_node = instruction->type_value->source_node;
+
     return result;
 }
 
@@ -25530,9 +25491,49 @@ static Error ir_resolve_lazy_raw(CodeGen *codegen, AstNode *source_node, ConstEx
             zig_unreachable();
         case LazyValueIdAlignOf: {
             LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(val->data.x_lazy);
-            if ((err = type_resolve(codegen, lazy_align_of->target_type, ResolveStatusAlignmentKnown)))
+
+            if (lazy_align_of->target_type_val->special == ConstValSpecialStatic) {
+                switch (lazy_align_of->target_type_val->data.x_type->id) {
+                    case ZigTypeIdInvalid:
+                        zig_unreachable();
+                    case ZigTypeIdMetaType:
+                    case ZigTypeIdUnreachable:
+                    case ZigTypeIdComptimeFloat:
+                    case ZigTypeIdComptimeInt:
+                    case ZigTypeIdEnumLiteral:
+                    case ZigTypeIdUndefined:
+                    case ZigTypeIdNull:
+                    case ZigTypeIdBoundFn:
+                    case ZigTypeIdArgTuple:
+                    case ZigTypeIdVoid:
+                    case ZigTypeIdOpaque:
+                        exec_add_error_node(codegen, exec, lazy_align_of->target_type_src_node,
+                            buf_sprintf("no align available for type '%s'",
+                                buf_ptr(&lazy_align_of->target_type_val->data.x_type->name)));
+                        return ErrorSemanticAnalyzeFail;
+                    case ZigTypeIdBool:
+                    case ZigTypeIdInt:
+                    case ZigTypeIdFloat:
+                    case ZigTypeIdPointer:
+                    case ZigTypeIdArray:
+                    case ZigTypeIdStruct:
+                    case ZigTypeIdOptional:
+                    case ZigTypeIdErrorUnion:
+                    case ZigTypeIdErrorSet:
+                    case ZigTypeIdEnum:
+                    case ZigTypeIdUnion:
+                    case ZigTypeIdFn:
+                    case ZigTypeIdVector:
+                    case ZigTypeIdFnFrame:
+                    case ZigTypeIdAnyFrame:
+                        break;
+                }
+            }
+
+            uint32_t align_in_bytes;
+            if ((err = type_val_resolve_abi_align(codegen, lazy_align_of->target_type_val, &align_in_bytes)))
                 return err;
-            uint64_t align_in_bytes = get_abi_alignment(codegen, lazy_align_of->target_type);
+
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdComptimeInt);
             bigint_init_unsigned(&val->data.x_bigint, align_in_bytes);
