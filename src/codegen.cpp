@@ -3527,6 +3527,8 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return ir_llvm_value(g, &instruction->base);
     ZigVar *var = instruction->var;
     if (type_has_bits(var->var_type)) {
         assert(var->value_ref);

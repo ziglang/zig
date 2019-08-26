@@ -15259,23 +15259,25 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 
     bool comptime_var_mem = ir_get_var_is_comptime(var);
     bool linkage_makes_it_runtime = var->decl_node->data.variable_declaration.is_extern;
-    bool is_const = var->src_is_const;
     bool is_volatile = false;
+
+    IrInstruction *result = ir_build_var_ptr(&ira->new_irb,
+            instruction->scope, instruction->source_node, var);
+    result->value.type = get_pointer_to_type_extra(ira->codegen, var->var_type,
+            var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
 
     if (linkage_makes_it_runtime)
         goto no_mem_slot;
 
     if (value_is_comptime(var->const_value)) {
         mem_slot = var->const_value;
-    } else {
-        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
-            // find the relevant exec_context
-            assert(var->owner_exec != nullptr);
-            assert(var->owner_exec->analysis != nullptr);
-            IrExecContext *exec_context = &var->owner_exec->analysis->exec_context;
-            assert(var->mem_slot_index < exec_context->mem_slot_list.length);
-            mem_slot = exec_context->mem_slot_list.at(var->mem_slot_index);
-        }
+    } else if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
+        // find the relevant exec_context
+        assert(var->owner_exec != nullptr);
+        assert(var->owner_exec->analysis != nullptr);
+        IrExecContext *exec_context = &var->owner_exec->analysis->exec_context;
+        assert(var->mem_slot_index < exec_context->mem_slot_list.length);
+        mem_slot = exec_context->mem_slot_list.at(var->mem_slot_index);
     }
 
     if (mem_slot != nullptr) {
@@ -15294,8 +15296,11 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
                     assert(!comptime_var_mem);
                     ptr_mut = ConstPtrMutRuntimeVar;
                 }
-                return ir_get_const_ptr(ira, instruction, mem_slot, var->var_type,
-                        ptr_mut, is_const, is_volatile, var->align_bytes);
+                result->value.special = ConstValSpecialStatic;
+                result->value.data.x_ptr.mut = ptr_mut;
+                result->value.data.x_ptr.special = ConstPtrSpecialRef;
+                result->value.data.x_ptr.data.ref.pointee = mem_slot;
+                return result;
             }
         }
         zig_unreachable();
@@ -15303,15 +15308,10 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 
 no_mem_slot:
 
-    IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
-            instruction->scope, instruction->source_node, var);
-    var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->var_type,
-            var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
-
     bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
-    var_ptr_instruction->value.data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
+    result->value.data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
 
-    return var_ptr_instruction;
+    return result;
 }
 
 // This function is called when a comptime value becomes accessible at runtime.
@@ -17317,8 +17317,7 @@ static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_
         case TldIdCompTime:
         case TldIdUsingNamespace:
             zig_unreachable();
-        case TldIdVar:
-        {
+        case TldIdVar: {
             TldVar *tld_var = (TldVar *)tld;
             ZigVar *var = tld_var->var;
             if (var == nullptr) {
@@ -17330,8 +17329,7 @@ static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_
 
             return ir_get_var_ptr(ira, source_instruction, var);
         }
-        case TldIdFn:
-        {
+        case TldIdFn: {
             TldFn *tld_fn = (TldFn *)tld;
             ZigFn *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
