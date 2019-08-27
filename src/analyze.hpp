@@ -247,5 +247,6 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
 
 Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align);
+ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
 
 #endif

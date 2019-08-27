@@ -6830,7 +6830,7 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
         const char modifier = *buf_ptr(asm_output->constraint);
         if (modifier != '=') {
             add_node_error(irb->codegen, node,
-                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported"
+                buf_sprintf("invalid modifier starting output constraint for '%s': '%c', only '=' is supported."
                     " Compiler TODO: see https://github.com/ziglang/zig/issues/215",
                     buf_ptr(asm_output->asm_symbolic_name), modifier));
             return irb->codegen->invalid_instruction;
@@ -8176,9 +8176,19 @@ bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
 }
 
+static void ir_add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg *err_msg, int limit) {
+    if (!exec || !exec->source_node || limit < 0) return;
+    add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
+
+    ir_add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
+}
+
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg) {
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     invalidate_exec(exec, err_msg);
+    if (exec->parent_exec) {
+        ir_add_call_stack_errors(codegen, exec, err_msg, 10);
+    }
     return err_msg;
 }
 
@@ -10783,8 +10793,7 @@ ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *nod
     ir_gen(codegen, node, scope, ir_executable);
 
     if (ir_executable->first_err_trace_msg != nullptr) {
-        codegen->trace_err = add_error_note(codegen, ir_executable->first_err_trace_msg,
-                source_node, buf_create_from_str("called from here"));
+        codegen->trace_err = ir_executable->first_err_trace_msg;
         return &codegen->invalid_instruction->value;
     }
 
@@ -11408,10 +11417,13 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
             return ira->codegen->invalid_instruction;
         TypeUnionField *union_field = find_union_field_by_tag(wanted_type, &val->data.x_enum_tag);
         assert(union_field != nullptr);
-        if ((err = type_resolve(ira->codegen, union_field->type_entry, ResolveStatusZeroBitsKnown)))
+        ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
+        if (field_type == nullptr)
+            return ira->codegen->invalid_instruction;
+        if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
 
-        switch (type_has_one_possible_value(ira->codegen, union_field->type_entry)) {
+        switch (type_has_one_possible_value(ira->codegen, field_type)) {
             case OnePossibleValueInvalid:
                 return ira->codegen->invalid_instruction;
             case OnePossibleValueNo: {
@@ -11420,7 +11432,7 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
                 ErrorMsg *msg = ir_add_error(ira, source_instr,
                         buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
                             buf_ptr(&wanted_type->name),
-                            buf_ptr(&union_field->type_entry->name),
+                            buf_ptr(&field_type->name),
                             buf_ptr(union_field->name)));
                 add_error_note(ira->codegen, msg, field_node,
                         buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
@@ -11436,7 +11448,7 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         bigint_init_bigint(&result->value.data.x_union.tag, &val->data.x_enum_tag);
         result->value.data.x_union.payload = create_const_vals(1);
         result->value.data.x_union.payload->special = ConstValSpecialStatic;
-        result->value.data.x_union.payload->type = union_field->type_entry;
+        result->value.data.x_union.payload->type = field_type;
         return result;
     }
 
@@ -11453,12 +11465,17 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
                 buf_ptr(&wanted_type->name)));
     for (uint32_t i = 0; i < wanted_type->data.unionation.src_field_count; i += 1) {
         TypeUnionField *union_field = &wanted_type->data.unionation.fields[i];
-        if (type_has_bits(union_field->type_entry)) {
+        ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
+        if (field_type == nullptr)
+            return ira->codegen->invalid_instruction;
+        if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
+            return ira->codegen->invalid_instruction;
+        if (type_has_bits(field_type)) {
             AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(i);
             add_error_note(ira->codegen, msg, field_node,
                     buf_sprintf("field '%s' has type '%s'",
                         buf_ptr(union_field->name),
-                        buf_ptr(&union_field->type_entry->name)));
+                        buf_ptr(&field_type->name)));
         }
     }
     return ira->codegen->invalid_instruction;

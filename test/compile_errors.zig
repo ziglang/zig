@@ -470,7 +470,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "Generic function where return type is self-referenced",
+        "generic function where return type is self-referenced",
         \\fn Foo(comptime T: type) Foo(T) {
         \\    return struct{ x: T };
         \\}
@@ -481,7 +481,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:1:29: error: evaluation exceeded 1000 backwards branches",
-        "tmp.zig:1:29: note: referenced here",
         "tmp.zig:5:18: note: referenced here",
     );
 
@@ -3597,7 +3596,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "non constant expression in array size outside function",
+        "non constant expression in array size",
         \\const Foo = struct {
         \\    y: [get()]u8,
         \\};
@@ -3608,7 +3607,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:5:25: error: unable to evaluate constant expression",
         "tmp.zig:2:12: note: referenced here",
-        "tmp.zig:2:8: note: referenced here",
     );
 
     cases.add(
@@ -4620,7 +4618,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
         "tmp.zig:2:26: error: index 1 outside argument list of size 1",
-        "tmp.zig:6:15: note: referenced here",
+        "tmp.zig:6:15: note: called from here",
     );
 
     cases.add(
@@ -5941,7 +5939,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: MultipleChoice = undefined;
         \\}
     ,
-        "tmp.zig:2:14: error: non-enum union field assignment",
+        "tmp.zig:2:14: error: untagged union field assignment",
         "tmp.zig:1:24: note: consider 'union(enum)' here",
     );
 

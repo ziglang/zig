@@ -1603,14 +1603,17 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     }
 
     if (!calling_convention_allows_zig_types(fn_type_id.cc) &&
-        fn_type_id.return_type->id != ZigTypeIdVoid &&
-        !type_allowed_in_extern(g, fn_type_id.return_type))
+        fn_type_id.return_type->id != ZigTypeIdVoid)
     {
-        add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
-                    buf_ptr(&fn_type_id.return_type->name),
-                    calling_convention_name(fn_type_id.cc)));
-        return g->builtin_types.entry_invalid;
+        if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusSizeKnown)))
+            return g->builtin_types.entry_invalid;
+        if (!type_allowed_in_extern(g, fn_type_id.return_type)) {
+            add_node_error(g, fn_proto->return_type,
+                    buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
+                        buf_ptr(&fn_type_id.return_type->name),
+                        calling_convention_name(fn_type_id.cc)));
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     switch (fn_type_id.return_type->id) {
@@ -2018,6 +2021,17 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
+ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field) {
+    Error err;
+    if (union_field->type_entry == nullptr) {
+        if ((err = ir_resolve_lazy(g, union_field->decl_node, union_field->type_val))) {
+            return nullptr;
+        }
+        union_field->type_entry = union_field->type_val->data.x_type;
+    }
+    return union_field->type_entry;
+}
+
 static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     assert(union_type->id == ZigTypeIdUnion);
 
@@ -2057,17 +2071,12 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     union_type->data.unionation.resolve_loop_flag_other = true;
 
     for (uint32_t i = 0; i < field_count; i += 1) {
-        AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
-
-        if (union_field->type_entry == nullptr) {
-            if ((err = ir_resolve_lazy(g, field_source_node, union_field->type_val))) {
-                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
-            union_field->type_entry = union_field->type_val->data.x_type;
+        ZigType *field_type = resolve_union_field_type(g, union_field);
+        if (field_type == nullptr) {
+            union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
         }
-        ZigType *field_type = union_field->type_entry;
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
