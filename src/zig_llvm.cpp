@@ -15,9 +15,9 @@
 
 #include "zig_llvm.h"
 
-#if __GNUC__ >= 8
+#if __GNUC__ >= 9
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#pragma GCC diagnostic ignored "-Winit-list-lifetime"
 #endif
 
 #include <llvm/Analysis/TargetLibraryInfo.h>
@@ -50,7 +50,7 @@
 
 #include <lld/Common/Driver.h>
 
-#if __GNUC__ >= 8
+#if __GNUC__ >= 9
 #pragma GCC diagnostic pop
 #endif
 
