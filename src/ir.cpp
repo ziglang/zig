@@ -17127,6 +17127,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
 static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         TypeStructField *field, IrInstruction *struct_ptr, ZigType *struct_type, bool initializing)
 {
+    Error err;
     switch (type_has_one_possible_value(ira->codegen, field->type_entry)) {
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
@@ -17137,9 +17138,9 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         case OnePossibleValueNo:
             break;
     }
+    if ((err = type_resolve(ira->codegen, struct_type, ResolveStatusAlignmentKnown)))
+        return ira->codegen->invalid_instruction;
     assert(struct_ptr->value.type->id == ZigTypeIdPointer);
-    bool is_packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
-    uint32_t align_bytes = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
     uint32_t ptr_bit_offset = struct_ptr->value.type->data.pointer.bit_offset_in_host;
     uint32_t ptr_host_int_bytes = struct_ptr->value.type->data.pointer.host_int_bytes;
     uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
@@ -17147,7 +17148,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
     bool is_const = struct_ptr->value.type->data.pointer.is_const;
     bool is_volatile = struct_ptr->value.type->data.pointer.is_volatile;
     ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
-            is_const, is_volatile, PtrLenSingle, align_bytes,
+            is_const, is_volatile, PtrLenSingle, field->align,
             (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
             (uint32_t)host_int_bytes_for_result_type, false);
     if (instr_is_comptime(struct_ptr)) {

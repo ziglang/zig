@@ -290,3 +290,18 @@ test "read 128-bit field from default aligned struct in global memory" {
     expect((@ptrToInt(&default_aligned_global.badguy) % 16) == 0);
     expect(12 == default_aligned_global.badguy);
 }
+
+test "struct field explicit alignment" {
+    const S = struct {
+        const Node = struct {
+            next: *Node,
+            massive_byte: u8 align(64),
+        };
+    };
+
+    var node: S.Node = undefined;
+    node.massive_byte = 100;
+    expect(node.massive_byte == 100);
+    comptime expect(@typeOf(&node.massive_byte) == *align(64) u8);
+    expect(@ptrToInt(&node.massive_byte) % 64 == 0);
+}

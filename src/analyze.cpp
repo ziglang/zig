@@ -1896,9 +1896,9 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                     break;
                 }
             }
-            size_t next_abi_align = (next_src_field_index == field_count) ?
-                abi_align : struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
-            next_offset = next_field_offset(next_offset, abi_align, field_type->abi_size, next_abi_align);
+            size_t next_align = (next_src_field_index == field_count) ?
+                abi_align : struct_type->data.structure.fields[next_src_field_index].align;
+            next_offset = next_field_offset(next_offset, abi_align, field_type->abi_size, next_align);
             size_in_bits = next_offset * 8;
         }
     }
