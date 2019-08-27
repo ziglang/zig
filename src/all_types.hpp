@@ -315,58 +315,61 @@ enum LazyValueId {
 };
 
 struct LazyValue {
-    IrExecutable *exec;
     LazyValueId id;
 };
 
 struct LazyValueAlignOf {
     LazyValue base;
 
-    ConstExprValue *target_type_val;
-    AstNode *target_type_src_node;
+    IrAnalyze *ira;
+    IrInstruction *target_type;
 };
 
 struct LazyValueSliceType {
     LazyValue base;
+
+    IrAnalyze *ira;
+    ZigType *elem_type;
+    IrInstruction *align_inst; // can be null
+
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
-
-    ZigType *elem_type;
-    ConstExprValue *align_val; // can be null
 };
 
 struct LazyValuePtrType {
     LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *elem_type;
+    IrInstruction *align_inst; // can be null
+
+    PtrLen ptr_len;
+    uint32_t bit_offset_in_host;
+
+    uint32_t host_int_bytes;
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
-
-    ConstExprValue *elem_type_val;
-    AstNode *elem_type_src_node;
-    ConstExprValue *align_val; // can be null
-    PtrLen ptr_len;
-    uint32_t bit_offset_in_host;
-    uint32_t host_int_bytes;
 };
 
 struct LazyValueOptType {
     LazyValue base;
 
-    ConstExprValue *payload_type_val;
-    AstNode *payload_type_src_node;
+    IrAnalyze *ira;
+    IrInstruction *payload_type;
 };
 
 struct LazyValueFnType {
     LazyValue base;
-    bool is_generic;
 
+    IrAnalyze *ira;
     AstNode *proto_node;
-    ConstExprValue **param_types;
-    AstNode **param_type_src_nodes;
-    ConstExprValue *align_val; // can be null
-    ConstExprValue *return_type;
-    AstNode *return_type_src_node;
+    IrInstruction **param_types;
+    IrInstruction *align_inst; // can be null
+    IrInstruction *return_type;
+
+    bool is_generic;
 };
 
 struct ConstExprValue {

@@ -1000,7 +1000,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
 
-            if (parent_type_val == lazy_ptr_type->elem_type_val) {
+            if (parent_type_val == &lazy_ptr_type->elem_type->value) {
                 // Does a struct which contains a pointer field to itself have bits? Yes.
                 *is_zero_bits = false;
                 return ErrorNone;
@@ -1008,7 +1008,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
                 if (parent_type_val == nullptr) {
                     parent_type_val = type_val;
                 }
-                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type_val, parent_type,
+                return type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, parent_type,
                         parent_type_val, is_zero_bits);
             }
         }
@@ -1061,17 +1061,17 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type_val);
+            return type_val_resolve_requires_comptime(g, &lazy_ptr_type->elem_type->value);
         }
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type_val);
+            return type_val_resolve_requires_comptime(g, &lazy_opt_type->payload_type->value);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
             if (lazy_fn_type->is_generic)
                 return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type)) {
+            switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->return_type->value)) {
                 case ReqCompTimeInvalid:
                     return ReqCompTimeInvalid;
                 case ReqCompTimeYes:
@@ -1084,7 +1084,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
                 AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
                 bool param_is_var_args = param_node->data.param_decl.is_var_args;
                 if (param_is_var_args) break;
-                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i])) {
+                switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->param_types[i]->value)) {
                     case ReqCompTimeInvalid:
                         return ReqCompTimeInvalid;
                     case ReqCompTimeYes:
@@ -1124,7 +1124,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
             return ErrorNone;
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type_val, abi_align);
+            return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
         }
     }
     zig_unreachable();
@@ -2243,6 +2243,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         if (field_node->data.struct_field.type != nullptr) {
             ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.type,
                 buf_sprintf("structs and unions, not enums, support field types"));
+            add_error_note(g, msg, decl_node,
+                    buf_sprintf("consider 'union(enum)' here"));
+        } else if (field_node->data.struct_field.align_expr != nullptr) {
+            ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.align_expr,
+                buf_sprintf("structs and unions, not enums, support field alignment"));
             add_error_note(g, msg, decl_node,
                     buf_sprintf("consider 'union(enum)' here"));
         }

@@ -2,6 +2,33 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "alignment of enum field specified",
+        \\const Number = enum {
+        \\    a,
+        \\    b align(i32),
+        \\};
+        \\export fn entry1() void {
+        \\    var x: Number = undefined;
+        \\}
+    ,
+        "tmp.zig:3:13: error: structs and unions, not enums, support field alignment",
+        "tmp.zig:1:16: note: consider 'union(enum)' here",
+    );
+
+    cases.add(
+        "bad alignment type",
+        \\export fn entry1() void {
+        \\    var x: []align(true) i32 = undefined;
+        \\}
+        \\export fn entry2() void {
+        \\    var x: *align(f64(12.34)) i32 = undefined;
+        \\}
+    ,
+        "tmp.zig:2:20: error: expected type 'u29', found 'bool'",
+        "tmp.zig:5:22: error: fractional component prevents float value 12.340000 from being casted to type 'u29'",
+    );
+
     cases.addCase(x: {
         var tc = cases.create("variable in inline assembly template cannot be found",
             \\export fn entry() void {
