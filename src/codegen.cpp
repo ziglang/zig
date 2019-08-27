@@ -3386,6 +3386,8 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
 
 static bool value_is_all_undef(ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
+            zig_unreachable();
         case ConstValSpecialRuntime:
             return false;
         case ConstValSpecialUndef:
@@ -3525,6 +3527,8 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return ir_llvm_value(g, &instruction->base);
     ZigVar *var = instruction->var;
     if (type_has_bits(var->var_type)) {
         assert(var->value_ref);
@@ -6041,6 +6045,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6300,6 +6305,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
     assert(type_has_bits(type_entry));
 
     switch (const_val->special) {
+        case ConstValSpecialLazy:
+            zig_unreachable();
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6563,7 +6570,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     uint64_t pad_bytes = type_entry->data.unionation.union_abi_size - field_type_bytes;
                     LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value, "");
                     make_unnamed_struct = is_llvm_value_unnamed_type(g, payload_value->type, correctly_typed_value) ||
-                        payload_value->type != type_entry->data.unionation.most_aligned_union_member;
+                        payload_value->type != type_entry->data.unionation.most_aligned_union_member->type_entry;
 
                     {
                         if (pad_bytes == 0) {
@@ -8891,7 +8898,7 @@ static void gen_root_source(CodeGen *g) {
         }
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, nullptr);
+        resolve_top_level_decl(g, panic_tld, nullptr, false);
     }
 
 

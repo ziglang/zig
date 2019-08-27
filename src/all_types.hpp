@@ -47,6 +47,19 @@ struct ResultLocPeer;
 struct ResultLocPeerParent;
 struct ResultLocBitCast;
 
+enum PtrLen {
+    PtrLenUnknown,
+    PtrLenSingle,
+    PtrLenC,
+};
+
+enum UndefAllowed {
+    UndefOk,
+    UndefBad,
+    LazyOkNoUndef,
+    LazyOk,
+};
+
 enum X64CABIClass {
     X64CABIClass_Unknown,
     X64CABIClass_MEMORY,
@@ -69,9 +82,9 @@ struct IrExecutable {
     IrExecutable *source_exec;
     IrAnalyze *analysis;
     Scope *begin_scope;
+    ErrorMsg *first_err_trace_msg;
     ZigList<Tld *> tld_list;
 
-    bool invalid;
     bool is_inline;
     bool is_generic_instantiation;
     bool need_err_code_spill;
@@ -255,6 +268,7 @@ enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
     ConstValSpecialUndef,
+    ConstValSpecialLazy,
 };
 
 enum RuntimeHintErrorUnion {
@@ -291,6 +305,73 @@ struct ConstGlobalRefs {
     uint32_t align;
 };
 
+enum LazyValueId {
+    LazyValueIdInvalid,
+    LazyValueIdAlignOf,
+    LazyValueIdPtrType,
+    LazyValueIdOptType,
+    LazyValueIdSliceType,
+    LazyValueIdFnType,
+};
+
+struct LazyValue {
+    LazyValueId id;
+};
+
+struct LazyValueAlignOf {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *target_type;
+};
+
+struct LazyValueSliceType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    ZigType *elem_type;
+    IrInstruction *align_inst; // can be null
+
+    bool is_const;
+    bool is_volatile;
+    bool is_allowzero;
+};
+
+struct LazyValuePtrType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *elem_type;
+    IrInstruction *align_inst; // can be null
+
+    PtrLen ptr_len;
+    uint32_t bit_offset_in_host;
+
+    uint32_t host_int_bytes;
+    bool is_const;
+    bool is_volatile;
+    bool is_allowzero;
+};
+
+struct LazyValueOptType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *payload_type;
+};
+
+struct LazyValueFnType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    AstNode *proto_node;
+    IrInstruction **param_types;
+    IrInstruction *align_inst; // can be null
+    IrInstruction *return_type;
+
+    bool is_generic;
+};
+
 struct ConstExprValue {
     ZigType *type;
     ConstValSpecial special;
@@ -318,6 +399,7 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
         Buf *x_enum_literal;
+        LazyValue *x_lazy;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -364,6 +446,7 @@ enum TldResolution {
     TldResolutionUnresolved,
     TldResolutionResolving,
     TldResolutionInvalid,
+    TldResolutionOkLazy,
     TldResolutionOk,
 };
 
@@ -420,10 +503,12 @@ struct TypeEnumField {
 
 struct TypeUnionField {
     Buf *name;
+    ZigType *type_entry; // available after ResolveStatusSizeKnown
+    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
     TypeEnumField *enum_field;
-    ZigType *type_entry;
     AstNode *decl_node;
     uint32_t gen_index;
+    uint32_t align;
 };
 
 enum NodeType {
@@ -946,6 +1031,7 @@ struct AstNodeEnumLiteral {
 
 struct AstNode {
     enum NodeType type;
+    bool already_traced_this_node;
     size_t line;
     size_t column;
     ZigType *owner;
@@ -1041,12 +1127,6 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
-enum PtrLen {
-    PtrLenUnknown,
-    PtrLenSingle,
-    PtrLenC,
-};
-
 struct ZigTypePointer {
     ZigType *child_type;
     ZigType *slice_parent;
@@ -1057,6 +1137,7 @@ struct ZigTypePointer {
     bool is_const;
     bool is_volatile;
     bool allow_zero;
+    bool resolve_loop_flag_zero_bits;
 };
 
 struct ZigTypeInt {
@@ -1075,7 +1156,8 @@ struct ZigTypeArray {
 
 struct TypeStructField {
     Buf *name;
-    ZigType *type_entry;
+    ZigType *type_entry; // available after ResolveStatusSizeKnown
+    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
     size_t src_index;
     size_t gen_index;
     size_t offset; // byte offset from beginning of struct
@@ -1131,11 +1213,11 @@ struct ZigTypeStruct {
     ResolveStatus resolve_status;
 
     bool is_slice;
-    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
-    bool reported_infinite_err;
     // whether any of the fields require comptime
     // known after ResolveStatusZeroBitsKnown
     bool requires_comptime;
+    bool resolve_loop_flag_zero_bits;
+    bool resolve_loop_flag_other;
 };
 
 struct ZigTypeOptional {
@@ -1157,26 +1239,20 @@ struct ZigTypeErrorSet {
 
 struct ZigTypeEnum {
     AstNode *decl_node;
-    ContainerLayout layout;
-    uint32_t src_field_count;
     TypeEnumField *fields;
-    bool is_invalid; // true if any fields are invalid
     ZigType *tag_int_type;
 
     ScopeDecls *decls_scope;
 
-    // set this flag temporarily to detect infinite loops
-    bool embedded_in_current;
-    bool reported_infinite_err;
-    // whether we've finished resolving it
-    bool complete;
-
-    bool zero_bits_loop_flag;
-    bool zero_bits_known;
-
     LLVMValueRef name_function;
 
     HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
+    uint32_t src_field_count;
+
+    ContainerLayout layout;
+    ResolveStatus resolve_status;
+
+    bool resolve_loop_flag;
 };
 
 uint32_t type_ptr_hash(const ZigType *ptr);
@@ -1189,7 +1265,7 @@ struct ZigTypeUnion {
     HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
     ZigType *tag_type; // always an enum or null
     LLVMTypeRef union_llvm_type;
-    ZigType *most_aligned_union_member;
+    TypeUnionField *most_aligned_union_member;
     size_t gen_union_index;
     size_t gen_tag_index;
     size_t union_abi_size;
@@ -1201,11 +1277,11 @@ struct ZigTypeUnion {
     ResolveStatus resolve_status;
 
     bool have_explicit_tag_type;
-    bool resolve_loop_flag; // set this flag temporarily to detect infinite loops
-    bool reported_infinite_err;
     // whether any of the fields require comptime
     // the value is not valid until zero_bits_known == true
     bool requires_comptime;
+    bool resolve_loop_flag_zero_bits;
+    bool resolve_loop_flag_other;
 };
 
 struct FnGenParamInfo {
@@ -1717,6 +1793,7 @@ struct CodeGen {
     //////////////////////////// Runtime State
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
+    ErrorMsg *trace_err;
     LLVMBuilderRef builder;
     ZigLLVMDIBuilder *dbuilder;
     ZigLLVMDICompileUnit *compile_unit;
@@ -1769,7 +1846,6 @@ struct CodeGen {
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
     ZigList<TimeEvent> timing_events;
-    ZigList<AstNode *> tld_ref_source_node_stack;
     ZigList<ZigFn *> inline_fns;
     ZigList<ZigFn *> test_fns;
     ZigList<ErrorTableEntry *> errors_by_index;
@@ -1854,7 +1930,6 @@ struct CodeGen {
     ZigFn *main_fn;
     ZigFn *panic_fn;
     TldFn *panic_tld_fn;
-    AstNode *root_export_decl;
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;
@@ -1942,7 +2017,7 @@ struct CodeGen {
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
-    Buf *version_script_path; 
+    Buf *version_script_path;
 
     const char **llvm_argv;
     size_t llvm_argv_len;
@@ -3659,13 +3734,13 @@ enum ResultLocId {
     ResultLocIdBitCast,
 };
 
-// Additions to this struct may need to be handled in 
+// Additions to this struct may need to be handled in
 // ir_reset_result
 struct ResultLoc {
     ResultLocId id;
     bool written;
     bool allow_write_through_const;
-    IrInstruction *resolved_loc; // result ptr 
+    IrInstruction *resolved_loc; // result ptr
     IrInstruction *source_instruction;
     IrInstruction *gen_instruction; // value to store to the result loc
     ZigType *implicit_elem_type;
