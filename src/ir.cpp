@@ -14666,6 +14666,10 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
 
     if ((err = type_resolve(ira->codegen, var_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
+    if (align != 0) {
+        if ((err = type_resolve(ira->codegen, var_type, ResolveStatusAlignmentKnown)))
+            return ira->codegen->invalid_instruction;
+    }
     assert(result->base.value.data.x_ptr.special != ConstPtrSpecialInvalid);
 
     pointee->type = var_type;
