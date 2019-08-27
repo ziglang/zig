@@ -1977,6 +1977,10 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             field->align = field->type_entry->abi_align;
         } else {
             if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+                if (g->trace_err != nullptr) {
+                    g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
+                        buf_create_from_str("while checking this field"));
+                }
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return err;
             }
@@ -2497,6 +2501,10 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
             field->align = 1;
         } else {
             if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+                if (g->trace_err != nullptr) {
+                    g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
+                        buf_create_from_str("while checking this field"));
+                }
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
                 return err;
             }
