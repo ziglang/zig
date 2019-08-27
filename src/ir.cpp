@@ -17127,11 +17127,14 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         TypeStructField *field, IrInstruction *struct_ptr, ZigType *struct_type, bool initializing)
 {
     Error err;
-    switch (type_has_one_possible_value(ira->codegen, field->type_entry)) {
+    ZigType *field_type = resolve_struct_field_type(ira->codegen, field);
+    if (field_type == nullptr)
+        return ira->codegen->invalid_instruction;
+    switch (type_has_one_possible_value(ira->codegen, field_type)) {
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
         case OnePossibleValueYes: {
-            IrInstruction *elem = ir_const(ira, source_instr, field->type_entry);
+            IrInstruction *elem = ir_const(ira, source_instr, field_type);
             return ir_get_ref(ira, source_instr, elem, false, false);
         }
         case OnePossibleValueNo:
@@ -17146,7 +17149,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         get_host_int_bytes(ira->codegen, struct_type, field) : ptr_host_int_bytes;
     bool is_const = struct_ptr->value.type->data.pointer.is_const;
     bool is_volatile = struct_ptr->value.type->data.pointer.is_volatile;
-    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
+    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
             is_const, is_volatile, PtrLenSingle, field->align,
             (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
             (uint32_t)host_int_bytes_for_result_type, false);
@@ -17945,48 +17948,14 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
             return ira->codegen->invalid_instruction;
     }
 
-    lazy_slice_type->elem_type = ir_resolve_type(ira, slice_type_instruction->child_type->child);
-    if (type_is_invalid(lazy_slice_type->elem_type))
+    lazy_slice_type->elem_type = slice_type_instruction->child_type->child;
+    if (ir_resolve_type_lazy(ira, lazy_slice_type->elem_type) == nullptr)
         return ira->codegen->invalid_instruction;
 
     lazy_slice_type->is_const = slice_type_instruction->is_const;
     lazy_slice_type->is_volatile = slice_type_instruction->is_volatile;
     lazy_slice_type->is_allowzero = slice_type_instruction->is_allow_zero;
 
-    switch (lazy_slice_type->elem_type->id) {
-        case ZigTypeIdInvalid: // handled above
-            zig_unreachable();
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            ir_add_error_node(ira, slice_type_instruction->base.source_node,
-                    buf_sprintf("slice of type '%s' not allowed", buf_ptr(&lazy_slice_type->elem_type->name)));
-            return ira->codegen->invalid_instruction;
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            break;
-    }
     return result;
 }
 
@@ -20430,6 +20399,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     inner_fields[1].special = ConstValSpecialStatic;
                     inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
+                    ZigType *field_type = resolve_struct_field_type(ira->codegen, struct_field);
+                    if (field_type == nullptr)
+                        return ErrorSemanticAnalyzeFail;
+                    if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
+                        return err;
                     if (!type_has_bits(struct_field->type_entry)) {
                         inner_fields[1].data.x_optional = nullptr;
                     } else {
@@ -25588,11 +25562,50 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
                 if (!ir_resolve_align(ira, lazy_slice_type->align_inst, &align_bytes))
                     return ErrorSemanticAnalyzeFail;
             }
+            ZigType *elem_type = ir_resolve_type(ira, lazy_slice_type->elem_type);
+            if (type_is_invalid(elem_type))
+                return ErrorSemanticAnalyzeFail;
+
+            switch (elem_type->id) {
+                case ZigTypeIdInvalid: // handled above
+                    zig_unreachable();
+                case ZigTypeIdUnreachable:
+                case ZigTypeIdUndefined:
+                case ZigTypeIdNull:
+                case ZigTypeIdArgTuple:
+                case ZigTypeIdOpaque:
+                    ir_add_error(ira, lazy_slice_type->elem_type,
+                        buf_sprintf("slice of type '%s' not allowed", buf_ptr(&elem_type->name)));
+                    return ErrorSemanticAnalyzeFail;
+                case ZigTypeIdMetaType:
+                case ZigTypeIdVoid:
+                case ZigTypeIdBool:
+                case ZigTypeIdInt:
+                case ZigTypeIdFloat:
+                case ZigTypeIdPointer:
+                case ZigTypeIdArray:
+                case ZigTypeIdStruct:
+                case ZigTypeIdComptimeFloat:
+                case ZigTypeIdComptimeInt:
+                case ZigTypeIdEnumLiteral:
+                case ZigTypeIdOptional:
+                case ZigTypeIdErrorUnion:
+                case ZigTypeIdErrorSet:
+                case ZigTypeIdEnum:
+                case ZigTypeIdUnion:
+                case ZigTypeIdFn:
+                case ZigTypeIdBoundFn:
+                case ZigTypeIdVector:
+                case ZigTypeIdFnFrame:
+                case ZigTypeIdAnyFrame:
+                    break;
+            }
+
             ResolveStatus needed_status = (align_bytes == 0) ?
                 ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
-            if ((err = type_resolve(ira->codegen, lazy_slice_type->elem_type, needed_status)))
+            if ((err = type_resolve(ira->codegen, elem_type, needed_status)))
                 return err;
-            ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, lazy_slice_type->elem_type,
+            ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
                     lazy_slice_type->is_const, lazy_slice_type->is_volatile, PtrLenUnknown, align_bytes,
                     0, 0, lazy_slice_type->is_allowzero);
             val->special = ConstValSpecialStatic;

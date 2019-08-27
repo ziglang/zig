@@ -248,5 +248,6 @@ bool fn_is_async(ZigFn *fn);
 
 Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align);
 ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
+ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 
 #endif

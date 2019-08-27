@@ -329,7 +329,7 @@ struct LazyValueSliceType {
     LazyValue base;
 
     IrAnalyze *ira;
-    ZigType *elem_type;
+    IrInstruction *elem_type;
     IrInstruction *align_inst; // can be null
 
     bool is_const;
@@ -1222,6 +1222,7 @@ struct ZigTypeStruct {
 
 struct ZigTypeOptional {
     ZigType *child_type;
+    ResolveStatus resolve_status;
 };
 
 struct ZigTypeErrorUnion {
