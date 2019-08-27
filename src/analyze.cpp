@@ -1965,6 +1965,8 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return err;
             }
+            add_node_error(g, field->decl_node,
+                buf_create_from_str("TODO implement field alignment syntax for unions. https://github.com/ziglang/zig/issues/3125"));
         } else if (packed) {
             field->align = 1;
         } else if (field->type_entry != nullptr) {
