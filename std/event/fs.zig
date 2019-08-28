@@ -719,6 +719,16 @@ pub const WatchEventId = enum {
     Delete,
 };
 
+fn eqlString(a: []const u16, b: []const u16) bool {
+    if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
+    return mem.compare(u16, a, b) == .Equal;
+}
+
+fn hashString(s: []const u16) u32 {
+    return @truncate(u32, std.hash.Wyhash.hash(0, @sliceToBytes(s)));
+}
+
 //pub const WatchEventError = error{
 //    UserResourceLimitReached,
 //    SystemResources,
@@ -736,7 +746,7 @@ pub const WatchEventId = enum {
 //                file_table: FileTable,
 //                table_lock: event.Lock,
 //
-//                const FileTable = std.AutoHashMap([]const u8, *Put);
+//                const FileTable = std.StringHashmap(*Put);
 //                const Put = struct {
 //                    putter: anyframe,
 //                    value_ptr: *V,
@@ -755,8 +765,8 @@ pub const WatchEventId = enum {
 //            all_putters: std.atomic.Queue(anyframe),
 //            ref_count: std.atomic.Int(usize),
 //
-//            const DirTable = std.AutoHashMap([]const u8, *Dir);
-//            const FileTable = std.AutoHashMap([]const u16, V);
+//            const DirTable = std.StringHashMap(*Dir);
+//            const FileTable = std.HashMap([]const u16, V, hashString, eqlString);
 //
 //            const Dir = struct {
 //                putter: anyframe,
@@ -772,7 +782,7 @@ pub const WatchEventId = enum {
 //            table_lock: event.Lock,
 //
 //            const WdTable = std.AutoHashMap(i32, Dir);
-//            const FileTable = std.AutoHashMap([]const u8, V);
+//            const FileTable = std.StringHashMap(V);
 //
 //            const Dir = struct {
 //                dirname: []const u8,
@@ -780,7 +790,7 @@ pub const WatchEventId = enum {
 //            };
 //        };
 //
-//        const FileToHandle = std.AutoHashMap([]const u8, anyframe);
+//        const FileToHandle = std.StringHashMap(anyframe);
 //
 //        const Self = @This();
 //

@@ -118,7 +118,7 @@ const FunctionSet = struct {
     list: std.ArrayList(VersionedFn),
     fn_vers_list: FnVersionList,
 };
-const FnVersionList = std.AutoHashMap([]const u8, std.ArrayList(usize));
+const FnVersionList = std.StringHashMap(std.ArrayList(usize));
 
 const VersionedFn = struct {
     ver: []const u8, // example: "GLIBC_2.15"
@@ -140,8 +140,8 @@ pub fn main() !void {
     const prefix = try fs.path.join(allocator, [_][]const u8{ in_glibc_dir, "sysdeps", "unix", "sysv", "linux" });
     const glibc_out_dir = try fs.path.join(allocator, [_][]const u8{ zig_src_dir, "libc", "glibc" });
 
-    var global_fn_set = std.AutoHashMap([]const u8, Function).init(allocator);
-    var global_ver_set = std.AutoHashMap([]const u8, usize).init(allocator);
+    var global_fn_set = std.StringHashMap(Function).init(allocator);
+    var global_ver_set = std.StringHashMap(usize).init(allocator);
     var target_functions = std.AutoHashMap(usize, FunctionSet).init(allocator);
 
     for (abi_lists) |*abi_list| {

@@ -86,7 +86,7 @@ const Result = struct {
     throughput: u64,
 };
 
-const block_size: usize = 8192;
+const block_size: usize = 8 * 8192;
 
 pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     var h = blk: {
