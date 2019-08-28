@@ -1015,6 +1015,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
         }
         case LazyValueIdOptType:
         case LazyValueIdSliceType:
+        case LazyValueIdErrUnionType:
             *is_zero_bits = false;
             return ErrorNone;
         case LazyValueIdFnType: {
@@ -1040,6 +1041,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
         case LazyValueIdPtrType:
         case LazyValueIdFnType:
         case LazyValueIdOptType:
+        case LazyValueIdErrUnionType:
             *is_opaque_type = false;
             return ErrorNone;
     }
@@ -1094,6 +1096,11 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
             }
             return ReqCompTimeNo;
         }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, &lazy_err_union_type->payload_type->value);
+        }
     }
     zig_unreachable();
 }
@@ -1102,10 +1109,8 @@ static Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstEx
         size_t *abi_size, size_t *size_in_bits)
 {
     Error err;
-    if (type_val->data.x_lazy->id == LazyValueIdOptType) {
-        if ((err = ir_resolve_lazy(g, source_node, type_val)))
-            return err;
-    }
+
+start_over:
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         ZigType *ty = type_val->data.x_type;
@@ -1129,7 +1134,10 @@ static Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstEx
             *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
             return ErrorNone;
         case LazyValueIdOptType:
-            zig_unreachable();
+        case LazyValueIdErrUnionType:
+            if ((err = ir_resolve_lazy(g, source_node, type_val)))
+                return err;
+            goto start_over;
     }
     zig_unreachable();
 }
@@ -1161,6 +1169,19 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
             return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
         }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            uint32_t payload_abi_align;
+            if ((err = type_val_resolve_abi_align(g, &lazy_err_union_type->payload_type->value,
+                            &payload_abi_align)))
+            {
+                return err;
+            }
+            *abi_align = (payload_abi_align > g->err_tag_type->abi_align) ?
+                payload_abi_align : g->err_tag_type->abi_align;
+            return ErrorNone;
+        }
     }
     zig_unreachable();
 }
@@ -1187,6 +1208,18 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
                 return OnePossibleValueYes;
             } else {
                 return OnePossibleValueNo;
+            }
+        }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            switch (type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->err_set_type->value)) {
+                case OnePossibleValueInvalid:
+                    return OnePossibleValueInvalid;
+                case OnePossibleValueNo:
+                    return OnePossibleValueNo;
+                case OnePossibleValueYes:
+                    return type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->payload_type->value);
             }
         }
     }

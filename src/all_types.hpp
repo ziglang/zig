@@ -312,6 +312,7 @@ enum LazyValueId {
     LazyValueIdOptType,
     LazyValueIdSliceType,
     LazyValueIdFnType,
+    LazyValueIdErrUnionType,
 };
 
 struct LazyValue {
@@ -370,6 +371,14 @@ struct LazyValueFnType {
     IrInstruction *return_type;
 
     bool is_generic;
+};
+
+struct LazyValueErrUnionType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *err_set_type;
+    IrInstruction *payload_type;
 };
 
 struct ConstExprValue {

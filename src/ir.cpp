@@ -14626,28 +14626,23 @@ static IrInstruction *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
 static IrInstruction *ir_analyze_instruction_error_union(IrAnalyze *ira,
         IrInstructionErrorUnion *instruction)
 {
-    Error err;
+    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
+    result->value.special = ConstValSpecialLazy;
 
-    ZigType *err_set_type = ir_resolve_type(ira, instruction->err_set->child);
-    if (type_is_invalid(err_set_type))
+    LazyValueErrUnionType *lazy_err_union_type = allocate<LazyValueErrUnionType>(1);
+    lazy_err_union_type->ira = ira;
+    result->value.data.x_lazy = &lazy_err_union_type->base;
+    lazy_err_union_type->base.id = LazyValueIdErrUnionType;
+
+    lazy_err_union_type->err_set_type = instruction->err_set->child;
+    if (ir_resolve_type_lazy(ira, lazy_err_union_type->err_set_type) == nullptr)
         return ira->codegen->invalid_instruction;
 
-    ZigType *payload_type = ir_resolve_type(ira, instruction->payload->child);
-    if (type_is_invalid(payload_type))
+    lazy_err_union_type->payload_type = instruction->payload->child;
+    if (ir_resolve_type_lazy(ira, lazy_err_union_type->payload_type) == nullptr)
         return ira->codegen->invalid_instruction;
 
-    if (err_set_type->id != ZigTypeIdErrorSet) {
-        ir_add_error(ira, instruction->err_set->child,
-            buf_sprintf("expected error set type, found type '%s'",
-                buf_ptr(&err_set_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
-        return ira->codegen->invalid_instruction;
-    ZigType *result_type = get_error_union_type(ira->codegen, err_set_type, payload_type);
-
-    return ir_const_type(ira, &instruction->base, result_type);
+    return result;
 }
 
 static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_inst, ZigType *var_type,
@@ -25696,6 +25691,34 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = fn_type;
+            return ErrorNone;
+        }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(val->data.x_lazy);
+            IrAnalyze *ira = lazy_err_union_type->ira;
+
+            ZigType *err_set_type = ir_resolve_type(ira, lazy_err_union_type->err_set_type);
+            if (type_is_invalid(err_set_type))
+                return ErrorSemanticAnalyzeFail;
+
+            ZigType *payload_type = ir_resolve_type(ira, lazy_err_union_type->payload_type);
+            if (type_is_invalid(payload_type))
+                return ErrorSemanticAnalyzeFail;
+
+            if (err_set_type->id != ZigTypeIdErrorSet) {
+                ir_add_error(ira, lazy_err_union_type->err_set_type,
+                    buf_sprintf("expected error set type, found type '%s'",
+                        buf_ptr(&err_set_type->name)));
+                return ErrorSemanticAnalyzeFail;
+            }
+
+            if ((err = type_resolve(ira->codegen, payload_type, ResolveStatusSizeKnown)))
+                return ErrorSemanticAnalyzeFail;
+
+            assert(val->type->id == ZigTypeIdMetaType);
+            val->data.x_type = get_error_union_type(ira->codegen, err_set_type, payload_type);
+            val->special = ConstValSpecialStatic;
             return ErrorNone;
         }
     }
