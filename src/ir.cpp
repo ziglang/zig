@@ -13503,7 +13503,7 @@ static IrInstruction *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *b
         return ira->codegen->invalid_instruction;
 
     if (op1->value.type->id != ZigTypeIdInt && op1->value.type->id != ZigTypeIdComptimeInt) {
-        ir_add_error(ira, &bin_op_instruction->base,
+        ir_add_error(ira, bin_op_instruction->op1,
             buf_sprintf("bit shifting operation expected integer type, found '%s'",
                 buf_ptr(&op1->value.type->name)));
         return ira->codegen->invalid_instruction;
@@ -13512,6 +13512,13 @@ static IrInstruction *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *b
     IrInstruction *op2 = bin_op_instruction->op2->child;
     if (type_is_invalid(op2->value.type))
         return ira->codegen->invalid_instruction;
+
+    if (op2->value.type->id != ZigTypeIdInt && op2->value.type->id != ZigTypeIdComptimeInt) {
+        ir_add_error(ira, bin_op_instruction->op2,
+            buf_sprintf("shift amount has to be an integer type, but found '%s'",
+                buf_ptr(&op2->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
 
     IrInstruction *casted_op2;
     IrBinOp op_id = bin_op_instruction->op_id;

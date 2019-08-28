@@ -3,6 +3,26 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "shift amount has to be an integer type",
+        \\export fn entry() void {
+        \\    const x = 1 << &u8(10);
+        \\}
+    ,
+        "tmp.zig:2:23: error: shift amount has to be an integer type, but found '*u8'",
+        "tmp.zig:2:17: note: referenced here",
+    );
+
+    cases.add(
+        "bit shifting only works on integer types",
+        \\export fn entry() void {
+        \\    const x = &u8(1) << 10;
+        \\}
+    ,
+        "tmp.zig:2:18: error: bit shifting operation expected integer type, found '*u8'",
+        "tmp.zig:2:22: note: referenced here",
+    );
+
+    cases.add(
         "struct depends on itself via optional field",
         \\const LhsExpr = struct {
         \\    rhsExpr: ?AstObject,
