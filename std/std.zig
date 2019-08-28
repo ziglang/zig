@@ -17,6 +17,7 @@ pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig").StaticallyInitializedMutex;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
+pub const StringHashMap = @import("hash_map.zig").StringHashMap;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Thread = @import("thread.zig").Thread;

@@ -89,41 +89,98 @@ fn renderRoot(
     var it = tree.root_node.decls.iterator(0);
     while (true) {
         var decl = (it.next() orelse return).*;
-        // look for zig fmt: off comment
-        var start_token_index = decl.firstToken();
-        zig_fmt_loop: while (start_token_index != 0) {
-            start_token_index -= 1;
-            const start_token = tree.tokens.at(start_token_index);
-            switch (start_token.id) {
+
+        // This loop does the following:
+        //
+        //  - Iterates through line/doc comment tokens that precedes the current
+        //    decl.
+        //  - Figures out the first token index (`copy_start_token_index`) which
+        //    hasn't been copied to the output stream yet.
+        //  - Detects `zig fmt: (off|on)` in the line comment tokens, and
+        //    determines whether the current decl should be reformatted or not.
+        //
+        var token_index = decl.firstToken();
+        var fmt_active = true;
+        var found_fmt_directive = false;
+
+        var copy_start_token_index = token_index;
+
+        while (token_index != 0) {
+            token_index -= 1;
+            const token = tree.tokens.at(token_index);
+            switch (token.id) {
                 Token.Id.LineComment => {},
-                Token.Id.DocComment => continue,
+                Token.Id.DocComment => {
+                    copy_start_token_index = token_index;
+                    continue;
+                },
                 else => break,
             }
-            if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(start_token)[2..], " "), "zig fmt: off")) {
-                var end_token_index = start_token_index;
-                while (true) {
-                    end_token_index += 1;
-                    const end_token = tree.tokens.at(end_token_index);
-                    switch (end_token.id) {
+
+            if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(token)[2..], " "), "zig fmt: off")) {
+                if (!found_fmt_directive) {
+                    fmt_active = false;
+                    found_fmt_directive = true;
+                }
+            } else if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(token)[2..], " "), "zig fmt: on")) {
+                if (!found_fmt_directive) {
+                    fmt_active = true;
+                    found_fmt_directive = true;
+                }
+            }
+        }
+
+        if (!fmt_active) {
+            // Reformatting is disabled for the current decl and possibly some
+            // more decls that follow.
+            // Find the next `decl` for which reformatting is re-enabled.
+            token_index = decl.firstToken();
+
+            while (!fmt_active) {
+                decl = (it.next() orelse {
+                    // If there's no next reformatted `decl`, just copy the
+                    // remaining input tokens and bail out.
+                    const start = tree.tokens.at(copy_start_token_index).start;
+                    try copyFixingWhitespace(stream, tree.source[start..]);
+                    return;
+                }).*;
+                var decl_first_token_index = decl.firstToken();
+
+                while (token_index < decl_first_token_index) : (token_index += 1) {
+                    const token = tree.tokens.at(token_index);
+                    switch (token.id) {
                         Token.Id.LineComment => {},
-                        Token.Id.Eof => {
-                            const start = tree.tokens.at(start_token_index + 1).start;
-                            try copyFixingWhitespace(stream, tree.source[start..]);
-                            return;
-                        },
+                        Token.Id.Eof => unreachable,
                         else => continue,
                     }
-                    if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(end_token)[2..], " "), "zig fmt: on")) {
-                        const start = tree.tokens.at(start_token_index + 1).start;
-                        try copyFixingWhitespace(stream, tree.source[start..end_token.end]);
-                        try stream.writeByte('\n');
-                        while (tree.tokens.at(decl.firstToken()).start < end_token.end) {
-                            decl = (it.next() orelse return).*;
-                        }
-                        break :zig_fmt_loop;
+                    if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(token)[2..], " "), "zig fmt: on")) {
+                        fmt_active = true;
+                    } else if (mem.eql(u8, mem.trim(u8, tree.tokenSlicePtr(token)[2..], " "), "zig fmt: off")) {
+                        fmt_active = false;
                     }
                 }
             }
+
+            // Found the next `decl` for which reformatting is enabled. Copy
+            // the input tokens before the `decl` that haven't been copied yet.
+            var copy_end_token_index = decl.firstToken();
+            token_index = copy_end_token_index;
+            while (token_index != 0) {
+                token_index -= 1;
+                const token = tree.tokens.at(token_index);
+                switch (token.id) {
+                    Token.Id.LineComment => {},
+                    Token.Id.DocComment => {
+                        copy_end_token_index = token_index;
+                        continue;
+                    },
+                    else => break,
+                }
+            }
+
+            const start = tree.tokens.at(copy_start_token_index).start;
+            const end = tree.tokens.at(copy_end_token_index).start;
+            try copyFixingWhitespace(stream, tree.source[start..end]);
         }
 
         try renderTopLevelDecl(allocator, stream, tree, 0, &start_col, decl);
@@ -206,7 +263,20 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             } else if (field.type_expr != null and field.value_expr == null) {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
-                return renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
+
+                if (field.align_expr) |align_value_expr| {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
+                    const lparen_token = tree.prevToken(align_value_expr.firstToken());
+                    const align_kw = tree.prevToken(lparen_token);
+                    const rparen_token = tree.nextToken(align_value_expr.lastToken());
+                    try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
+                    try renderToken(tree, stream, lparen_token, indent, start_col, Space.None); // (
+                    try renderExpression(allocator, stream, tree, indent, start_col, align_value_expr, Space.None); // alignment
+                    try renderToken(tree, stream, rparen_token, indent, start_col, Space.Comma); // )
+                } else {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
+                }
+
             } else if (field.type_expr == null and field.value_expr != null) {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.Space); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
@@ -1924,15 +1994,24 @@ fn renderTokenOffset(
         }
     }
 
-    const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
-    if (comment_is_empty) {
-        switch (space) {
-            Space.Newline => {
-                try stream.writeByte('\n');
-                start_col.* = 0;
-                return;
-            },
-            else => {},
+    while (true) {
+        const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
+        if (comment_is_empty) {
+            switch (space) {
+                Space.Newline => {
+                    offset += 1;
+                    token = next_token;
+                    next_token = tree.tokens.at(token_index + offset);
+                    if (next_token.id != .LineComment) {
+                        try stream.writeByte('\n');
+                        start_col.* = 0;
+                        return;
+                    }
+                },
+                else => break,
+            }
+        } else {
+            break;
         }
     }
 

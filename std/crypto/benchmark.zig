@@ -1,8 +1,10 @@
+// zig run benchmark.zig --release-fast --override-std-dir ..
+
 const builtin = @import("builtin");
-const std = @import("std");
+const std = @import("../std.zig");
 const time = std.time;
 const Timer = time.Timer;
-const crypto = @import("../crypto.zig");
+const crypto = std.crypto;
 
 const KiB = 1024;
 const MiB = 1024 * KiB;
@@ -14,7 +16,7 @@ const Crypto = struct {
     name: []const u8,
 };
 
-const hashes = []Crypto{
+const hashes = [_]Crypto{
     Crypto{ .ty = crypto.Md5, .name = "md5" },
     Crypto{ .ty = crypto.Sha1, .name = "sha1" },
     Crypto{ .ty = crypto.Sha256, .name = "sha256" },
@@ -45,7 +47,7 @@ pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
     return throughput;
 }
 
-const macs = []Crypto{
+const macs = [_]Crypto{
     Crypto{ .ty = crypto.Poly1305, .name = "poly1305" },
     Crypto{ .ty = crypto.HmacMd5, .name = "hmac-md5" },
     Crypto{ .ty = crypto.HmacSha1, .name = "hmac-sha1" },
@@ -75,7 +77,7 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
     return throughput;
 }
 
-const exchanges = []Crypto{Crypto{ .ty = crypto.X25519, .name = "x25519" }};
+const exchanges = [_]Crypto{Crypto{ .ty = crypto.X25519, .name = "x25519" }};
 
 pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count: comptime_int) !u64 {
     std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);
@@ -135,13 +137,16 @@ pub fn main() !void {
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-    const args = try std.os.argsAlloc(&fixed.allocator);
+    const args = try std.process.argsAlloc(&fixed.allocator);
 
     var filter: ?[]u8 = "";
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--seed")) {
+        if (std.mem.eql(u8, args[i], "--mode")) {
+            try stdout.print("{}\n", builtin.mode);
+            return;
+        } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
             if (i == args.len) {
                 usage();

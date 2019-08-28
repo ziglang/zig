@@ -166,6 +166,15 @@ test "zig fmt: doc comments on param decl" {
     );
 }
 
+test "zig fmt: aligned struct field" {
+    try testCanonical(
+        \\pub const S = struct {
+        \\    f: i32 align(32),
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
@@ -196,6 +205,103 @@ test "zig fmt: comment to disable/enable zig fmt" {
         \\// zig fmt: off
         \\const  c  =  d;
         \\// zig fmt: on
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// Test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// test 1
+        \\/// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test 1
+        \\// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: alternating 'zig fmt: off' and 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  a  =  b;
+        \\// zig fmt: on
+        \\const c = d;
+        \\// zig fmt: on
+        \\
+    );
+}
+
+test "zig fmt: line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test1
+        \\/// test2
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test1
+        \\// test2
         \\const e = f;
         \\
     );
@@ -2269,12 +2375,25 @@ test "zig fmt: if type expr" {
         \\
     );
 }
-
 test "zig fmt: file ends with struct field" {
     try testTransform(
         \\a: bool
     ,
         \\a: bool,
+        \\
+    );
+}
+
+test "zig fmt: comment after empty comment" {
+    try testTransform(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    ,
+        \\const x = true;
+        \\//a
         \\
     );
 }

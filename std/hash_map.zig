@@ -17,6 +17,21 @@ pub fn AutoHashMap(comptime K: type, comptime V: type) type {
     return HashMap(K, V, getAutoHashFn(K), getAutoEqlFn(K));
 }
 
+/// Builtin hashmap for strings as keys.
+pub fn StringHashMap(comptime V: type) type {
+    return HashMap([]const u8, V, hashString, eqlString);
+}
+
+pub fn eqlString(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
+    return mem.compare(u8, a, b) == .Equal;
+}
+
+pub fn hashString(s: []const u8) u32 {
+    return @truncate(u32, std.hash.Wyhash.hash(0, s));
+}
+
 pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u32, comptime eql: fn (a: K, b: K) bool) type {
     return struct {
         entries: []Entry,

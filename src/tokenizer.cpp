@@ -841,7 +841,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             case TokenizeStateSawAmpersand:
                 switch (c) {
                     case '&':
-                        tokenize_error(&t, "`&&` is invalid. Note that `and` is boolean AND.");
+                        tokenize_error(&t, "`&&` is invalid. Note that `and` is boolean AND");
                         break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitAndEq);

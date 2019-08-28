@@ -2872,7 +2872,7 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
         eval_min_max_value_int(g, int_type, &biggest_possible_err_val, true);
 
         if (bigint_fits_in_bits(&biggest_possible_err_val, 64, false) &&
-            bigint_as_unsigned(&biggest_possible_err_val) < g->errors_by_index.length)
+            bigint_as_usize(&biggest_possible_err_val) < g->errors_by_index.length)
         {
             ok_bit = neq_zero_bit;
         } else {
@@ -3052,8 +3052,10 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *ex
         IrInstructionPtrOfArrayToSlice *instruction)
 {
     ZigType *actual_type = instruction->operand->value.type;
-    LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
-    assert(expr_val);
+    ZigType *slice_type = instruction->base.value.type;
+    ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+    size_t ptr_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+    size_t len_index = slice_type->data.structure.fields[slice_len_index].gen_index;
 
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
@@ -3061,15 +3063,21 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *ex
     ZigType *array_type = actual_type->data.pointer.child_type;
     assert(array_type->id == ZigTypeIdArray);
 
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, slice_ptr_index, "");
-    LLVMValueRef indices[] = {
-        LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
-        LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 0, false),
-    };
-    LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
-    gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+    if (type_has_bits(actual_type)) {
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
+            LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 0, false),
+        };
+        LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+        gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
+    } else if (ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        gen_undef_init(g, slice_ptr_type->abi_align, slice_ptr_type, ptr_field_ptr);
+    }
 
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, slice_len_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, len_index, "");
     LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
             array_type->data.array.len, false);
     gen_store_untyped(g, len_value, len_field_ptr, 0, false);
@@ -3386,6 +3394,8 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
 
 static bool value_is_all_undef(ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
+            zig_unreachable();
         case ConstValSpecialRuntime:
             return false;
         case ConstValSpecialUndef:
@@ -3525,6 +3535,8 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
+    if (instruction->base.value.special != ConstValSpecialRuntime)
+        return ir_llvm_value(g, &instruction->base);
     ZigVar *var = instruction->var;
     if (type_has_bits(var->var_type)) {
         assert(var->value_ref);
@@ -6041,6 +6053,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialLazy:
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6300,6 +6313,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
     assert(type_has_bits(type_entry));
 
     switch (const_val->special) {
+        case ConstValSpecialLazy:
+            zig_unreachable();
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:
@@ -6563,7 +6578,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                     uint64_t pad_bytes = type_entry->data.unionation.union_abi_size - field_type_bytes;
                     LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value, "");
                     make_unnamed_struct = is_llvm_value_unnamed_type(g, payload_value->type, correctly_typed_value) ||
-                        payload_value->type != type_entry->data.unionation.most_aligned_union_member;
+                        payload_value->type != type_entry->data.unionation.most_aligned_union_member->type_entry;
 
                     {
                         if (pad_bytes == 0) {
@@ -8905,7 +8920,7 @@ static void gen_root_source(CodeGen *g) {
         }
         Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, nullptr);
+        resolve_top_level_decl(g, panic_tld, nullptr, false);
     }
 
 

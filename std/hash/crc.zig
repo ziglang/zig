@@ -10,9 +10,9 @@ const debug = std.debug;
 const testing = std.testing;
 
 pub const Polynomial = struct {
-    const IEEE = 0xedb88320;
-    const Castagnoli = 0x82f63b78;
-    const Koopman = 0xeb31d82e;
+    pub const IEEE = 0xedb88320;
+    pub const Castagnoli = 0x82f63b78;
+    pub const Koopman = 0xeb31d82e;
 };
 
 // IEEE is by far the most common CRC and so is aliased by default.

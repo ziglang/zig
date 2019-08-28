@@ -100,3 +100,22 @@ test "nested orelse" {
     S.entry();
     comptime S.entry();
 }
+
+test "self-referential struct through a slice of optional" {
+    const S = struct {
+        const Node = struct {
+            children: []?Node,
+            data: ?u8,
+
+            fn new() Node {
+                return Node{
+                    .children = undefined,
+                    .data = null,
+                };
+            }
+        };
+    };
+
+    var n = S.Node.new();
+    expect(n.data == null);
+}

@@ -16,7 +16,9 @@ bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
 ConstExprValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ZigType *expected_type, size_t *backward_branch_count, size_t *backward_branch_quota,
         ZigFn *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
-        IrExecutable *parent_exec, AstNode *expected_type_source_node);
+        IrExecutable *parent_exec, AstNode *expected_type_source_node, UndefAllowed undef);
+
+Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val);
 
 ZigType *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
         ZigType *expected_type, AstNode *expected_type_source_node);
@@ -27,7 +29,5 @@ struct IrAnalyze;
 ConstExprValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ConstExprValue *const_val,
         AstNode *source_node);
 const char *float_op_to_name(BuiltinFnId op, bool llvm_name);
-
-void ir_add_analysis_trace(IrAnalyze *ira, ErrorMsg *err_msg, Buf *text);
 
 #endif
