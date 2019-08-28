@@ -118,6 +118,9 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr)
             );
         },
+        .arm => |arm| {
+            _ = std.os.linux.syscall1(std.os.linux.SYS_set_tls, addr);
+        },
         else => @compileError("Unsupported architecture"),
     }
 }
