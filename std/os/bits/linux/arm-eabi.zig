@@ -397,6 +397,8 @@ pub const SYS_usr32 = 0x0f0004;
 pub const SYS_set_tls = 0x0f0005;
 pub const SYS_get_tls = 0x0f0006;
 
+pub const MMAP2_UNIT = 4096;
+
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;
 pub const O_NOCTTY = 0o400;

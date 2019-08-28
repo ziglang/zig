@@ -190,7 +190,11 @@ pub fn umount2(special: [*]const u8, flags: u32) usize {
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
+    if (@hasDecl(@This(), "SYS_mmap2")) {
+        return syscall6(SYS_mmap2, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, @divTrunc(offset, MMAP2_UNIT)));
+    } else {
+        return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
+    }
 }
 
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
