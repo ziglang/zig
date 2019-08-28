@@ -2375,12 +2375,25 @@ test "zig fmt: if type expr" {
         \\
     );
 }
-
 test "zig fmt: file ends with struct field" {
     try testTransform(
         \\a: bool
     ,
         \\a: bool,
+        \\
+    );
+}
+
+test "zig fmt: comment after empty comment" {
+    try testTransform(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    ,
+        \\const x = true;
+        \\//a
         \\
     );
 }

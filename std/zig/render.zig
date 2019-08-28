@@ -1994,15 +1994,24 @@ fn renderTokenOffset(
         }
     }
 
-    const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
-    if (comment_is_empty) {
-        switch (space) {
-            Space.Newline => {
-                try stream.writeByte('\n');
-                start_col.* = 0;
-                return;
-            },
-            else => {},
+    while (true) {
+        const comment_is_empty = mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ").len == 2;
+        if (comment_is_empty) {
+            switch (space) {
+                Space.Newline => {
+                    offset += 1;
+                    token = next_token;
+                    next_token = tree.tokens.at(token_index + offset);
+                    if (next_token.id != .LineComment) {
+                        try stream.writeByte('\n');
+                        start_col.* = 0;
+                        return;
+                    }
+                },
+                else => break,
+            }
+        } else {
+            break;
         }
     }
 
