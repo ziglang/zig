@@ -25,6 +25,8 @@ comptime {
         @export("strncmp", strncmp, .Strong);
         @export("strerror", strerror, .Strong);
         @export("strlen", strlen, .Strong);
+    } else if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
+        @export("__aeabi_read_tp", std.os.linux.getThreadPointer, .Strong);
     }
 }
 

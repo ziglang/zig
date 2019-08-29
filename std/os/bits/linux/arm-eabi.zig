@@ -474,6 +474,30 @@ pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6";
 
+pub const HWCAP_SWP = 1 << 0;
+pub const HWCAP_HALF = 1 << 1;
+pub const HWCAP_THUMB = 1 << 2;
+pub const HWCAP_26BIT = 1 << 3;
+pub const HWCAP_FAST_MULT = 1 << 4;
+pub const HWCAP_FPA = 1 << 5;
+pub const HWCAP_VFP = 1 << 6;
+pub const HWCAP_EDSP = 1 << 7;
+pub const HWCAP_JAVA = 1 << 8;
+pub const HWCAP_IWMMXT = 1 << 9;
+pub const HWCAP_CRUNCH = 1 << 10;
+pub const HWCAP_THUMBEE = 1 << 11;
+pub const HWCAP_NEON = 1 << 12;
+pub const HWCAP_VFPv3 = 1 << 13;
+pub const HWCAP_VFPv3D16 = 1 << 14;
+pub const HWCAP_TLS = 1 << 15;
+pub const HWCAP_VFPv4 = 1 << 16;
+pub const HWCAP_IDIVA = 1 << 17;
+pub const HWCAP_IDIVT = 1 << 18;
+pub const HWCAP_VFPD32 = 1 << 19;
+pub const HWCAP_IDIV = HWCAP_IDIVA | HWCAP_IDIVT;
+pub const HWCAP_LPAE = 1 << 20;
+pub const HWCAP_EVTSTRM = 1 << 21;
+
 pub const msghdr = extern struct {
     msg_name: ?*sockaddr,
     msg_namelen: socklen_t,

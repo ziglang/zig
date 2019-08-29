@@ -133,6 +133,7 @@ pub fn initTLS() void {
     var at_phent: usize = undefined;
     var at_phnum: usize = undefined;
     var at_phdr: usize = undefined;
+    var at_hwcap: usize = undefined;
 
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -140,7 +141,18 @@ pub fn initTLS() void {
             elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
             elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
             elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+            elf.AT_HWCAP => at_phdr = auxv[i].a_un.a_val,
             else => continue,
+        }
+    }
+
+    // If the cpu is arm-based, check if it supports the TLS register
+    if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
+        if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+            // If the CPU does not support TLS via a coprocessor register,
+            // it could be accessed via a kernel helper function
+            // see musl/src/thread/arm/ for details
+            @panic("cpu does not support TLS via coprocessor register");
         }
     }
 
