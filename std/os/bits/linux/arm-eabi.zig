@@ -502,7 +502,7 @@ pub const msghdr_const = extern struct {
 /// methods to accomplish this.
 pub const Stat = extern struct {
     dev: u64,
-    __dev_patting: u32,
+    __dev_padding: u32,
     __ino_truncated: u32,
     mode: u32,
     nlink: u32,
@@ -512,7 +512,7 @@ pub const Stat = extern struct {
     __rdev_padding: u32,
     size: i64,
     blksize: i32,
-    blocks: i64,
+    blocks: u64,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,

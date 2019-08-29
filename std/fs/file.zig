@@ -261,9 +261,9 @@ pub const File = struct {
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = atime.tv_sec * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = mtime.tv_sec * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = ctime.tv_sec * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @intCast(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @intCast(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @intCast(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 

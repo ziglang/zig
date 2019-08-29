@@ -713,22 +713,38 @@ pub fn accept4(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t, flags:
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    return syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    if (@hasDecl(@This(), "SYS_fstat64")) {
+        return syscall2(SYS_fstat64, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    } else {
+        return syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    if (@hasDecl(@This(), "SYS_stat64")) {
+        return syscall2(SYS_stat64, @ptrToInt(pathname), @ptrToInt(statbuf));
+    } else {
+        return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    if (@hasDecl(@This(), "SYS_lstat64")) {
+        return syscall2(SYS_lstat64, @ptrToInt(pathname), @ptrToInt(statbuf));
+    } else {
+        return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn fstatat(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32) usize {
-    return syscall4(SYS_fstatat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    if (@hasDecl(@This(), "SYS_fstatat64")) {
+        return syscall4(SYS_fstatat64, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    } else {
+        return syscall4(SYS_fstatat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
