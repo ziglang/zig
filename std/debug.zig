@@ -793,7 +793,7 @@ fn printLineInfo(
                 try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
             }
         } else |err| switch (err) {
-            error.EndOfFile => {},
+            error.EndOfFile, error.FileNotFound  => {},
             else => return err,
         }
     } else {
