@@ -6845,6 +6845,7 @@ static void set_global_tls(CodeGen *g, ZigVar *var, LLVMValueRef global_value) {
 }
 
 static void do_code_gen(CodeGen *g) {
+    Error err;
     assert(!g->errors.length);
 
     generate_error_name_table(g);
@@ -6858,6 +6859,8 @@ static void do_code_gen(CodeGen *g) {
             // Generate debug info for it but that's it.
             ConstExprValue *const_val = var->const_value;
             assert(const_val->special != ConstValSpecialRuntime);
+            if ((err = ir_resolve_lazy(g, var->decl_node, const_val)))
+                zig_unreachable();
             if (const_val->type != var->var_type) {
                 zig_panic("TODO debug info for var with ptr casted value");
             }
@@ -6875,6 +6878,8 @@ static void do_code_gen(CodeGen *g) {
             // Generate debug info for it but that's it.
             ConstExprValue *const_val = var->const_value;
             assert(const_val->special != ConstValSpecialRuntime);
+            if ((err = ir_resolve_lazy(g, var->decl_node, const_val)))
+                zig_unreachable();
             if (const_val->type != var->var_type) {
                 zig_panic("TODO debug info for var with ptr casted value");
             }

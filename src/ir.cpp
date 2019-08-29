@@ -18066,54 +18066,20 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira,
-        IrInstructionSizeOf *size_of_instruction)
-{
-    Error err;
-    IrInstruction *type_value = size_of_instruction->type_value->child;
-    ZigType *type_entry = ir_resolve_type(ira, type_value);
+static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira, IrInstructionSizeOf *instruction) {
+    IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
+    result->value.special = ConstValSpecialLazy;
 
-    if ((err = type_resolve(ira->codegen, type_entry, ResolveStatusSizeKnown)))
+    LazyValueSizeOf *lazy_size_of = allocate<LazyValueSizeOf>(1);
+    lazy_size_of->ira = ira;
+    result->value.data.x_lazy = &lazy_size_of->base;
+    lazy_size_of->base.id = LazyValueIdSizeOf;
+
+    lazy_size_of->target_type = instruction->type_value->child;
+    if (ir_resolve_type_lazy(ira, lazy_size_of->target_type) == nullptr)
         return ira->codegen->invalid_instruction;
 
-    switch (type_entry->id) {
-        case ZigTypeIdInvalid: // handled above
-            zig_unreachable();
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            ir_add_error_node(ira, type_value->source_node,
-                    buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
-            return ira->codegen->invalid_instruction;
-        case ZigTypeIdMetaType:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            {
-                uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
-                return ir_const_unsigned(ira, &size_of_instruction->base, size_in_bytes);
-            }
-    }
-    zig_unreachable();
+    return result;
 }
 
 static IrInstruction *ir_analyze_test_non_null(IrAnalyze *ira, IrInstruction *source_inst, IrInstruction *value) {
@@ -25546,6 +25512,61 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdComptimeInt);
             bigint_init_unsigned(&val->data.x_bigint, align_in_bytes);
+            return ErrorNone;
+        }
+        case LazyValueIdSizeOf: {
+            LazyValueSizeOf *lazy_size_of = reinterpret_cast<LazyValueSizeOf *>(val->data.x_lazy);
+            IrAnalyze *ira = lazy_size_of->ira;
+
+            if (lazy_size_of->target_type->value.special == ConstValSpecialStatic) {
+                switch (lazy_size_of->target_type->value.data.x_type->id) {
+                    case ZigTypeIdInvalid: // handled above
+                        zig_unreachable();
+                    case ZigTypeIdUnreachable:
+                    case ZigTypeIdUndefined:
+                    case ZigTypeIdNull:
+                    case ZigTypeIdBoundFn:
+                    case ZigTypeIdArgTuple:
+                    case ZigTypeIdOpaque:
+                        ir_add_error(ira, lazy_size_of->target_type,
+                            buf_sprintf("no size available for type '%s'",
+                                buf_ptr(&lazy_size_of->target_type->value.data.x_type->name)));
+                        return ErrorSemanticAnalyzeFail;
+                    case ZigTypeIdMetaType:
+                    case ZigTypeIdEnumLiteral:
+                    case ZigTypeIdComptimeFloat:
+                    case ZigTypeIdComptimeInt:
+                    case ZigTypeIdVoid:
+                    case ZigTypeIdBool:
+                    case ZigTypeIdInt:
+                    case ZigTypeIdFloat:
+                    case ZigTypeIdPointer:
+                    case ZigTypeIdArray:
+                    case ZigTypeIdStruct:
+                    case ZigTypeIdOptional:
+                    case ZigTypeIdErrorUnion:
+                    case ZigTypeIdErrorSet:
+                    case ZigTypeIdEnum:
+                    case ZigTypeIdUnion:
+                    case ZigTypeIdFn:
+                    case ZigTypeIdVector:
+                    case ZigTypeIdFnFrame:
+                    case ZigTypeIdAnyFrame:
+                        break;
+                }
+            }
+
+            uint64_t abi_size;
+            uint64_t size_in_bits;
+            if ((err = type_val_resolve_abi_size(ira->codegen, source_node, &lazy_size_of->target_type->value,
+                            &abi_size, &size_in_bits)))
+            {
+                return err;
+            }
+
+            val->special = ConstValSpecialStatic;
+            assert(val->type->id == ZigTypeIdComptimeInt);
+            bigint_init_unsigned(&val->data.x_bigint, abi_size);
             return ErrorNone;
         }
         case LazyValueIdSliceType: {

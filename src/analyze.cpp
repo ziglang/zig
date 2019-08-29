@@ -997,6 +997,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
@@ -1036,6 +1037,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1055,6 +1057,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1105,7 +1108,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
     zig_unreachable();
 }
 
-static Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
         size_t *abi_size, size_t *size_in_bits)
 {
     Error err;
@@ -1123,12 +1126,42 @@ start_over:
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
-        case LazyValueIdSliceType:
-            *abi_size = g->builtin_types.entry_usize->abi_size * 2;
-            *size_in_bits = g->builtin_types.entry_usize->size_in_bits * 2;
+        case LazyValueIdSliceType: {
+            LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
+            bool is_zero_bits;
+            if ((err = type_val_resolve_zero_bits(g, &lazy_slice_type->elem_type->value, nullptr,
+                nullptr, &is_zero_bits)))
+            {
+                return err;
+            }
+            if (is_zero_bits) {
+                *abi_size = g->builtin_types.entry_usize->abi_size;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            } else {
+                *abi_size = g->builtin_types.entry_usize->abi_size * 2;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits * 2;
+            }
             return ErrorNone;
-        case LazyValueIdPtrType:
+        }
+        case LazyValueIdPtrType: {
+            LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
+            bool is_zero_bits;
+            if ((err = type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, nullptr,
+                nullptr, &is_zero_bits)))
+            {
+                return err;
+            }
+            if (is_zero_bits) {
+                *abi_size = 0;
+                *size_in_bits = 0;
+            } else {
+                *abi_size = g->builtin_types.entry_usize->abi_size;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            }
+            return ErrorNone;
+        }
         case LazyValueIdFnType:
             *abi_size = g->builtin_types.entry_usize->abi_size;
             *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
@@ -1159,6 +1192,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1193,6 +1227,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
         case LazyValueIdOptType: // it has the optional bit
@@ -4202,7 +4237,12 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
                 return;
             }
         }
-        assert(callee->anal_state == FnAnalStateComplete);
+        if (callee->anal_state != FnAnalStateComplete) {
+            add_node_error(g, call->base.source_node,
+                buf_sprintf("call to function '%s' depends on itself", buf_ptr(&callee->symbol_name)));
+            fn->anal_state = FnAnalStateInvalid;
+            return;
+        }
         analyze_fn_async(g, callee, true);
         if (callee->anal_state == FnAnalStateInvalid) {
             fn->anal_state = FnAnalStateInvalid;
@@ -4480,6 +4520,8 @@ void semantic_analyze(CodeGen *g) {
         ZigFn *fn = g->fn_defs.at(g->fn_defs_index);
         g->trace_err = nullptr;
         analyze_fn_async(g, fn, true);
+        if (fn->anal_state == FnAnalStateInvalid)
+            continue;
         if (fn_is_async(fn) && fn->non_async_node != nullptr) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("'%s' cannot be async", buf_ptr(&fn->symbol_name)));
@@ -5632,6 +5674,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             return ErrorSemanticAnalyzeFail;
         }
         analyze_fn_async(g, callee, true);
+        if (callee->inferred_async_node == inferred_async_checking) {
+            assert(g->errors.length != 0);
+            frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
+            return ErrorSemanticAnalyzeFail;
+        }
         if (!fn_is_async(callee))
             continue;
 

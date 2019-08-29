@@ -308,6 +308,7 @@ struct ConstGlobalRefs {
 enum LazyValueId {
     LazyValueIdInvalid,
     LazyValueIdAlignOf,
+    LazyValueIdSizeOf,
     LazyValueIdPtrType,
     LazyValueIdOptType,
     LazyValueIdSliceType,
@@ -320,6 +321,13 @@ struct LazyValue {
 };
 
 struct LazyValueAlignOf {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *target_type;
+};
+
+struct LazyValueSizeOf {
     LazyValue base;
 
     IrAnalyze *ira;
