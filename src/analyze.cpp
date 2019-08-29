@@ -973,7 +973,7 @@ ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, Zig
             nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
 }
 
-static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
+Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
         ConstExprValue *parent_type_val, bool *is_zero_bits)
 {
     Error err;

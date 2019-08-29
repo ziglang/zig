@@ -75,6 +75,7 @@ enum Error {
     ErrorOperationAborted,
     ErrorBrokenPipe,
     ErrorNoSpaceLeft,
+    ErrorNotLazy,
 };
 
 // ABI warning

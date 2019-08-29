@@ -249,6 +249,8 @@ bool fn_is_async(ZigFn *fn);
 Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align);
 Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
         size_t *abi_size, size_t *size_in_bits);
+Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
+        ConstExprValue *parent_type_val, bool *is_zero_bits);
 ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
 ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 

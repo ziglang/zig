@@ -12932,7 +12932,52 @@ static bool optional_value_is_null(ConstExprValue *val) {
     }
 }
 
+// Returns ErrorNotLazy when the value cannot be determined
+static Error lazy_cmp_zero(AstNode *source_node, ConstExprValue *val, Cmp *result) {
+    Error err;
+
+    switch (val->special) {
+        case ConstValSpecialRuntime:
+        case ConstValSpecialUndef:
+            return ErrorNotLazy;
+        case ConstValSpecialStatic:
+            switch (val->type->id) {
+                case ZigTypeIdComptimeInt:
+                case ZigTypeIdInt:
+                    *result = bigint_cmp_zero(&val->data.x_bigint);
+                    return ErrorNone;
+                default:
+                    return ErrorNotLazy;
+            }
+        case ConstValSpecialLazy:
+            switch (val->data.x_lazy->id) {
+                case LazyValueIdInvalid:
+                    zig_unreachable();
+                case LazyValueIdAlignOf:
+                    *result = CmpGT;
+                    return ErrorNone;
+                case LazyValueIdSizeOf: {
+                    LazyValueSizeOf *lazy_size_of = reinterpret_cast<LazyValueSizeOf *>(val->data.x_lazy);
+                    IrAnalyze *ira = lazy_size_of->ira;
+                    bool is_zero_bits;
+                    if ((err = type_val_resolve_zero_bits(ira->codegen, &lazy_size_of->target_type->value,
+                        nullptr, nullptr, &is_zero_bits)))
+                    {
+                        return err;
+                    }
+                    *result = is_zero_bits ? CmpEQ : CmpGT;
+                    return ErrorNone;
+                }
+                default:
+                    return ErrorNotLazy;
+            }
+    }
+    zig_unreachable();
+}
+
 static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
+    Error err;
+
     IrInstruction *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value.type))
         return ira->codegen->invalid_instruction;
@@ -13182,6 +13227,50 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     }
 
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
+        {
+            // Before resolving the values, we special case comparisons against zero. These can often be done
+            // without resolving lazy values, preventing potential dependency loops.
+            Cmp op1_cmp_zero;
+            if ((err = lazy_cmp_zero(bin_op_instruction->base.source_node, &casted_op1->value, &op1_cmp_zero))) {
+                if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
+                return ira->codegen->invalid_instruction;
+            }
+            Cmp op2_cmp_zero;
+            if ((err = lazy_cmp_zero(bin_op_instruction->base.source_node, &casted_op2->value, &op2_cmp_zero))) {
+                if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
+                return ira->codegen->invalid_instruction;
+            }
+            bool can_cmp_zero = false;
+            Cmp cmp_result;
+            if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpEQ) {
+                can_cmp_zero = true;
+                cmp_result = CmpEQ;
+            } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpEQ) {
+                can_cmp_zero = true;
+                cmp_result = CmpGT;
+            } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpGT) {
+                can_cmp_zero = true;
+                cmp_result = CmpLT;
+            } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpEQ) {
+                can_cmp_zero = true;
+                cmp_result = CmpLT;
+            } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpLT) {
+                can_cmp_zero = true;
+                cmp_result = CmpGT;
+            } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpGT) {
+                can_cmp_zero = true;
+                cmp_result = CmpLT;
+            } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpLT) {
+                can_cmp_zero = true;
+                cmp_result = CmpGT;
+            }
+            if (can_cmp_zero) {
+                bool answer = resolve_cmp_op_id(op_id, cmp_result);
+                return ir_const_bool(ira, &bin_op_instruction->base, answer);
+            }
+        }
+never_mind_just_calculate_it_normally:
+
         ConstExprValue *op1_val = one_possible_value ? &casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
             return ira->codegen->invalid_instruction;
