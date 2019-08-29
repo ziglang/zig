@@ -55,7 +55,7 @@ brew install cmake llvm@8
 brew outdated llvm@8 || brew upgrade llvm@8
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/Cellar/llvm/8.0.0_1
+cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)
 make install
 ```
 
