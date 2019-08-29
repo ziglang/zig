@@ -16899,12 +16899,6 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
-    if ((err = type_resolve(ira->codegen, return_type->data.pointer.child_type, ResolveStatusSizeKnown)))
-        return ira->codegen->invalid_instruction;
-
-    uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
-    uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
-    uint64_t ptr_align = get_ptr_align(ira->codegen, return_type);
     if (instr_is_comptime(casted_elem_index)) {
         uint64_t index = bigint_as_u64(&casted_elem_index->value.data.x_bigint);
         if (array_type->id == ZigTypeIdArray) {
@@ -16918,8 +16912,16 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             safety_check_on = false;
         }
 
-        {
+        if (return_type->data.pointer.explicit_alignment != 0) {
             // figure out the largest alignment possible
+
+            if ((err = type_resolve(ira->codegen, return_type->data.pointer.child_type, ResolveStatusSizeKnown)))
+                return ira->codegen->invalid_instruction;
+
+            uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
+            uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
+            uint64_t ptr_align = get_ptr_align(ira->codegen, return_type);
+
             uint64_t chosen_align = abi_align;
             if (ptr_align >= abi_align) {
                 while (ptr_align > abi_align) {
@@ -17148,15 +17150,24 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         case ReqCompTimeNo:
             break;
         }
-        if (ptr_align < abi_align) {
-            if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
-                return_type = adjust_ptr_align(ira->codegen, return_type, ptr_align);
+
+        if (return_type->data.pointer.explicit_alignment != 0) {
+            if ((err = type_resolve(ira->codegen, return_type->data.pointer.child_type, ResolveStatusSizeKnown)))
+                return ira->codegen->invalid_instruction;
+
+            uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
+            uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
+            uint64_t ptr_align = get_ptr_align(ira->codegen, return_type);
+            if (ptr_align < abi_align) {
+                if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+                    return_type = adjust_ptr_align(ira->codegen, return_type, ptr_align);
+                } else {
+                    // can't get here because guaranteed elem_size >= abi_align
+                    zig_unreachable();
+                }
             } else {
-                // can't get here because guaranteed elem_size >= abi_align
-                zig_unreachable();
+                return_type = adjust_ptr_align(ira->codegen, return_type, abi_align);
             }
-        } else {
-            return_type = adjust_ptr_align(ira->codegen, return_type, abi_align);
         }
     }
 

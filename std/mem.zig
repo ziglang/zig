@@ -75,15 +75,16 @@ pub const Allocator = struct {
         new_alignment: u29,
     ) []u8,
 
-    /// Call `destroy` with the result.
-    /// Returns undefined memory.
+    /// Returns a pointer to undefined memory.
+    /// Call `destroy` with the result to free the memory.
     pub fn create(self: *Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
-    /// `ptr` should be the return value of `create`
+    /// `ptr` should be the return value of `create`, or otherwise
+    /// have the same address and alignment property.
     pub fn destroy(self: *Allocator, ptr: var) void {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
@@ -92,7 +93,7 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
-    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
+    pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
@@ -101,7 +102,7 @@ pub const Allocator = struct {
         comptime T: type,
         comptime alignment: u29,
         n: usize,
-    ) ![]align(alignment) T {
+    ) Error![]align(alignment) T {
         if (n == 0) {
             return ([*]align(alignment) T)(undefined)[0..0];
         }
