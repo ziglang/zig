@@ -1214,6 +1214,7 @@ struct ZigTypeStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
     RootStruct *root_struct;
     uint32_t *host_int_bytes; // available for packed structs, indexed by gen_index
+    size_t llvm_full_type_queue_index;
 
     uint32_t src_field_count;
     uint32_t gen_field_count;
@@ -1861,6 +1862,7 @@ struct CodeGen {
     ZigList<ErrorTableEntry *> errors_by_index;
     ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
+    ZigList<ZigType *> type_resolve_stack;
 
     ZigPackage *std_package;
     ZigPackage *panic_package;

@@ -7271,7 +7271,13 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             di_scope, di_file, line);
 
         struct_type->data.structure.resolve_status = ResolveStatusLLVMFwdDecl;
-        if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
+        if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) {
+            struct_type->data.structure.llvm_full_type_queue_index = g->type_resolve_stack.length;
+            g->type_resolve_stack.append(struct_type);
+            return;
+        } else {
+            struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
+        }
     }
 
     size_t field_count = struct_type->data.structure.src_field_count;
@@ -7475,6 +7481,13 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->llvm_di_type, replacement_di_type);
     struct_type->llvm_di_type = replacement_di_type;
     struct_type->data.structure.resolve_status = ResolveStatusLLVMFull;
+    if (struct_type->data.structure.llvm_full_type_queue_index != SIZE_MAX) {
+        ZigType *last = g->type_resolve_stack.last();
+        assert(last->id == ZigTypeIdStruct);
+        last->data.structure.llvm_full_type_queue_index = struct_type->data.structure.llvm_full_type_queue_index;
+        g->type_resolve_stack.swap_remove(struct_type->data.structure.llvm_full_type_queue_index);
+        struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
+    }
 }
 
 static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatus wanted_resolve_status) {

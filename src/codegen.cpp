@@ -7208,6 +7208,12 @@ static void do_code_gen(CodeGen *g) {
         LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
     }
 
+    while (g->type_resolve_stack.length != 0) {
+        ZigType *ty = g->type_resolve_stack.last();
+        if (type_resolve(g, ty, ResolveStatusLLVMFull))
+            zig_unreachable();
+    }
+
     ZigLLVMDIBuilderFinalize(g->dbuilder);
 
     if (g->verbose_llvm_ir) {
