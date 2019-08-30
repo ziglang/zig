@@ -150,9 +150,9 @@ pub fn initTLS() void {
     if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
         if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
             // If the CPU does not support TLS via a coprocessor register,
-            // it could be accessed via a kernel helper function
-            // see musl/src/thread/arm/ for details
-            @panic("cpu does not support TLS via coprocessor register");
+            // a kernel helper function can be used instead on certain linux kernels.
+            // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
+            @panic("TODO: Implement ARM fallback TLS functionality");
         }
     }
 
