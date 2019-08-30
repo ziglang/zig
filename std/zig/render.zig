@@ -276,7 +276,6 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
                 } else {
                     try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
                 }
-
             } else if (field.type_expr == null and field.value_expr != null) {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.Space); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // =
