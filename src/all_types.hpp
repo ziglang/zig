@@ -36,6 +36,7 @@ struct IrInstruction;
 struct IrInstructionCast;
 struct IrInstructionAllocaGen;
 struct IrInstructionCallGen;
+struct IrInstructionAwaitGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -1486,6 +1487,7 @@ struct ZigFn {
     AstNode **param_source_nodes;
     Buf **param_names;
     IrInstruction *err_code_spill;
+    AstNode *assumed_non_async;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -1503,6 +1505,7 @@ struct ZigFn {
 
     ZigList<GlobalExport> export_list;
     ZigList<IrInstructionCallGen *> call_list;
+    ZigList<IrInstructionAwaitGen *> await_list;
 
     LLVMValueRef valgrind_client_request_array;
 
@@ -3717,6 +3720,7 @@ struct IrInstructionAwaitGen {
 
     IrInstruction *frame;
     IrInstruction *result_loc;
+    ZigFn *target_fn;
 };
 
 struct IrInstructionResume {

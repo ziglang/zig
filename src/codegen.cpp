@@ -3924,7 +3924,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMBuildStore(g->builder, awaiter_init_val, awaiter_ptr);
 
         if (ret_has_bits) {
-            LLVMValueRef ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
+            ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
             LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start, "");
             LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
 
@@ -4066,6 +4066,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (handle_is_ptr(src_return_type)) {
         LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);
         LLVMSetAlignment(store_instr, get_ptr_align(g, instruction->result_loc->value.type));
+        return result_loc;
+    } else if (!callee_is_async && instruction->is_async) {
+        LLVMBuildStore(g->builder, result, ret_ptr);
         return result_loc;
     } else {
         return result;
@@ -5498,12 +5501,58 @@ static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutable *executabl
     return nullptr;
 }
 
+static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
+        LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
+        LLVMValueRef result_loc, bool non_async)
+{
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef their_result_ptr = nullptr;
+    if (type_has_bits(result_type) && (non_async || result_loc != nullptr)) {
+        LLVMValueRef their_result_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start, "");
+        their_result_ptr = LLVMBuildLoad(g->builder, their_result_ptr_ptr, "");
+        if (result_loc != nullptr) {
+            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+            LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, result_loc, ptr_u8, "");
+            LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, their_result_ptr, ptr_u8, "");
+            bool is_volatile = false;
+            uint32_t abi_align = get_abi_alignment(g, result_type);
+            LLVMValueRef byte_count_val = LLVMConstInt(usize_type_ref, type_size(g, result_type), false);
+            ZigLLVMBuildMemCpy(g->builder,
+                    dest_ptr_casted, abi_align,
+                    src_ptr_casted, abi_align, byte_count_val, is_volatile);
+        }
+    }
+    if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
+        LLVMValueRef their_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
+                frame_index_trace_arg(g, result_type), "");
+        LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, their_trace_ptr_ptr, "");
+        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope);
+        LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
+        ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    }
+    if (non_async && type_has_bits(result_type)) {
+        LLVMValueRef result_ptr = (result_loc == nullptr) ? their_result_ptr : result_loc;
+        return get_handle_value(g, result_ptr, result_type, ptr_result_type);
+    } else {
+        return nullptr;
+    }
+}
+
 static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInstructionAwaitGen *instruction) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
     ZigType *result_type = instruction->base.value.type;
     ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
+
+    LLVMValueRef result_loc = (instruction->result_loc == nullptr) ?
+        nullptr : ir_llvm_value(g, instruction->result_loc);
+
+    if (instruction->target_fn != nullptr && !fn_is_async(instruction->target_fn)) {
+        return gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type,
+                ptr_result_type, result_loc, true);
+    }
 
     // Prepare to be suspended
     LLVMBasicBlockRef resume_bb = gen_suspend_begin(g, "AwaitResume");
@@ -5512,9 +5561,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // At this point resuming the function will continue from resume_bb.
     // This code is as if it is running inside the suspend block.
 
+
     // supply the awaiter return pointer
-    LLVMValueRef result_loc = (instruction->result_loc == nullptr) ?
-        nullptr : ir_llvm_value(g, instruction->result_loc);
     if (type_has_bits(result_type)) {
         LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start + 1, "");
         if (result_loc == nullptr) {
@@ -5562,28 +5610,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // Early return: The async function has already completed. We must copy the result and
     // the error return trace if applicable.
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
-    if (type_has_bits(result_type) && result_loc != nullptr) {
-        LLVMValueRef their_result_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start, "");
-        LLVMValueRef their_result_ptr = LLVMBuildLoad(g->builder, their_result_ptr_ptr, "");
-        LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-        LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, result_loc, ptr_u8, "");
-        LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, their_result_ptr, ptr_u8, "");
-        bool is_volatile = false;
-        uint32_t abi_align = get_abi_alignment(g, result_type);
-        LLVMValueRef byte_count_val = LLVMConstInt(usize_type_ref, type_size(g, result_type), false);
-        ZigLLVMBuildMemCpy(g->builder,
-                dest_ptr_casted, abi_align,
-                src_ptr_casted, abi_align, byte_count_val, is_volatile);
-    }
-    if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
-        LLVMValueRef their_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
-                frame_index_trace_arg(g, result_type), "");
-        LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, their_trace_ptr_ptr, "");
-        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, instruction->base.scope);
-        LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
-        ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
-                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
-    }
+    gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type, ptr_result_type,
+            result_loc, false);
     LLVMBuildBr(g->builder, end_bb);
 
     LLVMPositionBuilderAtEnd(g->builder, resume_bb);

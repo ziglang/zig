@@ -3268,7 +3268,7 @@ static IrInstruction *ir_build_await_src(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_await_gen(IrAnalyze *ira, IrInstruction *source_instruction,
+static IrInstructionAwaitGen *ir_build_await_gen(IrAnalyze *ira, IrInstruction *source_instruction,
         IrInstruction *frame, ZigType *result_type, IrInstruction *result_loc)
 {
     IrInstructionAwaitGen *instruction = ir_build_instruction<IrInstructionAwaitGen>(&ira->new_irb,
@@ -3280,7 +3280,7 @@ static IrInstruction *ir_build_await_gen(IrAnalyze *ira, IrInstruction *source_i
     ir_ref_instruction(frame, ira->new_irb.current_basic_block);
     if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
-    return &instruction->base;
+    return instruction;
 }
 
 static IrInstruction *ir_build_resume(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *frame) {
@@ -24763,10 +24763,12 @@ static IrInstruction *ir_analyze_instruction_suspend_finish(IrAnalyze *ira,
 }
 
 static IrInstruction *analyze_frame_ptr_to_anyframe_T(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *frame_ptr)
+        IrInstruction *frame_ptr, ZigFn **target_fn)
 {
     if (type_is_invalid(frame_ptr->value.type))
         return ira->codegen->invalid_instruction;
+
+    *target_fn = nullptr;
 
     ZigType *result_type;
     IrInstruction *frame;
@@ -24774,7 +24776,9 @@ static IrInstruction *analyze_frame_ptr_to_anyframe_T(IrAnalyze *ira, IrInstruct
         frame_ptr->value.type->data.pointer.ptr_len == PtrLenSingle &&
         frame_ptr->value.type->data.pointer.child_type->id == ZigTypeIdFnFrame)
     {
-        result_type = frame_ptr->value.type->data.pointer.child_type->data.frame.fn->type_entry->data.fn.fn_type_id.return_type;
+        ZigFn *func = frame_ptr->value.type->data.pointer.child_type->data.frame.fn;
+        result_type = func->type_entry->data.fn.fn_type_id.return_type;
+        *target_fn = func;
         frame = frame_ptr;
     } else {
         frame = ir_get_deref(ira, source_instr, frame_ptr, nullptr);
@@ -24782,7 +24786,9 @@ static IrInstruction *analyze_frame_ptr_to_anyframe_T(IrAnalyze *ira, IrInstruct
             frame->value.type->data.pointer.ptr_len == PtrLenSingle &&
             frame->value.type->data.pointer.child_type->id == ZigTypeIdFnFrame)
         {
-            result_type = frame->value.type->data.pointer.child_type->data.frame.fn->type_entry->data.fn.fn_type_id.return_type;
+            ZigFn *func = frame->value.type->data.pointer.child_type->data.frame.fn;
+            result_type = func->type_entry->data.fn.fn_type_id.return_type;
+            *target_fn = func;
         } else if (frame->value.type->id != ZigTypeIdAnyFrame ||
             frame->value.type->data.any_frame.result_type == nullptr)
         {
@@ -24803,7 +24809,11 @@ static IrInstruction *analyze_frame_ptr_to_anyframe_T(IrAnalyze *ira, IrInstruct
 }
 
 static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstructionAwaitSrc *instruction) {
-    IrInstruction *frame = analyze_frame_ptr_to_anyframe_T(ira, &instruction->base, instruction->frame->child);
+    IrInstruction *operand = instruction->frame->child;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->invalid_instruction;
+    ZigFn *target_fn;
+    IrInstruction *frame = analyze_frame_ptr_to_anyframe_T(ira, &instruction->base, operand, &target_fn);
     if (type_is_invalid(frame->value.type))
         return ira->codegen->invalid_instruction;
 
@@ -24812,8 +24822,11 @@ static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstruction
     ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
     ir_assert(fn_entry != nullptr, &instruction->base);
 
-    if (fn_entry->inferred_async_node == nullptr) {
-        fn_entry->inferred_async_node = instruction->base.source_node;
+    // If it's not @Frame(func) then it's definitely a suspend point
+    if (target_fn == nullptr) {
+        if (fn_entry->inferred_async_node == nullptr) {
+            fn_entry->inferred_async_node = instruction->base.source_node;
+        }
     }
 
     if (type_can_fail(result_type)) {
@@ -24830,8 +24843,10 @@ static IrInstruction *ir_analyze_instruction_await(IrAnalyze *ira, IrInstruction
         result_loc = nullptr;
     }
 
-    IrInstruction *result = ir_build_await_gen(ira, &instruction->base, frame, result_type, result_loc);
-    return ir_finish_anal(ira, result);
+    IrInstructionAwaitGen *result = ir_build_await_gen(ira, &instruction->base, frame, result_type, result_loc);
+    result->target_fn = target_fn;
+    fn_entry->await_list.append(result);
+    return ir_finish_anal(ira, &result->base);
 }
 
 static IrInstruction *ir_analyze_instruction_resume(IrAnalyze *ira, IrInstructionResume *instruction) {

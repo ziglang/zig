@@ -31,6 +31,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status);
 static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope);
 static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace, ScopeDecls *dest_decls_scope);
+static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame);
 
 // nullptr means not analyzed yet; this one means currently being analyzed
 static const AstNode *inferred_async_checking = reinterpret_cast<AstNode *>(0x1);
@@ -4196,6 +4197,54 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     }
 }
 
+// ErrorNone - not async
+// ErrorIsAsync - yes async
+// ErrorSemanticAnalyzeFail - compile error emitted result is invalid
+static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
+        bool must_not_be_async)
+{
+    if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+        return ErrorNone;
+    if (callee->anal_state == FnAnalStateReady) {
+        analyze_fn_body(g, callee);
+        if (callee->anal_state == FnAnalStateInvalid) {
+            return ErrorSemanticAnalyzeFail;
+        }
+    }
+    bool callee_is_async;
+    if (callee->anal_state == FnAnalStateComplete) {
+        analyze_fn_async(g, callee, true);
+        if (callee->anal_state == FnAnalStateInvalid) {
+            return ErrorSemanticAnalyzeFail;
+        }
+        callee_is_async = fn_is_async(callee);
+    } else {
+        // If it's already been determined, use that value. Otherwise
+        // assume non-async, emit an error later if it turned out to be async.
+        if (callee->inferred_async_node == nullptr ||
+            callee->inferred_async_node == inferred_async_checking)
+        {
+            callee->assumed_non_async = call_node;
+            callee_is_async = false;
+        } else {
+            callee_is_async = callee->inferred_async_node != inferred_async_none;
+        }
+    }
+    if (callee_is_async) {
+        fn->inferred_async_node = call_node;
+        fn->inferred_async_fn = callee;
+        if (must_not_be_async) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("function with calling convention '%s' cannot be async",
+                    calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
+            add_async_error_notes(g, msg, fn);
+            return ErrorSemanticAnalyzeFail;
+        }
+        return ErrorIsAsync;
+    }
+    return ErrorNone;
+}
+
 // This function resolves functions being inferred async.
 static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     if (fn->inferred_async_node == inferred_async_checking) {
@@ -4222,47 +4271,40 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
-        ZigFn *callee = call->fn_entry;
-        if (callee == nullptr) {
+        if (call->fn_entry == nullptr) {
             // TODO function pointer call here, could be anything
             continue;
         }
-
-        if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
-            continue;
-        if (callee->anal_state == FnAnalStateReady) {
-            analyze_fn_body(g, callee);
-            if (callee->anal_state == FnAnalStateInvalid) {
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async)) {
+            case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
-            }
+            case ErrorNone:
+                continue;
+            case ErrorIsAsync:
+                if (resolve_frame) {
+                    resolve_async_fn_frame(g, fn);
+                }
+                return;
+            default:
+                zig_unreachable();
         }
-        if (callee->anal_state != FnAnalStateComplete) {
-            add_node_error(g, call->base.source_node,
-                buf_sprintf("call to function '%s' depends on itself", buf_ptr(&callee->symbol_name)));
-            fn->anal_state = FnAnalStateInvalid;
-            return;
-        }
-        analyze_fn_async(g, callee, true);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            fn->anal_state = FnAnalStateInvalid;
-            return;
-        }
-        if (fn_is_async(callee)) {
-            fn->inferred_async_node = call->base.source_node;
-            fn->inferred_async_fn = callee;
-            if (must_not_be_async) {
-                ErrorMsg *msg = add_node_error(g, fn->proto_node,
-                    buf_sprintf("function with calling convention '%s' cannot be async",
-                        calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
-                add_async_error_notes(g, msg, fn);
+    }
+    for (size_t i = 0; i < fn->await_list.length; i += 1) {
+        IrInstructionAwaitGen *await = fn->await_list.at(i);
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async)) {
+            case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
-            }
-            if (resolve_frame) {
-                resolve_async_fn_frame(g, fn);
-            }
-            return;
+            case ErrorNone:
+                continue;
+            case ErrorIsAsync:
+                if (resolve_frame) {
+                    resolve_async_fn_frame(g, fn);
+                }
+                return;
+            default:
+                zig_unreachable();
         }
     }
     fn->inferred_async_node = inferred_async_none;
