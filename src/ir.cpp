@@ -25673,8 +25673,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
                 }
             }
 
-            uint64_t abi_size;
-            uint64_t size_in_bits;
+            size_t abi_size;
+            size_t size_in_bits;
             if ((err = type_val_resolve_abi_size(ira->codegen, source_node, &lazy_size_of->target_type->value,
                             &abi_size, &size_in_bits)))
             {
