@@ -94,24 +94,30 @@ pub const Allocator = struct {
     }
 
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
-        return self.alignedAlloc(T, @alignOf(T), n);
+        return self.alignedAlloc(T, null, n);
     }
 
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
-        comptime alignment: u29,
+        /// null means naturally aligned
+        comptime alignment: ?u29,
         n: usize,
-    ) Error![]align(alignment) T {
+    ) Error![]align(alignment orelse @alignOf(T)) T {
+        const a = if (alignment) |a| blk: {
+            if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
+            break :blk a;
+        } else @alignOf(T);
+
         if (n == 0) {
-            return ([*]align(alignment) T)(undefined)[0..0];
+            return ([*]align(a) T)(undefined)[0..0];
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
+        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
-        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
+        return @bytesToSlice(T, @alignCast(a, byte_slice));
     }
 
     /// This function requests a new byte size for an existing allocation,

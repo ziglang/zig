@@ -12613,9 +12613,26 @@ static bool ir_resolve_const_align(CodeGen *codegen, IrExecutable *exec, AstNode
     return true;
 }
 
-static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out) {
+static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, ZigType *elem_type, uint32_t *out) {
     if (type_is_invalid(value->value.type))
         return false;
+
+    // Look for this pattern: `*align(@alignOf(T)) T`.
+    // This can be resolved to be `*out = 0` without resolving any alignment.
+    if (elem_type != nullptr && value->value.special == ConstValSpecialLazy &&
+        value->value.data.x_lazy->id == LazyValueIdAlignOf)
+    {
+        LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(value->value.data.x_lazy);
+
+        ZigType *lazy_elem_type = ir_resolve_type(lazy_align_of->ira, lazy_align_of->target_type);
+        if (type_is_invalid(lazy_elem_type))
+            return false;
+
+        if (elem_type == lazy_elem_type) {
+            *out = 0;
+            return true;
+        }
+    }
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, get_align_amt_type(ira->codegen));
     if (type_is_invalid(casted_value->value.type))
@@ -14424,7 +14441,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         }
         var->align_bytes = get_abi_alignment(ira->codegen, result_type);
     } else {
-        if (!ir_resolve_align(ira, decl_var_instruction->align_value->child, &var->align_bytes)) {
+        if (!ir_resolve_align(ira, decl_var_instruction->align_value->child, nullptr, &var->align_bytes)) {
             var->var_type = ira->codegen->builtin_types.entry_invalid;
         }
     }
@@ -14879,7 +14896,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
 
             if (alloca_src->base.child == nullptr || is_comptime) {
                 uint32_t align = 0;
-                if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, &align)) {
+                if (alloca_src->align != nullptr && !ir_resolve_align(ira, alloca_src->align->child, nullptr, &align)) {
                     return ira->codegen->invalid_instruction;
                 }
                 IrInstruction *alloca_gen;
@@ -15896,7 +15913,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             copy_const_val(&const_instruction->base.value, align_result, true);
 
             uint32_t align_bytes = 0;
-            ir_resolve_align(ira, &const_instruction->base, &align_bytes);
+            ir_resolve_align(ira, &const_instruction->base, nullptr, &align_bytes);
             impl_fn->align_bytes = align_bytes;
             inst_fn_type_id.alignment = align_bytes;
         }
@@ -23948,7 +23965,7 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
 static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstructionAlignCast *instruction) {
     uint32_t align_bytes;
     IrInstruction *align_bytes_inst = instruction->align_bytes->child;
-    if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
+    if (!ir_resolve_align(ira, align_bytes_inst, nullptr, &align_bytes))
         return ira->codegen->invalid_instruction;
 
     IrInstruction *target = instruction->target->child;
@@ -23974,7 +23991,7 @@ static IrInstruction *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstr
 static IrInstruction *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstructionSetAlignStack *instruction) {
     uint32_t align_bytes;
     IrInstruction *align_bytes_inst = instruction->align_bytes->child;
-    if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
+    if (!ir_resolve_align(ira, align_bytes_inst, nullptr, &align_bytes))
         return ira->codegen->invalid_instruction;
 
     if (align_bytes > 256) {
@@ -25555,7 +25572,7 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
     }
 
     if (lazy_fn_type->align_inst != nullptr) {
-        if (!ir_resolve_align(ira, lazy_fn_type->align_inst, &fn_type_id.alignment))
+        if (!ir_resolve_align(ira, lazy_fn_type->align_inst, nullptr, &fn_type_id.alignment))
             return nullptr;
     }
 
@@ -25690,14 +25707,15 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(val->data.x_lazy);
             IrAnalyze *ira = lazy_slice_type->ira;
 
-            uint32_t align_bytes = 0;
-            if (lazy_slice_type->align_inst != nullptr) {
-                if (!ir_resolve_align(ira, lazy_slice_type->align_inst, &align_bytes))
-                    return ErrorSemanticAnalyzeFail;
-            }
             ZigType *elem_type = ir_resolve_type(ira, lazy_slice_type->elem_type);
             if (type_is_invalid(elem_type))
                 return ErrorSemanticAnalyzeFail;
+
+            uint32_t align_bytes = 0;
+            if (lazy_slice_type->align_inst != nullptr) {
+                if (!ir_resolve_align(ira, lazy_slice_type->align_inst, elem_type, &align_bytes))
+                    return ErrorSemanticAnalyzeFail;
+            }
 
             switch (elem_type->id) {
                 case ZigTypeIdInvalid: // handled above
@@ -25750,14 +25768,15 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(val->data.x_lazy);
             IrAnalyze *ira = lazy_ptr_type->ira;
 
-            uint32_t align_bytes = 0;
-            if (lazy_ptr_type->align_inst != nullptr) {
-                if (!ir_resolve_align(ira, lazy_ptr_type->align_inst, &align_bytes))
-                    return ErrorSemanticAnalyzeFail;
-            }
             ZigType *elem_type = ir_resolve_type(ira, lazy_ptr_type->elem_type);
             if (type_is_invalid(elem_type))
                 return ErrorSemanticAnalyzeFail;
+
+            uint32_t align_bytes = 0;
+            if (lazy_ptr_type->align_inst != nullptr) {
+                if (!ir_resolve_align(ira, lazy_ptr_type->align_inst, elem_type, &align_bytes))
+                    return ErrorSemanticAnalyzeFail;
+            }
 
             if (elem_type->id == ZigTypeIdUnreachable) {
                 ir_add_error(ira, lazy_ptr_type->elem_type,

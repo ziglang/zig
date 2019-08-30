@@ -1,4 +1,5 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 
 var foo: u8 align(4) = 100;
@@ -304,4 +305,26 @@ test "struct field explicit alignment" {
     expect(node.massive_byte == 100);
     comptime expect(@typeOf(&node.massive_byte) == *align(64) u8);
     expect(@ptrToInt(&node.massive_byte) % 64 == 0);
+}
+
+test "align(@alignOf(T)) T does not force resolution of T" {
+    const S = struct {
+        const A = struct {
+            a: *align(@alignOf(A)) A,
+        };
+        fn doTheTest() void {
+            suspend {
+                resume @frame();
+            }
+            _ = bar(@Frame(doTheTest));
+        }
+        fn bar(comptime T: type) *align(@alignOf(T)) T {
+            ok = true;
+            return undefined;
+        }
+
+        var ok = false;
+    };
+    _ = async S.doTheTest();
+    expect(S.ok);
 }
