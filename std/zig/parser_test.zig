@@ -482,6 +482,27 @@ test "zig fmt: if-else with comment before else" {
     );
 }
 
+test "zig fmt: if nested" {
+    try testCanonical(
+        \\pub fn foo() void {
+        \\    return if ((aInt & bInt) >= 0)
+        \\        if (aInt < bInt)
+        \\            GE_LESS
+        \\        else if (aInt == bInt)
+        \\            GE_EQUAL
+        \\        else
+        \\            GE_GREATER
+        \\    else if (aInt > bInt)
+        \\        GE_LESS
+        \\    else if (aInt == bInt)
+        \\        GE_EQUAL
+        \\    else
+        \\        GE_GREATER;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks in if-else" {
     try testCanonical(
         \\comptime {
