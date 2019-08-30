@@ -74,3 +74,18 @@ test "@sizeOf on compile-time types" {
     expect(@sizeOf(@typeOf(.hi)) == 0);
     expect(@sizeOf(@typeOf(type)) == 0);
 }
+
+test "@sizeOf(T) == 0 doesn't force resolving struct size" {
+    const S = struct {
+        const Foo = struct {
+            y: if (@sizeOf(Foo) == 0) u64 else u32,
+        };
+        const Bar = struct {
+            x: i32,
+            y: if (0 == @sizeOf(Bar)) u64 else u32,
+        };
+    };
+
+    expect(@sizeOf(S.Foo) == 4);
+    expect(@sizeOf(S.Bar) == 8);
+}
