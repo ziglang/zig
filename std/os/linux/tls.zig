@@ -147,7 +147,7 @@ pub fn initTLS() void {
     }
 
     // If the cpu is arm-based, check if it supports the TLS register
-    if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
+    if (builtin.arch == builtin.Arch.arm) {
         if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
             // If the CPU does not support TLS via a coprocessor register,
             // a kernel helper function can be used instead on certain linux kernels.
