@@ -36,6 +36,7 @@ struct IrInstruction;
 struct IrInstructionCast;
 struct IrInstructionAllocaGen;
 struct IrInstructionCallGen;
+struct IrInstructionAwaitGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -308,10 +309,12 @@ struct ConstGlobalRefs {
 enum LazyValueId {
     LazyValueIdInvalid,
     LazyValueIdAlignOf,
+    LazyValueIdSizeOf,
     LazyValueIdPtrType,
     LazyValueIdOptType,
     LazyValueIdSliceType,
     LazyValueIdFnType,
+    LazyValueIdErrUnionType,
 };
 
 struct LazyValue {
@@ -319,6 +322,13 @@ struct LazyValue {
 };
 
 struct LazyValueAlignOf {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *target_type;
+};
+
+struct LazyValueSizeOf {
     LazyValue base;
 
     IrAnalyze *ira;
@@ -370,6 +380,14 @@ struct LazyValueFnType {
     IrInstruction *return_type;
 
     bool is_generic;
+};
+
+struct LazyValueErrUnionType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *err_set_type;
+    IrInstruction *payload_type;
 };
 
 struct ConstExprValue {
@@ -1205,6 +1223,7 @@ struct ZigTypeStruct {
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
     RootStruct *root_struct;
     uint32_t *host_int_bytes; // available for packed structs, indexed by gen_index
+    size_t llvm_full_type_queue_index;
 
     uint32_t src_field_count;
     uint32_t gen_field_count;
@@ -1468,6 +1487,7 @@ struct ZigFn {
     AstNode **param_source_nodes;
     Buf **param_names;
     IrInstruction *err_code_spill;
+    AstNode *assumed_non_async;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -1485,6 +1505,7 @@ struct ZigFn {
 
     ZigList<GlobalExport> export_list;
     ZigList<IrInstructionCallGen *> call_list;
+    ZigList<IrInstructionAwaitGen *> await_list;
 
     LLVMValueRef valgrind_client_request_array;
 
@@ -1852,6 +1873,7 @@ struct CodeGen {
     ZigList<ErrorTableEntry *> errors_by_index;
     ZigList<CacheHash *> caches_to_release;
     size_t largest_err_name_len;
+    ZigList<ZigType *> type_resolve_stack;
 
     ZigPackage *std_package;
     ZigPackage *panic_package;
@@ -3698,6 +3720,7 @@ struct IrInstructionAwaitGen {
 
     IrInstruction *frame;
     IrInstruction *result_loc;
+    ZigFn *target_fn;
 };
 
 struct IrInstructionResume {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const mem = std.mem;
 const meta = std.meta;
 
@@ -165,8 +166,17 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Slices are rejected to avoid ambiguity on the user's intention.
 pub fn autoHash(hasher: var, key: var) void {
     const Key = @typeOf(key);
-    if (comptime meta.trait.isSlice(Key))
-        @compileError("std.auto_hash.autoHash does not allow slices (here " ++ @typeName(Key) ++ " because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead.");
+    if (comptime meta.trait.isSlice(Key)) {
+        comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
+        const extra_help = if (Key == []const u8)
+            " Consider std.StringHashMap for hashing the contents of []const u8."
+        else
+            "";
+
+        @compileError("std.auto_hash.autoHash does not allow slices (here " ++ @typeName(Key) ++
+            ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead." ++
+            extra_help);
+    }
 
     hash(hasher, key, .Shallow);
 }

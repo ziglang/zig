@@ -375,3 +375,23 @@ test "implicit cast to optional to error union to return result loc" {
     S.entry();
     //comptime S.entry(); TODO
 }
+
+test "function pointer with return type that is error union with payload which is pointer of parent struct" {
+    const S = struct {
+        const Foo = struct {
+            fun: fn (a: i32) (anyerror!*Foo),
+        };
+
+        const Err = error{UnspecifiedErr};
+
+        fn bar(a: i32) anyerror!*Foo {
+            return Err.UnspecifiedErr;
+        }
+
+        fn doTheTest() void {
+            var x = Foo{ .fun = bar };
+            expectError(error.UnspecifiedErr, x.fun(1));
+        }
+    };
+    S.doTheTest();
+}

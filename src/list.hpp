@@ -74,6 +74,17 @@ struct ZigList {
         capacity = better_capacity;
     }
 
+    T swap_remove(size_t index) {
+        if (length - 1 == index) return pop();
+
+        assert(index != SIZE_MAX);
+        assert(index < length);
+
+        T old_item = items[index];
+        items[index] = pop();
+        return old_item;
+    }
+
     T *items;
     size_t length;
     size_t capacity;

@@ -31,6 +31,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry);
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status);
 static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, ScopeDecls *dest_decls_scope);
 static void resolve_use_decl(CodeGen *g, TldUsingNamespace *tld_using_namespace, ScopeDecls *dest_decls_scope);
+static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame);
 
 // nullptr means not analyzed yet; this one means currently being analyzed
 static const AstNode *inferred_async_checking = reinterpret_cast<AstNode *>(0x1);
@@ -973,7 +974,7 @@ ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, Zig
             nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
 }
 
-static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
+Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
         ConstExprValue *parent_type_val, bool *is_zero_bits)
 {
     Error err;
@@ -997,6 +998,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
@@ -1015,6 +1017,7 @@ static Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, Zi
         }
         case LazyValueIdOptType:
         case LazyValueIdSliceType:
+        case LazyValueIdErrUnionType:
             *is_zero_bits = false;
             return ErrorNone;
         case LazyValueIdFnType: {
@@ -1035,11 +1038,13 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
         case LazyValueIdFnType:
         case LazyValueIdOptType:
+        case LazyValueIdErrUnionType:
             *is_opaque_type = false;
             return ErrorNone;
     }
@@ -1053,6 +1058,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1094,18 +1100,21 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
             }
             return ReqCompTimeNo;
         }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, &lazy_err_union_type->payload_type->value);
+        }
     }
     zig_unreachable();
 }
 
-static Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
         size_t *abi_size, size_t *size_in_bits)
 {
     Error err;
-    if (type_val->data.x_lazy->id == LazyValueIdOptType) {
-        if ((err = ir_resolve_lazy(g, source_node, type_val)))
-            return err;
-    }
+
+start_over:
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         ZigType *ty = type_val->data.x_type;
@@ -1118,18 +1127,51 @@ static Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstEx
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
-        case LazyValueIdSliceType:
-            *abi_size = g->builtin_types.entry_usize->abi_size * 2;
-            *size_in_bits = g->builtin_types.entry_usize->size_in_bits * 2;
+        case LazyValueIdSliceType: {
+            LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
+            bool is_zero_bits;
+            if ((err = type_val_resolve_zero_bits(g, &lazy_slice_type->elem_type->value, nullptr,
+                nullptr, &is_zero_bits)))
+            {
+                return err;
+            }
+            if (is_zero_bits) {
+                *abi_size = g->builtin_types.entry_usize->abi_size;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            } else {
+                *abi_size = g->builtin_types.entry_usize->abi_size * 2;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits * 2;
+            }
             return ErrorNone;
-        case LazyValueIdPtrType:
+        }
+        case LazyValueIdPtrType: {
+            LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
+            bool is_zero_bits;
+            if ((err = type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, nullptr,
+                nullptr, &is_zero_bits)))
+            {
+                return err;
+            }
+            if (is_zero_bits) {
+                *abi_size = 0;
+                *size_in_bits = 0;
+            } else {
+                *abi_size = g->builtin_types.entry_usize->abi_size;
+                *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+            }
+            return ErrorNone;
+        }
         case LazyValueIdFnType:
             *abi_size = g->builtin_types.entry_usize->abi_size;
             *size_in_bits = g->builtin_types.entry_usize->size_in_bits;
             return ErrorNone;
         case LazyValueIdOptType:
-            zig_unreachable();
+        case LazyValueIdErrUnionType:
+            if ((err = ir_resolve_lazy(g, source_node, type_val)))
+                return err;
+            goto start_over;
     }
     zig_unreachable();
 }
@@ -1151,6 +1193,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1160,6 +1203,19 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
             return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
+        }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            uint32_t payload_abi_align;
+            if ((err = type_val_resolve_abi_align(g, &lazy_err_union_type->payload_type->value,
+                            &payload_abi_align)))
+            {
+                return err;
+            }
+            *abi_align = (payload_abi_align > g->err_tag_type->abi_align) ?
+                payload_abi_align : g->err_tag_type->abi_align;
+            return ErrorNone;
         }
     }
     zig_unreachable();
@@ -1172,6 +1228,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
     switch (type_val->data.x_lazy->id) {
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
+        case LazyValueIdSizeOf:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
         case LazyValueIdOptType: // it has the optional bit
@@ -1187,6 +1244,18 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
                 return OnePossibleValueYes;
             } else {
                 return OnePossibleValueNo;
+            }
+        }
+        case LazyValueIdErrUnionType: {
+            LazyValueErrUnionType *lazy_err_union_type =
+                reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
+            switch (type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->err_set_type->value)) {
+                case OnePossibleValueInvalid:
+                    return OnePossibleValueInvalid;
+                case OnePossibleValueNo:
+                    return OnePossibleValueNo;
+                case OnePossibleValueYes:
+                    return type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->payload_type->value);
             }
         }
     }
@@ -4105,8 +4174,14 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     assert(fn->inferred_async_node != inferred_async_checking);
     assert(fn->inferred_async_node != inferred_async_none);
     if (fn->inferred_async_fn != nullptr) {
-        ErrorMsg *new_msg = add_error_note(g, msg, fn->inferred_async_node,
-            buf_sprintf("async function call here"));
+        ErrorMsg *new_msg;
+        if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
+            new_msg = add_error_note(g, msg, fn->inferred_async_node,
+                    buf_create_from_str("await here is a suspend point"));
+        } else {
+            new_msg = add_error_note(g, msg, fn->inferred_async_node,
+                buf_sprintf("async function call here"));
+        }
         return add_async_error_notes(g, new_msg, fn->inferred_async_fn);
     } else if (fn->inferred_async_node->type == NodeTypeFnProto) {
         add_error_note(g, msg, fn->inferred_async_node,
@@ -4116,7 +4191,7 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
             buf_sprintf("suspends here"));
     } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
         add_error_note(g, msg, fn->inferred_async_node,
-            buf_sprintf("await is a suspend point"));
+            buf_sprintf("await here is a suspend point"));
     } else if (fn->inferred_async_node->type == NodeTypeFnCallExpr &&
         fn->inferred_async_node->data.fn_call_expr.is_builtin)
     {
@@ -4126,6 +4201,64 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("suspends here"));
     }
+}
+
+// ErrorNone - not async
+// ErrorIsAsync - yes async
+// ErrorSemanticAnalyzeFail - compile error emitted result is invalid
+static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
+        bool must_not_be_async)
+{
+    if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+        return ErrorNone;
+    if (callee->anal_state == FnAnalStateReady) {
+        analyze_fn_body(g, callee);
+        if (callee->anal_state == FnAnalStateInvalid) {
+            return ErrorSemanticAnalyzeFail;
+        }
+    }
+    bool callee_is_async;
+    if (callee->anal_state == FnAnalStateComplete) {
+        analyze_fn_async(g, callee, true);
+        if (callee->anal_state == FnAnalStateInvalid) {
+            return ErrorSemanticAnalyzeFail;
+        }
+        callee_is_async = fn_is_async(callee);
+    } else {
+        // If it's already been determined, use that value. Otherwise
+        // assume non-async, emit an error later if it turned out to be async.
+        if (callee->inferred_async_node == nullptr ||
+            callee->inferred_async_node == inferred_async_checking)
+        {
+            callee->assumed_non_async = call_node;
+            callee_is_async = false;
+        } else {
+            callee_is_async = callee->inferred_async_node != inferred_async_none;
+        }
+    }
+    if (callee_is_async) {
+        fn->inferred_async_node = call_node;
+        fn->inferred_async_fn = callee;
+        if (must_not_be_async) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("function with calling convention '%s' cannot be async",
+                    calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
+            add_async_error_notes(g, msg, fn);
+            return ErrorSemanticAnalyzeFail;
+        }
+        if (fn->assumed_non_async != nullptr) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("unable to infer whether '%s' should be async",
+                    buf_ptr(&fn->symbol_name)));
+            add_error_note(g, msg, fn->assumed_non_async,
+                buf_sprintf("assumed to be non-async here"));
+            add_async_error_notes(g, msg, fn);
+            fn->anal_state = FnAnalStateInvalid;
+            return ErrorSemanticAnalyzeFail;
+        }
+        return ErrorIsAsync;
+    }
+    return ErrorNone;
 }
 
 // This function resolves functions being inferred async.
@@ -4154,42 +4287,40 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
-        ZigFn *callee = call->fn_entry;
-        if (callee == nullptr) {
+        if (call->fn_entry == nullptr) {
             // TODO function pointer call here, could be anything
             continue;
         }
-
-        if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
-            continue;
-        if (callee->anal_state == FnAnalStateReady) {
-            analyze_fn_body(g, callee);
-            if (callee->anal_state == FnAnalStateInvalid) {
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async)) {
+            case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
-            }
+            case ErrorNone:
+                continue;
+            case ErrorIsAsync:
+                if (resolve_frame) {
+                    resolve_async_fn_frame(g, fn);
+                }
+                return;
+            default:
+                zig_unreachable();
         }
-        assert(callee->anal_state == FnAnalStateComplete);
-        analyze_fn_async(g, callee, true);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            fn->anal_state = FnAnalStateInvalid;
-            return;
-        }
-        if (fn_is_async(callee)) {
-            fn->inferred_async_node = call->base.source_node;
-            fn->inferred_async_fn = callee;
-            if (must_not_be_async) {
-                ErrorMsg *msg = add_node_error(g, fn->proto_node,
-                    buf_sprintf("function with calling convention '%s' cannot be async",
-                        calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
-                add_async_error_notes(g, msg, fn);
+    }
+    for (size_t i = 0; i < fn->await_list.length; i += 1) {
+        IrInstructionAwaitGen *await = fn->await_list.at(i);
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async)) {
+            case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
-            }
-            if (resolve_frame) {
-                resolve_async_fn_frame(g, fn);
-            }
-            return;
+            case ErrorNone:
+                continue;
+            case ErrorIsAsync:
+                if (resolve_frame) {
+                    resolve_async_fn_frame(g, fn);
+                }
+                return;
+            default:
+                zig_unreachable();
         }
     }
     fn->inferred_async_node = inferred_async_none;
@@ -4447,6 +4578,8 @@ void semantic_analyze(CodeGen *g) {
         ZigFn *fn = g->fn_defs.at(g->fn_defs_index);
         g->trace_err = nullptr;
         analyze_fn_async(g, fn, true);
+        if (fn->anal_state == FnAnalStateInvalid)
+            continue;
         if (fn_is_async(fn) && fn->non_async_node != nullptr) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("'%s' cannot be async", buf_ptr(&fn->symbol_name)));
@@ -5599,6 +5732,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             return ErrorSemanticAnalyzeFail;
         }
         analyze_fn_async(g, callee, true);
+        if (callee->inferred_async_node == inferred_async_checking) {
+            assert(g->errors.length != 0);
+            frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
+            return ErrorSemanticAnalyzeFail;
+        }
         if (!fn_is_async(callee))
             continue;
 
@@ -7238,7 +7376,13 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             di_scope, di_file, line);
 
         struct_type->data.structure.resolve_status = ResolveStatusLLVMFwdDecl;
-        if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
+        if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) {
+            struct_type->data.structure.llvm_full_type_queue_index = g->type_resolve_stack.length;
+            g->type_resolve_stack.append(struct_type);
+            return;
+        } else {
+            struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
+        }
     }
 
     size_t field_count = struct_type->data.structure.src_field_count;
@@ -7442,6 +7586,13 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->llvm_di_type, replacement_di_type);
     struct_type->llvm_di_type = replacement_di_type;
     struct_type->data.structure.resolve_status = ResolveStatusLLVMFull;
+    if (struct_type->data.structure.llvm_full_type_queue_index != SIZE_MAX) {
+        ZigType *last = g->type_resolve_stack.last();
+        assert(last->id == ZigTypeIdStruct);
+        last->data.structure.llvm_full_type_queue_index = struct_type->data.structure.llvm_full_type_queue_index;
+        g->type_resolve_stack.swap_remove(struct_type->data.structure.llvm_full_type_queue_index);
+        struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
+    }
 }
 
 static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatus wanted_resolve_status) {

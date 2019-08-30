@@ -292,3 +292,9 @@ test "read/write through global variable array of struct fields initialized via 
     };
     S.doTheTest();
 }
+
+test "implicit cast zero sized array ptr to slice" {
+    var b = "";
+    const c: []const u8 = &b;
+    expect(c.len == 0);
+}

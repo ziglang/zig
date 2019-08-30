@@ -844,3 +844,13 @@ test "cast fn to async fn when it is inferred to be async" {
     resume S.frame;
     expect(S.ok);
 }
+
+test "await does not force async if callee is blocking" {
+    const S = struct {
+        fn simple() i32 {
+            return 1234;
+        }
+    };
+    var x = async S.simple();
+    expect(await x == 1234);
+}
