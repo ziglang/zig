@@ -1521,9 +1521,12 @@ fn renderExpression(
 
             try renderExpression(allocator, stream, tree, indent, start_col, if_node.condition, Space.None); // condition
 
+            const body_is_if_block = if_node.body.id == ast.Node.Id.If;
             const body_is_block = nodeIsBlock(if_node.body);
 
-            if (body_is_block) {
+            if (body_is_if_block) {
+                try renderExtraNewline(tree, stream, start_col, if_node.body);
+            } else if (body_is_block) {
                 const after_rparen_space = if (if_node.payload == null) Space.BlockStart else Space.Space;
                 try renderToken(tree, stream, rparen, indent, start_col, after_rparen_space); // )
 
