@@ -4174,8 +4174,14 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     assert(fn->inferred_async_node != inferred_async_checking);
     assert(fn->inferred_async_node != inferred_async_none);
     if (fn->inferred_async_fn != nullptr) {
-        ErrorMsg *new_msg = add_error_note(g, msg, fn->inferred_async_node,
-            buf_sprintf("async function call here"));
+        ErrorMsg *new_msg;
+        if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
+            new_msg = add_error_note(g, msg, fn->inferred_async_node,
+                    buf_create_from_str("await here is a suspend point"));
+        } else {
+            new_msg = add_error_note(g, msg, fn->inferred_async_node,
+                buf_sprintf("async function call here"));
+        }
         return add_async_error_notes(g, new_msg, fn->inferred_async_fn);
     } else if (fn->inferred_async_node->type == NodeTypeFnProto) {
         add_error_note(g, msg, fn->inferred_async_node,
@@ -4185,7 +4191,7 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
             buf_sprintf("suspends here"));
     } else if (fn->inferred_async_node->type == NodeTypeAwaitExpr) {
         add_error_note(g, msg, fn->inferred_async_node,
-            buf_sprintf("await is a suspend point"));
+            buf_sprintf("await here is a suspend point"));
     } else if (fn->inferred_async_node->type == NodeTypeFnCallExpr &&
         fn->inferred_async_node->data.fn_call_expr.is_builtin)
     {
@@ -4238,6 +4244,16 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
                 buf_sprintf("function with calling convention '%s' cannot be async",
                     calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
             add_async_error_notes(g, msg, fn);
+            return ErrorSemanticAnalyzeFail;
+        }
+        if (fn->assumed_non_async != nullptr) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("unable to infer whether '%s' should be async",
+                    buf_ptr(&fn->symbol_name)));
+            add_error_note(g, msg, fn->assumed_non_async,
+                buf_sprintf("assumed to be non-async here"));
+            add_async_error_notes(g, msg, fn);
+            fn->anal_state = FnAnalStateInvalid;
             return ErrorSemanticAnalyzeFail;
         }
         return ErrorIsAsync;

@@ -273,7 +273,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
-        "tmp.zig:3:18: note: await is a suspend point",
+        "tmp.zig:3:18: note: await here is a suspend point",
     );
 
     cases.add(
@@ -507,11 +507,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@sizeOf bad type",
-        \\export fn entry() void {
-        \\    _ = @sizeOf(@typeOf(null));
+        \\export fn entry() usize {
+        \\    return @sizeOf(@typeOf(null));
         \\}
     ,
-        "tmp.zig:2:17: error: no size available for type '(null)'",
+        "tmp.zig:2:20: error: no size available for type '(null)'",
     );
 
     cases.add(

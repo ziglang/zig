@@ -10640,7 +10640,9 @@ static void ir_finish_bb(IrAnalyze *ira) {
 
 static IrInstruction *ir_unreach_error(IrAnalyze *ira) {
     ira->old_bb_index = SIZE_MAX;
-    assert(ira->new_irb.exec->first_err_trace_msg != nullptr);
+    if (ira->new_irb.exec->first_err_trace_msg == nullptr) {
+        ira->new_irb.exec->first_err_trace_msg = ira->codegen->trace_err;
+    }
     return ira->codegen->unreach_instruction;
 }
 
