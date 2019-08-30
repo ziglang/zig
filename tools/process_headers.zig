@@ -585,10 +585,10 @@ pub fn main() !void {
             var sub_path: []const []const u8 = undefined;
             switch (vendor) {
                 .musl => {
-                    sub_path = [_][]const u8{ search_path, libc_target.name, "usr", "local", "musl", "include" };
+                    sub_path = &[_][]const u8{ search_path, libc_target.name, "usr", "local", "musl", "include" };
                 },
                 .glibc => {
-                    sub_path = [_][]const u8{ search_path, libc_target.name, "usr", "include" };
+                    sub_path = &[_][]const u8{ search_path, libc_target.name, "usr", "include" };
                 },
             }
             const target_include_dir = try std.fs.path.join(allocator, sub_path);
