@@ -3344,6 +3344,7 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
             case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdRuntime:
+            case ScopeIdTypeOf:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -3399,6 +3400,7 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
             case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdRuntime:
+            case ScopeIdTypeOf:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -4379,8 +4381,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             zig_unreachable();
         case BuiltinFnIdTypeof:
             {
+                Scope *sub_scope = create_typeof_scope(irb->codegen, node, scope);
+
                 AstNode *arg_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg = ir_gen_node(irb, arg_node, scope);
+                IrInstruction *arg = ir_gen_node(irb, arg_node, sub_scope);
                 if (arg == irb->codegen->invalid_instruction)
                     return arg;
 
@@ -8268,6 +8272,10 @@ static ConstExprValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec
                     default:
                         break;
                 }
+            }
+            if (get_scope_typeof(instruction->scope) != nullptr) {
+                // doesn't count, it's inside a @typeOf()
+                continue;
             }
             exec_add_error_node(codegen, exec, instruction->source_node,
                     buf_sprintf("unable to evaluate constant expression"));

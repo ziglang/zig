@@ -645,6 +645,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdSuspend:
         case ScopeIdCompTime:
         case ScopeIdRuntime:
+        case ScopeIdTypeOf:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -3757,6 +3758,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdSuspend:
             case ScopeIdCompTime:
             case ScopeIdRuntime:
+            case ScopeIdTypeOf:
                 scope = scope->parent;
                 continue;
         }
@@ -5942,11 +5944,16 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
 
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
+        if (get_scope_typeof(current_block->scope) != nullptr) {
+            LLVMBuildBr(g->builder, current_block->llvm_block);
+        }
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
+                continue;
+            if (get_scope_typeof(instruction->scope) != nullptr)
                 continue;
 
             if (!g->strip_debug_symbols) {

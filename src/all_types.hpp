@@ -2104,6 +2104,7 @@ enum ScopeId {
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdRuntime,
+    ScopeIdTypeOf,
 };
 
 struct Scope {
@@ -2242,6 +2243,13 @@ struct ScopeFnDef {
     Scope base;
 
     ZigFn *fn_entry;
+};
+
+// This scope is created for a @typeOf.
+// All runtime side-effects are elided within it.
+// NodeTypeFnCallExpr
+struct ScopeTypeOf {
+    Scope base;
 };
 
 // synchronized with code in define_builtin_compile_vars

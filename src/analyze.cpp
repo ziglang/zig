@@ -197,6 +197,12 @@ Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
+Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
+    init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
+    return &scope->base;
+}
+
 ZigType *get_scope_import(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDecls) {
@@ -205,6 +211,22 @@ ZigType *get_scope_import(Scope *scope) {
             return decls_scope->import;
         }
         scope = scope->parent;
+    }
+    zig_unreachable();
+}
+
+ScopeTypeOf *get_scope_typeof(Scope *scope) {
+    while (scope) {
+        switch (scope->id) {
+            case ScopeIdTypeOf:
+                return reinterpret_cast<ScopeTypeOf *>(scope);
+            case ScopeIdFnDef:
+            case ScopeIdDecls:
+                return nullptr;
+            default:
+                scope = scope->parent;
+                continue;
+        }
     }
     zig_unreachable();
 }
