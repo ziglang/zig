@@ -854,3 +854,68 @@ test "await does not force async if callee is blocking" {
     var x = async S.simple();
     expect(await x == 1234);
 }
+
+test "recursive async function" {
+    expect(recursiveAsyncFunctionTest(false).doTheTest() == 55);
+    expect(recursiveAsyncFunctionTest(true).doTheTest() == 55);
+}
+
+fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
+    return struct {
+        fn fib(allocator: *std.mem.Allocator, x: u32) error{OutOfMemory}!u32 {
+            if (x <= 1) return x;
+
+            if (suspending_implementation) {
+                suspend {
+                    resume @frame();
+                }
+            }
+
+            const f1 = try allocator.create(@Frame(fib));
+            defer allocator.destroy(f1);
+
+            const f2 = try allocator.create(@Frame(fib));
+            defer allocator.destroy(f2);
+
+            f1.* = async fib(allocator, x - 1);
+            var f1_awaited = false;
+            errdefer if (!f1_awaited) {
+                _ = await f1;
+            };
+
+            f2.* = async fib(allocator, x - 2);
+            var f2_awaited = false;
+            errdefer if (!f2_awaited) {
+                _ = await f2;
+            };
+
+            var sum: u32 = 0;
+
+            f1_awaited = true;
+            const result_f1 = await f1; // TODO https://github.com/ziglang/zig/issues/3077
+            sum += try result_f1;
+
+            f2_awaited = true;
+            const result_f2 = await f2; // TODO https://github.com/ziglang/zig/issues/3077
+            sum += try result_f2;
+
+            return sum;
+        }
+
+        fn doTheTest() u32 {
+            if (suspending_implementation) {
+                var result: u32 = undefined;
+                _ = async amain(&result);
+                return result;
+            } else {
+                return fib(std.heap.direct_allocator, 10) catch unreachable;
+            }
+        }
+
+        fn amain(result: *u32) void {
+            var x = async fib(std.heap.direct_allocator, 10);
+            const res = await x; // TODO https://github.com/ziglang/zig/issues/3077
+            result.* = res catch unreachable;
+        }
+    };
+}

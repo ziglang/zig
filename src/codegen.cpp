@@ -6340,9 +6340,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
     ZigType *type_entry = const_val->type;
     assert(type_has_bits(type_entry));
 
-    switch (const_val->special) {
+check: switch (const_val->special) {
         case ConstValSpecialLazy:
-            zig_unreachable();
+            if ((err = ir_resolve_lazy(g, nullptr, const_val))) {
+                report_errors_and_exit(g);
+            }
+            goto check;
         case ConstValSpecialRuntime:
             zig_unreachable();
         case ConstValSpecialUndef:

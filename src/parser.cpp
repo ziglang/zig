@@ -2075,7 +2075,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc) {
     res->column = first->start_column;
     res->data.param_decl.name = token_buf(name);
     res->data.param_decl.is_noalias = first->id == TokenIdKeywordNoAlias;
-    res->data.param_decl.is_inline = first->id == TokenIdKeywordCompTime;
+    res->data.param_decl.is_comptime = first->id == TokenIdKeywordCompTime;
     return res;
 }
 

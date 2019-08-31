@@ -1051,6 +1051,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = struct {};
         \\export fn a() void {
         \\    const T = [*c]Foo;
+        \\    var t: T = undefined;
         \\}
     ,
         "tmp.zig:3:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
@@ -2290,6 +2291,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "error union operator with non error set LHS",
         \\comptime {
         \\    const z = i32!i32;
+        \\    var x: z = undefined;
         \\}
     ,
         "tmp.zig:2:15: error: expected error set type, found type 'i32'",

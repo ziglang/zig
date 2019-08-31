@@ -9012,7 +9012,42 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         return false;
     }
 
-    ConstExprValue *const_val = ir_resolve_const(ira, instruction, UndefBad);
+    ConstExprValue *const_val = ir_resolve_const(ira, instruction, LazyOkNoUndef);
+    if (const_val == nullptr)
+        return false;
+
+    if (const_val->special == ConstValSpecialLazy) {
+        switch (const_val->data.x_lazy->id) {
+            case LazyValueIdAlignOf: {
+                // This is guaranteed to fit into a u29
+                if (other_type->id == ZigTypeIdComptimeInt)
+                    return true;
+                size_t align_bits = get_align_amt_type(ira->codegen)->data.integral.bit_count;
+                if (other_type->id == ZigTypeIdInt && !other_type->data.integral.is_signed &&
+                    other_type->data.integral.bit_count >= align_bits)
+                {
+                    return true;
+                }
+                break;
+            }
+            case LazyValueIdSizeOf: {
+                // This is guaranteed to fit into a usize
+                if (other_type->id == ZigTypeIdComptimeInt)
+                    return true;
+                size_t usize_bits = ira->codegen->builtin_types.entry_usize->data.integral.bit_count;
+                if (other_type->id == ZigTypeIdInt && !other_type->data.integral.is_signed &&
+                    other_type->data.integral.bit_count >= usize_bits)
+                {
+                    return true;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    const_val = ir_resolve_const(ira, instruction, UndefBad);
     if (const_val == nullptr)
         return false;
 
@@ -10262,7 +10297,7 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
     memcpy(dest, src, sizeof(ConstExprValue));
     if (!same_global_refs) {
         dest->global_refs = global_refs;
-        if (src->special == ConstValSpecialUndef)
+        if (src->special != ConstValSpecialStatic)
             return;
         if (dest->type->id == ZigTypeIdStruct) {
             dest->data.x_struct.fields = create_const_vals(dest->type->data.structure.src_field_count);
@@ -11213,7 +11248,7 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
         return ira->codegen->invalid_instruction;
 
     if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefOk);
+        ConstExprValue *val = ir_resolve_const(ira, value, LazyOk);
         if (!val)
             return ira->codegen->invalid_instruction;
         return ir_get_const_ptr(ira, source_instruction, val, value->value.type,
@@ -12125,7 +12160,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             if (wanted_type->id == ZigTypeIdComptimeInt || wanted_type->id == ZigTypeIdInt) {
                 IrInstruction *result = ir_const(ira, source_instr, wanted_type);
                 if (actual_type->id == ZigTypeIdComptimeInt || actual_type->id == ZigTypeIdInt) {
-                    bigint_init_bigint(&result->value.data.x_bigint, &value->value.data.x_bigint);
+                    copy_const_val(&result->value, &value->value, false);
+                    result->value.type = wanted_type;
                 } else {
                     float_init_bigint(&result->value.data.x_bigint, &value->value);
                 }
@@ -15301,7 +15337,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         }
     }
 
-    bool comptime_arg = param_decl_node->data.param_decl.is_inline ||
+    bool comptime_arg = param_decl_node->data.param_decl.is_comptime ||
         casted_arg->value.type->id == ZigTypeIdComptimeInt || casted_arg->value.type->id == ZigTypeIdComptimeFloat;
 
     ConstExprValue *arg_val;
@@ -17594,6 +17630,11 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
         ConstExprValue *child_val = const_ptr_pointee(ira, ira->codegen, container_ptr_val, source_node);
         if (child_val == nullptr)
             return ira->codegen->invalid_instruction;
+        if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+            field_ptr_instruction->base.source_node, child_val, UndefBad)))
+        {
+            return ira->codegen->invalid_instruction;
+        }
         ZigType *child_type = child_val->data.x_type;
 
         if (type_is_invalid(child_type)) {
@@ -21293,8 +21334,10 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         src_ptr_align = get_abi_alignment(ira->codegen, target->value.type);
     }
 
-    if ((err = type_resolve(ira->codegen, dest_child_type, ResolveStatusSizeKnown)))
-        return ira->codegen->invalid_instruction;
+    if (src_ptr_align != 0) {
+        if ((err = type_resolve(ira->codegen, dest_child_type, ResolveStatusAlignmentKnown)))
+            return ira->codegen->invalid_instruction;
+    }
 
     ZigType *dest_ptr_type = get_pointer_to_type_extra(ira->codegen, dest_child_type,
             src_ptr_const, src_ptr_volatile, PtrLenUnknown,
@@ -21337,6 +21380,8 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
     }
 
     if (have_known_len) {
+        if ((err = type_resolve(ira->codegen, dest_child_type, ResolveStatusSizeKnown)))
+            return ira->codegen->invalid_instruction;
         uint64_t child_type_size = type_size(ira->codegen, dest_child_type);
         uint64_t remainder = known_len % child_type_size;
         if (remainder != 0) {
@@ -23963,13 +24008,21 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
 }
 
 static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstructionAlignCast *instruction) {
-    uint32_t align_bytes;
-    IrInstruction *align_bytes_inst = instruction->align_bytes->child;
-    if (!ir_resolve_align(ira, align_bytes_inst, nullptr, &align_bytes))
-        return ira->codegen->invalid_instruction;
-
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *elem_type = nullptr;
+    if (is_slice(target->value.type)) {
+        ZigType *slice_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        elem_type = slice_ptr_type->data.pointer.child_type;
+    } else if (target->value.type->id == ZigTypeIdPointer) {
+        elem_type = target->value.type->data.pointer.child_type;
+    }
+
+    uint32_t align_bytes;
+    IrInstruction *align_bytes_inst = instruction->align_bytes->child;
+    if (!ir_resolve_align(ira, align_bytes_inst, elem_type, &align_bytes))
         return ira->codegen->invalid_instruction;
 
     IrInstruction *result = ir_align_cast(ira, target, align_bytes, true);
@@ -25644,7 +25697,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             }
 
             val->special = ConstValSpecialStatic;
-            assert(val->type->id == ZigTypeIdComptimeInt);
+            assert(val->type->id == ZigTypeIdComptimeInt || val->type->id == ZigTypeIdInt);
             bigint_init_unsigned(&val->data.x_bigint, align_in_bytes);
             return ErrorNone;
         }
@@ -25699,7 +25752,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             }
 
             val->special = ConstValSpecialStatic;
-            assert(val->type->id == ZigTypeIdComptimeInt);
+            assert(val->type->id == ZigTypeIdComptimeInt || val->type->id == ZigTypeIdInt);
             bigint_init_unsigned(&val->data.x_bigint, abi_size);
             return ErrorNone;
         }
@@ -25885,7 +25938,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
 Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ConstExprValue *val) {
     Error err;
     if ((err = ir_resolve_lazy_raw(source_node, val))) {
-        if (codegen->trace_err != nullptr && !source_node->already_traced_this_node) {
+        if (codegen->trace_err != nullptr && source_node != nullptr && !source_node->already_traced_this_node) {
             source_node->already_traced_this_node = true;
             codegen->trace_err = add_error_note(codegen, codegen->trace_err, source_node,
                 buf_create_from_str("referenced here"));

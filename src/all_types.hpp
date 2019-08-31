@@ -627,7 +627,7 @@ struct AstNodeParamDecl {
     AstNode *type;
     Token *var_token;
     bool is_noalias;
-    bool is_inline;
+    bool is_comptime;
     bool is_var_args;
 };
 
