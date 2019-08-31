@@ -3,6 +3,22 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "wrong type for result ptr to @asyncCall",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\fn amain() i32 {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    return await @asyncCall(&frame, false, foo);
+        \\}
+        \\fn foo() i32 {
+        \\    return 1234;
+        \\}
+    ,
+        "tmp.zig:6:37: error: expected type '*i32', found 'bool'",
+    );
+
+    cases.add(
         "struct depends on itself via optional field",
         \\const LhsExpr = struct {
         \\    rhsExpr: ?AstObject,

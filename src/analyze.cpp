@@ -5727,6 +5727,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
+        if (call->new_stack != nullptr) {
+            // don't need to allocate a frame for this
+            continue;
+        }
         ZigFn *callee = call->fn_entry;
         if (callee == nullptr) {
             add_node_error(g, call->base.source_node,

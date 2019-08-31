@@ -2719,6 +2719,7 @@ struct IrInstructionCallSrc {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
     bool is_comptime;
 };
 
@@ -2735,6 +2736,7 @@ struct IrInstructionCallGen {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
 };
 
 struct IrInstructionConst {
