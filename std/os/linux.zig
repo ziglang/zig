@@ -550,11 +550,11 @@ pub fn getegid() u32 {
 }
 
 pub fn seteuid(euid: u32) usize {
-    return syscall1(SYS_seteuid, euid);
+    return setreuid(std.math.maxInt(u32), euid);
 }
 
 pub fn setegid(egid: u32) usize {
-    return syscall1(SYS_setegid, egid);
+    return setregid(std.math.maxInt(u32), egid);
 }
 
 pub fn getresuid(ruid: *u32, euid: *u32, suid: *u32) usize {
