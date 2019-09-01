@@ -331,8 +331,9 @@ test "async fn with inferred error set" {
 
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
-            var result: anyerror!void = undefined;
-            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, middle);
+            var fn_ptr = middle;
+            var result: @typeOf(fn_ptr).ReturnType.ErrorSet!void = undefined;
+            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, fn_ptr);
             resume global_frame;
             std.testing.expectError(error.Fail, result);
         }
@@ -828,6 +829,34 @@ test "cast fn to async fn when it is inferred to be async" {
             ptr = func;
             var buf: [100]u8 align(16) = undefined;
             var result: i32 = undefined;
+            const f = @asyncCall(&buf, &result, ptr);
+            _ = await f;
+            expect(result == 1234);
+            ok = true;
+        }
+
+        fn func() i32 {
+            suspend {
+                frame = @frame();
+            }
+            return 1234;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.frame;
+    expect(S.ok);
+}
+
+test "cast fn to async fn when it is inferred to be async, awaited directly" {
+    const S = struct {
+        var frame: anyframe = undefined;
+        var ok = false;
+
+        fn doTheTest() void {
+            var ptr: async fn () i32 = undefined;
+            ptr = func;
+            var buf: [100]u8 align(16) = undefined;
+            var result: i32 = undefined;
             _ = await @asyncCall(&buf, &result, ptr);
             expect(result == 1234);
             ok = true;
@@ -853,4 +882,152 @@ test "await does not force async if callee is blocking" {
     };
     var x = async S.simple();
     expect(await x == 1234);
+}
+
+test "recursive async function" {
+    expect(recursiveAsyncFunctionTest(false).doTheTest() == 55);
+    expect(recursiveAsyncFunctionTest(true).doTheTest() == 55);
+}
+
+fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
+    return struct {
+        fn fib(allocator: *std.mem.Allocator, x: u32) error{OutOfMemory}!u32 {
+            if (x <= 1) return x;
+
+            if (suspending_implementation) {
+                suspend {
+                    resume @frame();
+                }
+            }
+
+            const f1 = try allocator.create(@Frame(fib));
+            defer allocator.destroy(f1);
+
+            const f2 = try allocator.create(@Frame(fib));
+            defer allocator.destroy(f2);
+
+            f1.* = async fib(allocator, x - 1);
+            var f1_awaited = false;
+            errdefer if (!f1_awaited) {
+                _ = await f1;
+            };
+
+            f2.* = async fib(allocator, x - 2);
+            var f2_awaited = false;
+            errdefer if (!f2_awaited) {
+                _ = await f2;
+            };
+
+            var sum: u32 = 0;
+
+            f1_awaited = true;
+            const result_f1 = await f1; // TODO https://github.com/ziglang/zig/issues/3077
+            sum += try result_f1;
+
+            f2_awaited = true;
+            const result_f2 = await f2; // TODO https://github.com/ziglang/zig/issues/3077
+            sum += try result_f2;
+
+            return sum;
+        }
+
+        fn doTheTest() u32 {
+            if (suspending_implementation) {
+                var result: u32 = undefined;
+                _ = async amain(&result);
+                return result;
+            } else {
+                return fib(std.heap.direct_allocator, 10) catch unreachable;
+            }
+        }
+
+        fn amain(result: *u32) void {
+            var x = async fib(std.heap.direct_allocator, 10);
+            const res = await x; // TODO https://github.com/ziglang/zig/issues/3077
+            result.* = res catch unreachable;
+        }
+    };
+}
+
+test "@asyncCall with comptime-known function, but not awaited directly" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            var frame: [1]@Frame(middle) = undefined;
+            var result: @typeOf(middle).ReturnType.ErrorSet!void = undefined;
+            _ = @asyncCall(@sliceToBytes(frame[0..]), &result, middle);
+            resume global_frame;
+            std.testing.expectError(error.Fail, result);
+        }
+
+        async fn middle() !void {
+            var f = async middle2();
+            return await f;
+        }
+
+        fn middle2() !void {
+            return failing();
+        }
+
+        fn failing() !void {
+            global_frame = @frame();
+            suspend;
+            return error.Fail;
+        }
+    };
+    S.doTheTest();
+}
+
+test "@asyncCall with actual frame instead of byte buffer" {
+    const S = struct {
+        fn func() i32 {
+            suspend;
+            return 1234;
+        }
+    };
+    var frame: @Frame(S.func) = undefined;
+    var result: i32 = undefined;
+    const ptr = @asyncCall(&frame, &result, S.func);
+    resume ptr;
+    expect(result == 1234);
+}
+
+test "@asyncCall using the result location inside the frame" {
+    const S = struct {
+        async fn simple2(y: *i32) i32 {
+            defer y.* += 2;
+            y.* += 1;
+            suspend;
+            return 1234;
+        }
+        fn getAnswer(f: anyframe->i32, out: *i32) void {
+            var res = await f; // TODO https://github.com/ziglang/zig/issues/3077
+            out.* = res;
+        }
+    };
+    var data: i32 = 1;
+    const Foo = struct {
+        bar: async fn (*i32) i32,
+    };
+    var foo = Foo{ .bar = S.simple2 };
+    var bytes: [64]u8 align(16) = undefined;
+    const f = @asyncCall(&bytes, {}, foo.bar, &data);
+    comptime expect(@typeOf(f) == anyframe->i32);
+    expect(data == 2);
+    resume f;
+    expect(data == 4);
+    _ = async S.getAnswer(f, &data);
+    expect(data == 1234);
+}
+
+test "@typeOf an async function call of generic fn with error union type" {
+    const S = struct {
+        fn func(comptime x: var) anyerror!i32 {
+            const T = @typeOf(async func(x));
+            comptime expect(T == @typeOf(@frame()).Child);
+            return undefined;
+        }
+    };
+    _ = async S.func(i32);
 }

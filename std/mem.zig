@@ -117,7 +117,15 @@ pub const Allocator = struct {
         const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
-        return @bytesToSlice(T, @alignCast(a, byte_slice));
+        if (alignment == null) {
+            // TODO This is a workaround for zig not being able to successfully do
+            // @bytesToSlice(T, @alignCast(a, byte_slice)) without resolving alignment of T,
+            // which causes a circular dependency in async functions which try to heap-allocate
+            // their own frame with @Frame(func).
+            return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
+        } else {
+            return @bytesToSlice(T, @alignCast(a, byte_slice));
+        }
     }
 
     /// This function requests a new byte size for an existing allocation,

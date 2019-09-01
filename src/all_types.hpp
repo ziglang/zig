@@ -627,7 +627,7 @@ struct AstNodeParamDecl {
     AstNode *type;
     Token *var_token;
     bool is_noalias;
-    bool is_inline;
+    bool is_comptime;
     bool is_var_args;
 };
 
@@ -2104,6 +2104,7 @@ enum ScopeId {
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdRuntime,
+    ScopeIdTypeOf,
 };
 
 struct Scope {
@@ -2242,6 +2243,13 @@ struct ScopeFnDef {
     Scope base;
 
     ZigFn *fn_entry;
+};
+
+// This scope is created for a @typeOf.
+// All runtime side-effects are elided within it.
+// NodeTypeFnCallExpr
+struct ScopeTypeOf {
+    Scope base;
 };
 
 // synchronized with code in define_builtin_compile_vars
@@ -2711,6 +2719,7 @@ struct IrInstructionCallSrc {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
     bool is_comptime;
 };
 
@@ -2727,6 +2736,7 @@ struct IrInstructionCallGen {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
 };
 
 struct IrInstructionConst {

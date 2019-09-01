@@ -448,7 +448,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     assert(param_decl->type == NodeTypeParamDecl);
                     if (param_decl->data.param_decl.name != nullptr) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
-                        const char *inline_str = param_decl->data.param_decl.is_inline ? "inline " : "";
+                        const char *inline_str = param_decl->data.param_decl.is_comptime ? "comptime " : "";
                         fprintf(ar->f, "%s%s", noalias_str, inline_str);
                         print_symbol(ar, param_decl->data.param_decl.name);
                         fprintf(ar->f, ": ");

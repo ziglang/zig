@@ -197,6 +197,12 @@ Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
+Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
+    init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
+    return &scope->base;
+}
+
 ZigType *get_scope_import(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDecls) {
@@ -205,6 +211,22 @@ ZigType *get_scope_import(Scope *scope) {
             return decls_scope->import;
         }
         scope = scope->parent;
+    }
+    zig_unreachable();
+}
+
+ScopeTypeOf *get_scope_typeof(Scope *scope) {
+    while (scope) {
+        switch (scope->id) {
+            case ScopeIdTypeOf:
+                return reinterpret_cast<ScopeTypeOf *>(scope);
+            case ScopeIdFnDef:
+            case ScopeIdDecls:
+                return nullptr;
+            default:
+                scope = scope->parent;
+                continue;
+        }
     }
     zig_unreachable();
 }
@@ -1556,7 +1578,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
         assert(param_node->type == NodeTypeParamDecl);
 
-        bool param_is_comptime = param_node->data.param_decl.is_inline;
+        bool param_is_comptime = param_node->data.param_decl.is_comptime;
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
         if (param_is_comptime) {
@@ -4393,7 +4415,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
 
     if (g->verbose_ir) {
         fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn->symbol_name));
-        ir_print(g, stderr, &fn->analyzed_executable, 4);
+        ir_print(g, stderr, &fn->analyzed_executable, 4, 2);
         fprintf(stderr, "}\n");
     }
     fn->anal_state = FnAnalStateComplete;
@@ -4427,7 +4449,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(g, stderr, &fn_table_entry->ir_executable, 4);
+        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, 1);
         fprintf(stderr, "}\n");
     }
 
@@ -5705,6 +5727,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
+        if (call->new_stack != nullptr) {
+            // don't need to allocate a frame for this
+            continue;
+        }
         ZigFn *callee = call->fn_entry;
         if (callee == nullptr) {
             add_node_error(g, call->base.source_node,
@@ -8234,6 +8260,10 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
 }
 
 static void resolve_llvm_types_async_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
+    Error err;
+    if ((err = type_resolve(g, frame_type, ResolveStatusSizeKnown)))
+        zig_unreachable();
+
     ZigType *passed_frame_type = fn_is_async(frame_type->data.frame.fn) ? frame_type : nullptr;
     resolve_llvm_types_struct(g, frame_type->data.frame.locals_struct, wanted_resolve_status, passed_frame_type);
     frame_type->llvm_type = frame_type->data.frame.locals_struct->llvm_type;
@@ -8375,7 +8405,6 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
 }
 
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
-    assert(type->id == ZigTypeIdOpaque || type_is_resolved(type, ResolveStatusSizeKnown));
     assert(wanted_resolve_status > ResolveStatusSizeKnown);
     switch (type->id) {
         case ZigTypeIdInvalid:
