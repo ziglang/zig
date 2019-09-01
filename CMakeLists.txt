@@ -36,11 +36,6 @@ endif()
 message("Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
-set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
-
-if(ZIG_STATIC)
-    set(ZIG_STATIC_LLVM "on")
-endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED "${ZIG_LIBC_STATIC_LIB_DIR}")
@@ -52,8 +47,9 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 # git log -p -- deps/lld
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
-find_package(llvm)
-find_package(clang)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(Findllvm)
+include(Findclang)
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
