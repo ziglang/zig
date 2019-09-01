@@ -491,16 +491,6 @@ Error target_parse_glibc_version(ZigGLibCVersion *glibc_ver, const char *text) {
     return ErrorNone;
 }
 
-static ZigLLVM_EnvironmentType target_get_win32_abi() {
-    FILE* files[] = { stdin, stdout, stderr, nullptr };
-    for (int i = 0; files[i] != nullptr; i++) {
-        if (os_is_cygwin_pty(fileno(files[i]))) {
-            return ZigLLVM_GNU;
-        }
-    }
-    return ZigLLVM_MSVC;
-}
-
 void get_native_target(ZigTarget *target) {
     // first zero initialize
     *target = {};
@@ -515,9 +505,6 @@ void get_native_target(ZigTarget *target) {
             &target->abi,
             &oformat);
     target->os = get_zig_os_type(os_type);
-    if (target->os == OsWindows) {
-        target->abi = target_get_win32_abi();
-    }
     target->is_native = true;
     if (target->abi == ZigLLVM_UnknownEnvironment) {
         target->abi = target_default_abi(target->arch, target->os);
@@ -1614,7 +1601,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
             return ZigLLVM_GNU;
         case OsUefi:
         case OsWindows:
-            return ZigLLVM_MSVC;            
+            return ZigLLVM_MSVC;
         case OsLinux:
         case OsWASI:
             return ZigLLVM_Musl;
