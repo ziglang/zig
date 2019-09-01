@@ -210,11 +210,26 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
-    return syscall4(SYS_preadv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return syscall5(
+        SYS_preadv,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+    );
 }
 
 pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
-    return syscall5(SYS_preadv2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
+    return syscall6(
+        SYS_preadv2,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+        flags
+    );
 }
 
 pub fn readv(fd: i32, iov: [*]const iovec, count: usize) usize {
@@ -226,11 +241,26 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
-    return syscall4(SYS_pwritev, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return syscall5(
+        SYS_pwritev,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+    );
 }
 
 pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
-    return syscall5(SYS_pwritev2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
+    return syscall6(
+        SYS_pwritev2,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+        flags
+    );
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -503,9 +533,9 @@ pub fn setgid(gid: u32) usize {
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
     if (@hasDecl(@This(), "SYS_setreuid32")) {
-        return syscall2(SYS_setreuid32, ruid, euid));
+        return syscall2(SYS_setreuid32, ruid, euid);
     } else {
-        return syscall2(SYS_setreuid, ruid, euid));
+        return syscall2(SYS_setreuid, ruid, euid);
     }
 }
 
