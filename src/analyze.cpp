@@ -2043,33 +2043,29 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
 
     // Resolve types for fields
-    if (!packed) {
-        for (size_t i = 0; i < field_count; i += 1) {
-            TypeStructField *field = &struct_type->data.structure.fields[i];
-            ZigType *field_type = resolve_struct_field_type(g, field);
-            if (field_type == nullptr) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
+    for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *field = &struct_type->data.structure.fields[i];
+        ZigType *field_type = resolve_struct_field_type(g, field);
+        if (field_type == nullptr) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return err;
+        }
 
-            if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
+        if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return err;
+        }
 
-            if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-                !type_allowed_in_extern(g, field_type))
-            {
-                add_node_error(g, field->decl_node,
-                        buf_sprintf("extern structs cannot contain fields of type '%s'",
-                            buf_ptr(&field_type->name)));
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return ErrorSemanticAnalyzeFail;
-            }
-
+        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
+            !type_allowed_in_extern(g, field_type))
+        {
+            add_node_error(g, field->decl_node,
+                    buf_sprintf("extern structs cannot contain fields of type '%s'",
+                        buf_ptr(&field_type->name)));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
         }
     }
-
 
     return ErrorNone;
 }

@@ -632,3 +632,11 @@ test "for loop over pointers to struct, getting field from struct pointer" {
     };
     S.doTheTest();
 }
+
+test "zero-bit field in packed struct" {
+    const S = packed struct {
+        x: u10,
+        y: void,
+    };
+    var x: S = undefined;
+}
