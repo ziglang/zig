@@ -1432,8 +1432,8 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     return true;
 }
 
-static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType *type_entry,
-        AstNode *source_node)
+static Error emit_error_unless_type_allowed_in_packed_container(CodeGen *g, ZigType *type_entry,
+        AstNode *source_node, const char* container_name)
 {
     Error err;
     switch (type_entry->id) {
@@ -1454,8 +1454,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             add_node_error(g, source_node,
-                    buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                        buf_ptr(&type_entry->name)));
+                    buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                        buf_ptr(&type_entry->name), container_name));
             return ErrorSemanticAnalyzeFail;
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
@@ -1467,14 +1467,14 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
             return ErrorNone;
         case ZigTypeIdArray: {
             ZigType *elem_type = type_entry->data.array.child_type;
-            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, elem_type, source_node)))
+            if ((err = emit_error_unless_type_allowed_in_packed_container(g, elem_type, source_node, container_name)))
                 return err;
             // TODO revisit this when doing https://github.com/ziglang/zig/issues/1512
             if (type_size(g, type_entry) * 8 == type_size_bits(g, type_entry))
                 return ErrorNone;
             add_node_error(g, source_node,
-                buf_sprintf("array of '%s' not allowed in packed struct due to padding bits",
-                    buf_ptr(&elem_type->name)));
+                buf_sprintf("array of '%s' not allowed in packed %s due to padding bits",
+                    buf_ptr(&elem_type->name), container_name));
             return ErrorSemanticAnalyzeFail;
         }
         case ZigTypeIdStruct:
@@ -1484,8 +1484,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                     return ErrorNone;
                 case ContainerLayoutAuto:
                     add_node_error(g, source_node,
-                        buf_sprintf("non-packed, non-extern struct '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                            buf_ptr(&type_entry->name)));
+                        buf_sprintf("non-packed, non-extern struct '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                            buf_ptr(&type_entry->name), container_name));
                     return ErrorSemanticAnalyzeFail;
             }
             zig_unreachable();
@@ -1496,8 +1496,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                     return ErrorNone;
                 case ContainerLayoutAuto:
                     add_node_error(g, source_node,
-                        buf_sprintf("non-packed, non-extern union '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                            buf_ptr(&type_entry->name)));
+                        buf_sprintf("non-packed, non-extern union '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                            buf_ptr(&type_entry->name), container_name));
                     return ErrorSemanticAnalyzeFail;
             }
             zig_unreachable();
@@ -1506,8 +1506,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                 return ErrorNone;
             } else {
                 add_node_error(g, source_node,
-                    buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                        buf_ptr(&type_entry->name)));
+                    buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                        buf_ptr(&type_entry->name), container_name));
                 return ErrorSemanticAnalyzeFail;
             }
         case ZigTypeIdEnum: {
@@ -1516,14 +1516,26 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                 return ErrorNone;
             }
             ErrorMsg *msg = add_node_error(g, source_node,
-                buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                    buf_ptr(&type_entry->name)));
+                buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                    buf_ptr(&type_entry->name), container_name));
             add_error_note(g, msg, decl_node,
                     buf_sprintf("enum declaration does not specify an integer tag type"));
             return ErrorSemanticAnalyzeFail;
         }
     }
     zig_unreachable();
+}
+
+static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType *type_entry,
+    AstNode *source_node)
+{
+    return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "struct");
+}
+
+static Error emit_error_unless_type_allowed_in_packed_union(CodeGen *g, ZigType *type_entry,
+    AstNode *source_node)
+{
+    return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "union");
 }
 
 bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
@@ -2286,6 +2298,8 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     // set temporary flag
     union_type->data.unionation.resolve_loop_flag_other = true;
 
+    const bool is_packed = union_type->data.unionation.layout == ContainerLayoutPacked;
+
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
         ZigType *field_type = resolve_union_field_type(g, union_field);
@@ -2297,6 +2311,12 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
+        }
+        if (is_packed) {
+            if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return err;
+            }
         }
 
         if (type_is_invalid(union_type))
