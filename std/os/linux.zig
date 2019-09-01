@@ -486,35 +486,67 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
 }
 
 pub fn setuid(uid: u32) usize {
-    return syscall1(SYS_setuid, uid);
+    if (@hasDecl(@This(), "SYS_setuid32")) {
+        return syscall1(SYS_setuid32, uid);
+    } else {
+        return syscall1(SYS_setuid, uid);
+    }
 }
 
 pub fn setgid(gid: u32) usize {
-    return syscall1(SYS_setgid, gid);
+    if (@hasDecl(@This(), "SYS_setgid32")) {
+        return syscall1(SYS_setgid32, gid);
+    } else {
+        return syscall1(SYS_setgid, gid);
+    }
 }
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
-    return syscall2(SYS_setreuid, ruid, euid);
+    if (@hasDecl(@This(), "SYS_setreuid32")) {
+        return syscall2(SYS_setreuid32, ruid, euid));
+    } else {
+        return syscall2(SYS_setreuid, ruid, euid));
+    }
 }
 
 pub fn setregid(rgid: u32, egid: u32) usize {
-    return syscall2(SYS_setregid, rgid, egid);
+    if (@hasDecl(@This(), "SYS_setregid32")) {
+        return syscall2(SYS_setregid32, rgid, egid);
+    } else {
+        return syscall2(SYS_setregid, rgid, egid);
+    }
 }
 
 pub fn getuid() u32 {
-    return u32(syscall0(SYS_getuid));
+    if (@hasDecl(@This(), "SYS_getuid32")) {
+        return u32(syscall0(SYS_getuid32));
+    } else {
+        return u32(syscall0(SYS_getuid));
+    }
 }
 
 pub fn getgid() u32 {
-    return u32(syscall0(SYS_getgid));
+    if (@hasDecl(@This(), "SYS_getgid32")) {
+        return u32(syscall0(SYS_getgid32));
+    } else {
+        return u32(syscall0(SYS_getgid));
+    }
 }
 
 pub fn geteuid() u32 {
-    return u32(syscall0(SYS_geteuid));
+    if (@hasDecl(@This(), "SYS_geteuid32")) {
+        return u32(syscall0(SYS_geteuid32));
+    } else {
+        return u32(syscall0(SYS_geteuid));
+    }
 }
 
 pub fn getegid() u32 {
-    return u32(syscall0(SYS_getegid));
+    if (@hasDecl(@This(), "SYS_getegid32")) {
+        return u32(syscall0(SYS_getegid32));
+    } else {
+        return u32(syscall0(SYS_getegid));
+    }
 }
 
 pub fn seteuid(euid: u32) usize {
@@ -526,27 +558,51 @@ pub fn setegid(egid: u32) usize {
 }
 
 pub fn getresuid(ruid: *u32, euid: *u32, suid: *u32) usize {
-    return syscall3(SYS_getresuid, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    if (@hasDecl(@This(), "SYS_getresuid32")) {
+        return syscall3(SYS_getresuid32, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    } else {
+        return syscall3(SYS_getresuid, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    }
 }
 
 pub fn getresgid(rgid: *u32, egid: *u32, sgid: *u32) usize {
-    return syscall3(SYS_getresgid, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    if (@hasDecl(@This(), "SYS_getresgid32")) {
+        return syscall3(SYS_getresgid32, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    } else {
+        return syscall3(SYS_getresgid, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    }
 }
 
 pub fn setresuid(ruid: u32, euid: u32, suid: u32) usize {
-    return syscall3(SYS_setresuid, ruid, euid, suid);
+    if (@hasDecl(@This(), "SYS_setresuid32")) {
+        return syscall3(SYS_setresuid32, ruid, euid, suid);
+    } else {
+        return syscall3(SYS_setresuid, ruid, euid, suid);
+    }
 }
 
 pub fn setresgid(rgid: u32, egid: u32, sgid: u32) usize {
-    return syscall3(SYS_setresgid, rgid, egid, sgid);
+    if (@hasDecl(@This(), "SYS_setresgid32")) {
+        return syscall3(SYS_setresgid32, rgid, egid, sgid);
+    } else {
+        return syscall3(SYS_setresgid, rgid, egid, sgid);
+    }
 }
 
 pub fn getgroups(size: usize, list: *u32) usize {
-    return syscall2(SYS_getgroups, size, @ptrToInt(list));
+    if (@hasDecl(@This(), "SYS_getgroups32")) {
+        return syscall2(SYS_getgroups32, size, @ptrToInt(list));
+    } else {
+        return syscall2(SYS_getgroups, size, @ptrToInt(list));
+    }
 }
 
 pub fn setgroups(size: usize, list: *const u32) usize {
-    return syscall2(SYS_setgroups, size, @ptrToInt(list));
+    if (@hasDecl(@This(), "SYS_setgroups32")) {
+        return syscall2(SYS_setgroups32, size, @ptrToInt(list));
+    } else {
+        return syscall2(SYS_setgroups, size, @ptrToInt(list));
+    }
 }
 
 pub fn getpid() i32 {
