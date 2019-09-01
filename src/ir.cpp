@@ -14934,7 +14934,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                     PtrLenSingle, 0, 0, 0, false);
             set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
             ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            if (fn_entry != nullptr) {
+            if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
                 fn_entry->alloca_gen_list.append(alloca_gen);
             }
             result_loc->written = true;
@@ -16058,6 +16058,18 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         FnTypeId *impl_fn_type_id = &impl_fn->type_entry->data.fn.fn_type_id;
+
+        if (fn_type_can_fail(impl_fn_type_id)) {
+            parent_fn_entry->calls_or_awaits_errorable_fn = true;
+        }
+
+        size_t impl_param_count = impl_fn_type_id->param_count;
+        if (call_instruction->is_async) {
+            IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
+                    nullptr, casted_args, impl_param_count, casted_new_stack);
+            return ir_finish_anal(ira, result);
+        }
+
         IrInstruction *result_loc;
         if (call_instruction->is_async_call_builtin) {
             result_loc = get_async_call_result_loc(ira, call_instruction, impl_fn_type_id->return_type);
@@ -16079,17 +16091,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             result_loc = nullptr;
         }
 
-        if (fn_type_can_fail(impl_fn_type_id)) {
-            parent_fn_entry->calls_or_awaits_errorable_fn = true;
-        }
-
-        size_t impl_param_count = impl_fn_type_id->param_count;
-        if (call_instruction->is_async) {
-            IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
-                    nullptr, casted_args, impl_param_count, casted_new_stack);
-            return ir_finish_anal(ira, result);
-        }
-
         if (impl_fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
             parent_fn_entry->inferred_async_node = fn_ref->source_node;
             parent_fn_entry->inferred_async_fn = impl_fn;
@@ -16100,7 +16101,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 false, casted_new_stack, call_instruction->is_async_call_builtin, result_loc,
                 impl_fn_type_id->return_type);
 
-        parent_fn_entry->call_list.append(new_call_instruction);
+        if (get_scope_typeof(call_instruction->base.scope) == nullptr) {
+            parent_fn_entry->call_list.append(new_call_instruction);
+        }
 
         return ir_finish_anal(ira, &new_call_instruction->base);
     }
@@ -16243,7 +16246,9 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
             call_param_count, casted_args, fn_inline, false, casted_new_stack,
             call_instruction->is_async_call_builtin, result_loc, return_type);
-    parent_fn_entry->call_list.append(new_call_instruction);
+    if (get_scope_typeof(call_instruction->base.scope) == nullptr) {
+        parent_fn_entry->call_list.append(new_call_instruction);
+    }
     return ir_finish_anal(ira, &new_call_instruction->base);
 }
 

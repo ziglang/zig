@@ -1020,3 +1020,14 @@ test "@asyncCall using the result location inside the frame" {
     _ = async S.getAnswer(f, &data);
     expect(data == 1234);
 }
+
+test "@typeOf an async function call of generic fn with error union type" {
+    const S = struct {
+        fn func(comptime x: var) anyerror!i32 {
+            const T = @typeOf(async func(x));
+            comptime expect(T == @typeOf(@frame()).Child);
+            return undefined;
+        }
+    };
+    _ = async S.func(i32);
+}
