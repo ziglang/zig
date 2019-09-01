@@ -599,3 +599,11 @@ test "extern fn returns struct by value" {
     S.entry();
     comptime S.entry();
 }
+
+test "zero-bit field in packed struct" {
+    const S = packed struct {
+        x: u10,
+        y: void
+    };
+    var x: S = undefined;
+}
