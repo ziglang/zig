@@ -1031,3 +1031,28 @@ test "@typeOf an async function call of generic fn with error union type" {
     };
     _ = async S.func(i32);
 }
+
+test "using @typeOf on a generic function call" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_ok = false;
+
+        var buf: [100]u8 align(16) = undefined;
+
+        fn amain(x: var) void {
+            if (x == 0) {
+                global_ok = true;
+                return;
+            }
+            suspend {
+                global_frame = @frame();
+            }
+            const F = @typeOf(async amain(x - 1));
+            const frame = @intToPtr(*F, @ptrToInt(&buf));
+            return await @asyncCall(frame, {}, amain, x - 1);
+        }
+    };
+    _ = async S.amain(u32(1));
+    resume S.global_frame;
+    expect(S.global_ok);
+}
