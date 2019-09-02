@@ -9803,6 +9803,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
     cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
+    cache_list_of_str(ch, g->framework_dirs.items, g->framework_dirs.length);
     if (g->libc) {
         cache_buf(ch, &g->libc->include_dir);
         cache_buf(ch, &g->libc->sys_include_dir);

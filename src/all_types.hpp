@@ -2003,6 +2003,7 @@ struct CodeGen {
     ZigList<Buf *> assembly_files;
     ZigList<CFile *> c_source_files;
     ZigList<const char *> lib_dirs;
+    ZigList<const char *> framework_dirs;
 
     ZigLibCInstallation *libc;
 

@@ -2510,6 +2510,12 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append("dynamic_lookup");
     }
 
+    for (size_t i = 0; i < g->framework_dirs.length; i += 1) {
+        const char *framework_dir = g->framework_dirs.at(i);
+        lj->args.append("-F");
+        lj->args.append(framework_dir);
+    }
+
     for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
         lj->args.append("-framework");
         lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
