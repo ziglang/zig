@@ -370,12 +370,22 @@ pub const Elf = struct {
 
     /// Call close when done.
     pub fn openPath(allocator: *mem.Allocator, path: []const u8) !Elf {
-        @compileError("TODO implement");
+        var file = try File.openRead(path);
+        var elf = try openFile(allocator, file);
+        elf.in_file = &file;
+        return elf;
     }
 
     /// Call close when done.
     pub fn openFile(allocator: *mem.Allocator, file: File) !Elf {
-        @compileError("TODO implement");
+        var _seekstream = &file.seekableStream().stream;
+        var _instream = &file.inStream().stream;
+
+        // We need the casts because of https://github.com/ziglang/zig/issues/2736
+        var seekstream = @ptrCast(*io.SeekableStream(anyerror, anyerror), _seekstream);
+        var instream = @ptrCast(*io.InStream(anyerror), _instream);
+
+        return openStream(allocator, seekstream, instream);
     }
 
     pub fn openStream(
