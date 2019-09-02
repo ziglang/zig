@@ -15,12 +15,16 @@ pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 /// Use `token.slice()` on the input at the current position to get the current slice.
 pub const Token = struct {
     id: Id,
+
     /// How many bytes do we skip before counting
     offset: u1,
+
     /// Whether string contains an escape sequence and cannot be zero-copied
     string_has_escape: bool,
+
     /// Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
     number_is_integer: bool,
+
     /// How many bytes from the current position behind the start of this token is.
     count: usize,
 
@@ -1299,54 +1303,52 @@ pub const Parser = struct {
 fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     const output = try alloc.alloc(u8, input.len);
     errdefer alloc.free(output);
-    
+
     var inIndex: usize = 0;
     var outIndex: usize = 0;
 
-    while(inIndex < input.len) {
-        if(input[inIndex] != '\\'){
+    while (inIndex < input.len) {
+        if (input[inIndex] != '\\') {
             // not an escape sequence
             output[outIndex] = input[inIndex];
             inIndex += 1;
             outIndex += 1;
-        } else if(input[inIndex + 1] != 'u'){
+        } else if (input[inIndex + 1] != 'u') {
             // a simple escape sequence
-            output[outIndex] = @as(u8,
-                switch(input[inIndex + 1]){
-                    '\\' => '\\',
-                    '/' => '/',
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    'f' => 12,
-                    'b' => 8,
-                    '"' => '"',
-                    else => unreachable
-                }
-            );
+            output[outIndex] = @as(u8, switch (input[inIndex + 1]) {
+                '\\' => '\\',
+                '/' => '/',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                'f' => 12,
+                'b' => 8,
+                '"' => '"',
+                else => unreachable,
+            });
             inIndex += 2;
             outIndex += 1;
         } else {
             // a unicode escape sequence
-            const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex+2 .. inIndex+6], 16) catch unreachable;
+            const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex + 2 .. inIndex + 6], 16) catch unreachable;
 
             // guess optimistically that it's not a surrogate pair
-            if(std.unicode.utf8Encode(firstCodeUnit, output[outIndex..])) |byteCount| {
+            if (std.unicode.utf8Encode(firstCodeUnit, output[outIndex..])) |byteCount| {
                 outIndex += byteCount;
                 inIndex += 6;
             } else |err| {
                 // it might be a surrogate pair
-                if(err != error.Utf8CannotEncodeSurrogateHalf) {
+                if (err != error.Utf8CannotEncodeSurrogateHalf) {
                     return error.InvalidUnicodeHexSymbol;
                 }
                 // check if a second code unit is present
-                if(inIndex + 7 >= input.len or input[inIndex + 6] != '\\' or input[inIndex + 7] != 'u'){
+                if (inIndex + 7 >= input.len or input[inIndex + 6] != '\\' or input[inIndex + 7] != 'u') {
                     return error.InvalidUnicodeHexSymbol;
                 }
-                
-                const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex+8 .. inIndex+12], 16) catch unreachable;
-                
-                if(std.unicode.utf16leToUtf8(output[outIndex..], &[2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+
+                const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex + 8 .. inIndex + 12], 16) catch unreachable;
+
+                if (std.unicode.utf16leToUtf8(output[outIndex..], &[2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
                     outIndex += byteCount;
                     inIndex += 12;
                 } else |_| {
