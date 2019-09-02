@@ -35,10 +35,9 @@ pub const AbsolutePointerMode = extern struct {
     absolute_max_y: u64,
     absolute_max_z: u64,
     attributes: packed struct {
-        _pad1: u6,
-        supports_pressure_as_z: bool,
         supports_alt_active: bool,
-        _pad2: u24,
+        supports_pressure_as_z: bool,
+        _pad1: u30,
     },
 };
 
@@ -47,9 +46,8 @@ pub const AbsolutePointerState = extern struct {
     current_y: u64 = undefined,
     current_z: u64 = undefined,
     active_buttons: packed struct {
-        _pad1: u6,
-        alt_active: bool,
         touch_active: bool,
-        _pad2: u24,
+        alt_active: bool,
+        _pad1: u30,
     } = undefined,
 };
