@@ -39,3 +39,13 @@ pub const ResetType = extern enum(u32) {
     ResetShutdown,
     ResetPlatformSpecific,
 };
+
+/// UEFI Specification, Version 2.8, 3.3
+pub const global_variable align(8) = Guid{
+    .time_low = 0x8be4df61,
+    .time_mid = 0x93ca,
+    .time_high_and_version = 0x11d2,
+    .clock_seq_high_and_reserved = 0xaa,
+    .clock_seq_low = 0x0d,
+    .node = [_]u8{ 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c },
+};
