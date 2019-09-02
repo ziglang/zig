@@ -20,7 +20,7 @@ pub const BootServices = extern struct {
     restoreTpl: usize, // TODO
     allocatePages: usize, // TODO
     freePages: usize, // TODO
-    getMemoryMap: usize, // TODO
+    getMemoryMap: extern fn (*usize, [*]MemoryDescriptor, *usize, *usize, *u32) usize,
     allocatePool: usize, // TODO
     freePool: usize, // TODO
     createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
@@ -80,4 +80,46 @@ pub const TimerDelay = extern enum(u32) {
     TimerCancel,
     TimerPeriodic,
     TimerRelative,
+};
+
+pub const MemoryDescriptor = extern struct {
+    type: extern enum(u32) {
+        ReservedMemoryType,
+        LoaderCode,
+        LoaderData,
+        BootServicesCode,
+        BootServicesData,
+        RuntimeServicesCode,
+        RuntimeServicesData,
+        ConventionalMemory,
+        UnusableMemory,
+        ACPIReclaimMemory,
+        ACPIMemoryNVS,
+        MemoryMappedIO,
+        MemoryMappedIOPortSpace,
+        PalCode,
+        PersistentMemory,
+        MaxMemoryType,
+    },
+    physical_start: u64,
+    virtual_start: u64,
+    number_of_pages: usize,
+    attribute: packed struct {
+        uc: bool,
+        wc: bool,
+        wt: bool,
+        wb: bool,
+        uce: bool,
+        _pad1: u7,
+        wp: bool,
+        rp: bool,
+        xp: bool,
+        nv: bool,
+        more_reliable: bool,
+        ro: bool,
+        sp: bool,
+        cpu_crypto: bool,
+        _pad2: u43,
+        memory_runtime: bool,
+    },
 };
