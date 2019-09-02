@@ -330,6 +330,8 @@ static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
     while (scope != nullptr) {
         if (scope->id == ScopeIdCompTime)
             return true;
+        if (scope->id == ScopeIdTypeOf)
+            return false;
         if (scope->id == ScopeIdFnDef)
             break;
         scope = scope->parent;
@@ -16075,11 +16077,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         IrInstruction *result_loc;
-        if (call_instruction->is_async_call_builtin) {
-            result_loc = get_async_call_result_loc(ira, call_instruction, impl_fn_type_id->return_type);
-            if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
-                return ira->codegen->invalid_instruction;
-        } else if (handle_is_ptr(impl_fn_type_id->return_type)) {
+        if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                     impl_fn_type_id->return_type, nullptr, true, true, false);
             if (result_loc != nullptr) {
@@ -16091,6 +16089,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     result_loc = nullptr;
                 }
             }
+        } else if (call_instruction->is_async_call_builtin) {
+            result_loc = get_async_call_result_loc(ira, call_instruction, impl_fn_type_id->return_type);
+            if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
+                return ira->codegen->invalid_instruction;
         } else {
             result_loc = nullptr;
         }
@@ -16231,11 +16233,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     }
 
     IrInstruction *result_loc;
-    if (call_instruction->is_async_call_builtin) {
-        result_loc = get_async_call_result_loc(ira, call_instruction, return_type);
-        if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
-            return ira->codegen->invalid_instruction;
-    } else if (handle_is_ptr(return_type)) {
+    if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                 return_type, nullptr, true, true, false);
         if (result_loc != nullptr) {
@@ -16247,6 +16245,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 result_loc = nullptr;
             }
         }
+    } else if (call_instruction->is_async_call_builtin) {
+        result_loc = get_async_call_result_loc(ira, call_instruction, return_type);
+        if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
+            return ira->codegen->invalid_instruction;
     } else {
         result_loc = nullptr;
     }
