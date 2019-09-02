@@ -23,14 +23,18 @@ find_program(GIT_EXE NAMES git)
 if(GIT_EXE)
     execute_process(
         COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
+        RESULT_VARIABLE EXIT_STATUS
         OUTPUT_VARIABLE ZIG_GIT_REV
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(ZIG_GIT_REV MATCHES "\\^0$")
-        if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
-            message("WARNING: Tag does not match configured Zig version")
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(EXIT_STATUS EQUAL "0")
+        if(ZIG_GIT_REV MATCHES "\\^0$")
+            if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
+                message("WARNING: Tag does not match configured Zig version")
+            endif()
+        else()
+            set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
         endif()
-    else()
-        set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
     endif()
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
