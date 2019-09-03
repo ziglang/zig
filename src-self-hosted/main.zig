@@ -541,7 +541,7 @@ const Fmt = struct {
     color: errmsg.Color,
     loop: *event.Loop,
 
-    const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
+    const SeenMap = std.StringHashMap(void);
 };
 
 fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {

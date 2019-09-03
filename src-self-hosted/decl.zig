@@ -20,7 +20,7 @@ pub const Decl = struct {
     // TODO when we destroy the decl, deref the tree scope
     tree_scope: *Scope.AstTree,
 
-    pub const Table = std.HashMap([]const u8, *Decl, mem.hash_slice_u8, mem.eql_slice_u8);
+    pub const Table = std.StringHashMap(*Decl);
 
     pub fn cast(base: *Decl, comptime T: type) ?*T {
         if (base.id != @field(Id, @typeName(T))) return null;

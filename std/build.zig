@@ -7,7 +7,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const warn = std.debug.warn;
 const ArrayList = std.ArrayList;
-const HashMap = std.HashMap;
+const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const process = std.process;
 const BufSet = std.BufSet;
@@ -60,8 +60,8 @@ pub const Builder = struct {
         C11,
     };
 
-    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
-    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
+    const UserInputOptionsMap = StringHashMap(UserInputOption);
+    const AvailableOptionsMap = StringHashMap(AvailableOption);
 
     const AvailableOption = struct {
         name: []const u8,

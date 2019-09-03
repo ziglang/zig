@@ -5,7 +5,7 @@ const mem = std.mem;
 
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const HashMap = std.HashMap;
+const StringHashMap = std.StringHashMap;
 
 fn trimStart(slice: []const u8, ch: u8) []const u8 {
     var i: usize = 0;
@@ -73,7 +73,7 @@ fn readFlagArguments(allocator: *Allocator, args: []const []const u8, required: 
     }
 }
 
-const HashMapFlags = HashMap([]const u8, FlagArg, std.hash.Fnv1a_32.hash, mem.eql_slice_u8);
+const HashMapFlags = StringHashMap(FlagArg);
 
 // A store for querying found flags and positional arguments.
 pub const Args = struct {

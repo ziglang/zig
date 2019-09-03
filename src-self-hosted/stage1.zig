@@ -343,7 +343,7 @@ const Fmt = struct {
     color: errmsg.Color,
     allocator: *mem.Allocator,
 
-    const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
+    const SeenMap = std.StringHashMap(void);
 };
 
 fn printErrMsgToFile(
@@ -376,7 +376,7 @@ fn printErrMsgToFile(
     const text = text_buf.toOwnedSlice();
 
     const stream = &file.outStream().stream;
-    try stream.print( "{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
+    try stream.print("{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
 
     if (!color_on) return;
 
