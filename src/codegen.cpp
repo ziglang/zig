@@ -8457,8 +8457,21 @@ static void init(CodeGen *g) {
     Buf *producer = buf_sprintf("zig %d.%d.%d", ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH);
     const char *flags = "";
     unsigned runtime_version = 0;
+
+    // For macOS stack traces, we want to avoid having to parse the compilation unit debug
+    // info. As long as each debug info file has a path independent of the compilation unit
+    // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
+    // info. If we provide an absolute path to LLVM here for the compilation unit debug info,
+    // LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we pass "."
+    // for the compilation unit directory. This forces each debug file to have a directory
+    // rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug files will
+    // no longer reference DW_AT_comp_dir, for the purpose of being able to support the
+    // common practice of stripping all but the line number sections from an executable.
+    const char *compile_unit_dir = target_os_is_darwin(g->zig_target->os) ? "." :
+        buf_ptr(&g->root_package->root_src_dir);
+
     ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),
-            buf_ptr(&g->root_package->root_src_dir));
+            compile_unit_dir);
     g->compile_unit = ZigLLVMCreateCompileUnit(g->dbuilder, ZigLLVMLang_DW_LANG_C99(),
             compile_unit_file, buf_ptr(producer), is_optimized, flags, runtime_version,
             "", 0, !g->strip_debug_symbols);
