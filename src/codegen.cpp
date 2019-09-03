@@ -4113,6 +4113,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionStructFieldPtr *instruction)
 {
+    Error err;
+
     if (instruction->base.value.special != ConstValSpecialRuntime)
         return nullptr;
 
@@ -4129,6 +4131,11 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     {
         return struct_ptr;
     }
+
+    ZigType *struct_type = (struct_ptr_type->id == ZigTypeIdPointer) ?
+        struct_ptr_type->data.pointer.child_type : struct_ptr_type;
+    if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
+        report_errors_and_exit(g);
 
     assert(field->gen_index != SIZE_MAX);
     return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
