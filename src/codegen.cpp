@@ -3522,6 +3522,15 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     assert(ptr_type->id == ZigTypeIdPointer);
     if (!type_has_bits(ptr_type))
         return nullptr;
+    if (instruction->ptr->ref_count == 0) {
+        // In this case, this StorePtr instruction should be elided. Something happened like this:
+        //     var t = true;
+        //     const x = if (t) Num.Two else unreachable;
+        // The if condition is a runtime value, so the StorePtr for `x = Num.Two` got generated
+        // (this instruction being rendered) but because of `else unreachable` the result ended
+        // up being a comptime const value.
+        return nullptr;
+    }
 
     bool have_init_expr = !value_is_all_undef(&instruction->value->value);
     if (have_init_expr) {
