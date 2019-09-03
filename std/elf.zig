@@ -356,6 +356,7 @@ pub const SectionHeader = struct {
 pub const Elf = struct {
     seekable_stream: *io.SeekableStream(anyerror, anyerror),
     in_stream: *io.InStream(anyerror),
+    in_file: ?File,
     is_64: bool,
     endian: builtin.Endian,
     file_type: FileType,
@@ -372,7 +373,7 @@ pub const Elf = struct {
     pub fn openPath(allocator: *mem.Allocator, path: []const u8) !Elf {
         var file = try File.openRead(path);
         var elf = try openFile(allocator, file);
-        elf.in_file = &file;
+        elf.in_file = file;
         return elf;
     }
 
@@ -397,6 +398,7 @@ pub const Elf = struct {
         elf.allocator = allocator;
         elf.seekable_stream = seekable_stream;
         elf.in_stream = in;
+        elf.in_file = null;
 
         var magic: [4]u8 = undefined;
         try in.readNoEof(magic[0..]);
@@ -536,6 +538,10 @@ pub const Elf = struct {
 
     pub fn close(elf: *Elf) void {
         elf.allocator.free(elf.section_headers);
+
+        if (elf.in_file) |file| {
+            file.close();
+        }
     }
 
     pub fn findSection(elf: *Elf, name: []const u8) !?*SectionHeader {
