@@ -3,7 +3,7 @@ const std = @import("std");
 const os = std.os;
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: *tests.CompareStackTracesContext) void {
+pub fn addCases(cases: *tests.StackTracesContext) void {
     const source_return =
         \\const std = @import("std");
         \\

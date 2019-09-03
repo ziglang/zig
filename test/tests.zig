@@ -16,7 +16,7 @@ const LibExeObjStep = build.LibExeObjStep;
 
 const compare_output = @import("compare_output.zig");
 const standalone = @import("standalone.zig");
-const compare_panic = @import("compare_traces.zig");
+const stack_traces = @import("stack_traces.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const runtime_safety = @import("runtime_safety.zig");
@@ -58,17 +58,17 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addCompareStackTracesTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(CompareStackTracesContext) catch unreachable;
-    cases.* = CompareStackTracesContext{
+pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    const cases = b.allocator.create(StackTracesContext) catch unreachable;
+    cases.* = StackTracesContext{
         .b = b,
-        .step = b.step("test-compare-traces", "Run the compare stack traces tests"),
+        .step = b.step("test-stack-traces", "Run the stack trace tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
     };
 
-    compare_panic.addCases(cases);
+    stack_traces.addCases(cases);
 
     return cases.step;
 }
@@ -565,7 +565,7 @@ pub const CompareOutputContext = struct {
     }
 };
 
-pub const CompareStackTracesContext = struct {
+pub const StackTracesContext = struct {
     b: *build.Builder,
     step: *build.Step,
     test_index: usize,
@@ -575,7 +575,7 @@ pub const CompareStackTracesContext = struct {
     const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
 
     pub fn addCase(
-        self: *CompareStackTracesContext,
+        self: *StackTracesContext,
         name: []const u8,
         source: []const u8,
         expect: Expect,
@@ -591,7 +591,7 @@ pub const CompareStackTracesContext = struct {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
 
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "compare-stack-traces", name, @tagName(mode)) catch unreachable;
+            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "stack-trace", name, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
@@ -616,7 +616,7 @@ pub const CompareStackTracesContext = struct {
 
     const RunAndCompareStep = struct {
         step: build.Step,
-        context: *CompareStackTracesContext,
+        context: *StackTracesContext,
         exe: *LibExeObjStep,
         name: []const u8,
         mode: Mode,
@@ -624,7 +624,7 @@ pub const CompareStackTracesContext = struct {
         test_index: usize,
 
         pub fn create(
-            context: *CompareStackTracesContext,
+            context: *StackTracesContext,
             exe: *LibExeObjStep,
             name: []const u8,
             mode: Mode,
