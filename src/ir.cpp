@@ -15671,6 +15671,7 @@ static IrInstruction *analyze_casted_new_stack(IrAnalyze *ira, IrInstructionCall
         ZigType *u8_ptr = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
                 false, false, PtrLenUnknown, target_fn_align(ira->codegen->zig_target), 0, 0, false);
         ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+        ira->codegen->need_frame_size_prefix_data = true;
         return ir_implicit_cast(ira, new_stack, u8_slice);
     }
 }
@@ -22532,6 +22533,8 @@ static IrInstruction *ir_analyze_instruction_frame_size(IrAnalyze *ira, IrInstru
                 buf_sprintf("expected function, found '%s'", buf_ptr(&fn->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    ira->codegen->need_frame_size_prefix_data = true;
 
     IrInstruction *result = ir_build_frame_size_gen(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, fn);

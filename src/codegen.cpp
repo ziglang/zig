@@ -3775,6 +3775,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
 }
 
 static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
+    assert(g->need_frame_size_prefix_data);
     LLVMTypeRef usize_llvm_type = g->builtin_types.entry_usize->llvm_type;
     LLVMTypeRef ptr_usize_llvm_type = LLVMPointerType(usize_llvm_type, 0);
     LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
@@ -7208,7 +7209,9 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
-            ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
+            if (g->need_frame_size_prefix_data) {
+                ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
+            }
 
             if (!g->strip_debug_symbols) {
                 AstNode *source_node = fn_table_entry->proto_node;

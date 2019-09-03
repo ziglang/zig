@@ -1989,6 +1989,7 @@ struct CodeGen {
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
     bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
+    bool need_frame_size_prefix_data;
 
     //////////////////////////// Participates in Input Parameter Cache Hash
     /////// Note: there is a separate cache hash for builtin.zig, when adding fields,
