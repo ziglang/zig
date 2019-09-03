@@ -14839,6 +14839,12 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     if (align != 0) {
         if ((err = type_resolve(ira->codegen, var_type, ResolveStatusAlignmentKnown)))
             return ira->codegen->invalid_instruction;
+        if (!type_has_bits(var_type)) {
+                ir_add_error(ira, source_inst,
+                    buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
+                        name_hint, buf_ptr(&var_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
     }
     assert(result->base.value.data.x_ptr.special != ConstPtrSpecialInvalid);
 
