@@ -2671,6 +2671,10 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         }
     }
 
+    if (!type_has_bits(struct_type)) {
+        assert(struct_type->abi_align == 0);
+    }
+
     struct_type->data.structure.resolve_loop_flag_other = false;
 
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid) {
