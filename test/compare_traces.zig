@@ -3,7 +3,7 @@ const std = @import("std");
 const os = std.os;
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: *tests.ComparePanicContext) void {
+pub fn addCases(cases: *tests.CompareStackTracesContext) void {
     const source_return =
         \\const std = @import("std");
         \\
@@ -46,77 +46,77 @@ pub fn addCases(cases: *tests.ComparePanicContext) void {
             cases.addCase(
                 "return",
                 source_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try return",
                 source_try_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test)
                     \\source.zig:8:5: [address] in main (test)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
                     \\source.zig:8:5: [address] in std.special.posixCallMainAndExit (test)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try try return return",
                 source_try_try_return_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test)
                     \\source.zig:8:5: [address] in bar (test)
                     \\source.zig:4:5: [address] in foo (test)
                     \\source.zig:16:5: [address] in main (test)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in std.special.posixCallMainAndExit (test)
                     \\source.zig:8:5: [address] in std.special.posixCallMainAndExit (test)
                     \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
                     \\source.zig:16:5: [address] in std.special.posixCallMainAndExit (test)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -125,77 +125,77 @@ pub fn addCases(cases: *tests.ComparePanicContext) void {
             cases.addCase(
                 "return",
                 source_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main.0 (test.o)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main (test.o)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try return",
                 source_try_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _foo (test.o)
                     \\source.zig:8:5: [address] in _main.0 (test.o)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main (test.o)
                     \\source.zig:8:5: [address] in _main (test.o)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try try return return",
                 source_try_try_return_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in _make_error (test.o)
                     \\source.zig:8:5: [address] in _bar (test.o)
                     \\source.zig:4:5: [address] in _foo (test.o)
                     \\source.zig:16:5: [address] in _main.0 (test.o)
                     \\
                 ,
-                    // release-safe
-                    \\error: TheSkyIsFalling
+                // release-safe
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in _main (test.o)
                     \\source.zig:8:5: [address] in _main (test.o)
                     \\source.zig:4:5: [address] in _main (test.o)
                     \\source.zig:16:5: [address] in _main (test.o)
                     \\
                 ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
@@ -204,70 +204,67 @@ pub fn addCases(cases: *tests.ComparePanicContext) void {
             cases.addCase(
                 "return",
                 source_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test.obj)
                     \\
                 ,
-                    // release-safe
-                    // --disabled-- results in segmenetation fault
-                    ""
-                ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-safe
+                // --disabled-- results in segmenetation fault
+                "",
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try return",
                 source_try_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test.obj)
                     \\source.zig:8:5: [address] in main (test.obj)
                     \\
                 ,
-                    // release-safe
-                    // --disabled-- results in segmenetation fault
-                    ""
-                ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-safe
+                // --disabled-- results in segmenetation fault
+                "",
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );
             cases.addCase(
                 "try try return return",
                 source_try_try_return_return,
-                [][]const u8{
-                    // debug
-                    \\error: TheSkyIsFalling
+                [_][]const u8{
+                // debug
+                \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test.obj)
                     \\source.zig:8:5: [address] in bar (test.obj)
                     \\source.zig:4:5: [address] in foo (test.obj)
                     \\source.zig:16:5: [address] in main (test.obj)
                     \\
                 ,
-                    // release-safe
-                    // --disabled-- results in segmenetation fault
-                    ""
-                ,
-                    // release-fast
-                    \\error: TheSkyIsFalling
+                // release-safe
+                // --disabled-- results in segmenetation fault
+                "",
+                // release-fast
+                \\error: TheSkyIsFalling
                     \\
                 ,
-                    // release-small
-                    \\error: TheSkyIsFalling
+                // release-small
+                \\error: TheSkyIsFalling
                     \\
                 },
             );

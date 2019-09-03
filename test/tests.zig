@@ -16,7 +16,7 @@ const LibExeObjStep = build.LibExeObjStep;
 
 const compare_output = @import("compare_output.zig");
 const standalone = @import("standalone.zig");
-const compare_panic = @import("compare_panic.zig");
+const compare_panic = @import("compare_traces.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const runtime_safety = @import("runtime_safety.zig");
@@ -58,11 +58,11 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addComparePanicTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
-    const cases = b.allocator.create(ComparePanicContext) catch unreachable;
-    cases.* = ComparePanicContext{
+pub fn addCompareStackTracesTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+    const cases = b.allocator.create(CompareStackTracesContext) catch unreachable;
+    cases.* = CompareStackTracesContext{
         .b = b,
-        .step = b.step("test-compare-panic", "Run the compare panic tests"),
+        .step = b.step("test-compare-traces", "Run the compare stack traces tests"),
         .test_index = 0,
         .test_filter = test_filter,
         .modes = modes,
@@ -565,7 +565,7 @@ pub const CompareOutputContext = struct {
     }
 };
 
-pub const ComparePanicContext = struct {
+pub const CompareStackTracesContext = struct {
     b: *build.Builder,
     step: *build.Step,
     test_index: usize,
@@ -575,7 +575,7 @@ pub const ComparePanicContext = struct {
     const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
 
     pub fn addCase(
-        self: *ComparePanicContext,
+        self: *CompareStackTracesContext,
         name: []const u8,
         source: []const u8,
         expect: Expect,
@@ -584,14 +584,14 @@ pub const ComparePanicContext = struct {
 
         const source_pathname = fs.path.join(
             b.allocator,
-            [][]const u8{ b.cache_root, "source.zig" },
+            [_][]const u8{ b.cache_root, "source.zig" },
         ) catch unreachable;
 
         for (self.modes) |mode| {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
 
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "compare-panic", name, @tagName(mode)) catch unreachable;
+            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", "compare-stack-traces", name, @tagName(mode)) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
@@ -616,7 +616,7 @@ pub const ComparePanicContext = struct {
 
     const RunAndCompareStep = struct {
         step: build.Step,
-        context: *ComparePanicContext,
+        context: *CompareStackTracesContext,
         exe: *LibExeObjStep,
         name: []const u8,
         mode: Mode,
@@ -624,7 +624,7 @@ pub const ComparePanicContext = struct {
         test_index: usize,
 
         pub fn create(
-            context: *ComparePanicContext,
+            context: *CompareStackTracesContext,
             exe: *LibExeObjStep,
             name: []const u8,
             mode: Mode,
@@ -633,7 +633,7 @@ pub const ComparePanicContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init("PanicCompareOutputStep", allocator, make),
+                .step = build.Step.init("StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -718,8 +718,8 @@ pub const ComparePanicContext = struct {
                 var it = mem.separate(bytes, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;
-                    const delims = []const []const u8{ ":", ":", ":", " in " };
-                    var marks = []usize{0} ** 4;
+                    const delims = [_][]const u8{ ":", ":", ":", " in " };
+                    var marks = [_]usize{0} ** 4;
                     // offset search past `[drive]:` on windows
                     var pos: usize = if (builtin.os == .windows) 2 else 0;
                     for (delims) |delim, i| {
