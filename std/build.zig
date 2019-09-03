@@ -4,6 +4,7 @@ const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
+const panic = std.debug.panic;
 const assert = debug.assert;
 const warn = std.debug.warn;
 const ArrayList = std.ArrayList;
@@ -42,8 +43,8 @@ pub const Builder = struct {
     top_level_steps: ArrayList(*TopLevelStep),
     install_prefix: ?[]const u8,
     dest_dir: ?[]const u8,
-    lib_dir: ?[]const u8,
-    exe_dir: ?[]const u8,
+    lib_dir: []const u8,
+    exe_dir: []const u8,
     install_path: []const u8,
     search_prefixes: ArrayList([]const u8),
     installed_files: ArrayList(InstalledFile),
@@ -129,8 +130,8 @@ pub const Builder = struct {
             .env_map = env_map,
             .search_prefixes = ArrayList([]const u8).init(allocator),
             .install_prefix = null,
-            .lib_dir = null,
-            .exe_dir = null,
+            .lib_dir = undefined,
+            .exe_dir = undefined,
             .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
@@ -163,11 +164,13 @@ pub const Builder = struct {
         self.allocator.destroy(self);
     }
 
+    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
     pub fn setInstallPrefix(self: *Builder, optional_prefix: ?[]const u8) void {
         self.install_prefix = optional_prefix;
     }
 
-    fn resolveInstallPrefix(self: *Builder) void {
+    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
+    pub fn resolveInstallPrefix(self: *Builder) void {
         if (self.dest_dir) |dest_dir| {
             const install_prefix = self.install_prefix orelse "/usr";
             self.install_path = fs.path.join(self.allocator, [_][]const u8{ dest_dir, install_prefix }) catch unreachable;
@@ -437,7 +440,7 @@ pub const Builder = struct {
             .description = description,
         };
         if ((self.available_options_map.put(name, available_option) catch unreachable) != null) {
-            debug.panic("Option '{}' declared twice", name);
+            panic("Option '{}' declared twice", name);
         }
         self.available_options_list.append(available_option) catch unreachable;
 
@@ -463,8 +466,8 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            TypeId.Int => debug.panic("TODO integer options to build script"),
-            TypeId.Float => debug.panic("TODO float options to build script"),
+            TypeId.Int => panic("TODO integer options to build script"),
+            TypeId.Float => panic("TODO float options to build script"),
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
                     warn("Expected -D{} to be a string, but received a boolean.\n", name);
@@ -478,7 +481,7 @@ pub const Builder = struct {
                 },
                 UserValue.Scalar => |s| return s,
             },
-            TypeId.List => debug.panic("TODO list options to build script"),
+            TypeId.List => panic("TODO list options to build script"),
         }
     }
 
@@ -644,8 +647,6 @@ pub const Builder = struct {
     }
 
     pub fn validateUserInputDidItFail(self: *Builder) bool {
-        self.resolveInstallPrefix();
-
         // make sure all args are used
         var it = self.user_input_options.iterator();
         while (true) {
@@ -855,7 +856,7 @@ pub const Builder = struct {
         var stdout_file_in_stream = child.stdout.?.inStream();
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
 
-        const term = child.wait() catch |err| std.debug.panic("unable to spawn {}: {}", argv[0], err);
+        const term = child.wait() catch |err| panic("unable to spawn {}: {}", argv[0], err);
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
@@ -882,8 +883,8 @@ pub const Builder = struct {
     fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
         const base_dir = switch (dir) {
             .Prefix => self.install_path,
-            .Bin => self.exe_dir.?,
-            .Lib => self.lib_dir.?,
+            .Bin => self.exe_dir,
+            .Lib => self.lib_dir,
         };
         return fs.path.resolve(
             self.allocator,
@@ -1318,6 +1319,9 @@ pub const LibExeObjStep = struct {
     }
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, is_dynamic: bool, ver: Version) LibExeObjStep {
+        if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
+            panic("invalid name: '{}'. It looks like a file path, but it is supposed to be the library or application name.", name);
+        }
         var self = LibExeObjStep{
             .strip = false,
             .builder = builder,
