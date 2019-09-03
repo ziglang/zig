@@ -17464,7 +17464,12 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 source_instr, container_ptr, container_type);
         }
-        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
+
+        ZigType *field_type = resolve_union_field_type(ira->codegen, field);
+        if (field_type == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                 is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
         if (instr_is_comptime(container_ptr)) {
             ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
@@ -17481,7 +17486,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 if (initializing) {
                     ConstExprValue *payload_val = create_const_vals(1);
                     payload_val->special = ConstValSpecialUndef;
-                    payload_val->type = field->type_entry;
+                    payload_val->type = field_type;
                     payload_val->parent.id = ConstParentIdUnion;
                     payload_val->parent.data.p_union.union_val = union_val;
 
