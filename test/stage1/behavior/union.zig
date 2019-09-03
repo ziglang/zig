@@ -457,3 +457,13 @@ test "@unionInit can modify a pointer value" {
     value_ptr.* = @unionInit(UnionInitEnum, "Byte", 2);
     expect(value.Byte == 2);
 }
+
+test "union no tag with struct member" {
+    const Struct = struct {};
+    const Union = union {
+        s: Struct,
+        pub fn foo(self: *@This()) void {}
+    };
+    var u = Union{ .s = Struct{} };
+    u.foo();
+}
