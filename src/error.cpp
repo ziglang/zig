@@ -55,6 +55,8 @@ const char *err_str(Error err) {
         case ErrorBrokenPipe: return "broken pipe";
         case ErrorNoSpaceLeft: return "no space left";
         case ErrorNoCCompilerInstalled: return "no C compiler installed";
+        case ErrorNotLazy: return "not lazy";
+        case ErrorIsAsync: return "is async";
     }
     return "(invalid error)";
 }

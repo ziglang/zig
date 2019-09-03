@@ -104,6 +104,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
+        "  -F[dir]                      (darwin) add search path for frameworks\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
@@ -454,6 +455,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> forbidden_link_libs = {0};
+    ZigList<const char *> framework_dirs = {0};
     ZigList<const char *> frameworks = {0};
     bool have_libc = false;
     const char *target_string = nullptr;
@@ -686,6 +688,8 @@ int main(int argc, char **argv) {
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
+            } else if (arg[1] == 'F' && arg[2] != 0) {
+                framework_dirs.append(&arg[2]);
             } else if (strcmp(arg, "--pkg-begin") == 0) {
                 if (i + 2 >= argc) {
                     fprintf(stderr, "Expected 2 arguments after --pkg-begin\n");
@@ -772,6 +776,8 @@ int main(int argc, char **argv) {
                     main_pkg_path = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
+                } else if (strcmp(arg, "-F") == 0) {
+                    framework_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
                     if (strcmp(argv[i], "c") == 0)
                         have_libc = true;
@@ -1152,6 +1158,9 @@ int main(int argc, char **argv) {
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
+            }
+            for (size_t i = 0; i < framework_dirs.length; i += 1) {
+                g->framework_dirs.append(framework_dirs.at(i));
             }
             for (size_t i = 0; i < link_libs.length; i += 1) {
                 LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));

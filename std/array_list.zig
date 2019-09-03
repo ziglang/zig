@@ -10,6 +10,11 @@ pub fn ArrayList(comptime T: type) type {
 }
 
 pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
+    if (alignment) |a| {
+        if (a == @alignOf(T)) {
+            return AlignedArrayList(T, null);
+        }
+    }
     return struct {
         const Self = @This();
 

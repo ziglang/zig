@@ -36,6 +36,7 @@ struct IrInstruction;
 struct IrInstructionCast;
 struct IrInstructionAllocaGen;
 struct IrInstructionCallGen;
+struct IrInstructionAwaitGen;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
@@ -308,6 +309,7 @@ struct ConstGlobalRefs {
 enum LazyValueId {
     LazyValueIdInvalid,
     LazyValueIdAlignOf,
+    LazyValueIdSizeOf,
     LazyValueIdPtrType,
     LazyValueIdOptType,
     LazyValueIdSliceType,
@@ -320,6 +322,13 @@ struct LazyValue {
 };
 
 struct LazyValueAlignOf {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *target_type;
+};
+
+struct LazyValueSizeOf {
     LazyValue base;
 
     IrAnalyze *ira;
@@ -618,7 +627,7 @@ struct AstNodeParamDecl {
     AstNode *type;
     Token *var_token;
     bool is_noalias;
-    bool is_inline;
+    bool is_comptime;
     bool is_var_args;
 };
 
@@ -1478,6 +1487,7 @@ struct ZigFn {
     AstNode **param_source_nodes;
     Buf **param_names;
     IrInstruction *err_code_spill;
+    AstNode *assumed_non_async;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -1495,6 +1505,7 @@ struct ZigFn {
 
     ZigList<GlobalExport> export_list;
     ZigList<IrInstructionCallGen *> call_list;
+    ZigList<IrInstructionAwaitGen *> await_list;
 
     LLVMValueRef valgrind_client_request_array;
 
@@ -1992,6 +2003,7 @@ struct CodeGen {
     ZigList<Buf *> assembly_files;
     ZigList<CFile *> c_source_files;
     ZigList<const char *> lib_dirs;
+    ZigList<const char *> framework_dirs;
 
     ZigLibCInstallation *libc;
 
@@ -2093,6 +2105,7 @@ enum ScopeId {
     ScopeIdFnDef,
     ScopeIdCompTime,
     ScopeIdRuntime,
+    ScopeIdTypeOf,
 };
 
 struct Scope {
@@ -2231,6 +2244,13 @@ struct ScopeFnDef {
     Scope base;
 
     ZigFn *fn_entry;
+};
+
+// This scope is created for a @typeOf.
+// All runtime side-effects are elided within it.
+// NodeTypeFnCallExpr
+struct ScopeTypeOf {
+    Scope base;
 };
 
 // synchronized with code in define_builtin_compile_vars
@@ -2700,6 +2720,7 @@ struct IrInstructionCallSrc {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
     bool is_comptime;
 };
 
@@ -2716,6 +2737,7 @@ struct IrInstructionCallGen {
     IrInstruction *new_stack;
     FnInline fn_inline;
     bool is_async;
+    bool is_async_call_builtin;
 };
 
 struct IrInstructionConst {
@@ -3709,6 +3731,7 @@ struct IrInstructionAwaitGen {
 
     IrInstruction *frame;
     IrInstruction *result_loc;
+    ZigFn *target_fn;
 };
 
 struct IrInstructionResume {

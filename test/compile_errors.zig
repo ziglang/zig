@@ -3,6 +3,22 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "wrong type for result ptr to @asyncCall",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\fn amain() i32 {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    return await @asyncCall(&frame, false, foo);
+        \\}
+        \\fn foo() i32 {
+        \\    return 1234;
+        \\}
+    ,
+        "tmp.zig:6:37: error: expected type '*i32', found 'bool'",
+    );
+
+    cases.add(
         "struct depends on itself via optional field",
         \\const LhsExpr = struct {
         \\    rhsExpr: ?AstObject,
@@ -273,7 +289,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
-        "tmp.zig:3:18: note: await is a suspend point",
+        "tmp.zig:3:18: note: await here is a suspend point",
     );
 
     cases.add(
@@ -507,11 +523,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@sizeOf bad type",
-        \\export fn entry() void {
-        \\    _ = @sizeOf(@typeOf(null));
+        \\export fn entry() usize {
+        \\    return @sizeOf(@typeOf(null));
         \\}
     ,
-        "tmp.zig:2:17: error: no size available for type '(null)'",
+        "tmp.zig:2:20: error: no size available for type '(null)'",
     );
 
     cases.add(
@@ -1051,6 +1067,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = struct {};
         \\export fn a() void {
         \\    const T = [*c]Foo;
+        \\    var t: T = undefined;
         \\}
     ,
         "tmp.zig:3:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
@@ -2290,6 +2307,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "error union operator with non error set LHS",
         \\comptime {
         \\    const z = i32!i32;
+        \\    var x: z = undefined;
         \\}
     ,
         "tmp.zig:2:15: error: expected error set type, found type 'i32'",

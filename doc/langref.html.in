@@ -8114,7 +8114,23 @@ pub const TypeInfo = union(TypeId) {
       This function returns a compile-time constant, which is the type of the
       expression passed as an argument. The expression is evaluated.
       </p>
+      <p>{#syntax#}@typeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
 
+test "no runtime side effects" {
+    var data: i32 = 0;
+    const T = @typeOf(foo(i32, &data));
+    comptime assert(T == i32);
+    assert(data == 0);
+}
+
+fn foo(comptime T: type, ptr: *T) T {
+    ptr.* += 1;
+    return ptr.*;
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|@unionInit#}

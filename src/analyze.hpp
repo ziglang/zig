@@ -85,6 +85,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 ZigFn *scope_fn_entry(Scope *scope);
 ZigPackage *scope_package(Scope *scope);
 ZigType *get_scope_import(Scope *scope);
+ScopeTypeOf *get_scope_typeof(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
@@ -112,6 +113,7 @@ ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
+Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
@@ -247,6 +249,10 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
 
 Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align);
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+        size_t *abi_size, size_t *size_in_bits);
+Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
+        ConstExprValue *parent_type_val, bool *is_zero_bits);
 ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
 ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 

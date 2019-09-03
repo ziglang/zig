@@ -75,15 +75,16 @@ pub const Allocator = struct {
         new_alignment: u29,
     ) []u8,
 
-    /// Call `destroy` with the result.
-    /// Returns undefined memory.
+    /// Returns a pointer to undefined memory.
+    /// Call `destroy` with the result to free the memory.
     pub fn create(self: *Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
-    /// `ptr` should be the return value of `create`
+    /// `ptr` should be the return value of `create`, or otherwise
+    /// have the same address and alignment property.
     pub fn destroy(self: *Allocator, ptr: var) void {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
@@ -92,25 +93,39 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
-    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
-        return self.alignedAlloc(T, @alignOf(T), n);
+    pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
+        return self.alignedAlloc(T, null, n);
     }
 
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
-        comptime alignment: u29,
+        /// null means naturally aligned
+        comptime alignment: ?u29,
         n: usize,
-    ) ![]align(alignment) T {
+    ) Error![]align(alignment orelse @alignOf(T)) T {
+        const a = if (alignment) |a| blk: {
+            if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
+            break :blk a;
+        } else @alignOf(T);
+
         if (n == 0) {
-            return ([*]align(alignment) T)(undefined)[0..0];
+            return ([*]align(a) T)(undefined)[0..0];
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
+        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
-        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
+        if (alignment == null) {
+            // TODO This is a workaround for zig not being able to successfully do
+            // @bytesToSlice(T, @alignCast(a, byte_slice)) without resolving alignment of T,
+            // which causes a circular dependency in async functions which try to heap-allocate
+            // their own frame with @Frame(func).
+            return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
+        } else {
+            return @bytesToSlice(T, @alignCast(a, byte_slice));
+        }
     }
 
     /// This function requests a new byte size for an existing allocation,

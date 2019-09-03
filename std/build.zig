@@ -1228,6 +1228,7 @@ pub const LibExeObjStep = struct {
     name_only_filename: []const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
+    framework_dirs: ArrayList([]const u8),
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
@@ -1341,6 +1342,7 @@ pub const LibExeObjStep = struct {
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
@@ -1614,6 +1616,10 @@ pub const LibExeObjStep = struct {
         self.lib_paths.append(path) catch unreachable;
     }
 
+    pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.framework_dirs.append(dir_path) catch unreachable;
+    }
+
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.packages.append(Pkg{
             .name = name,
@@ -1860,8 +1866,8 @@ pub const LibExeObjStep = struct {
         }
 
         for (self.lib_paths.toSliceConst()) |lib_path| {
-            zig_args.append("--library-path") catch unreachable;
-            zig_args.append(lib_path) catch unreachable;
+            try zig_args.append("-L");
+            try zig_args.append(lib_path);
         }
 
         if (self.need_system_paths and self.target == Target.Native) {
@@ -1882,6 +1888,11 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.target.isDarwin()) {
+            for (self.framework_dirs.toSliceConst()) |dir| {
+                try zig_args.append("-F");
+                try zig_args.append(dir);
+            }
+
             var it = self.frameworks.iterator();
             while (it.next()) |entry| {
                 zig_args.append("-framework") catch unreachable;
