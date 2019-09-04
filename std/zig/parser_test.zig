@@ -2419,6 +2419,94 @@ test "zig fmt: comment after empty comment" {
     );
 }
 
+test "zig fmt: line comment in array" {
+    try testTransform(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0, // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+    try testCanonical(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0,
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comment after params" {
+    try testTransform(
+        \\fn a(
+        \\    b: u32
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    ,
+        \\fn a(
+        \\    b: u32, // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+    try testCanonical(
+        \\fn a(
+        \\    b: u32,
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: comment in array initializer/access" {
+    try testCanonical(
+        \\test "a" {
+        \\    var a = x{ //aa
+        \\        //bb
+        \\    };
+        \\    var a = []x{ //aa
+        \\        //bb
+        \\    };
+        \\    var b = [ //aa
+        \\        _
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var c = b[ //aa
+        \\        0
+        \\    ];
+        \\    var d = [_
+        \\        //aa
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var e = d[0
+        \\        //aa
+        \\    ];
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: comments at several places in struct init" {
     try testTransform(
         \\var bar = Bar{
