@@ -20942,6 +20942,13 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                     return ptr_type;
                 return get_slice_type(ira->codegen, ptr_type);
             }
+        case ZigTypeIdArray:
+            assert(payload->special == ConstValSpecialStatic);
+            assert(payload->type == ir_type_info_get_type(ira, "Array", nullptr));
+            return get_array_type(ira->codegen,
+                get_const_field_meta_type(ira, payload, "child", 1),
+                bigint_as_u64(get_const_field_lit_int(ira, payload, "len", 0))
+            );
         case ZigTypeIdComptimeFloat:
             return ira->codegen->builtin_types.entry_num_lit_float;
         case ZigTypeIdComptimeInt:
@@ -20950,7 +20957,6 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
             return ira->codegen->builtin_types.entry_undef;
         case ZigTypeIdNull:
             return ira->codegen->builtin_types.entry_null;
-        case ZigTypeIdArray:
         case ZigTypeIdOptional:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
