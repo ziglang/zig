@@ -10,7 +10,7 @@ pub const Package = struct {
     /// relative to root_src_dir
     table: Table,
 
-    pub const Table = std.HashMap([]const u8, *Package, mem.hash_slice_u8, mem.eql_slice_u8);
+    pub const Table = std.StringHashMap(*Package);
 
     /// makes internal copies of root_src_dir and root_src_path
     /// allocator should be an arena allocator because Package never frees anything
