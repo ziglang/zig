@@ -93,6 +93,12 @@ test "Type.Pointer" {
     });
 }
 
+test "Type.Array" {
+    testing.expect([123]u8 == @Type(TypeInfo { .Array = TypeInfo.Array { .len = 123, .child = u8 } }));
+    testing.expect([2]u32 == @Type(TypeInfo { .Array = TypeInfo.Array { .len = 2, .child = u32 } }));
+    testTypes([_]type {[1]u8, [30]usize, [7]bool});
+}
+
 test "Type.ComptimeFloat" {
     testTypes([_]type {comptime_float});
 }
