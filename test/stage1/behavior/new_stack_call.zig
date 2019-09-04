@@ -1,7 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 
-var new_stack_bytes: [1024]u8 = undefined;
+var new_stack_bytes: [1024]u8 align(16) = undefined;
 
 test "calling a function with a new stack" {
     const arg = 1234;

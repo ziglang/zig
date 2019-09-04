@@ -113,7 +113,6 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_type_op(ParseContext *pc);
 static AstNode *ast_parse_suffix_op(ParseContext *pc);
-static AstNode *ast_parse_async_prefix(ParseContext *pc);
 static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc);
 static AstNode *ast_parse_array_type_start(ParseContext *pc);
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc);
@@ -282,8 +281,8 @@ static AstNode *ast_parse_prefix_op_expr(
             case NodeTypeAwaitExpr:
                 right = &prefix->data.await_expr.expr;
                 break;
-            case NodeTypePromiseType:
-                right = &prefix->data.promise_type.payload_type;
+            case NodeTypeAnyFrameType:
+                right = &prefix->data.anyframe_type.payload_type;
                 break;
             case NodeTypeArrayType:
                 right = &prefix->data.array_type.child_type;
@@ -783,24 +782,26 @@ static AstNode *ast_parse_var_decl(ParseContext *pc) {
     return res;
 }
 
-// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 static AstNode *ast_parse_container_field(ParseContext *pc) {
     Token *identifier = eat_token_if(pc, TokenIdSymbol);
     if (identifier == nullptr)
         return nullptr;
 
     AstNode *type_expr = nullptr;
-    if (eat_token_if(pc, TokenIdColon) != nullptr)
+    if (eat_token_if(pc, TokenIdColon) != nullptr) {
         type_expr = ast_expect(pc, ast_parse_type_expr);
+    }
+    AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *expr = nullptr;
     if (eat_token_if(pc, TokenIdEq) != nullptr)
         expr = ast_expect(pc, ast_parse_expr);
-
 
     AstNode *res = ast_create_node(pc, NodeTypeStructField, identifier);
     res->data.struct_field.name = token_buf(identifier);
     res->data.struct_field.type = type_expr;
     res->data.struct_field.value = expr;
+    res->data.struct_field.align_expr = align_expr;
     return res;
 }
 
@@ -1167,7 +1168,6 @@ static AstNode *ast_parse_prefix_expr(ParseContext *pc) {
 //     <- AsmExpr
 //      / IfExpr
 //      / KEYWORD_break BreakLabel? Expr?
-//      / KEYWORD_cancel Expr
 //      / KEYWORD_comptime Expr
 //      / KEYWORD_continue BreakLabel?
 //      / KEYWORD_resume Expr
@@ -1192,14 +1192,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc) {
         AstNode *res = ast_create_node(pc, NodeTypeBreak, break_token);
         res->data.break_expr.name = token_buf(label);
         res->data.break_expr.expr = expr;
-        return res;
-    }
-
-    Token *cancel = eat_token_if(pc, TokenIdKeywordCancel);
-    if (cancel != nullptr) {
-        AstNode *expr = ast_expect(pc, ast_parse_expr);
-        AstNode *res = ast_create_node(pc, NodeTypeCancel, cancel);
-        res->data.cancel_expr.expr = expr;
         return res;
     }
 
@@ -1398,22 +1390,18 @@ static AstNode *ast_parse_error_union_expr(ParseContext *pc) {
 }
 
 // SuffixExpr
-//     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+//     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
 //      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
-    AstNode *async_call = ast_parse_async_prefix(pc);
-    if (async_call != nullptr) {
+    Token *async_token = eat_token_if(pc, TokenIdKeywordAsync);
+    if (async_token != nullptr) {
         if (eat_token_if(pc, TokenIdKeywordFn) != nullptr) {
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
             //       prefix...
-            // HACK: This loop is not actually enough to put back all the
-            //       tokens. Let's hope this is fine for most code right now
-            //       and wait till we get the async rework for a syntax update.
-            do {
-                put_back_token(pc);
-            } while (peek_token(pc)->id != TokenIdKeywordAsync);
+            put_back_token(pc);
+            put_back_token(pc);
 
             return ast_parse_primary_type_expr(pc);
         }
@@ -1455,10 +1443,14 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
             ast_invalid_token_error(pc, peek_token(pc));
 
         assert(args->type == NodeTypeFnCallExpr);
-        async_call->data.fn_call_expr.fn_ref_expr = child;
-        async_call->data.fn_call_expr.params = args->data.fn_call_expr.params;
-        async_call->data.fn_call_expr.is_builtin = false;
-        return async_call;
+
+        AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async_token);
+        res->data.fn_call_expr.is_async = true;
+        res->data.fn_call_expr.seen = false;
+        res->data.fn_call_expr.fn_ref_expr = child;
+        res->data.fn_call_expr.params = args->data.fn_call_expr.params;
+        res->data.fn_call_expr.is_builtin = false;
+        return res;
     }
 
     AstNode *res = ast_parse_primary_type_expr(pc);
@@ -1510,7 +1502,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
 //     <- BUILTINIDENTIFIER FnCallArguments
 //      / CHAR_LITERAL
 //      / ContainerDecl
-//     / DOT IDENTIFIER
+//      / DOT IDENTIFIER
 //      / ErrorSetDecl
 //      / FLOAT
 //      / FnProto
@@ -1643,9 +1635,9 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (null != nullptr)
         return ast_create_node(pc, NodeTypeNullLiteral, null);
 
-    Token *promise = eat_token_if(pc, TokenIdKeywordPromise);
-    if (promise != nullptr)
-        return ast_create_node(pc, NodeTypePromiseType, promise);
+    Token *anyframe = eat_token_if(pc, TokenIdKeywordAnyFrame);
+    if (anyframe != nullptr)
+        return ast_create_node(pc, NodeTypeAnyFrameType, anyframe);
 
     Token *true_token = eat_token_if(pc, TokenIdKeywordTrue);
     if (true_token != nullptr) {
@@ -2025,7 +2017,7 @@ static AstNode *ast_parse_link_section(ParseContext *pc) {
 //     <- KEYWORD_nakedcc
 //      / KEYWORD_stdcallcc
 //      / KEYWORD_extern
-//      / KEYWORD_async (LARROW TypeExpr RARROW)?
+//      / KEYWORD_async
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
     if (eat_token_if(pc, TokenIdKeywordNakedCC) != nullptr) {
@@ -2042,11 +2034,6 @@ static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     }
     if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
         res.cc = CallingConventionAsync;
-        if (eat_token_if(pc, TokenIdCmpLessThan) == nullptr)
-            return Optional<AstNodeFnProto>::some(res);
-
-        res.async_allocator_type = ast_expect(pc, ast_parse_type_expr);
-        expect_token(pc, TokenIdCmpGreaterThan);
         return Optional<AstNodeFnProto>::some(res);
     }
 
@@ -2088,7 +2075,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc) {
     res->column = first->start_column;
     res->data.param_decl.name = token_buf(name);
     res->data.param_decl.is_noalias = first->id == TokenIdKeywordNoAlias;
-    res->data.param_decl.is_inline = first->id == TokenIdKeywordCompTime;
+    res->data.param_decl.is_comptime = first->id == TokenIdKeywordCompTime;
     return res;
 }
 
@@ -2522,7 +2509,7 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
 
 // PrefixTypeOp
 //     <- QUESTIONMARK
-//      / KEYWORD_promise MINUSRARROW
+//      / KEYWORD_anyframe MINUSRARROW
 //      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile)*
 //      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile)*
 static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
@@ -2533,10 +2520,10 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
         return res;
     }
 
-    Token *promise = eat_token_if(pc, TokenIdKeywordPromise);
-    if (promise != nullptr) {
+    Token *anyframe = eat_token_if(pc, TokenIdKeywordAnyFrame);
+    if (anyframe != nullptr) {
         if (eat_token_if(pc, TokenIdArrow) != nullptr) {
-            AstNode *res = ast_create_node(pc, NodeTypePromiseType, promise);
+            AstNode *res = ast_create_node(pc, NodeTypeAnyFrameType, anyframe);
             return res;
         }
 
@@ -2669,24 +2656,6 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
     }
 
     return nullptr;
-}
-
-// AsyncPrefix <- KEYWORD_async (LARROW PrefixExpr RARROW)?
-static AstNode *ast_parse_async_prefix(ParseContext *pc) {
-    Token *async = eat_token_if(pc, TokenIdKeywordAsync);
-    if (async == nullptr)
-        return nullptr;
-
-    AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async);
-    res->data.fn_call_expr.is_async = true;
-    res->data.fn_call_expr.seen = false;
-    if (eat_token_if(pc, TokenIdCmpLessThan) != nullptr) {
-        AstNode *prefix_expr = ast_expect(pc, ast_parse_prefix_expr);
-        expect_token(pc, TokenIdCmpGreaterThan);
-        res->data.fn_call_expr.async_allocator = prefix_expr;
-    }
-
-    return res;
 }
 
 // FnCallArguments <- LPAREN ExprList RPAREN
@@ -2858,7 +2827,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_node_list(&node->data.fn_proto.params, visit, context);
             visit_field(&node->data.fn_proto.align_expr, visit, context);
             visit_field(&node->data.fn_proto.section_expr, visit, context);
-            visit_field(&node->data.fn_proto.async_allocator_type, visit, context);
             break;
         case NodeTypeFnDef:
             visit_field(&node->data.fn_def.fn_proto, visit, context);
@@ -2918,7 +2886,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeFnCallExpr:
             visit_field(&node->data.fn_call_expr.fn_ref_expr, visit, context);
             visit_node_list(&node->data.fn_call_expr.params, visit, context);
-            visit_field(&node->data.fn_call_expr.async_allocator, visit, context);
             break;
         case NodeTypeArrayAccessExpr:
             visit_field(&node->data.array_access_expr.array_ref_expr, visit, context);
@@ -3034,8 +3001,8 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeInferredArrayType:
             visit_field(&node->data.array_type.child_type, visit, context);
             break;
-        case NodeTypePromiseType:
-            visit_field(&node->data.promise_type.payload_type, visit, context);
+        case NodeTypeAnyFrameType:
+            visit_field(&node->data.anyframe_type.payload_type, visit, context);
             break;
         case NodeTypeErrorType:
             // none
@@ -3046,9 +3013,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeErrorSetDecl:
             visit_node_list(&node->data.err_set_decl.decls, visit, context);
-            break;
-        case NodeTypeCancel:
-            visit_field(&node->data.cancel_expr.expr, visit, context);
             break;
         case NodeTypeResume:
             visit_field(&node->data.resume_expr.expr, visit, context);

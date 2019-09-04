@@ -1,4 +1,5 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 
 var foo: u8 align(4) = 100;
@@ -228,3 +229,102 @@ test "alignment of extern() void" {
 }
 
 extern fn nothing() void {}
+
+test "return error union with 128-bit integer" {
+    expect(3 == try give());
+}
+fn give() anyerror!u128 {
+    return 3;
+}
+
+test "alignment of >= 128-bit integer type" {
+    expect(@alignOf(u128) == 16);
+    expect(@alignOf(u129) == 16);
+}
+
+test "alignment of struct with 128-bit field" {
+    expect(@alignOf(struct {
+        x: u128,
+    }) == 16);
+
+    comptime {
+        expect(@alignOf(struct {
+            x: u128,
+        }) == 16);
+    }
+}
+
+test "size of extern struct with 128-bit field" {
+    expect(@sizeOf(extern struct {
+        x: u128,
+        y: u8,
+    }) == 32);
+
+    comptime {
+        expect(@sizeOf(extern struct {
+            x: u128,
+            y: u8,
+        }) == 32);
+    }
+}
+
+const DefaultAligned = struct {
+    nevermind: u32,
+    badguy: i128,
+};
+
+test "read 128-bit field from default aligned struct in stack memory" {
+    var default_aligned = DefaultAligned{
+        .nevermind = 1,
+        .badguy = 12,
+    };
+    expect((@ptrToInt(&default_aligned.badguy) % 16) == 0);
+    expect(12 == default_aligned.badguy);
+}
+
+var default_aligned_global = DefaultAligned{
+    .nevermind = 1,
+    .badguy = 12,
+};
+
+test "read 128-bit field from default aligned struct in global memory" {
+    expect((@ptrToInt(&default_aligned_global.badguy) % 16) == 0);
+    expect(12 == default_aligned_global.badguy);
+}
+
+test "struct field explicit alignment" {
+    const S = struct {
+        const Node = struct {
+            next: *Node,
+            massive_byte: u8 align(64),
+        };
+    };
+
+    var node: S.Node = undefined;
+    node.massive_byte = 100;
+    expect(node.massive_byte == 100);
+    comptime expect(@typeOf(&node.massive_byte) == *align(64) u8);
+    expect(@ptrToInt(&node.massive_byte) % 64 == 0);
+}
+
+test "align(@alignOf(T)) T does not force resolution of T" {
+    const S = struct {
+        const A = struct {
+            a: *align(@alignOf(A)) A,
+        };
+        fn doTheTest() void {
+            suspend {
+                resume @frame();
+            }
+            _ = bar(@Frame(doTheTest));
+        }
+        fn bar(comptime T: type) *align(@alignOf(T)) T {
+            ok = true;
+            return undefined;
+        }
+
+        var ok = false;
+    };
+    _ = async S.doTheTest();
+    expect(S.ok);
+}

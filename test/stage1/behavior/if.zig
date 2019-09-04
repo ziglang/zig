@@ -63,3 +63,14 @@ test "labeled break inside comptime if inside runtime if" {
     }
     expect(answer == 42);
 }
+
+test "const result loc, runtime if cond, else unreachable" {
+    const Num = enum {
+        One,
+        Two,
+    };
+
+    var t = true;
+    const x = if (t) Num.Two else unreachable;
+    if (x != .Two) @compileError("bad");
+}

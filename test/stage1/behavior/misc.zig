@@ -706,3 +706,18 @@ test "result location zero sized array inside struct field implicit cast to slic
     var foo = E{ .entries = [_]u32{} };
     expect(foo.entries.len == 0);
 }
+
+var global_foo: *i32 = undefined;
+
+test "global variable assignment with optional unwrapping with var initialized to undefined" {
+    const S = struct {
+        var data: i32 = 1234;
+        fn foo() ?*i32 {
+            return &data;
+        }
+    };
+    global_foo = S.foo() orelse {
+        @panic("bad");
+    };
+    expect(global_foo.* == 1234);
+}

@@ -1,6 +1,5 @@
 const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
 
 pub extern fn __divti3(a: i128, b: i128) i128 {
     @setRuntimeSafety(builtin.is_test);

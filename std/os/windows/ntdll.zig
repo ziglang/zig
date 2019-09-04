@@ -1,7 +1,13 @@
 usingnamespace @import("bits.zig");
 
 pub extern "NtDll" stdcallcc fn RtlCaptureStackBackTrace(FramesToSkip: DWORD, FramesToCapture: DWORD, BackTrace: **c_void, BackTraceHash: ?*DWORD) WORD;
-pub extern "NtDll" stdcallcc fn NtQueryInformationFile(FileHandle: HANDLE, IoStatusBlock: *IO_STATUS_BLOCK, FileInformation: *c_void, Length: ULONG, FileInformationClass: FILE_INFORMATION_CLASS,) NTSTATUS;
+pub extern "NtDll" stdcallcc fn NtQueryInformationFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FileInformation: *c_void,
+    Length: ULONG,
+    FileInformationClass: FILE_INFORMATION_CLASS,
+) NTSTATUS;
 pub extern "NtDll" stdcallcc fn NtCreateFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,

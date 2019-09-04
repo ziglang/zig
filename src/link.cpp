@@ -1753,7 +1753,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
 
     // libc dep
-    if (g->libc_link_lib != nullptr) {
+    if (g->libc_link_lib != nullptr && g->out_type != OutTypeObj) {
         if (g->libc != nullptr) {
             if (!g->have_dynamic_link) {
                 lj->args.append("--start-group");
@@ -2508,6 +2508,12 @@ static void construct_linker_job_macho(LinkJob *lj) {
     } else {
         lj->args.append("-undefined");
         lj->args.append("dynamic_lookup");
+    }
+
+    for (size_t i = 0; i < g->framework_dirs.length; i += 1) {
+        const char *framework_dir = g->framework_dirs.at(i);
+        lj->args.append("-F");
+        lj->args.append(framework_dir);
     }
 
     for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {

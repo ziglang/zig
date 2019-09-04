@@ -2,13 +2,11 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
 const Lock = std.event.Lock;
 const Loop = std.event.Loop;
 
 /// This is a value that starts out unavailable, until resolve() is called
-/// While it is unavailable, coroutines suspend when they try to get() it,
+/// While it is unavailable, functions suspend when they try to get() it,
 /// and then are resumed when resolve() is called.
 /// At this point the value remains forever available, and another resolve() is not allowed.
 pub fn Future(comptime T: type) type {
@@ -23,7 +21,7 @@ pub fn Future(comptime T: type) type {
         available: u8,
 
         const Self = @This();
-        const Queue = std.atomic.Queue(promise);
+        const Queue = std.atomic.Queue(anyframe);
 
         pub fn init(loop: *Loop) Self {
             return Self{
@@ -37,10 +35,10 @@ pub fn Future(comptime T: type) type {
         /// available.
         /// Thread-safe.
         pub async fn get(self: *Self) *T {
-            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 2) {
+            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
                 return &self.data;
             }
-            const held = await (async self.lock.acquire() catch unreachable);
+            const held = self.lock.acquire();
             held.release();
 
             return &self.data;
@@ -49,7 +47,7 @@ pub fn Future(comptime T: type) type {
         /// Gets the data without waiting for it. If it's available, a pointer is
         /// returned. Otherwise, null is returned.
         pub fn getOrNull(self: *Self) ?*T {
-            if (@atomicLoad(u8, &self.available, AtomicOrder.SeqCst) == 2) {
+            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
                 return &self.data;
             } else {
                 return null;
@@ -62,10 +60,10 @@ pub fn Future(comptime T: type) type {
         /// It's not required to call start() before resolve() but it can be useful since
         /// this method is thread-safe.
         pub async fn start(self: *Self) ?*T {
-            const state = @cmpxchgStrong(u8, &self.available, 0, 1, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return null;
+            const state = @cmpxchgStrong(u8, &self.available, 0, 1, .SeqCst, .SeqCst) orelse return null;
             switch (state) {
                 1 => {
-                    const held = await (async self.lock.acquire() catch unreachable);
+                    const held = self.lock.acquire();
                     held.release();
                     return &self.data;
                 },
@@ -77,7 +75,7 @@ pub fn Future(comptime T: type) type {
         /// Make the data become available. May be called only once.
         /// Before calling this, modify the `data` property.
         pub fn resolve(self: *Self) void {
-            const prev = @atomicRmw(u8, &self.available, AtomicRmwOp.Xchg, 2, AtomicOrder.SeqCst);
+            const prev = @atomicRmw(u8, &self.available, .Xchg, 2, .SeqCst);
             assert(prev == 0 or prev == 1); // resolve() called twice
             Lock.Held.release(Lock.Held{ .lock = &self.lock });
         }
@@ -86,7 +84,7 @@ pub fn Future(comptime T: type) type {
 
 test "std.event.Future" {
     // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 
@@ -94,38 +92,32 @@ test "std.event.Future" {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    const handle = try async<allocator> testFuture(&loop);
-    defer cancel handle;
+    const handle = async testFuture(&loop);
 
     loop.run();
 }
 
-async fn testFuture(loop: *Loop) void {
-    suspend {
-        resume @handle();
-    }
+fn testFuture(loop: *Loop) void {
     var future = Future(i32).init(loop);
 
-    const a = async waitOnFuture(&future) catch @panic("memory");
-    const b = async waitOnFuture(&future) catch @panic("memory");
-    const c = async resolveFuture(&future) catch @panic("memory");
+    var a = async waitOnFuture(&future);
+    var b = async waitOnFuture(&future);
+    resolveFuture(&future);
 
-    const result = (await a) + (await b);
-    cancel c;
+    // TODO https://github.com/ziglang/zig/issues/3077
+    //const result = (await a) + (await b);
+    const a_result = await a;
+    const b_result = await b;
+    const result = a_result + b_result;
+
     testing.expect(result == 12);
 }
 
-async fn waitOnFuture(future: *Future(i32)) i32 {
-    suspend {
-        resume @handle();
-    }
-    return (await (async future.get() catch @panic("memory"))).*;
+fn waitOnFuture(future: *Future(i32)) i32 {
+    return future.get().*;
 }
 
-async fn resolveFuture(future: *Future(i32)) void {
-    suspend {
-        resume @handle();
-    }
+fn resolveFuture(future: *Future(i32)) void {
     future.data = 6;
     future.resolve();
 }

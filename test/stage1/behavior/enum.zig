@@ -996,3 +996,14 @@ test "enum literal casting to error union with payload enum" {
 
     expect((try bar) == Bar.B);
 }
+
+test "enum with one member and custom tag type" {
+    const E = enum(u2) {
+        One,
+    };
+    expect(@enumToInt(E.One) == 0);
+    const E2 = enum(u2) {
+        One = 2,
+    };
+    expect(@enumToInt(E2.One) == 2);
+}

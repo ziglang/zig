@@ -8,6 +8,18 @@ test "zig fmt: change use to usingnamespace" {
     );
 }
 
+test "zig fmt: async function" {
+    try testCanonical(
+        \\pub const Server = struct {
+        \\    handleRequestFn: async fn (*Server, *const std.net.Address, File) void,
+        \\};
+        \\test "hi" {
+        \\    var ptr = @ptrCast(async fn (i32) void, other);
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: whitespace fixes" {
     try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
@@ -154,6 +166,15 @@ test "zig fmt: doc comments on param decl" {
     );
 }
 
+test "zig fmt: aligned struct field" {
+    try testCanonical(
+        \\pub const S = struct {
+        \\    f: i32 align(32),
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserve space between async fn definitions" {
     try testCanonical(
         \\async fn a() void {}
@@ -189,6 +210,103 @@ test "zig fmt: comment to disable/enable zig fmt" {
     );
 }
 
+test "zig fmt: line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// Test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// test 1
+        \\/// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: off'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\/// test 1
+        \\// test 2
+        \\const  e  =  f;
+    );
+}
+
+test "zig fmt: alternating 'zig fmt: off' and 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
+        \\const  a  =  b;
+        \\// zig fmt: on
+        \\const c = d;
+        \\// zig fmt: on
+        \\
+    );
+}
+
+test "zig fmt: line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: line and doc comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\// test1
+        \\/// test2
+        \\const e = f;
+        \\
+    );
+}
+
+test "zig fmt: doc and line comment following 'zig fmt: on'" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const  e  =  f;
+        \\// zig fmt: on
+        \\/// test1
+        \\// test2
+        \\const e = f;
+        \\
+    );
+}
+
 test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}
@@ -210,7 +328,7 @@ test "zig fmt: spaces around slice operator" {
 test "zig fmt: async call in if condition" {
     try testCanonical(
         \\comptime {
-        \\    if (async<a> b()) {
+        \\    if (async b()) {
         \\        a();
         \\    }
         \\}
@@ -359,6 +477,27 @@ test "zig fmt: if-else with comment before else" {
         \\    else {
         \\        return Complex(f32).new(x, y - y);
         \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if nested" {
+    try testCanonical(
+        \\pub fn foo() void {
+        \\    return if ((aInt & bInt) >= 0)
+        \\        if (aInt < bInt)
+        \\            GE_LESS
+        \\        else if (aInt == bInt)
+        \\            GE_EQUAL
+        \\        else
+        \\            GE_GREATER
+        \\    else if (aInt > bInt)
+        \\        GE_LESS
+        \\    else if (aInt == bInt)
+        \\        GE_EQUAL
+        \\    else
+        \\        GE_GREATER;
         \\}
         \\
     );
@@ -1118,7 +1257,7 @@ test "zig fmt: first line comment in struct initializer" {
         \\pub async fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
         \\        // guaranteed allocation elision
-        \\        .held = await (async self.lock.acquire() catch unreachable),
+        \\        .held = self.lock.acquire(),
         \\        .value = &self.private_data,
         \\    };
         \\}
@@ -1183,7 +1322,7 @@ test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
         \\    suspend {
-        \\        resume @handle();
+        \\        resume @frame();
         \\    }
         \\}
         \\
@@ -2103,7 +2242,7 @@ test "zig fmt: inline asm" {
     );
 }
 
-test "zig fmt: coroutines" {
+test "zig fmt: async functions" {
     try testCanonical(
         \\async fn simpleAsyncFn() void {
         \\    const a = async a.b();
@@ -2111,14 +2250,14 @@ test "zig fmt: coroutines" {
         \\    suspend;
         \\    x += 1;
         \\    suspend;
-        \\    const p: promise->void = async simpleAsyncFn() catch unreachable;
+        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
-        \\test "coroutine suspend, resume, cancel" {
-        \\    const p: promise = try async<std.debug.global_allocator> testAsyncSeq();
+        \\test "suspend, resume, await" {
+        \\    const p: anyframe = async testAsyncSeq();
         \\    resume p;
-        \\    cancel p;
+        \\    await p;
         \\}
         \\
     );
@@ -2257,12 +2396,139 @@ test "zig fmt: if type expr" {
         \\
     );
 }
-
 test "zig fmt: file ends with struct field" {
     try testTransform(
         \\a: bool
     ,
         \\a: bool,
+        \\
+    );
+}
+
+test "zig fmt: comment after empty comment" {
+    try testTransform(
+        \\const x = true; //
+        \\//
+        \\//
+        \\//a
+        \\
+    ,
+        \\const x = true;
+        \\//a
+        \\
+    );
+}
+
+test "zig fmt: line comment in array" {
+    try testTransform(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    ,
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0, // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+    try testCanonical(
+        \\test "a" {
+        \\    var arr = [_]u32{
+        \\        0,
+        \\        // 1,
+        \\        // 2,
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comment after params" {
+    try testTransform(
+        \\fn a(
+        \\    b: u32
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    ,
+        \\fn a(
+        \\    b: u32, // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+    try testCanonical(
+        \\fn a(
+        \\    b: u32,
+        \\    // c: u32,
+        \\    // d: u32,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: comment in array initializer/access" {
+    try testCanonical(
+        \\test "a" {
+        \\    var a = x{ //aa
+        \\        //bb
+        \\    };
+        \\    var a = []x{ //aa
+        \\        //bb
+        \\    };
+        \\    var b = [ //aa
+        \\        _
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var c = b[ //aa
+        \\        0
+        \\    ];
+        \\    var d = [_
+        \\        //aa
+        \\    ]x{ //aa
+        \\        //bb
+        \\        9,
+        \\    };
+        \\    var e = d[0
+        \\        //aa
+        \\    ];
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comments at several places in struct init" {
+    try testTransform(
+        \\var bar = Bar{
+        \\    .x = 10, // test
+        \\    .y = "test" 
+        \\    // test
+        \\};
+        \\
+    ,
+        \\var bar = Bar{
+        \\    .x = 10, // test
+        \\    .y = "test", // test
+        \\};
+        \\
+    );
+
+    try testCanonical(
+        \\var bar = Bar{ // test
+        \\    .x = 10, // test
+        \\    .y = "test",
+        \\    // test
+        \\};
         \\
     );
 }

@@ -4,10 +4,11 @@ const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
+const panic = std.debug.panic;
 const assert = debug.assert;
 const warn = std.debug.warn;
 const ArrayList = std.ArrayList;
-const HashMap = std.HashMap;
+const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const process = std.process;
 const BufSet = std.BufSet;
@@ -41,9 +42,11 @@ pub const Builder = struct {
     env_map: *BufMap,
     top_level_steps: ArrayList(*TopLevelStep),
     install_prefix: ?[]const u8,
+    dest_dir: ?[]const u8,
+    lib_dir: []const u8,
+    exe_dir: []const u8,
+    install_path: []const u8,
     search_prefixes: ArrayList([]const u8),
-    lib_dir: ?[]const u8,
-    exe_dir: ?[]const u8,
     installed_files: ArrayList(InstalledFile),
     build_root: []const u8,
     cache_root: []const u8,
@@ -58,8 +61,8 @@ pub const Builder = struct {
         C11,
     };
 
-    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
-    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
+    const UserInputOptionsMap = StringHashMap(UserInputOption);
+    const AvailableOptionsMap = StringHashMap(AvailableOption);
 
     const AvailableOption = struct {
         name: []const u8,
@@ -125,10 +128,11 @@ pub const Builder = struct {
             .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
             .default_step = undefined,
             .env_map = env_map,
-            .install_prefix = null,
             .search_prefixes = ArrayList([]const u8).init(allocator),
-            .lib_dir = null,
-            .exe_dir = null,
+            .install_prefix = null,
+            .lib_dir = undefined,
+            .exe_dir = undefined,
+            .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
                 .step = Step.initNoOp("install", allocator),
@@ -142,6 +146,7 @@ pub const Builder = struct {
             .is_release = false,
             .override_std_dir = null,
             .override_lib_dir = null,
+            .install_path = undefined,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -159,19 +164,26 @@ pub const Builder = struct {
         self.allocator.destroy(self);
     }
 
+    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
     pub fn setInstallPrefix(self: *Builder, optional_prefix: ?[]const u8) void {
         self.install_prefix = optional_prefix;
     }
 
-    fn resolveInstallPrefix(self: *Builder) void {
-        const prefix = if (self.install_prefix) |prefix| prefix else blk: {
-            const prefix = self.cache_root;
-            self.install_prefix = prefix;
-            break :blk prefix;
-        };
-
-        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ prefix, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ prefix, "bin" }) catch unreachable;
+    /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
+    pub fn resolveInstallPrefix(self: *Builder) void {
+        if (self.dest_dir) |dest_dir| {
+            const install_prefix = self.install_prefix orelse "/usr";
+            self.install_path = fs.path.join(self.allocator, [_][]const u8{ dest_dir, install_prefix }) catch unreachable;
+        } else {
+            const install_prefix = self.install_prefix orelse blk: {
+                const p = self.cache_root;
+                self.install_prefix = p;
+                break :blk p;
+            };
+            self.install_path = install_prefix;
+        }
+        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "lib" }) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "bin" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -428,7 +440,7 @@ pub const Builder = struct {
             .description = description,
         };
         if ((self.available_options_map.put(name, available_option) catch unreachable) != null) {
-            debug.panic("Option '{}' declared twice", name);
+            panic("Option '{}' declared twice", name);
         }
         self.available_options_list.append(available_option) catch unreachable;
 
@@ -454,8 +466,8 @@ pub const Builder = struct {
                     return null;
                 },
             },
-            TypeId.Int => debug.panic("TODO integer options to build script"),
-            TypeId.Float => debug.panic("TODO float options to build script"),
+            TypeId.Int => panic("TODO integer options to build script"),
+            TypeId.Float => panic("TODO float options to build script"),
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
                     warn("Expected -D{} to be a string, but received a boolean.\n", name);
@@ -469,7 +481,7 @@ pub const Builder = struct {
                 },
                 UserValue.Scalar => |s| return s,
             },
-            TypeId.List => debug.panic("TODO list options to build script"),
+            TypeId.List => panic("TODO list options to build script"),
         }
     }
 
@@ -635,8 +647,6 @@ pub const Builder = struct {
     }
 
     pub fn validateUserInputDidItFail(self: *Builder) bool {
-        self.resolveInstallPrefix();
-
         // make sure all args are used
         var it = self.user_input_options.iterator();
         while (true) {
@@ -796,11 +806,7 @@ pub const Builder = struct {
                     return name;
                 }
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
-                if (fs.path.real(self.allocator, full_path)) |real_path| {
-                    return real_path;
-                } else |_| {
-                    continue;
-                }
+                return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
         if (self.env_map.get("PATH")) |PATH| {
@@ -808,14 +814,10 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, []u8{fs.path.delimiter});
+                var it = mem.tokenize(PATH, [_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
                     const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                    if (fs.path.real(self.allocator, full_path)) |real_path| {
-                        return real_path;
-                    } else |_| {
-                        continue;
-                    }
+                    return fs.realpathAlloc(self.allocator, full_path) catch continue;
                 }
             }
         }
@@ -825,11 +827,7 @@ pub const Builder = struct {
             }
             for (paths) |path| {
                 const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
-                if (fs.path.real(self.allocator, full_path)) |real_path| {
-                    return real_path;
-                } else |_| {
-                    continue;
-                }
+                return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
         return error.FileNotFound;
@@ -858,7 +856,7 @@ pub const Builder = struct {
         var stdout_file_in_stream = child.stdout.?.inStream();
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
 
-        const term = child.wait() catch |err| std.debug.panic("unable to spawn {}: {}", argv[0], err);
+        const term = child.wait() catch |err| panic("unable to spawn {}: {}", argv[0], err);
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
@@ -884,9 +882,9 @@ pub const Builder = struct {
 
     fn getInstallPath(self: *Builder, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
         const base_dir = switch (dir) {
-            .Prefix => self.install_prefix.?,
-            .Bin => self.exe_dir.?,
-            .Lib => self.lib_dir.?,
+            .Prefix => self.install_path,
+            .Bin => self.exe_dir,
+            .Lib => self.lib_dir,
         };
         return fs.path.resolve(
             self.allocator,
@@ -894,6 +892,15 @@ pub const Builder = struct {
         ) catch unreachable;
     }
 };
+
+test "builder.findProgram compiles" {
+    //allocator: *Allocator,
+    //zig_exe: []const u8,
+    //build_root: []const u8,
+    //cache_root: []const u8,
+    const builder = try Builder.create(std.heap.direct_allocator, "zig", "zig-cache", "zig-cache");
+    _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
+}
 
 pub const Version = struct {
     major: u32,
@@ -1113,6 +1120,9 @@ pub const Target = union(enum) {
     }
 
     pub fn libPrefix(self: Target) []const u8 {
+        if (self.isWasm()) {
+            return "";
+        }
         switch (self.getAbi()) {
             .msvc => return "",
             else => return "lib",
@@ -1219,6 +1229,7 @@ pub const LibExeObjStep = struct {
     name_only_filename: []const u8,
     strip: bool,
     lib_paths: ArrayList([]const u8),
+    framework_dirs: ArrayList([]const u8),
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
@@ -1308,6 +1319,9 @@ pub const LibExeObjStep = struct {
     }
 
     fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, is_dynamic: bool, ver: Version) LibExeObjStep {
+        if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
+            panic("invalid name: '{}'. It looks like a file path, but it is supposed to be the library or application name.", name);
+        }
         var self = LibExeObjStep{
             .strip = false,
             .builder = builder,
@@ -1332,6 +1346,7 @@ pub const LibExeObjStep = struct {
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
+            .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
@@ -1605,6 +1620,10 @@ pub const LibExeObjStep = struct {
         self.lib_paths.append(path) catch unreachable;
     }
 
+    pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.framework_dirs.append(dir_path) catch unreachable;
+    }
+
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.packages.append(Pkg{
             .name = name,
@@ -1793,7 +1812,7 @@ pub const LibExeObjStep = struct {
             try zig_args.append("--bundle-compiler-rt");
         }
         if (self.disable_stack_probing) {
-            try zig_args.append("--disable-stack-probing");
+            try zig_args.append("-fno-stack-check");
         }
 
         switch (self.target) {
@@ -1851,8 +1870,8 @@ pub const LibExeObjStep = struct {
         }
 
         for (self.lib_paths.toSliceConst()) |lib_path| {
-            zig_args.append("--library-path") catch unreachable;
-            zig_args.append(lib_path) catch unreachable;
+            try zig_args.append("-L");
+            try zig_args.append(lib_path);
         }
 
         if (self.need_system_paths and self.target == Target.Native) {
@@ -1873,6 +1892,11 @@ pub const LibExeObjStep = struct {
         }
 
         if (self.target.isDarwin()) {
+            for (self.framework_dirs.toSliceConst()) |dir| {
+                try zig_args.append("-F");
+                try zig_args.append(dir);
+            }
+
             var it = self.frameworks.iterator();
             while (it.next()) |entry| {
                 zig_args.append("-framework") catch unreachable;

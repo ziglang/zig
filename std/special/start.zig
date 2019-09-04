@@ -24,16 +24,6 @@ comptime {
     }
 }
 
-fn enableSegfaultHandler() void {
-    const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
-        root.enable_segfault_handler
-    else
-        std.debug.runtime_safety and std.debug.have_segfault_handling_support;
-    if (enable_segfault_handler) {
-        std.debug.attachSegfaultHandler();
-    }
-}
-
 extern fn wasm_freestanding_start() void {
     _ = callMain();
 }
@@ -45,13 +35,13 @@ nakedcc fn _start() noreturn {
 
     switch (builtin.arch) {
         .x86_64 => {
-            argc_ptr = asm ("lea (%%rsp), %[argc]"
-                : [argc] "=r" (-> [*]usize)
+            argc_ptr = asm (""
+                : [argc] "={rsp}" (-> [*]usize)
             );
         },
         .i386 => {
-            argc_ptr = asm ("lea (%%esp), %[argc]"
-                : [argc] "=r" (-> [*]usize)
+            argc_ptr = asm (""
+                : [argc] "={esp}" (-> [*]usize)
             );
         },
         .aarch64, .aarch64_be => {
@@ -72,7 +62,7 @@ extern fn WinMainCRTStartup() noreturn {
         _ = @import("start_windows_tls.zig");
     }
 
-    enableSegfaultHandler();
+    std.debug.maybeEnableSegfaultHandler();
 
     std.os.windows.kernel32.ExitProcess(callMain());
 }
@@ -113,7 +103,7 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
-    enableSegfaultHandler();
+    std.debug.maybeEnableSegfaultHandler();
 
     return callMain();
 }

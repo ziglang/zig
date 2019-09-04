@@ -74,3 +74,44 @@ test "@sizeOf on compile-time types" {
     expect(@sizeOf(@typeOf(.hi)) == 0);
     expect(@sizeOf(@typeOf(type)) == 0);
 }
+
+test "@sizeOf(T) == 0 doesn't force resolving struct size" {
+    const S = struct {
+        const Foo = struct {
+            y: if (@sizeOf(Foo) == 0) u64 else u32,
+        };
+        const Bar = struct {
+            x: i32,
+            y: if (0 == @sizeOf(Bar)) u64 else u32,
+        };
+    };
+
+    expect(@sizeOf(S.Foo) == 4);
+    expect(@sizeOf(S.Bar) == 8);
+}
+
+test "@typeOf() has no runtime side effects" {
+    const S = struct {
+        fn foo(comptime T: type, ptr: *T) T {
+            ptr.* += 1;
+            return ptr.*;
+        }
+    };
+    var data: i32 = 0;
+    const T = @typeOf(S.foo(i32, &data));
+    comptime expect(T == i32);
+    expect(data == 0);
+}
+
+test "branching logic inside @typeOf" {
+    const S = struct {
+        var data: i32 = 0;
+        fn foo() anyerror!i32 {
+            data += 1;
+            return undefined;
+        }
+    };
+    const T = @typeOf(S.foo() catch undefined);
+    comptime expect(T == i32);
+    expect(S.data == 0);
+}

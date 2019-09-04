@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
+const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -13,7 +14,7 @@ const Thread = std.Thread;
 
 pub const Loop = struct {
     allocator: *mem.Allocator,
-    next_tick_queue: std.atomic.Queue(promise),
+    next_tick_queue: std.atomic.Queue(anyframe),
     os_data: OsData,
     final_resume_node: ResumeNode,
     pending_event_count: usize,
@@ -24,11 +25,11 @@ pub const Loop = struct {
     available_eventfd_resume_nodes: std.atomic.Stack(ResumeNode.EventFd),
     eventfd_resume_nodes: []std.atomic.Stack(ResumeNode.EventFd).Node,
 
-    pub const NextTickNode = std.atomic.Queue(promise).Node;
+    pub const NextTickNode = std.atomic.Queue(anyframe).Node;
 
     pub const ResumeNode = struct {
         id: Id,
-        handle: promise,
+        handle: anyframe,
         overlapped: Overlapped,
 
         pub const overlapped_init = switch (builtin.os) {
@@ -85,18 +86,46 @@ pub const Loop = struct {
         };
     };
 
+    pub const IoMode = enum {
+        blocking,
+        evented,
+        mixed,
+    };
+    pub const io_mode: IoMode = if (@hasDecl(root, "io_mode")) root.io_mode else IoMode.blocking;
+    var global_instance_state: Loop = undefined;
+    threadlocal var per_thread_instance: ?*Loop = null;
+    const default_instance: ?*Loop = switch (io_mode) {
+        .blocking => null,
+        .evented => &global_instance_state,
+        .mixed => per_thread_instance,
+    };
+    pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+
+    /// TODO copy elision / named return values so that the threads referencing *Loop
+    /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
+    pub fn init(self: *Loop, allocator: *mem.Allocator) !void {
+        if (builtin.single_threaded) {
+            return self.initSingleThreaded(allocator);
+        } else {
+            return self.initMultiThreaded(allocator);
+        }
+    }
+
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         return self.initInternal(allocator, 1);
     }
 
     /// The allocator must be thread-safe because we use it for multiplexing
-    /// coroutines onto kernel threads.
+    /// async functions onto kernel threads.
     /// After initialization, call run().
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
+    /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
         if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try Thread.cpuCount();
@@ -110,7 +139,7 @@ pub const Loop = struct {
             .pending_event_count = 1,
             .allocator = allocator,
             .os_data = undefined,
-            .next_tick_queue = std.atomic.Queue(promise).init(),
+            .next_tick_queue = std.atomic.Queue(anyframe).init(),
             .extra_threads = undefined,
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
             .eventfd_resume_nodes = undefined,
@@ -120,10 +149,12 @@ pub const Loop = struct {
                 .overlapped = ResumeNode.overlapped_init,
             },
         };
+        // We need at least one of these in case the fs thread wants to use onNextTick
         const extra_thread_count = thread_count - 1;
+        const resume_node_count = std.math.max(extra_thread_count, 1);
         self.eventfd_resume_nodes = try self.allocator.alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
-            extra_thread_count,
+            resume_node_count,
         );
         errdefer self.allocator.free(self.eventfd_resume_nodes);
 
@@ -168,7 +199,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .EventFd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -397,7 +428,7 @@ pub const Loop = struct {
         }
     }
 
-    /// resume_node must live longer than the promise that it holds a reference to.
+    /// resume_node must live longer than the anyframe that it holds a reference to.
     /// flags must contain EPOLLET
     pub fn linuxAddFd(self: *Loop, fd: i32, resume_node: *ResumeNode, flags: u32) !void {
         assert(flags & os.EPOLLET == os.EPOLLET);
@@ -425,14 +456,13 @@ pub const Loop = struct {
         self.finishOneEvent();
     }
 
-    pub async fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
+    pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
         defer self.linuxRemoveFd(fd);
         suspend {
-            // TODO explicitly put this memory in the coroutine frame #1194
             var resume_node = ResumeNode.Basic{
                 .base = ResumeNode{
-                    .id = ResumeNode.Id.Basic,
-                    .handle = @handle(),
+                    .id = .Basic,
+                    .handle = @frame(),
                     .overlapped = ResumeNode.overlapped_init,
                 },
             };
@@ -441,14 +471,10 @@ pub const Loop = struct {
     }
 
     pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {
-        // TODO #1194
-        suspend {
-            resume @handle();
-        }
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
                 .id = ResumeNode.Id.Basic,
-                .handle = @handle(),
+                .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
             .kev = undefined,
@@ -460,7 +486,7 @@ pub const Loop = struct {
         return resume_node.kev;
     }
 
-    /// resume_node must live longer than the promise that it holds a reference to.
+    /// resume_node must live longer than the anyframe that it holds a reference to.
     pub fn bsdAddKev(self: *Loop, resume_node: *ResumeNode.Basic, ident: usize, filter: i16, fflags: u32) !void {
         self.beginOneEvent();
         errdefer self.finishOneEvent();
@@ -561,10 +587,10 @@ pub const Loop = struct {
         self.workerRun();
 
         switch (builtin.os) {
-            builtin.Os.linux,
-            builtin.Os.macosx,
-            builtin.Os.freebsd,
-            builtin.Os.netbsd,
+            .linux,
+            .macosx,
+            .freebsd,
+            .netbsd,
             => self.os_data.fs_thread.wait(),
             else => {},
         }
@@ -574,42 +600,35 @@ pub const Loop = struct {
         }
     }
 
-    /// This is equivalent to an async call, except instead of beginning execution of the async function,
-    /// it immediately returns to the caller, and the async function is queued in the event loop. It still
-    /// returns a promise to be awaited.
-    pub fn call(self: *Loop, comptime func: var, args: ...) !(promise->@typeOf(func).ReturnType) {
-        const S = struct {
-            async fn asyncFunc(loop: *Loop, handle: *promise->@typeOf(func).ReturnType, args2: ...) @typeOf(func).ReturnType {
-                suspend {
-                    handle.* = @handle();
-                    var my_tick_node = Loop.NextTickNode{
-                        .prev = undefined,
-                        .next = undefined,
-                        .data = @handle(),
-                    };
-                    loop.onNextTick(&my_tick_node);
-                }
-                // TODO guaranteed allocation elision for await in same func as async
-                return await (async func(args2) catch unreachable);
-            }
-        };
-        var handle: promise->@typeOf(func).ReturnType = undefined;
-        return async<self.allocator> S.asyncFunc(self, &handle, args);
+    /// This is equivalent to function call, except it calls `startCpuBoundOperation` first.
+    pub fn call(comptime func: var, args: ...) @typeOf(func).ReturnType {
+        startCpuBoundOperation();
+        return func(args);
     }
 
-    /// Awaiting a yield lets the event loop run, starting any unstarted async operations.
+    /// Yielding lets the event loop run, starting any unstarted async operations.
     /// Note that async operations automatically start when a function yields for any other reason,
     /// for example, when async I/O is performed. This function is intended to be used only when
     /// CPU bound tasks would be waiting in the event loop but never get started because no async I/O
     /// is performed.
-    pub async fn yield(self: *Loop) void {
+    pub fn yield(self: *Loop) void {
         suspend {
-            var my_tick_node = Loop.NextTickNode{
+            var my_tick_node = NextTickNode{
                 .prev = undefined,
                 .next = undefined,
-                .data = @handle(),
+                .data = @frame(),
             };
             self.onNextTick(&my_tick_node);
+        }
+    }
+
+    /// If the build is multi-threaded and there is an event loop, then it calls `yield`. Otherwise,
+    /// does nothing.
+    pub fn startCpuBoundOperation() void {
+        if (builtin.single_threaded) {
+            return;
+        } else if (instance) |event_loop| {
+            event_loop.yield();
         }
     }
 
@@ -672,9 +691,9 @@ pub const Loop = struct {
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            ResumeNode.Id.Basic => {},
-                            ResumeNode.Id.Stop => return,
-                            ResumeNode.Id.EventFd => {
+                            .Basic => {},
+                            .Stop => return,
+                            .EventFd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 event_fd_node.epoll_op = os.EPOLL_CTL_MOD;
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
@@ -696,12 +715,12 @@ pub const Loop = struct {
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            ResumeNode.Id.Basic => {
+                            .Basic => {
                                 const basic_node = @fieldParentPtr(ResumeNode.Basic, "base", resume_node);
                                 basic_node.kev = ev;
                             },
-                            ResumeNode.Id.Stop => return,
-                            ResumeNode.Id.EventFd => {
+                            .Stop => return,
+                            .EventFd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                                 self.available_eventfd_resume_nodes.push(stack_node);
@@ -730,9 +749,9 @@ pub const Loop = struct {
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;
                     switch (resume_node_id) {
-                        ResumeNode.Id.Basic => {},
-                        ResumeNode.Id.Stop => return,
-                        ResumeNode.Id.EventFd => {
+                        .Basic => {},
+                        .Stop => return,
+                        .EventFd => {
                             const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                             const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                             self.available_eventfd_resume_nodes.push(stack_node);
@@ -750,12 +769,12 @@ pub const Loop = struct {
         self.beginOneEvent(); // finished in posixFsRun after processing the msg
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
-            builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+            .macosx, .freebsd, .netbsd => {
                 const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wake);
                 const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
                 _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
-            builtin.Os.linux => {
+            .linux => {
                 _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
                 const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
@@ -776,23 +795,26 @@ pub const Loop = struct {
 
     fn posixFsRun(self: *Loop) void {
         while (true) {
-            if (builtin.os == builtin.Os.linux) {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst);
+            if (builtin.os == .linux) {
+                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, .Xchg, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
-                    @TagType(fs.Request.Msg).End => return,
-                    @TagType(fs.Request.Msg).PWriteV => |*msg| {
+                    .End => return,
+                    .WriteV => |*msg| {
+                        msg.result = os.writev(msg.fd, msg.iov);
+                    },
+                    .PWriteV => |*msg| {
                         msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
-                    @TagType(fs.Request.Msg).PReadV => |*msg| {
+                    .PReadV => |*msg| {
                         msg.result = os.preadv(msg.fd, msg.iov, msg.offset);
                     },
-                    @TagType(fs.Request.Msg).Open => |*msg| {
+                    .Open => |*msg| {
                         msg.result = os.openC(msg.path.ptr, msg.flags, msg.mode);
                     },
-                    @TagType(fs.Request.Msg).Close => |*msg| os.close(msg.fd),
-                    @TagType(fs.Request.Msg).WriteFile => |*msg| blk: {
+                    .Close => |*msg| os.close(msg.fd),
+                    .WriteFile => |*msg| blk: {
                         const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
                             os.O_CLOEXEC | os.O_TRUNC;
                         const fd = os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
@@ -804,23 +826,23 @@ pub const Loop = struct {
                     },
                 }
                 switch (node.data.finish) {
-                    @TagType(fs.Request.Finish).TickNode => |*tick_node| self.onNextTick(tick_node),
-                    @TagType(fs.Request.Finish).DeallocCloseOperation => |close_op| {
+                    .TickNode => |*tick_node| self.onNextTick(tick_node),
+                    .DeallocCloseOperation => |close_op| {
                         self.allocator.destroy(close_op);
                     },
-                    @TagType(fs.Request.Finish).NoAction => {},
+                    .NoAction => {},
                 }
                 self.finishOneEvent();
             }
             switch (builtin.os) {
-                builtin.Os.linux => {
+                .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
                         0, os.EINTR, os.EAGAIN => continue,
                         else => unreachable,
                     }
                 },
-                builtin.Os.macosx, builtin.Os.freebsd, builtin.Os.netbsd => {
+                .macosx, .freebsd, .netbsd => {
                     const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
                     _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
@@ -864,7 +886,7 @@ pub const Loop = struct {
 
 test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 
@@ -877,7 +899,7 @@ test "std.event.Loop - basic" {
 
 test "std.event.Loop - call" {
     // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded or builtin.os != builtin.Os.linux) return error.SkipZigTest;
+    if (builtin.single_threaded) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 
@@ -886,9 +908,8 @@ test "std.event.Loop - call" {
     defer loop.deinit();
 
     var did_it = false;
-    const handle = try loop.call(testEventLoop);
-    const handle2 = try loop.call(testEventLoop2, handle, &did_it);
-    defer cancel handle2;
+    var handle = async Loop.call(testEventLoop);
+    var handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
 
     loop.run();
 
@@ -899,7 +920,7 @@ async fn testEventLoop() i32 {
     return 1234;
 }
 
-async fn testEventLoop2(h: promise->i32, did_it: *bool) void {
+async fn testEventLoop2(h: anyframe->i32, did_it: *bool) void {
     const value = await h;
     testing.expect(value == 1234);
     did_it.* = true;

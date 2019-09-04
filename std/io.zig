@@ -146,7 +146,7 @@ pub fn InStream(comptime ReadError: type) type {
 
         /// Same as `readFull` but end of stream returns `error.EndOfStream`.
         pub fn readNoEof(self: *Self, buf: []u8) !void {
-            const amt_read = try self.read(buf);
+            const amt_read = try self.readFull(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
 

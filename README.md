@@ -1,6 +1,6 @@
 ![ZIG](https://ziglang.org/zig-logo.svg)
 
-Zig is an open-source programming language designed for **robustness**,
+A general-purpose programming language designed for **robustness**,
 **optimality**, and **maintainability**.
 
 ## Resources
@@ -10,6 +10,7 @@ Zig is an open-source programming language designed for **robustness**,
  * [Community](https://github.com/ziglang/zig/wiki/Community)
  * [Contributing](https://github.com/ziglang/zig/blob/master/CONTRIBUTING.md)
  * [Frequently Asked Questions](https://github.com/ziglang/zig/wiki/FAQ)
+ * [Community Projects](https://github.com/ziglang/zig/wiki/Community-Projects)
 
 ## Building from Source
 
@@ -54,7 +55,7 @@ brew install cmake llvm@8
 brew outdated llvm@8 || brew upgrade llvm@8
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/Cellar/llvm/8.0.0_1
+cmake .. -DCMAKE_PREFIX_PATH=$(brew --prefix llvm)
 make install
 ```
 

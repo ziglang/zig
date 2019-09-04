@@ -142,7 +142,8 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     return Error.None;
 }
 
-// TODO: just use the actual self-hosted zig fmt. Until the coroutine rewrite, we use a blocking implementation.
+// TODO: just use the actual self-hosted zig fmt. Until https://github.com/ziglang/zig/issues/2377,
+// we use a blocking implementation.
 export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
     if (std.debug.runtime_safety) {
         fmtMain(argc, argv) catch unreachable;
@@ -342,7 +343,7 @@ const Fmt = struct {
     color: errmsg.Color,
     allocator: *mem.Allocator,
 
-    const SeenMap = std.HashMap([]const u8, void, mem.hash_slice_u8, mem.eql_slice_u8);
+    const SeenMap = std.StringHashMap(void);
 };
 
 fn printErrMsgToFile(
@@ -375,7 +376,7 @@ fn printErrMsgToFile(
     const text = text_buf.toOwnedSlice();
 
     const stream = &file.outStream().stream;
-    try stream.print( "{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
+    try stream.print("{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
 
     if (!color_on) return;
 

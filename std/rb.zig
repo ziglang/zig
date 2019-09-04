@@ -93,7 +93,8 @@ pub const Node = struct {
         comptime {
             assert(@alignOf(*Node) >= 2);
         }
-        return @intToPtr(*Node, node.parent_and_color & ~mask);
+        const maybe_ptr = node.parent_and_color & ~mask;
+        return if (maybe_ptr == 0) null else @intToPtr(*Node, maybe_ptr);
     }
 
     fn setColor(node: *Node, color: Color) void {
@@ -233,10 +234,13 @@ pub const Tree = struct {
         return null;
     }
 
+    /// lookup searches for the value of key, using binary search. It will
+    /// return a pointer to the node if it is there, otherwise it will return null.
+    /// Complexity guaranteed O(log n), where n is the number of nodes book-kept
+    /// by tree.
     pub fn lookup(tree: *Tree, key: *Node) ?*Node {
-        var parent: *Node = undefined;
+        var parent: ?*Node = undefined;
         var is_left: bool = undefined;
-
         return doLookup(key, tree, &parent, &is_left);
     }
 
@@ -543,4 +547,47 @@ test "rb" {
         testing.expect(testGetNumber(num.node.next().?).value > num.value);
         num = testGetNumber(num.node.next().?);
     }
+}
+
+test "inserting and looking up" {
+    var tree: Tree = undefined;
+    tree.init(testCompare);
+    var number: testNumber = undefined;
+    number.value = 1000;
+    _ = tree.insert(&number.node);
+    var dup: testNumber = undefined;
+    //Assert that tuples with identical value fields finds the same pointer
+    dup.value = 1000;
+    assert(tree.lookup(&dup.node) == &number.node);
+    //Assert that tuples with identical values do not clobber when inserted.
+    _ = tree.insert(&dup.node);
+    assert(tree.lookup(&dup.node) == &number.node);
+    assert(tree.lookup(&number.node) != &dup.node);
+    assert(testGetNumber(tree.lookup(&dup.node).?).value == testGetNumber(&dup.node).value);
+    //Assert that if looking for a non-existing value, return null.
+    var non_existing_value: testNumber = undefined;
+    non_existing_value.value = 1234;
+    assert(tree.lookup(&non_existing_value.node) == null);
+}
+
+test "multiple inserts, followed by calling first and last" {
+    var tree: Tree = undefined;
+    tree.init(testCompare);
+    var zeroth: testNumber = undefined;
+    zeroth.value = 0;
+    var first: testNumber = undefined;
+    first.value = 1;
+    var second: testNumber = undefined;
+    second.value = 2;
+    var third: testNumber = undefined;
+    third.value = 3;
+    _ = tree.insert(&zeroth.node);
+    _ = tree.insert(&first.node);
+    _ = tree.insert(&second.node);
+    _ = tree.insert(&third.node);
+    assert(testGetNumber(tree.first().?).value == 0);
+    assert(testGetNumber(tree.last().?).value == 3);
+    var lookupNode: testNumber = undefined;
+    lookupNode.value = 3;
+    assert(tree.lookup(&lookupNode.node) == &third.node);
 }

@@ -277,7 +277,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
 /// FnProto <- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const cc = try parseFnCC(arena, it, tree);
+    const cc = parseFnCC(arena, it, tree);
     const fn_token = eatToken(it, .Keyword_fn) orelse {
         if (cc == null) return null else return error.ParseError;
     };
@@ -320,7 +320,6 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .var_args_token = var_args_token,
         .extern_export_inline_token = null,
         .cc_token = null,
-        .async_attr = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = align_expr,
@@ -331,7 +330,6 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         switch (kind) {
             .CC => |token| fn_proto_node.cc_token = token,
             .Extern => |token| fn_proto_node.extern_export_inline_token = token,
-            .Async => |node| fn_proto_node.async_attr = node,
         }
     }
 
@@ -382,16 +380,18 @@ fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-/// ContainerField <- IDENTIFIER (COLON TypeExpr)? (EQUAL Expr)?
+/// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const name_token = eatToken(it, .Identifier) orelse return null;
 
-    const type_expr = if (eatToken(it, .Colon)) |_|
-        try expectNode(arena, it, tree, parseTypeExpr, AstError{
+    var align_expr: ?*Node = null;
+    var type_expr: ?*Node = null;
+    if (eatToken(it, .Colon)) |_| {
+        type_expr = try expectNode(arena, it, tree, parseTypeExpr, AstError{
             .ExpectedTypeExpr = AstError.ExpectedTypeExpr{ .token = it.index },
-        })
-    else
-        null;
+        });
+        align_expr = try parseByteAlign(arena, it, tree);
+    }
 
     const value_expr = if (eatToken(it, .Equal)) |_|
         try expectNode(arena, it, tree, parseExpr, AstError{
@@ -408,6 +408,7 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
         .name_token = name_token,
         .type_expr = type_expr,
         .value_expr = value_expr,
+        .align_expr = align_expr,
     };
     return &node.base;
 }
@@ -814,7 +815,6 @@ fn parsePrefixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- AsmExpr
 ///      / IfExpr
 ///      / KEYWORD_break BreakLabel? Expr?
-///      / KEYWORD_cancel Expr
 ///      / KEYWORD_comptime Expr
 ///      / KEYWORD_continue BreakLabel?
 ///      / KEYWORD_resume Expr
@@ -834,20 +834,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
             .base = Node{ .id = .ControlFlowExpression },
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Break = label },
-            .rhs = expr_node,
-        };
-        return &node.base;
-    }
-
-    if (eatToken(it, .Keyword_cancel)) |token| {
-        const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
-            .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
-        });
-        const node = try arena.create(Node.PrefixOp);
-        node.* = Node.PrefixOp{
-            .base = Node{ .id = .PrefixOp },
-            .op_token = token,
-            .op = Node.PrefixOp.Op.Cancel,
             .rhs = expr_node,
         };
         return &node.base;
@@ -1107,10 +1093,19 @@ fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 }
 
 /// SuffixExpr
-///     <- AsyncPrefix PrimaryTypeExpr SuffixOp* FnCallArguments
+///     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
 ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    if (try parseAsyncPrefix(arena, it, tree)) |async_node| {
+    if (eatToken(it, .Keyword_async)) |async_token| {
+        if (eatToken(it, .Keyword_fn)) |token_fn| {
+            // HACK: If we see the keyword `fn`, then we assume that
+            //       we are parsing an async fn proto, and not a call.
+            //       We therefore put back all tokens consumed by the async
+            //       prefix...
+            putBackToken(it, token_fn);
+            putBackToken(it, async_token);
+            return parsePrimaryTypeExpr(arena, it, tree);
+        }
         // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
         var res = try expectNode(arena, it, tree, parsePrimaryTypeExpr, AstError{
             .ExpectedPrimaryTypeExpr = AstError.ExpectedPrimaryTypeExpr{ .token = it.index },
@@ -1131,7 +1126,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             });
             return null;
         };
-
         const node = try arena.create(Node.SuffixOp);
         node.* = Node.SuffixOp{
             .base = Node{ .id = .SuffixOp },
@@ -1139,14 +1133,13 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
                     .params = params.list,
-                    .async_attr = async_node.cast(Node.AsyncAttribute).?,
+                    .async_token = async_token,
                 },
             },
             .rtoken = params.rparen,
         };
         return &node.base;
     }
-
     if (try parsePrimaryTypeExpr(arena, it, tree)) |expr| {
         var res = expr;
 
@@ -1168,7 +1161,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
                     .op = Node.SuffixOp.Op{
                         .Call = Node.SuffixOp.Op.Call{
                             .params = params.list,
-                            .async_attr = null,
+                            .async_token = null,
                         },
                     },
                     .rtoken = params.rparen,
@@ -1201,7 +1194,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///      / KEYWORD_error DOT IDENTIFIER
 ///      / KEYWORD_false
 ///      / KEYWORD_null
-///      / KEYWORD_promise
+///      / KEYWORD_anyframe
 ///      / KEYWORD_true
 ///      / KEYWORD_undefined
 ///      / KEYWORD_unreachable
@@ -1256,11 +1249,11 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     }
     if (eatToken(it, .Keyword_false)) |token| return createLiteral(arena, Node.BoolLiteral, token);
     if (eatToken(it, .Keyword_null)) |token| return createLiteral(arena, Node.NullLiteral, token);
-    if (eatToken(it, .Keyword_promise)) |token| {
-        const node = try arena.create(Node.PromiseType);
-        node.* = Node.PromiseType{
-            .base = Node{ .id = .PromiseType },
-            .promise_token = token,
+    if (eatToken(it, .Keyword_anyframe)) |token| {
+        const node = try arena.create(Node.AnyFrameType);
+        node.* = Node.AnyFrameType{
+            .base = Node{ .id = .AnyFrameType },
+            .anyframe_token = token,
             .result = null,
         };
         return &node.base;
@@ -1668,36 +1661,18 @@ fn parseLinkSection(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 ///     <- KEYWORD_nakedcc
 ///      / KEYWORD_stdcallcc
 ///      / KEYWORD_extern
-///      / KEYWORD_async (LARROW TypeExpr RARROW)?
-fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?FnCC {
+///      / KEYWORD_async
+fn parseFnCC(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?FnCC {
     if (eatToken(it, .Keyword_nakedcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_stdcallcc)) |token| return FnCC{ .CC = token };
     if (eatToken(it, .Keyword_extern)) |token| return FnCC{ .Extern = token };
-    if (eatToken(it, .Keyword_async)) |token| {
-        const node = try arena.create(Node.AsyncAttribute);
-        node.* = Node.AsyncAttribute{
-            .base = Node{ .id = .AsyncAttribute },
-            .async_token = token,
-            .allocator_type = null,
-            .rangle_bracket = null,
-        };
-        if (eatToken(it, .AngleBracketLeft)) |_| {
-            const type_expr = try expectNode(arena, it, tree, parseTypeExpr, AstError{
-                .ExpectedTypeExpr = AstError.ExpectedTypeExpr{ .token = it.index },
-            });
-            const rarrow = try expectToken(it, tree, .AngleBracketRight);
-            node.allocator_type = type_expr;
-            node.rangle_bracket = rarrow;
-        }
-        return FnCC{ .Async = node };
-    }
+    if (eatToken(it, .Keyword_async)) |token| return FnCC{ .CC = token };
     return null;
 }
 
 const FnCC = union(enum) {
     CC: TokenIndex,
     Extern: TokenIndex,
-    Async: *Node.AsyncAttribute,
 };
 
 /// ParamDecl <- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
@@ -2194,7 +2169,7 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
 /// PrefixTypeOp
 ///     <- QUESTIONMARK
-///      / KEYWORD_promise MINUSRARROW
+///      / KEYWORD_anyframe MINUSRARROW
 ///      / ArrayTypeStart (ByteAlign / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 ///      / PtrTypeStart (KEYWORD_align LPAREN Expr (COLON INTEGER COLON INTEGER)? RPAREN / KEYWORD_const / KEYWORD_volatile / KEYWORD_allowzero)*
 fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
@@ -2209,20 +2184,20 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         return &node.base;
     }
 
-    // TODO: Returning a PromiseType instead of PrefixOp makes casting and setting .rhs or
+    // TODO: Returning a AnyFrameType instead of PrefixOp makes casting and setting .rhs or
     //       .return_type more difficult for the caller (see parsePrefixOpExpr helper).
-    //       Consider making the PromiseType a member of PrefixOp and add a
-    //       PrefixOp.PromiseType variant?
-    if (eatToken(it, .Keyword_promise)) |token| {
+    //       Consider making the AnyFrameType a member of PrefixOp and add a
+    //       PrefixOp.AnyFrameType variant?
+    if (eatToken(it, .Keyword_anyframe)) |token| {
         const arrow = eatToken(it, .Arrow) orelse {
             putBackToken(it, token);
             return null;
         };
-        const node = try arena.create(Node.PromiseType);
-        node.* = Node.PromiseType{
-            .base = Node{ .id = .PromiseType },
-            .promise_token = token,
-            .result = Node.PromiseType.Result{
+        const node = try arena.create(Node.AnyFrameType);
+        node.* = Node.AnyFrameType{
+            .base = Node{ .id = .AnyFrameType },
+            .anyframe_token = token,
+            .result = Node.AnyFrameType.Result{
                 .arrow_token = arrow,
                 .return_type = undefined, // set by caller
             },
@@ -2420,28 +2395,6 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .lhs = undefined, // set by caller
         .op = op_and_token.op,
         .rtoken = op_and_token.token,
-    };
-    return &node.base;
-}
-
-/// AsyncPrefix <- KEYWORD_async (LARROW PrefixExpr RARROW)?
-fn parseAsyncPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const async_token = eatToken(it, .Keyword_async) orelse return null;
-    var rangle_bracket: ?TokenIndex = null;
-    const expr_node = if (eatToken(it, .AngleBracketLeft)) |_| blk: {
-        const prefix_expr = try expectNode(arena, it, tree, parsePrefixExpr, AstError{
-            .ExpectedPrefixExpr = AstError.ExpectedPrefixExpr{ .token = it.index },
-        });
-        rangle_bracket = try expectToken(it, tree, .AngleBracketRight);
-        break :blk prefix_expr;
-    } else null;
-
-    const node = try arena.create(Node.AsyncAttribute);
-    node.* = Node.AsyncAttribute{
-        .base = Node{ .id = .AsyncAttribute },
-        .async_token = async_token,
-        .allocator_type = expr_node,
-        .rangle_bracket = rangle_bracket,
     };
     return &node.base;
 }
@@ -2903,8 +2856,8 @@ fn parsePrefixOpExpr(
                         rightmost_op = rhs;
                     } else break;
                 },
-                .PromiseType => {
-                    const prom = rightmost_op.cast(Node.PromiseType).?;
+                .AnyFrameType => {
+                    const prom = rightmost_op.cast(Node.AnyFrameType).?;
                     if (try opParseFn(arena, it, tree)) |rhs| {
                         prom.result.?.return_type = rhs;
                         rightmost_op = rhs;
@@ -2922,8 +2875,8 @@ fn parsePrefixOpExpr(
                     .InvalidToken = AstError.InvalidToken{ .token = it.index },
                 });
             },
-            .PromiseType => {
-                const prom = rightmost_op.cast(Node.PromiseType).?;
+            .AnyFrameType => {
+                const prom = rightmost_op.cast(Node.AnyFrameType).?;
                 prom.result.?.return_type = try expectNode(arena, it, tree, childParseFn, AstError{
                     .InvalidToken = AstError.InvalidToken{ .token = it.index },
                 });

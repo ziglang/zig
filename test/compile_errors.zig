@@ -3,6 +3,434 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempt to create 17 bit float type",
+        \\const builtin = @import("builtin");
+        \\comptime {
+        \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
+        \\}
+    ,
+        "tmp.zig:3:32: error: 17-bit float unsupported",
+    );
+
+    cases.add(
+        "wrong type for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(0);
+        \\}
+    ,
+        "tmp.zig:2:15: error: expected type 'builtin.TypeInfo', found 'comptime_int'",
+    );
+
+    cases.add(
+        "@Type with non-constant expression",
+        \\const builtin = @import("builtin");
+        \\var globalTypeInfo : builtin.TypeInfo = undefined;
+        \\export fn entry() void {
+        \\    _ = @Type(globalTypeInfo);
+        \\}
+    ,
+        "tmp.zig:4:15: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
+        "@Type with TypeInfo.Int",
+        \\const builtin = @import("builtin");
+        \\export fn entry() void {
+        \\    _ = @Type(builtin.TypeInfo.Int {
+        \\        .is_signed = true,
+        \\        .bits = 8,
+        \\    });
+        \\}
+    ,
+        "tmp.zig:3:36: error: expected type 'builtin.TypeInfo', found 'builtin.Int'",
+    );
+
+    cases.add(
+        "Struct unavailable for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(@typeInfo(struct { }));
+        \\}
+    ,
+        "tmp.zig:2:15: error: @Type not availble for 'TypeInfo.Struct'",
+    );
+
+    cases.add(
+        "wrong type for result ptr to @asyncCall",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\fn amain() i32 {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    return await @asyncCall(&frame, false, foo);
+        \\}
+        \\fn foo() i32 {
+        \\    return 1234;
+        \\}
+    ,
+        "tmp.zig:6:37: error: expected type '*i32', found 'bool'",
+    );
+
+    cases.add(
+        "struct depends on itself via optional field",
+        \\const LhsExpr = struct {
+        \\    rhsExpr: ?AstObject,
+        \\};
+        \\const AstObject = union {
+        \\    lhsExpr: LhsExpr,
+        \\};
+        \\export fn entry() void {
+        \\    const lhsExpr = LhsExpr{ .rhsExpr = null };
+        \\    const obj = AstObject{ .lhsExpr = lhsExpr };
+        \\}
+    ,
+        "tmp.zig:1:17: error: struct 'LhsExpr' depends on itself",
+        "tmp.zig:5:5: note: while checking this field",
+        "tmp.zig:2:5: note: while checking this field",
+    );
+
+    cases.add(
+        "alignment of enum field specified",
+        \\const Number = enum {
+        \\    a,
+        \\    b align(i32),
+        \\};
+        \\export fn entry1() void {
+        \\    var x: Number = undefined;
+        \\}
+    ,
+        "tmp.zig:3:13: error: structs and unions, not enums, support field alignment",
+        "tmp.zig:1:16: note: consider 'union(enum)' here",
+    );
+
+    cases.add(
+        "bad alignment type",
+        \\export fn entry1() void {
+        \\    var x: []align(true) i32 = undefined;
+        \\}
+        \\export fn entry2() void {
+        \\    var x: *align(f64(12.34)) i32 = undefined;
+        \\}
+    ,
+        "tmp.zig:2:20: error: expected type 'u29', found 'bool'",
+        "tmp.zig:5:22: error: fractional component prevents float value 12.340000 from being casted to type 'u29'",
+    );
+
+    cases.addCase(x: {
+        var tc = cases.create("variable in inline assembly template cannot be found",
+            \\export fn entry() void {
+            \\    var sp = asm volatile (
+            \\        "mov %[foo], sp"
+            \\        : [bar] "=r" (-> usize)
+            \\    );
+            \\}
+        , "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs");
+        tc.target = tests.Target{
+            .Cross = tests.CrossTarget{
+                .arch = .x86_64,
+                .os = .linux,
+                .abi = .gnu,
+            },
+        };
+        break :x tc;
+    });
+
+    cases.add(
+        "indirect recursion of async functions detected",
+        \\var frame: ?anyframe = null;
+        \\
+        \\export fn a() void {
+        \\    _ = async rangeSum(10);
+        \\    while (frame) |f| resume f;
+        \\}
+        \\
+        \\fn rangeSum(x: i32) i32 {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\    frame = null;
+        \\
+        \\    if (x == 0) return 0;
+        \\    var child = rangeSumIndirect(x - 1);
+        \\    return child + 1;
+        \\}
+        \\
+        \\fn rangeSumIndirect(x: i32) i32 {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\    frame = null;
+        \\
+        \\    if (x == 0) return 0;
+        \\    var child = rangeSum(x - 1);
+        \\    return child + 1;
+        \\}
+    ,
+        "tmp.zig:8:1: error: '@Frame(rangeSum)' depends on itself",
+        "tmp.zig:15:33: note: when analyzing type '@Frame(rangeSum)' here",
+        "tmp.zig:26:25: note: when analyzing type '@Frame(rangeSumIndirect)' here",
+    );
+
+    cases.add(
+        "non-async function pointer eventually is inferred to become async",
+        \\export fn a() void {
+        \\    var non_async_fn: fn () void = undefined;
+        \\    non_async_fn = func;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:5:1: error: 'func' cannot be async",
+        "tmp.zig:3:20: note: required to be non-async here",
+        "tmp.zig:6:5: note: suspends here",
+    );
+
+    cases.add(
+        "bad alignment in @asyncCall",
+        \\export fn entry() void {
+        \\    var ptr: async fn () void = func;
+        \\    var bytes: [64]u8 = undefined;
+        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\async fn func() void {}
+    ,
+        "tmp.zig:4:21: error: expected type '[]align(16) u8', found '*[64]u8'",
+    );
+
+    cases.add(
+        "atomic orderings of fence Acquire or stricter",
+        \\export fn entry() void {
+        \\    @fence(.Monotonic);
+        \\}
+    ,
+        "tmp.zig:2:12: error: atomic ordering must be Acquire or stricter",
+    );
+
+    cases.add(
+        "bad alignment in implicit cast from array pointer to slice",
+        \\export fn a() void {
+        \\    var x: [10]u8 = undefined;
+        \\    var y: []align(16) u8 = &x;
+        \\}
+    ,
+        "tmp.zig:3:30: error: expected type '[]align(16) u8', found '*[10]u8'",
+    );
+
+    cases.add(
+        "result location incompatibility mismatching handle_is_ptr (generic call)",
+        \\export fn entry() void {
+        \\    var damn = Container{
+        \\        .not_optional = getOptional(i32),
+        \\    };
+        \\}
+        \\pub fn getOptional(comptime T: type) ?T {
+        \\    return 0;
+        \\}
+        \\pub const Container = struct {
+        \\    not_optional: i32,
+        \\};
+    ,
+        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+    );
+
+    cases.add(
+        "result location incompatibility mismatching handle_is_ptr",
+        \\export fn entry() void {
+        \\    var damn = Container{
+        \\        .not_optional = getOptional(),
+        \\    };
+        \\}
+        \\pub fn getOptional() ?i32 {
+        \\    return 0;
+        \\}
+        \\pub const Container = struct {
+        \\    not_optional: i32,
+        \\};
+    ,
+        "tmp.zig:3:36: error: expected type 'i32', found '?i32'",
+    );
+
+    cases.add(
+        "const frame cast to anyframe",
+        \\export fn a() void {
+        \\    const f = async func();
+        \\    resume f;
+        \\}
+        \\export fn b() void {
+        \\    const f = async func();
+        \\    var x: anyframe = &f;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:3:12: error: expected type 'anyframe', found '*const @Frame(func)'",
+        "tmp.zig:7:24: error: expected type 'anyframe', found '*const @Frame(func)'",
+    );
+
+    cases.add(
+        "prevent bad implicit casting of anyframe types",
+        \\export fn a() void {
+        \\    var x: anyframe = undefined;
+        \\    var y: anyframe->i32 = x;
+        \\}
+        \\export fn b() void {
+        \\    var x: i32 = undefined;
+        \\    var y: anyframe->i32 = x;
+        \\}
+        \\export fn c() void {
+        \\    var x: @Frame(func) = undefined;
+        \\    var y: anyframe->i32 = &x;
+        \\}
+        \\fn func() void {}
+    ,
+        "tmp.zig:3:28: error: expected type 'anyframe->i32', found 'anyframe'",
+        "tmp.zig:7:28: error: expected type 'anyframe->i32', found 'i32'",
+        "tmp.zig:11:29: error: expected type 'anyframe->i32', found '*@Frame(func)'",
+    );
+
+    cases.add(
+        "wrong frame type used for async call",
+        \\export fn entry() void {
+        \\    var frame: @Frame(foo) = undefined;
+        \\    frame = async bar();
+        \\}
+        \\fn foo() void {
+        \\    suspend;
+        \\}
+        \\fn bar() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:3:5: error: expected type '*@Frame(bar)', found '*@Frame(foo)'",
+    );
+
+    cases.add(
+        "@Frame() of generic function",
+        \\export fn entry() void {
+        \\    var frame: @Frame(func) = undefined;
+        \\}
+        \\fn func(comptime T: type) void {
+        \\    var x: T = undefined;
+        \\}
+    ,
+        "tmp.zig:2:16: error: @Frame() of generic function",
+    );
+
+    cases.add(
+        "@frame() causes function to be async",
+        \\export fn entry() void {
+        \\    func();
+        \\}
+        \\fn func() void {
+        \\    _ = @frame();
+        \\}
+    ,
+        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:5:9: note: @frame() causes function to be async",
+    );
+
+    cases.add(
+        "invalid suspend in exported function",
+        \\export fn entry() void {
+        \\    var frame = async func();
+        \\    var result = await frame;
+        \\}
+        \\fn func() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:3:18: note: await here is a suspend point",
+    );
+
+    cases.add(
+        "async function indirectly depends on its own frame",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\async fn amain() void {
+        \\    other();
+        \\}
+        \\fn other() void {
+        \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
+        \\}
+    ,
+        "tmp.zig:4:1: error: unable to determine async function frame of 'amain'",
+        "tmp.zig:5:10: note: analysis of function 'other' depends on the frame",
+        "tmp.zig:8:13: note: referenced here",
+    );
+
+    cases.add(
+        "async function depends on its own frame",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\async fn amain() void {
+        \\    var x: [@sizeOf(@Frame(amain))]u8 = undefined;
+        \\}
+    ,
+        "tmp.zig:4:1: error: cannot resolve '@Frame(amain)': function not fully analyzed yet",
+        "tmp.zig:5:13: note: referenced here",
+    );
+
+    cases.add(
+        "non async function pointer passed to @asyncCall",
+        \\export fn entry() void {
+        \\    var ptr = afunc;
+        \\    var bytes: [100]u8 align(16) = undefined;
+        \\    _ = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\fn afunc() void { }
+    ,
+        "tmp.zig:4:32: error: expected async function, found 'fn() void'",
+    );
+
+    cases.add(
+        "runtime-known async function called",
+        \\export fn entry() void {
+        \\    _ = async amain();
+        \\}
+        \\fn amain() void {
+        \\    var ptr = afunc;
+        \\    _ = ptr();
+        \\}
+        \\async fn afunc() void {}
+    ,
+        "tmp.zig:6:12: error: function is not comptime-known; @asyncCall required",
+    );
+
+    cases.add(
+        "runtime-known function called with async keyword",
+        \\export fn entry() void {
+        \\    var ptr = afunc;
+        \\    _ = async ptr();
+        \\}
+        \\
+        \\async fn afunc() void { }
+    ,
+        "tmp.zig:3:15: error: function is not comptime-known; @asyncCall required",
+    );
+
+    cases.add(
+        "function with ccc indirectly calling async function",
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+        \\fn foo() void {
+        \\    bar();
+        \\}
+        \\fn bar() void {
+        \\    suspend;
+        \\}
+    ,
+        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:2:8: note: async function call here",
+        "tmp.zig:5:8: note: async function call here",
+        "tmp.zig:8:5: note: suspends here",
+    );
+
+    cases.add(
         "capture group on switch prong with incompatible payload types",
         \\const Union = union(enum) {
         \\    A: usize,
@@ -89,7 +517,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo: Foo = undefined;
         \\}
     ,
-        "tmp.zig:2:8: error: expected type 'type', found '(undefined)'",
+        "tmp.zig:2:8: error: use of undefined value here causes undefined behavior",
     );
 
     cases.add(
@@ -147,15 +575,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "@sizeOf bad type",
-        \\export fn entry() void {
-        \\    _ = @sizeOf(@typeOf(null));
+        \\export fn entry() usize {
+        \\    return @sizeOf(@typeOf(null));
         \\}
     ,
-        "tmp.zig:2:17: error: no size available for type '(null)'",
+        "tmp.zig:2:20: error: no size available for type '(null)'",
     );
 
     cases.add(
-        "Generic function where return type is self-referenced",
+        "generic function where return type is self-referenced",
         \\fn Foo(comptime T: type) Foo(T) {
         \\    return struct{ x: T };
         \\}
@@ -166,7 +594,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:1:29: error: evaluation exceeded 1000 backwards branches",
-        "tmp.zig:1:29: note: called from here",
+        "tmp.zig:5:18: note: referenced here",
     );
 
     cases.add(
@@ -201,7 +629,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return error.OutOfMemory;
         \\}
     ,
-        "tmp.zig:2:7: error: error is discarded",
+        "tmp.zig:2:12: error: error is discarded",
     );
 
     cases.add(
@@ -330,7 +758,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const A = struct { a : A, };
         \\export fn entry() usize { return @sizeOf(A); }
     ,
-        "tmp.zig:1:11: error: struct 'A' contains itself",
+        "tmp.zig:1:11: error: struct 'A' depends on itself",
     );
 
     cases.add(
@@ -340,7 +768,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const C = struct { a : A, };
         \\export fn entry() usize { return @sizeOf(A); }
     ,
-        "tmp.zig:1:11: error: struct 'A' contains itself",
+        "tmp.zig:1:11: error: struct 'A' depends on itself",
     );
 
     cases.add(
@@ -355,7 +783,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @sizeOf(@typeOf(foo.x));
         \\}
     ,
-        "tmp.zig:1:13: error: struct 'Foo' contains itself",
+        "tmp.zig:1:13: error: struct 'Foo' depends on itself",
         "tmp.zig:8:28: note: referenced here",
     );
 
@@ -374,7 +802,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:7:9: error: dependency loop detected",
-        "tmp.zig:2:19: note: called from here",
+        "tmp.zig:2:19: note: referenced here",
         "tmp.zig:10:21: note: referenced here",
     );
 
@@ -388,7 +816,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var s: Foo = Foo.E;
         \\}
     ,
-        "tmp.zig:1:17: error: 'Foo' depends on itself",
+        "tmp.zig:1:17: error: enum 'Foo' depends on itself",
     );
 
     cases.add(
@@ -551,7 +979,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         break :x tc;
     });
 
-    cases.addTest(
+    cases.add(
         "export generic function",
         \\export fn foo(num: var) i32 {
         \\    return 0;
@@ -560,17 +988,17 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
     );
 
-    cases.addTest(
+    cases.add(
         "C pointer to c_void",
         \\export fn a() void {
         \\    var x: *c_void = undefined;
         \\    var y: [*c]c_void = x;
         \\}
     ,
-        "tmp.zig:3:12: error: C pointers cannot point opaque types",
+        "tmp.zig:3:16: error: C pointers cannot point opaque types",
     );
 
-    cases.addTest(
+    cases.add(
         "directly embedding opaque type in struct and union",
         \\const O = @OpaqueType();
         \\const Foo = struct {
@@ -591,7 +1019,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions",
     );
 
-    cases.addTest(
+    cases.add(
         "implicit cast between C pointer and Zig pointer - bad const/align/child",
         \\export fn a() void {
         \\    var x: [*c]u8 = undefined;
@@ -627,7 +1055,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:23:22: error: expected type '[*c]u32', found '*u8'",
     );
 
-    cases.addTest(
+    cases.add(
         "implicit casting null c pointer to zig pointer",
         \\comptime {
         \\    var c_ptr: [*c]u8 = 0;
@@ -637,7 +1065,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:24: error: null pointer casted to type '*u8'",
     );
 
-    cases.addTest(
+    cases.add(
         "implicit casting undefined c pointer to zig pointer",
         \\comptime {
         \\    var c_ptr: [*c]u8 = undefined;
@@ -647,7 +1075,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:24: error: use of undefined value here causes undefined behavior",
     );
 
-    cases.addTest(
+    cases.add(
         "implicit casting C pointers which would mess up null semantics",
         \\export fn entry() void {
         \\    var slice: []const u8 = "aoeu";
@@ -672,7 +1100,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:13:35: note: mutable '[*c]const u8' allows illegal null values stored to type '[*]u8'",
     );
 
-    cases.addTest(
+    cases.add(
         "implicit casting too big integers to C pointers",
         \\export fn a() void {
         \\    var ptr: [*c]u8 = (1 << 64) + 1;
@@ -686,14 +1114,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
     );
 
-    cases.addTest(
+    cases.add(
         "C pointer pointing to non C ABI compatible type or has align attr",
         \\const Foo = struct {};
         \\export fn a() void {
         \\    const T = [*c]Foo;
+        \\    var t: T = undefined;
         \\}
     ,
-        "tmp.zig:3:15: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
+        "tmp.zig:3:19: error: C pointers cannot point to non-C-ABI-compatible type 'Foo'",
     );
 
     cases.addCase(x: {
@@ -714,7 +1143,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         break :x tc;
     });
 
-    cases.addTest(
+    cases.add(
         "assign to invalid dereference",
         \\export fn entry() void {
         \\    'a'.* = 1;
@@ -723,7 +1152,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:8: error: attempt to dereference non-pointer type 'comptime_int'",
     );
 
-    cases.addTest(
+    cases.add(
         "take slice of invalid dereference",
         \\export fn entry() void {
         \\    const x = 'a'.*[0..];
@@ -732,7 +1161,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:18: error: attempt to dereference non-pointer type 'comptime_int'",
     );
 
-    cases.addTest(
+    cases.add(
         "@truncate undefined value",
         \\export fn entry() void {
         \\    var z = @truncate(u8, u16(undefined));
@@ -776,7 +1205,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 5678;
         \\}
     ,
-        "tmp.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND.",
+        "tmp.zig:2:12: error: `&&` is invalid. Note that `and` is boolean AND",
     );
 
     cases.add(
@@ -1319,24 +1748,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@handle() called outside of function definition",
-        \\var handle_undef: promise = undefined;
-        \\var handle_dummy: promise = @handle();
+        "@frame() called outside of function definition",
+        \\var handle_undef: anyframe = undefined;
+        \\var handle_dummy: anyframe = @frame();
         \\export fn entry() bool {
         \\    return handle_undef == handle_dummy;
         \\}
     ,
-        "tmp.zig:2:29: error: @handle() called outside of function definition",
-    );
-
-    cases.add(
-        "@handle() in non-async function",
-        \\export fn entry() bool {
-        \\    var handle_undef: promise = undefined;
-        \\    return handle_undef == @handle();
-        \\}
-    ,
-        "tmp.zig:3:28: error: @handle() in non-async function",
+        "tmp.zig:2:30: error: @frame() called outside of function definition",
     );
 
     cases.add(
@@ -1630,7 +2049,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "unknown length pointer to opaque",
         \\export const T = [*]@OpaqueType();
     ,
-        "tmp.zig:1:18: error: unknown-length pointer to opaque",
+        "tmp.zig:1:21: error: unknown-length pointer to opaque",
     );
 
     cases.add(
@@ -1712,15 +2131,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "suspend inside suspend block",
-        \\const std = @import("std",);
-        \\
         \\export fn entry() void {
-        \\    var buf: [500]u8 = undefined;
-        \\    var a = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-        \\    const p = (async<a> foo()) catch unreachable;
-        \\    cancel p;
+        \\    _ = async foo();
         \\}
-        \\
         \\async fn foo() void {
         \\    suspend {
         \\        suspend {
@@ -1728,8 +2141,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     ,
-        "tmp.zig:12:9: error: cannot suspend inside suspend block",
-        "tmp.zig:11:5: note: other suspend block here",
+        "tmp.zig:6:9: error: cannot suspend inside suspend block",
+        "tmp.zig:5:5: note: other suspend block here",
     );
 
     cases.add(
@@ -1770,15 +2183,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "returning error from void async function",
-        \\const std = @import("std",);
         \\export fn entry() void {
-        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
+        \\    _ = async amain();
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;
         \\}
     ,
-        "tmp.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
+        "tmp.zig:5:17: error: expected type 'void', found 'error{ShouldBeCompileError}'",
     );
 
     cases.add(
@@ -1947,6 +2359,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "error union operator with non error set LHS",
         \\comptime {
         \\    const z = i32!i32;
+        \\    var x: z = undefined;
         \\}
     ,
         "tmp.zig:2:15: error: expected error set type, found type 'i32'",
@@ -2626,7 +3039,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() *noreturn {}
         \\export fn entry() void { _ = a(); }
     ,
-        "tmp.zig:1:8: error: pointer to noreturn not allowed",
+        "tmp.zig:1:9: error: pointer to noreturn not allowed",
     );
 
     cases.add(
@@ -2740,7 +3153,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    3 = 3;
         \\}
     ,
-        "tmp.zig:2:7: error: cannot assign to constant",
+        "tmp.zig:2:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2750,7 +3163,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    a = 4;
         \\}
     ,
-        "tmp.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -2820,7 +3233,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(); }
     ,
-        "tmp.zig:3:7: error: cannot assign to constant",
+        "tmp.zig:3:9: error: cannot assign to constant",
     );
 
     cases.add(
@@ -3226,14 +3639,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "incompatible number literals",
-        \\const x = 2 == 2.0;
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
-    ,
-        "tmp.zig:1:11: error: integer value 2 cannot be implicitly casted to type 'comptime_float'",
-    );
-
-    cases.add(
         "missing function call param",
         \\const Foo = struct {
         \\    a: i32,
@@ -3306,7 +3711,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "non constant expression in array size outside function",
+        "non constant expression in array size",
         \\const Foo = struct {
         \\    y: [get()]u8,
         \\};
@@ -3315,9 +3720,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(Foo)); }
     ,
-        "tmp.zig:5:18: error: unable to evaluate constant expression",
-        "tmp.zig:2:12: note: called from here",
-        "tmp.zig:2:8: note: called from here",
+        "tmp.zig:5:25: error: unable to evaluate constant expression",
+        "tmp.zig:2:12: note: referenced here",
     );
 
     cases.add(
@@ -3411,7 +3815,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
         "tmp.zig:3:14: error: division by zero",
-        "tmp.zig:1:14: note: called from here",
+        "tmp.zig:1:14: note: referenced here",
     );
 
     cases.add(
@@ -3843,7 +4247,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(seventh_fib_number)); }
     ,
         "tmp.zig:3:21: error: evaluation exceeded 1000 backwards branches",
-        "tmp.zig:3:21: note: called from here",
+        "tmp.zig:1:37: note: referenced here",
+        "tmp.zig:6:50: note: referenced here",
     );
 
     cases.add(
@@ -3883,8 +4288,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        "tmp.zig:6:24: error: unable to evaluate constant expression",
-        "tmp.zig:4:17: note: called from here",
+        "tmp.zig:6:26: error: unable to evaluate constant expression",
+        "tmp.zig:4:17: note: referenced here",
     );
 
     cases.add(
@@ -3967,7 +4372,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
         "tmp.zig:3:12: error: negation caused overflow",
-        "tmp.zig:1:14: note: called from here",
+        "tmp.zig:1:14: note: referenced here",
     );
 
     cases.add(
@@ -3980,7 +4385,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: called from here",
+        "tmp.zig:1:14: note: referenced here",
     );
 
     cases.add(
@@ -3993,7 +4398,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: called from here",
+        "tmp.zig:1:14: note: referenced here",
     );
 
     cases.add(
@@ -4006,7 +4411,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
     ,
         "tmp.zig:3:14: error: operation caused overflow",
-        "tmp.zig:1:14: note: called from here",
+        "tmp.zig:1:14: note: referenced here",
     );
 
     cases.add(
@@ -4098,7 +4503,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:3:7: error: unable to evaluate constant expression",
-        "tmp.zig:16:19: note: called from here",
+        "tmp.zig:16:19: note: referenced here",
     );
 
     cases.add(
@@ -4133,7 +4538,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        "tmp.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:13: error: cannot assign to constant",
     );
 
     cases.add(
@@ -4143,7 +4548,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\  cstr[0] = 'W';
         \\}
     ,
-        "tmp.zig:3:11: error: cannot assign to constant",
+        "tmp.zig:3:13: error: cannot assign to constant",
     );
 
     cases.add(
@@ -4291,7 +4696,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f.field = 0;
         \\}
     ,
-        "tmp.zig:6:13: error: cannot assign to constant",
+        "tmp.zig:6:15: error: cannot assign to constant",
     );
 
     cases.add(
@@ -4427,7 +4832,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:10:14: error: unable to evaluate constant expression",
-        "tmp.zig:6:20: note: called from here",
+        "tmp.zig:6:20: note: referenced here",
     );
 
     cases.add(
@@ -5574,7 +5979,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:4:25: error: aoeu",
-        "tmp.zig:1:36: note: called from here",
+        "tmp.zig:1:36: note: referenced here",
         "tmp.zig:12:20: note: referenced here",
     );
 
@@ -5649,7 +6054,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: MultipleChoice = undefined;
         \\}
     ,
-        "tmp.zig:2:14: error: non-enum union field assignment",
+        "tmp.zig:2:14: error: untagged union field assignment",
         "tmp.zig:1:24: note: consider 'union(enum)' here",
     );
 
@@ -6108,5 +6513,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:5:30: error: expression value is ignored",
         "tmp.zig:9:30: error: expression value is ignored",
+    );
+
+    cases.add(
+        "aligned variable of zero-bit type",
+        \\export fn f() void {
+        \\    var s: struct {} align(4) = undefined;
+        \\}
+    ,
+        "tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned",
     );
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
@@ -68,4 +69,34 @@ test "cmpxchg with ptr" {
 
     expect(@cmpxchgStrong(*i32, &x, &data3, &data2, AtomicOrder.SeqCst, AtomicOrder.SeqCst) == null);
     expect(x == &data2);
+}
+
+// TODO this test is disabled until this issue is resolved:
+// https://github.com/ziglang/zig/issues/2883
+// otherwise cross compiling will result in:
+// lld: error: undefined symbol: __sync_val_compare_and_swap_16
+//test "128-bit cmpxchg" {
+//    var x: u128 align(16) = 1234; // TODO: https://github.com/ziglang/zig/issues/2987
+//    if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
+//        expect(x1 == 1234);
+//    } else {
+//        @panic("cmpxchg should have failed");
+//    }
+//
+//    while (@cmpxchgWeak(u128, &x, 1234, 5678, .SeqCst, .SeqCst)) |x1| {
+//        expect(x1 == 1234);
+//    }
+//    expect(x == 5678);
+//
+//    expect(@cmpxchgStrong(u128, &x, 5678, 42, .SeqCst, .SeqCst) == null);
+//    expect(x == 42);
+//}
+
+test "cmpxchg with ignored result" {
+    var x: i32 = 1234;
+    var ptr = &x;
+
+    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
+
+    expectEqual(i32(5678), x);
 }

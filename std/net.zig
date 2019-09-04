@@ -215,3 +215,33 @@ test "std.net.parseIp6" {
     assert(addr.addr[1] == 0x01);
     assert(addr.addr[2] == 0x00);
 }
+
+pub fn connectUnixSocket(path: []const u8) !std.fs.File {
+    const opt_non_block = if (std.event.Loop.instance != null) os.SOCK_NONBLOCK else 0;
+    const sockfd = try os.socket(
+        os.AF_UNIX,
+        os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
+        0,
+    );
+    errdefer os.close(sockfd);
+
+    var sock_addr = os.sockaddr{
+        .un = os.sockaddr_un{
+            .family = os.AF_UNIX,
+            .path = undefined,
+        },
+    };
+
+    if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
+    mem.copy(u8, sock_addr.un.path[0..], path);
+    const size = @intCast(u32, @sizeOf(os.sa_family_t) + path.len);
+    if (std.event.Loop.instance) |loop| {
+        try os.connect_async(sockfd, &sock_addr, size);
+        try loop.linuxWaitFd(sockfd, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
+        try os.getsockoptError(sockfd);
+    } else {
+        try os.connect(sockfd, &sock_addr, size);
+    }
+
+    return std.fs.File.openHandle(sockfd);
+}

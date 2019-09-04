@@ -104,7 +104,7 @@ test "HeaderEntry" {
 
 const HeaderList = std.ArrayList(HeaderEntry);
 const HeaderIndexList = std.ArrayList(usize);
-const HeaderIndex = std.AutoHashMap([]const u8, HeaderIndexList);
+const HeaderIndex = std.StringHashMap(HeaderIndexList);
 
 pub const Headers = struct {
     // the owned header field name is stored in the index as part of the key

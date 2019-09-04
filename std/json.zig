@@ -989,7 +989,7 @@ test "json.validate" {
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const HashMap = std.HashMap;
+const StringHashMap = std.StringHashMap;
 
 pub const ValueTree = struct {
     arena: ArenaAllocator,
@@ -1000,7 +1000,7 @@ pub const ValueTree = struct {
     }
 };
 
-pub const ObjectMap = HashMap([]const u8, Value, mem.hash_slice_u8, mem.eql_slice_u8);
+pub const ObjectMap = StringHashMap(Value);
 
 pub const Value = union(enum) {
     Null,

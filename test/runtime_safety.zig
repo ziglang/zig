@@ -1,6 +1,91 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("awaiting twice",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\var frame: anyframe = undefined;
+        \\
+        \\pub fn main() void {
+        \\    _ = async amain();
+        \\    resume frame;
+        \\}
+        \\
+        \\fn amain() void {
+        \\    var f = async func();
+        \\    await f;
+        \\    await f;
+        \\}
+        \\
+        \\fn func() void {
+        \\    suspend {
+        \\        frame = @frame();
+        \\    }
+        \\}
+    );
+
+    cases.addRuntimeSafety("@asyncCall with too small a frame",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var bytes: [1]u8 align(16) = undefined;
+        \\    var ptr = other;
+        \\    var frame = @asyncCall(&bytes, {}, ptr);
+        \\}
+        \\async fn other() void {
+        \\    suspend;
+        \\}
+    );
+
+    cases.addRuntimeSafety("resuming a function which is awaiting a frame",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var frame = async first();
+        \\    resume frame;
+        \\}
+        \\fn first() void {
+        \\    var frame = async other();
+        \\    await frame;
+        \\}
+        \\fn other() void {
+        \\    suspend;
+        \\}
+    );
+
+    cases.addRuntimeSafety("resuming a function which is awaiting a call",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var frame = async first();
+        \\    resume frame;
+        \\}
+        \\fn first() void {
+        \\    other();
+        \\}
+        \\fn other() void {
+        \\    suspend;
+        \\}
+    );
+
+    cases.addRuntimeSafety("invalid resume of async function",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\pub fn main() void {
+        \\    var p = async suspendOnce();
+        \\    resume p; //ok
+        \\    resume p; //bad
+        \\}
+        \\fn suspendOnce() void {
+        \\    suspend;
+        \\}
+    );
+
     cases.addRuntimeSafety(".? operator on null pointer",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -483,23 +568,29 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    std.os.exit(126);
         \\}
         \\
+        \\var failing_frame: @Frame(failing) = undefined;
+        \\
         \\pub fn main() void {
         \\    const p = nonFailing();
         \\    resume p;
-        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
-        \\    cancel p2;
+        \\    const p2 = async printTrace(p);
         \\}
         \\
-        \\fn nonFailing() promise->anyerror!void {
-        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\fn nonFailing() anyframe->anyerror!void {
+        \\    failing_frame = async failing();
+        \\    return &failing_frame;
         \\}
         \\
         \\async fn failing() anyerror!void {
         \\    suspend;
+        \\    return second();
+        \\}
+        \\
+        \\async fn second() anyerror!void {
         \\    return error.Fail;
         \\}
         \\
-        \\async fn printTrace(p: promise->anyerror!void) void {
+        \\async fn printTrace(p: anyframe->anyerror!void) void {
         \\    (await p) catch unreachable;
         \\}
     );

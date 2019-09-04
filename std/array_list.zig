@@ -6,19 +6,27 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 
 pub fn ArrayList(comptime T: type) type {
-    return AlignedArrayList(T, @alignOf(T));
+    return AlignedArrayList(T, null);
 }
 
-pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
+pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
+    if (alignment) |a| {
+        if (a == @alignOf(T)) {
+            return AlignedArrayList(T, null);
+        }
+    }
     return struct {
         const Self = @This();
 
         /// Use toSlice instead of slicing this directly, because if you don't
         /// specify the end position of the slice, this will potentially give
         /// you uninitialized memory.
-        items: []align(A) T,
+        items: Slice,
         len: usize,
         allocator: *Allocator,
+
+        pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
+        pub const SliceConst = if (alignment) |a| ([]align(a) const T) else []const T;
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: *Allocator) Self {
@@ -33,11 +41,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             self.allocator.free(self.items);
         }
 
-        pub fn toSlice(self: Self) []align(A) T {
+        pub fn toSlice(self: Self) Slice {
             return self.items[0..self.len];
         }
 
-        pub fn toSliceConst(self: Self) []align(A) const T {
+        pub fn toSliceConst(self: Self) SliceConst {
             return self.items[0..self.len];
         }
 
@@ -69,7 +77,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn fromOwnedSlice(allocator: *Allocator, slice: []align(A) T) Self {
+        pub fn fromOwnedSlice(allocator: *Allocator, slice: Slice) Self {
             return Self{
                 .items = slice,
                 .len = slice.len,
@@ -78,7 +86,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
         }
 
         /// The caller owns the returned memory. ArrayList becomes empty.
-        pub fn toOwnedSlice(self: *Self) []align(A) T {
+        pub fn toOwnedSlice(self: *Self) Slice {
             const allocator = self.allocator;
             const result = allocator.shrink(self.items, self.len);
             self.* = init(allocator);
@@ -93,7 +101,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             self.items[n] = item;
         }
 
-        pub fn insertSlice(self: *Self, n: usize, items: []align(A) const T) !void {
+        pub fn insertSlice(self: *Self, n: usize, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
 
@@ -141,7 +149,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type {
             return self.swapRemove(i);
         }
 
-        pub fn appendSlice(self: *Self, items: []align(A) const T) !void {
+        pub fn appendSlice(self: *Self, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             mem.copy(T, self.items[self.len..], items);
             self.len += items.len;

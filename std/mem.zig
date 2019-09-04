@@ -75,15 +75,16 @@ pub const Allocator = struct {
         new_alignment: u29,
     ) []u8,
 
-    /// Call `destroy` with the result.
-    /// Returns undefined memory.
+    /// Returns a pointer to undefined memory.
+    /// Call `destroy` with the result to free the memory.
     pub fn create(self: *Allocator, comptime T: type) Error!*T {
         if (@sizeOf(T) == 0) return &(T{});
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
-    /// `ptr` should be the return value of `create`
+    /// `ptr` should be the return value of `create`, or otherwise
+    /// have the same address and alignment property.
     pub fn destroy(self: *Allocator, ptr: var) void {
         const T = @typeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
@@ -92,25 +93,39 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
-    pub fn alloc(self: *Allocator, comptime T: type, n: usize) ![]T {
-        return self.alignedAlloc(T, @alignOf(T), n);
+    pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
+        return self.alignedAlloc(T, null, n);
     }
 
     pub fn alignedAlloc(
         self: *Allocator,
         comptime T: type,
-        comptime alignment: u29,
+        /// null means naturally aligned
+        comptime alignment: ?u29,
         n: usize,
-    ) ![]align(alignment) T {
+    ) Error![]align(alignment orelse @alignOf(T)) T {
+        const a = if (alignment) |a| blk: {
+            if (a == @alignOf(T)) return alignedAlloc(self, T, null, n);
+            break :blk a;
+        } else @alignOf(T);
+
         if (n == 0) {
-            return ([*]align(alignment) T)(undefined)[0..0];
+            return ([*]align(a) T)(undefined)[0..0];
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, alignment);
+        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
-        return @bytesToSlice(T, @alignCast(alignment, byte_slice));
+        if (alignment == null) {
+            // TODO This is a workaround for zig not being able to successfully do
+            // @bytesToSlice(T, @alignCast(a, byte_slice)) without resolving alignment of T,
+            // which causes a circular dependency in async functions which try to heap-allocate
+            // their own frame with @Frame(func).
+            return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
+        } else {
+            return @bytesToSlice(T, @alignCast(a, byte_slice));
+        }
     }
 
     /// This function requests a new byte size for an existing allocation,
@@ -324,6 +339,7 @@ test "mem.lessThan" {
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
     for (a) |item, index| {
         if (b[index] != item) return false;
     }
@@ -723,47 +739,34 @@ test "writeIntBig and writeIntLittle" {
     var buf9: [9]u8 = undefined;
 
     writeIntBig(u0, &buf0, 0x0);
-    testing.expect(eql_slice_u8(buf0[0..], [_]u8{}));
+    testing.expect(eql(u8, buf0[0..], [_]u8{}));
     writeIntLittle(u0, &buf0, 0x0);
-    testing.expect(eql_slice_u8(buf0[0..], [_]u8{}));
+    testing.expect(eql(u8, buf0[0..], [_]u8{}));
 
     writeIntBig(u8, &buf1, 0x12);
-    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0x12}));
+    testing.expect(eql(u8, buf1[0..], [_]u8{0x12}));
     writeIntLittle(u8, &buf1, 0x34);
-    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0x34}));
+    testing.expect(eql(u8, buf1[0..], [_]u8{0x34}));
 
     writeIntBig(u16, &buf2, 0x1234);
-    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0x12, 0x34 }));
+    testing.expect(eql(u8, buf2[0..], [_]u8{ 0x12, 0x34 }));
     writeIntLittle(u16, &buf2, 0x5678);
-    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0x78, 0x56 }));
+    testing.expect(eql(u8, buf2[0..], [_]u8{ 0x78, 0x56 }));
 
     writeIntBig(u72, &buf9, 0x123456789abcdef024);
-    testing.expect(eql_slice_u8(buf9[0..], [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
+    testing.expect(eql(u8, buf9[0..], [_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }));
     writeIntLittle(u72, &buf9, 0xfedcba9876543210ec);
-    testing.expect(eql_slice_u8(buf9[0..], [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
+    testing.expect(eql(u8, buf9[0..], [_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }));
 
     writeIntBig(i8, &buf1, -1);
-    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0xff}));
+    testing.expect(eql(u8, buf1[0..], [_]u8{0xff}));
     writeIntLittle(i8, &buf1, -2);
-    testing.expect(eql_slice_u8(buf1[0..], [_]u8{0xfe}));
+    testing.expect(eql(u8, buf1[0..], [_]u8{0xfe}));
 
     writeIntBig(i16, &buf2, -3);
-    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0xff, 0xfd }));
+    testing.expect(eql(u8, buf2[0..], [_]u8{ 0xff, 0xfd }));
     writeIntLittle(i16, &buf2, -4);
-    testing.expect(eql_slice_u8(buf2[0..], [_]u8{ 0xfc, 0xff }));
-}
-
-pub fn hash_slice_u8(k: []const u8) u32 {
-    // FNV 32-bit hash
-    var h: u32 = 2166136261;
-    for (k) |b| {
-        h = (h ^ b) *% 16777619;
-    }
-    return h;
-}
-
-pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
-    return eql(u8, a, b);
+    testing.expect(eql(u8, buf2[0..], [_]u8{ 0xfc, 0xff }));
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not

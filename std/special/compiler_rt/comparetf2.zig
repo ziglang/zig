@@ -38,12 +38,14 @@ pub extern fn __letf2(a: f128, b: f128) c_int {
 
     // If at least one of a and b is positive, we get the same result comparing
     // a and b as signed integers as we would with a floating-point compare.
-    return if ((aInt & bInt) >= 0) if (aInt < bInt)
-        LE_LESS
-    else if (aInt == bInt)
-        LE_EQUAL
+    return if ((aInt & bInt) >= 0)
+        if (aInt < bInt)
+            LE_LESS
+        else if (aInt == bInt)
+            LE_EQUAL
+        else
+            LE_GREATER
     else
-        LE_GREATER else
     // Otherwise, both are negative, so we need to flip the sense of the
     // comparison to get the correct result.  (This assumes a twos- or ones-
     // complement integer representation; if integers are represented in a
@@ -73,7 +75,6 @@ pub extern fn __getf2(a: f128, b: f128) c_int {
 
     if (aAbs > infRep or bAbs > infRep) return GE_UNORDERED;
     if ((aAbs | bAbs) == 0) return GE_EQUAL;
-    // zig fmt issue here, see https://github.com/ziglang/zig/issues/2661
     return if ((aInt & bInt) >= 0)
         if (aInt < bInt)
             GE_LESS
