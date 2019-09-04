@@ -8905,6 +8905,15 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
         ZigFn *test_fn_entry = g->test_fns.at(i);
 
+        if (fn_is_async(test_fn_entry)) {
+            ErrorMsg *msg = add_node_error(g, test_fn_entry->proto_node,
+                buf_create_from_str("test functions cannot be async"));
+            add_error_note(g, msg, test_fn_entry->proto_node,
+                buf_sprintf("this restriction may be lifted in the future. See https://github.com/ziglang/zig/issues/3117 for more details"));
+            add_async_error_notes(g, msg, test_fn_entry);
+            continue;
+        }
+
         ConstExprValue *this_val = &test_fn_array->data.x_array.data.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
         this_val->type = struct_type;
@@ -8924,6 +8933,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         fn_field->data.x_ptr.mut = ConstPtrMutComptimeConst;
         fn_field->data.x_ptr.data.fn.fn_entry = test_fn_entry;
     }
+    report_errors_and_maybe_exit(g);
 
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
 

@@ -4195,7 +4195,7 @@ bool fn_is_async(ZigFn *fn) {
     return fn->inferred_async_node != inferred_async_none;
 }
 
-static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
+void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     assert(fn->inferred_async_node != nullptr);
     assert(fn->inferred_async_node != inferred_async_checking);
     assert(fn->inferred_async_node != inferred_async_none);
