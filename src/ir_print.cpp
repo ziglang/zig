@@ -22,7 +22,7 @@ using InstructionSet = HashMap<IrInstruction*, uint8_t, hash_instruction_ptr, in
 using InstructionList = ZigList<IrInstruction*>;
 
 struct IrPrint {
-    size_t pass_num;
+    IrPass pass;
     CodeGen *codegen;
     FILE *f;
     int indent;
@@ -391,7 +391,7 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
 
 static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
     fprintf(irp->f, "#%" ZIG_PRI_usize "", instruction->debug_id);
-    if (irp->pass_num == 2 && irp->printed.maybe_get(instruction) == nullptr) {
+    if (irp->pass != IrPassSrc && irp->printed.maybe_get(instruction) == nullptr) {
         irp->printed.put(instruction, 0);
         irp->pending.append(instruction);
     }
@@ -2399,10 +2399,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
     fprintf(irp->f, "\n");
 }
 
-void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, size_t pass_num) {
+void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
-    irp->pass_num = pass_num;
+    irp->pass = pass;
     irp->codegen = codegen;
     irp->f = f;
     irp->indent = indent_size;
@@ -2416,7 +2416,7 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
         fprintf(irp->f, "%s_%" ZIG_PRI_usize ":\n", current_block->name_hint, current_block->debug_id);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
-            if (irp->pass_num == 2) {
+            if (irp->pass != IrPassSrc) {
                 irp->printed.put(instruction, 0);
                 irp->pending.clear();
             }
@@ -2430,10 +2430,10 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
     irp->printed.deinit();
 }
 
-void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size, size_t pass_num) {
+void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
-    irp->pass_num = pass_num;
+    irp->pass = pass;
     irp->codegen = codegen;
     irp->f = f;
     irp->indent = indent_size;
