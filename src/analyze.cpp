@@ -4419,7 +4419,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
 
     if (g->verbose_ir) {
         fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn->symbol_name));
-        ir_print(g, stderr, &fn->analyzed_executable, 4, 2);
+        ir_print(g, stderr, &fn->analyzed_executable, 4, IrPassGen);
         fprintf(stderr, "}\n");
     }
     fn->anal_state = FnAnalStateComplete;
@@ -4452,8 +4452,8 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
-        fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, 1);
+        fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
+        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, IrPassSrc);
         fprintf(stderr, "}\n");
     }
 
