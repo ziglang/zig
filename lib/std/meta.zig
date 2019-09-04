@@ -116,6 +116,66 @@ test "std.meta.Child" {
     testing.expect(Child(?u8) == u8);
 }
 
+/// Given an array/pointer type, return the slice type `[]Child`.
+/// Preserves all pointer attributes such as `const`/`volatile` etc.
+pub fn Slice(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        TypeId.Array => |info| @compileError("Slice not implemented for arrays"),
+        TypeId.Pointer => |info| @Type(builtin.TypeInfo { .Pointer = builtin.TypeInfo.Pointer {
+            .size = builtin.TypeInfo.Pointer.Size.Slice,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .alignment = info.alignment,
+            .child = info.child,
+            .is_allowzero = info.is_allowzero,
+        }}),
+        else => @compileError("Expected pointer or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+    };
+}
+
+test "std.meta.Slice" {
+    testing.expect(Slice([]u8) == []u8);
+    testing.expect(Slice([]const u8) == []const u8);
+    testing.expect(Slice(*u8) == []u8);
+    testing.expect(Slice(*const u8) == []const u8);
+    testing.expect(Slice([*]u8) == []u8);
+    testing.expect(Slice([*]const u8) == []const u8);
+    //testing.expect(Slice([10]u8) == []const u8);
+
+    testing.expect(Slice([]volatile u8) == []volatile u8);
+    testing.expect(Slice([]const volatile u8) == []const volatile u8);
+    testing.expect(Slice(*volatile u8) == []volatile u8);
+    testing.expect(Slice(*const volatile u8) == []const volatile u8);
+    testing.expect(Slice([*]volatile u8) == []volatile u8);
+}
+
+/// Given an array/pointer type, return the "array pointer" type `[*]Child`.
+/// Preserves all pointer attributes such as `const`/`volatile` etc.
+pub fn ArrayPointer(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        TypeId.Array => |info| @compileError("ArrayPointer not implemented for arrays"),
+        TypeId.Pointer => |info| @Type(builtin.TypeInfo { .Pointer = builtin.TypeInfo.Pointer {
+            .size = builtin.TypeInfo.Pointer.Size.Many,
+            .is_const = info.is_const,
+            .is_volatile = info.is_volatile,
+            .alignment = info.alignment,
+            .child = info.child,
+            .is_allowzero = info.is_allowzero,
+        }}),
+        else => @compileError("Expected pointer or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
+    };
+}
+
+test "std.meta.ArrayPointer" {
+    testing.expect(ArrayPointer([]u8) == [*]u8);
+    testing.expect(ArrayPointer([]const u8) == [*]const u8);
+    testing.expect(ArrayPointer(*u8) == [*]u8);
+    testing.expect(ArrayPointer(*const u8) == [*]const u8);
+    testing.expect(ArrayPointer([*]u8) == [*]u8);
+    testing.expect(ArrayPointer([*]const u8) == [*]const u8);
+    //testing.expect(ArrayPointer([10]u8) == [*]const u8);
+}
+
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
     return switch (@typeInfo(T)) {
         TypeId.Struct => |info| info.layout,
