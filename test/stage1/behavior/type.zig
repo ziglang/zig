@@ -38,8 +38,6 @@ test "Type.Int" {
     testing.expect(u64 == @Type(TypeInfo { .Int = TypeInfo.Int { .is_signed = false, .bits = 64 } }));
     testing.expect(i64 == @Type(TypeInfo { .Int = TypeInfo.Int { .is_signed = true, .bits = 64 } }));
     testTypes([_]type {u8,u32,i64});
-    // TODO: should this work?
-    //testing.expect(u1 == @Type(TypeInfo.Int { .is_signed = false, .bits = 1 } ));
 }
 
 test "Type.Float" {
@@ -48,8 +46,6 @@ test "Type.Float" {
     testing.expect(f64  == @Type(TypeInfo { .Float = TypeInfo.Float { .bits = 64 } }));
     testing.expect(f128 == @Type(TypeInfo { .Float = TypeInfo.Float { .bits = 128 } }));
     testTypes([_]type {f16, f32, f64, f128});
-    // error: 17-bit float unsupported
-    //testing.expect(f16  == @Type(TypeInfo { .Float = TypeInfo.Float { .bits = 17 } }));
 }
 
 test "Type.Pointer" {

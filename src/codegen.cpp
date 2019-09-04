@@ -8161,20 +8161,25 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        };\n"
             "    };\n"
             "};\n\n");
-        assert(ContainerLayoutAuto == 0);
-        assert(ContainerLayoutExtern == 1);
-        assert(ContainerLayoutPacked == 2);
+        static_assert(ContainerLayoutAuto == 0, "");
+        static_assert(ContainerLayoutExtern == 1, "");
+        static_assert(ContainerLayoutPacked == 2, "");
 
-        assert(CallingConventionUnspecified == 0);
-        assert(CallingConventionC == 1);
-        assert(CallingConventionCold == 2);
-        assert(CallingConventionNaked == 3);
-        assert(CallingConventionStdcall == 4);
-        assert(CallingConventionAsync == 5);
+        static_assert(CallingConventionUnspecified == 0, "");
+        static_assert(CallingConventionC == 1, "");
+        static_assert(CallingConventionCold == 2, "");
+        static_assert(CallingConventionNaked == 3, "");
+        static_assert(CallingConventionStdcall == 4, "");
+        static_assert(CallingConventionAsync == 5, "");
 
-        assert(FnInlineAuto == 0);
-        assert(FnInlineAlways == 1);
-        assert(FnInlineNever == 2);
+        static_assert(FnInlineAuto == 0, "");
+        static_assert(FnInlineAlways == 1, "");
+        static_assert(FnInlineNever == 2, "");
+
+        static_assert(BuiltinPtrSizeOne == 0, "");
+        static_assert(BuiltinPtrSizeMany == 1, "");
+        static_assert(BuiltinPtrSizeSlice == 2, "");
+        static_assert(BuiltinPtrSizeC == 3, "");
     }
     {
         buf_appendf(contents,

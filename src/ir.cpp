@@ -20115,25 +20115,26 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
     return ErrorNone;
 }
 
-static uint32_t ptr_len_to_size_enum_index(PtrLen ptr_len) {
+static BuiltinPtrSize ptr_len_to_size_enum_index(PtrLen ptr_len) {
     switch (ptr_len) {
         case PtrLenSingle:
-            return 0;
+            return BuiltinPtrSizeOne;
         case PtrLenUnknown:
-            return 1;
+            return BuiltinPtrSizeMany;
         case PtrLenC:
-            return 3;
+            return BuiltinPtrSizeC;
     }
     zig_unreachable();
 }
 
-static PtrLen size_enum_index_to_ptr_len(uint32_t size_enum_index) {
+static PtrLen size_enum_index_to_ptr_len(BuiltinPtrSize size_enum_index) {
     switch (size_enum_index) {
-        case 0:
+        case BuiltinPtrSizeOne:
             return PtrLenSingle;
-        case 1:
+        case BuiltinPtrSizeMany:
+        case BuiltinPtrSizeSlice:
             return PtrLenUnknown;
-        case 3:
+        case BuiltinPtrSizeC:
             return PtrLenC;
     }
     zig_unreachable();
@@ -20142,10 +20143,10 @@ static PtrLen size_enum_index_to_ptr_len(uint32_t size_enum_index) {
 static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_entry) {
     Error err;
     ZigType *attrs_type;
-    uint32_t size_enum_index;
+    BuiltinPtrSize size_enum_index;
     if (is_slice(ptr_type_entry)) {
         attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index].type_entry;
-        size_enum_index = 2;
+        size_enum_index = BuiltinPtrSizeSlice;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
         size_enum_index = ptr_len_to_size_enum_index(ptr_type_entry->data.pointer.ptr_len);
@@ -20892,21 +20893,16 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                 assert(payload->type == type_info_pointer_type);
                 ConstExprValue *size_value = get_const_field(ira, payload, "size", 0);
                 assert(size_value->type == ir_type_info_get_type(ira, "Size", type_info_pointer_type));
-                uint32_t size_enum_index = bigint_as_u32(&size_value->data.x_enum_tag);
-                PtrLen ptr_len;
-                if (size_enum_index == 2) {
-                    ptr_len = PtrLenUnknown; // TODO: is this right?
-                } else {
-                    ptr_len = size_enum_index_to_ptr_len(size_enum_index);
-                }
+                BuiltinPtrSize size_enum_index = (BuiltinPtrSize)bigint_as_u32(&size_value->data.x_enum_tag);
+                PtrLen ptr_len = size_enum_index_to_ptr_len(size_enum_index);
                 ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen,
                     get_const_field_meta_type(ira, payload, "child", 4),
                     get_const_field_bool(ira, payload, "is_const", 1),
                     get_const_field_bool(ira, payload, "is_volatile", 2),
                     ptr_len,
                     bigint_as_u32(get_const_field_lit_int(ira, payload, "alignment", 3)),
-                    0, // bit_offset_in_host???
-                    0, // host_int_bytes???
+                    0, // bit_offset_in_host
+                    0, // host_int_bytes
                     get_const_field_bool(ira, payload, "is_allowzero", 5)
                 );
                 if (size_enum_index != 2)
@@ -20932,7 +20928,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
         case ZigTypeIdVector:
         case ZigTypeIdEnumLiteral:
             ir_add_error(ira, instruction, buf_sprintf(
-                "TODO implement @Type forr 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907\n", type_id_name(tagTypeId)));
+                "TODO implement @Type for 'TypeInfo.%s': see https://github.com/ziglang/zig/issues/2907", type_id_name(tagTypeId)));
             return nullptr;
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
@@ -20940,7 +20936,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
         case ZigTypeIdArgTuple:
         case ZigTypeIdStruct:
             ir_add_error(ira, instruction, buf_sprintf(
-                "@Type not availble for 'TypeInfo.%s'\n", type_id_name(tagTypeId)));
+                "@Type not availble for 'TypeInfo.%s'", type_id_name(tagTypeId)));
             return nullptr;
     }
     zig_unreachable();

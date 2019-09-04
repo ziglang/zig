@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        "attempt to create 17 bit float type",
+        \\const builtin = @import("builtin");
+        \\comptime {
+        \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
+        \\}
+    ,
+        "tmp.zig:3:32: error: 17-bit float unsupported",
+    );
 
     cases.add(
         "wrong type for @Type",
@@ -43,15 +52,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:15: error: @Type not availble for 'TypeInfo.Struct'",
-    );
-
-    cases.add(
-        "array not implemented for @Type",
-        \\export fn entry() void {
-        \\    _ = @Type(@typeInfo(enum{x}));
-        \\}
-    ,
-        "tmp.zig:2:15: error: TODO implement @Type forr 'TypeInfo.Enum': see https://github.com/ziglang/zig/issues/2907",
     );
 
     cases.add(

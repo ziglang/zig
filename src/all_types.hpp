@@ -54,6 +54,14 @@ enum PtrLen {
     PtrLenC,
 };
 
+// This one corresponds to the builtin.zig enum.
+enum BuiltinPtrSize {
+    BuiltinPtrSizeOne,
+    BuiltinPtrSizeMany,
+    BuiltinPtrSizeSlice,
+    BuiltinPtrSizeC,
+};
+
 enum UndefAllowed {
     UndefOk,
     UndefBad,
