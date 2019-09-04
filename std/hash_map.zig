@@ -23,9 +23,7 @@ pub fn StringHashMap(comptime V: type) type {
 }
 
 pub fn eqlString(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
-    return mem.compare(u8, a, b) == .Equal;
+    return mem.eql(u8, a, b);
 }
 
 pub fn hashString(s: []const u8) u32 {

@@ -2671,6 +2671,10 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         }
     }
 
+    if (!type_has_bits(struct_type)) {
+        assert(struct_type->abi_align == 0);
+    }
+
     struct_type->data.structure.resolve_loop_flag_other = false;
 
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid) {
@@ -4191,7 +4195,7 @@ bool fn_is_async(ZigFn *fn) {
     return fn->inferred_async_node != inferred_async_none;
 }
 
-static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
+void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     assert(fn->inferred_async_node != nullptr);
     assert(fn->inferred_async_node != inferred_async_checking);
     assert(fn->inferred_async_node != inferred_async_none);
@@ -7687,8 +7691,13 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     ZigType *tag_type = union_type->data.unionation.tag_type;
     uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
     if (gen_field_count == 0) {
-        union_type->llvm_type = get_llvm_type(g, tag_type);
-        union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        if (tag_type == nullptr) {
+            union_type->llvm_type = g->builtin_types.entry_void->llvm_type;
+            union_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        } else {
+            union_type->llvm_type = get_llvm_type(g, tag_type);
+            union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        }
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFull;
         return;
     }

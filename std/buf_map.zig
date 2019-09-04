@@ -1,5 +1,5 @@
 const std = @import("std.zig");
-const HashMap = std.HashMap;
+const StringHashMap = std.StringHashMap;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const testing = std.testing;
@@ -9,7 +9,7 @@ const testing = std.testing;
 pub const BufMap = struct {
     hash_map: BufMapHashMap,
 
-    const BufMapHashMap = HashMap([]const u8, []const u8, mem.hash_slice_u8, mem.eql_slice_u8);
+    const BufMapHashMap = StringHashMap([]const u8);
 
     pub fn init(allocator: *Allocator) BufMap {
         var self = BufMap{ .hash_map = BufMapHashMap.init(allocator) };

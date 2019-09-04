@@ -249,7 +249,7 @@ pub const Compilation = struct {
     const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
     const PtrTypeTable = std.HashMap(*const Type.Pointer.Key, *Type.Pointer, Type.Pointer.Key.hash, Type.Pointer.Key.eql);
     const FnTypeTable = std.HashMap(*const Type.Fn.Key, *Type.Fn, Type.Fn.Key.hash, Type.Fn.Key.eql);
-    const TypeTable = std.HashMap([]const u8, *Type, mem.hash_slice_u8, mem.eql_slice_u8);
+    const TypeTable = std.StringHashMap(*Type);
 
     const CompileErrList = std.ArrayList(*Msg);
 

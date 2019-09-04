@@ -6462,4 +6462,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:30: error: expression value is ignored",
         "tmp.zig:9:30: error: expression value is ignored",
     );
+
+    cases.add(
+        "aligned variable of zero-bit type",
+        \\export fn f() void {
+        \\    var s: struct {} align(4) = undefined;
+        \\}
+    ,
+        "tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned",
+    );
 }

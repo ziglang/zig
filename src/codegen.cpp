@@ -3522,6 +3522,15 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     assert(ptr_type->id == ZigTypeIdPointer);
     if (!type_has_bits(ptr_type))
         return nullptr;
+    if (instruction->ptr->ref_count == 0) {
+        // In this case, this StorePtr instruction should be elided. Something happened like this:
+        //     var t = true;
+        //     const x = if (t) Num.Two else unreachable;
+        // The if condition is a runtime value, so the StorePtr for `x = Num.Two` got generated
+        // (this instruction being rendered) but because of `else unreachable` the result ended
+        // up being a comptime const value.
+        return nullptr;
+    }
 
     bool have_init_expr = !value_is_all_undef(&instruction->value->value);
     if (have_init_expr) {
@@ -3766,6 +3775,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
 }
 
 static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
+    assert(g->need_frame_size_prefix_data);
     LLVMTypeRef usize_llvm_type = g->builtin_types.entry_usize->llvm_type;
     LLVMTypeRef ptr_usize_llvm_type = LLVMPointerType(usize_llvm_type, 0);
     LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
@@ -4103,6 +4113,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionStructFieldPtr *instruction)
 {
+    Error err;
+
     if (instruction->base.value.special != ConstValSpecialRuntime)
         return nullptr;
 
@@ -4119,6 +4131,11 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     {
         return struct_ptr;
     }
+
+    ZigType *struct_type = (struct_ptr_type->id == ZigTypeIdPointer) ?
+        struct_ptr_type->data.pointer.child_type : struct_ptr_type;
+    if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
+        report_errors_and_exit(g);
 
     assert(field->gen_index != SIZE_MAX);
     return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
@@ -7199,7 +7216,9 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
-            ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
+            if (g->need_frame_size_prefix_data) {
+                ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
+            }
 
             if (!g->strip_debug_symbols) {
                 AstNode *source_node = fn_table_entry->proto_node;
@@ -8445,8 +8464,21 @@ static void init(CodeGen *g) {
     Buf *producer = buf_sprintf("zig %d.%d.%d", ZIG_VERSION_MAJOR, ZIG_VERSION_MINOR, ZIG_VERSION_PATCH);
     const char *flags = "";
     unsigned runtime_version = 0;
+
+    // For macOS stack traces, we want to avoid having to parse the compilation unit debug
+    // info. As long as each debug info file has a path independent of the compilation unit
+    // directory (DW_AT_comp_dir), then we never have to look at the compilation unit debug
+    // info. If we provide an absolute path to LLVM here for the compilation unit debug info,
+    // LLVM will emit DWARF info that depends on DW_AT_comp_dir. To avoid this, we pass "."
+    // for the compilation unit directory. This forces each debug file to have a directory
+    // rather than be relative to DW_AT_comp_dir. According to DWARF 5, debug files will
+    // no longer reference DW_AT_comp_dir, for the purpose of being able to support the
+    // common practice of stripping all but the line number sections from an executable.
+    const char *compile_unit_dir = target_os_is_darwin(g->zig_target->os) ? "." :
+        buf_ptr(&g->root_package->root_src_dir);
+
     ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),
-            buf_ptr(&g->root_package->root_src_dir));
+            compile_unit_dir);
     g->compile_unit = ZigLLVMCreateCompileUnit(g->dbuilder, ZigLLVMLang_DW_LANG_C99(),
             compile_unit_file, buf_ptr(producer), is_optimized, flags, runtime_version,
             "", 0, !g->strip_debug_symbols);
@@ -8873,6 +8905,15 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
         ZigFn *test_fn_entry = g->test_fns.at(i);
 
+        if (fn_is_async(test_fn_entry)) {
+            ErrorMsg *msg = add_node_error(g, test_fn_entry->proto_node,
+                buf_create_from_str("test functions cannot be async"));
+            add_error_note(g, msg, test_fn_entry->proto_node,
+                buf_sprintf("this restriction may be lifted in the future. See https://github.com/ziglang/zig/issues/3117 for more details"));
+            add_async_error_notes(g, msg, test_fn_entry);
+            continue;
+        }
+
         ConstExprValue *this_val = &test_fn_array->data.x_array.data.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
         this_val->type = struct_type;
@@ -8892,6 +8933,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         fn_field->data.x_ptr.mut = ConstPtrMutComptimeConst;
         fn_field->data.x_ptr.data.fn.fn_entry = test_fn_entry;
     }
+    report_errors_and_maybe_exit(g);
 
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
 
@@ -9803,6 +9845,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->llvm_argv, g->llvm_argv_len);
     cache_list_of_str(ch, g->clang_argv, g->clang_argv_len);
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
+    cache_list_of_str(ch, g->framework_dirs.items, g->framework_dirs.length);
     if (g->libc) {
         cache_buf(ch, &g->libc->include_dir);
         cache_buf(ch, &g->libc->sys_include_dir);

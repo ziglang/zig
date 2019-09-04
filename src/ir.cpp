@@ -330,6 +330,8 @@ static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
     while (scope != nullptr) {
         if (scope->id == ScopeIdCompTime)
             return true;
+        if (scope->id == ScopeIdTypeOf)
+            return false;
         if (scope->id == ScopeIdFnDef)
             break;
         scope = scope->parent;
@@ -14837,6 +14839,12 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     if (align != 0) {
         if ((err = type_resolve(ira->codegen, var_type, ResolveStatusAlignmentKnown)))
             return ira->codegen->invalid_instruction;
+        if (!type_has_bits(var_type)) {
+                ir_add_error(ira, source_inst,
+                    buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
+                        name_hint, buf_ptr(&var_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
     }
     assert(result->base.value.data.x_ptr.special != ConstPtrSpecialInvalid);
 
@@ -15648,6 +15656,32 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     return &store_ptr->base;
 }
 
+static IrInstruction *analyze_casted_new_stack(IrAnalyze *ira, IrInstructionCallSrc *call_instruction,
+        ZigFn *fn_entry)
+{
+    if (call_instruction->new_stack == nullptr)
+        return nullptr;
+
+    IrInstruction *new_stack = call_instruction->new_stack->child;
+    if (type_is_invalid(new_stack->value.type))
+        return ira->codegen->invalid_instruction;
+
+    if (call_instruction->is_async_call_builtin &&
+        fn_entry != nullptr && new_stack->value.type->id == ZigTypeIdPointer &&
+        new_stack->value.type->data.pointer.child_type->id == ZigTypeIdFnFrame)
+    {
+        ZigType *needed_frame_type = get_pointer_to_type(ira->codegen,
+                get_fn_frame_type(ira->codegen, fn_entry), false);
+        return ir_implicit_cast(ira, new_stack, needed_frame_type);
+    } else {
+        ZigType *u8_ptr = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
+                false, false, PtrLenUnknown, target_fn_align(ira->codegen->zig_target), 0, 0, false);
+        ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
+        ira->codegen->need_frame_size_prefix_data = true;
+        return ir_implicit_cast(ira, new_stack, u8_slice);
+    }
+}
+
 static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *call_instruction,
     ZigFn *fn_entry, ZigType *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
@@ -15824,31 +15858,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         copy_const_val(&new_instruction->value, result, true);
         new_instruction->value.type = return_type;
         return ir_finish_anal(ira, new_instruction);
-    }
-
-    IrInstruction *casted_new_stack = nullptr;
-    if (call_instruction->new_stack != nullptr) {
-        IrInstruction *new_stack = call_instruction->new_stack->child;
-        if (type_is_invalid(new_stack->value.type))
-            return ira->codegen->invalid_instruction;
-
-        if (call_instruction->is_async_call_builtin &&
-            fn_entry != nullptr && new_stack->value.type->id == ZigTypeIdPointer && 
-            new_stack->value.type->data.pointer.child_type->id == ZigTypeIdFnFrame)
-        {
-            ZigType *needed_frame_type = get_pointer_to_type(ira->codegen,
-                    get_fn_frame_type(ira->codegen, fn_entry), false);
-            casted_new_stack = ir_implicit_cast(ira, new_stack, needed_frame_type);
-            if (type_is_invalid(casted_new_stack->value.type))
-                return ira->codegen->invalid_instruction;
-        } else {
-            ZigType *u8_ptr = get_pointer_to_type_extra(ira->codegen, ira->codegen->builtin_types.entry_u8,
-                    false, false, PtrLenUnknown, target_fn_align(ira->codegen->zig_target), 0, 0, false);
-            ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
-            casted_new_stack = ir_implicit_cast(ira, new_stack, u8_slice);
-            if (type_is_invalid(casted_new_stack->value.type))
-                return ira->codegen->invalid_instruction;
-        }
     }
 
     if (fn_type->data.fn.is_generic) {
@@ -16063,6 +16072,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             parent_fn_entry->calls_or_awaits_errorable_fn = true;
         }
 
+        IrInstruction *casted_new_stack = analyze_casted_new_stack(ira, call_instruction, impl_fn);
+        if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value.type))
+            return ira->codegen->invalid_instruction;
+
         size_t impl_param_count = impl_fn_type_id->param_count;
         if (call_instruction->is_async) {
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
@@ -16071,11 +16084,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         IrInstruction *result_loc;
-        if (call_instruction->is_async_call_builtin) {
-            result_loc = get_async_call_result_loc(ira, call_instruction, impl_fn_type_id->return_type);
-            if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
-                return ira->codegen->invalid_instruction;
-        } else if (handle_is_ptr(impl_fn_type_id->return_type)) {
+        if (handle_is_ptr(impl_fn_type_id->return_type)) {
             result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                     impl_fn_type_id->return_type, nullptr, true, true, false);
             if (result_loc != nullptr) {
@@ -16087,6 +16096,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     result_loc = nullptr;
                 }
             }
+        } else if (call_instruction->is_async_call_builtin) {
+            result_loc = get_async_call_result_loc(ira, call_instruction, impl_fn_type_id->return_type);
+            if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
+                return ira->codegen->invalid_instruction;
         } else {
             result_loc = nullptr;
         }
@@ -16211,6 +16224,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         return ira->codegen->invalid_instruction;
     }
 
+    IrInstruction *casted_new_stack = analyze_casted_new_stack(ira, call_instruction, fn_entry);
+    if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value.type))
+        return ira->codegen->invalid_instruction;
+
     if (call_instruction->is_async) {
         IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref,
                 casted_args, call_param_count, casted_new_stack);
@@ -16223,11 +16240,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     }
 
     IrInstruction *result_loc;
-    if (call_instruction->is_async_call_builtin) {
-        result_loc = get_async_call_result_loc(ira, call_instruction, return_type);
-        if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
-            return ira->codegen->invalid_instruction;
-    } else if (handle_is_ptr(return_type)) {
+    if (handle_is_ptr(return_type)) {
         result_loc = ir_resolve_result(ira, &call_instruction->base, call_instruction->result_loc,
                 return_type, nullptr, true, true, false);
         if (result_loc != nullptr) {
@@ -16239,6 +16252,10 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 result_loc = nullptr;
             }
         }
+    } else if (call_instruction->is_async_call_builtin) {
+        result_loc = get_async_call_result_loc(ira, call_instruction, return_type);
+        if (result_loc != nullptr && type_is_invalid(result_loc->value.type))
+            return ira->codegen->invalid_instruction;
     } else {
         result_loc = nullptr;
     }
@@ -17453,7 +17470,12 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 source_instr, container_ptr, container_type);
         }
-        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
+
+        ZigType *field_type = resolve_union_field_type(ira->codegen, field);
+        if (field_type == nullptr)
+            return ira->codegen->invalid_instruction;
+
+        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                 is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
         if (instr_is_comptime(container_ptr)) {
             ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
@@ -17470,7 +17492,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 if (initializing) {
                     ConstExprValue *payload_val = create_const_vals(1);
                     payload_val->special = ConstValSpecialUndef;
-                    payload_val->type = field->type_entry;
+                    payload_val->type = field_type;
                     payload_val->parent.id = ConstParentIdUnion;
                     payload_val->parent.data.p_union.union_val = union_val;
 
@@ -22522,6 +22544,8 @@ static IrInstruction *ir_analyze_instruction_frame_size(IrAnalyze *ira, IrInstru
                 buf_sprintf("expected function, found '%s'", buf_ptr(&fn->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
+
+    ira->codegen->need_frame_size_prefix_data = true;
 
     IrInstruction *result = ir_build_frame_size_gen(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, fn);

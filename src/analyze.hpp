@@ -256,4 +256,6 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
 ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
 ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 
+void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn);
+
 #endif

@@ -110,9 +110,7 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
         q.shiftLeft1(s); // q = p << 1
         r.shiftLeft1(q); // r = p << 2
         s.shiftLeft1(r); // p = p << 3
-        q.add(s); // p = (p << 3) + (p << 1)
-
-        exp -= 1;
+        s.add(q); // p = (p << 3) + (p << 1)
 
         while (s.d2 & mask28 != 0) {
             q.shiftRight1(s);
@@ -402,6 +400,13 @@ test "fmt.parseFloat" {
         expectEqual((try parseFloat(T, "+0")), 0.0);
         expectEqual((try parseFloat(T, "-0")), 0.0);
 
+        expectEqual((try parseFloat(T, "0e0")), 0);
+        expectEqual((try parseFloat(T, "2e3")), 2000.0);
+        expectEqual((try parseFloat(T, "1e0")), 1.0);
+        expectEqual((try parseFloat(T, "-2e3")), -2000.0);
+        expectEqual((try parseFloat(T, "-1e0")), -1.0);
+        expectEqual((try parseFloat(T, "1.234e3")), 1234);
+
         expect(approxEq(T, try parseFloat(T, "3.141"), 3.141, epsilon));
         expect(approxEq(T, try parseFloat(T, "-3.141"), -3.141, epsilon));
 
@@ -413,6 +418,9 @@ test "fmt.parseFloat" {
         expectEqual((try parseFloat(T, "-INF")), -std.math.inf(T));
 
         if (T != f16) {
+            expect(approxEq(T, try parseFloat(T, "1e-2"), 0.01, epsilon));
+            expect(approxEq(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
+
             expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
             expect(approxEq(T, try parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
             expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), T(0.7062146892655368), epsilon));
