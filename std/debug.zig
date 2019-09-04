@@ -793,7 +793,7 @@ fn printLineInfo(
                 try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
             }
         } else |err| switch (err) {
-            error.EndOfFile => {},
+            error.EndOfFile, error.FileNotFound  => {},
             else => return err,
         }
     } else {
@@ -1053,7 +1053,8 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     S.self_exe_file = try fs.openSelfExe();
     errdefer S.self_exe_file.close();
 
-    const self_exe_mmap_len = mem.alignForward(try S.self_exe_file.getEndPos(), mem.page_size);
+    const self_exe_len = math.cast(usize, try S.self_exe_file.getEndPos()) catch return error.DebugInfoTooLarge;
+    const self_exe_mmap_len = mem.alignForward(self_exe_len, mem.page_size);
     const self_exe_mmap = try os.mmap(
         null,
         self_exe_mmap_len,
