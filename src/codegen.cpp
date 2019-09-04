@@ -5770,6 +5770,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdByteOffsetOf:
         case IrInstructionIdBitOffsetOf:
         case IrInstructionIdTypeInfo:
+        case IrInstructionIdType:
         case IrInstructionIdHasField:
         case IrInstructionIdTypeId:
         case IrInstructionIdSetEvalBranchQuota:
@@ -7597,6 +7598,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdField, "field", 2);
     create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
+    create_builtin_fn(g, BuiltinFnIdType, "Type", 1);
     create_builtin_fn(g, BuiltinFnIdHasField, "hasField", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
@@ -8159,20 +8161,25 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "        };\n"
             "    };\n"
             "};\n\n");
-        assert(ContainerLayoutAuto == 0);
-        assert(ContainerLayoutExtern == 1);
-        assert(ContainerLayoutPacked == 2);
+        static_assert(ContainerLayoutAuto == 0, "");
+        static_assert(ContainerLayoutExtern == 1, "");
+        static_assert(ContainerLayoutPacked == 2, "");
 
-        assert(CallingConventionUnspecified == 0);
-        assert(CallingConventionC == 1);
-        assert(CallingConventionCold == 2);
-        assert(CallingConventionNaked == 3);
-        assert(CallingConventionStdcall == 4);
-        assert(CallingConventionAsync == 5);
+        static_assert(CallingConventionUnspecified == 0, "");
+        static_assert(CallingConventionC == 1, "");
+        static_assert(CallingConventionCold == 2, "");
+        static_assert(CallingConventionNaked == 3, "");
+        static_assert(CallingConventionStdcall == 4, "");
+        static_assert(CallingConventionAsync == 5, "");
 
-        assert(FnInlineAuto == 0);
-        assert(FnInlineAlways == 1);
-        assert(FnInlineNever == 2);
+        static_assert(FnInlineAuto == 0, "");
+        static_assert(FnInlineAlways == 1, "");
+        static_assert(FnInlineNever == 2, "");
+
+        static_assert(BuiltinPtrSizeOne == 0, "");
+        static_assert(BuiltinPtrSizeMany == 1, "");
+        static_assert(BuiltinPtrSizeSlice == 2, "");
+        static_assert(BuiltinPtrSizeC == 3, "");
     }
     {
         buf_appendf(contents,

@@ -3,6 +3,58 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempt to create 17 bit float type",
+        \\const builtin = @import("builtin");
+        \\comptime {
+        \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
+        \\}
+    ,
+        "tmp.zig:3:32: error: 17-bit float unsupported",
+    );
+
+    cases.add(
+        "wrong type for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(0);
+        \\}
+    ,
+        "tmp.zig:2:15: error: expected type 'builtin.TypeInfo', found 'comptime_int'",
+    );
+
+    cases.add(
+        "@Type with non-constant expression",
+        \\const builtin = @import("builtin");
+        \\var globalTypeInfo : builtin.TypeInfo = undefined;
+        \\export fn entry() void {
+        \\    _ = @Type(globalTypeInfo);
+        \\}
+    ,
+        "tmp.zig:4:15: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
+        "@Type with TypeInfo.Int",
+        \\const builtin = @import("builtin");
+        \\export fn entry() void {
+        \\    _ = @Type(builtin.TypeInfo.Int {
+        \\        .is_signed = true,
+        \\        .bits = 8,
+        \\    });
+        \\}
+    ,
+        "tmp.zig:3:36: error: expected type 'builtin.TypeInfo', found 'builtin.Int'",
+    );
+
+    cases.add(
+        "Struct unavailable for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(@typeInfo(struct { }));
+        \\}
+    ,
+        "tmp.zig:2:15: error: @Type not availble for 'TypeInfo.Struct'",
+    );
+
+    cases.add(
         "wrong type for result ptr to @asyncCall",
         \\export fn entry() void {
         \\    _ = async amain();

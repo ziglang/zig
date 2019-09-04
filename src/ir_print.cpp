@@ -280,6 +280,8 @@ static const char* ir_instruction_type_str(IrInstruction* instruction) {
             return "BitOffsetOf";
         case IrInstructionIdTypeInfo:
             return "TypeInfo";
+        case IrInstructionIdType:
+            return "Type";
         case IrInstructionIdHasField:
             return "HasField";
         case IrInstructionIdTypeId:
@@ -1627,6 +1629,12 @@ static void ir_print_type_info(IrPrint *irp, IrInstructionTypeInfo *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_type(IrPrint *irp, IrInstructionType *instruction) {
+    fprintf(irp->f, "@Type(");
+    ir_print_other_instruction(irp, instruction->type_info);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_has_field(IrPrint *irp, IrInstructionHasField *instruction) {
     fprintf(irp->f, "@hasField(");
     ir_print_other_instruction(irp, instruction->container_type);
@@ -2257,6 +2265,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);
+            break;
+        case IrInstructionIdType:
+            ir_print_type(irp, (IrInstructionType *)instruction);
             break;
         case IrInstructionIdHasField:
             ir_print_has_field(irp, (IrInstructionHasField *)instruction);
