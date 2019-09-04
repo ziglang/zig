@@ -133,7 +133,7 @@ pub fn initTLS() void {
     var at_phent: usize = undefined;
     var at_phnum: usize = undefined;
     var at_phdr: usize = undefined;
-    var at_hwcap: ?usize = null;
+    var at_hwcap: usize = undefined;
 
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -143,16 +143,6 @@ pub fn initTLS() void {
             elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
             elf.AT_HWCAP => at_phdr = auxv[i].a_un.a_val,
             else => continue,
-        }
-    }
-
-    // If the cpu is arm-based, check if it supports the TLS register
-    if (at_hwcap) |hwcap| {
-        if (builtin.arch == builtin.Arch.arm and hwcap & std.os.linux.HWCAP_TLS == 0) {
-            // If the CPU does not support TLS via a coprocessor register,
-            // a kernel helper function can be used instead on certain linux kernels.
-            // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
-            @panic("TODO: Implement ARM fallback TLS functionality");
         }
     }
 
@@ -171,6 +161,14 @@ pub fn initTLS() void {
     }
 
     if (tls_phdr) |phdr| {
+        // If the cpu is arm-based, check if it supports the TLS register
+        if (builtin.arch == builtin.Arch.arm and hwcap & std.os.linux.HWCAP_TLS == 0) {
+            // If the CPU does not support TLS via a coprocessor register,
+            // a kernel helper function can be used instead on certain linux kernels.
+            // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.
+            @panic("TODO: Implement ARM fallback TLS functionality");
+        }
+
         // Offsets into the allocated TLS area
         var tcb_offset: usize = undefined;
         var dtv_offset: usize = undefined;
