@@ -133,7 +133,7 @@ pub fn initTLS() void {
     var at_phent: usize = undefined;
     var at_phnum: usize = undefined;
     var at_phdr: usize = undefined;
-    var at_hwcap: usize = undefined;
+    var at_hwcap: ?usize = null;
 
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -147,8 +147,8 @@ pub fn initTLS() void {
     }
 
     // If the cpu is arm-based, check if it supports the TLS register
-    if (builtin.arch == builtin.Arch.arm) {
-        if (at_hwcap & std.os.linux.HWCAP_TLS == 0) {
+    if (at_hwcap) |hwcap| {
+        if (builtin.arch == builtin.Arch.arm and hwcap & std.os.linux.HWCAP_TLS == 0) {
             // If the CPU does not support TLS via a coprocessor register,
             // a kernel helper function can be used instead on certain linux kernels.
             // See linux/arch/arm/include/asm/tls.h and musl/src/thread/arm/__set_thread_area.c.

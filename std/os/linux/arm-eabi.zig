@@ -89,7 +89,7 @@ pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, a
 // LLVM calls this when the read-tp-hard feature is set to false. Currently, there is no way to pass
 // that to llvm via zig, see https://github.com/ziglang/zig/issues/2883.
 // LLVM expects libc to provide this function as __aeabi_read_tp, so it is exported if needed from special/c.zig.
-pub nakedcc fn getThreadPointer() usize {
+pub extern fn getThreadPointer() usize {
     return asm volatile("mrc p15, 0, %[ret], c13, c0, 3"
         : [ret] "=r" (-> usize)
     );
