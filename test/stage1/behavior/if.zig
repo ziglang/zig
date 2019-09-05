@@ -74,3 +74,15 @@ test "const result loc, runtime if cond, else unreachable" {
     const x = if (t) Num.Two else unreachable;
     if (x != .Two) @compileError("bad");
 }
+
+test "if prongs cast to expected type instead of peer type resolution" {
+    const S = struct {
+        fn doTheTest(f: bool) void {
+            var x: i32 = 0;
+            x = if (f) 1 else 2;
+            expect(x == 2);
+        }
+    };
+    S.doTheTest(false);
+    comptime S.doTheTest(false);
+}

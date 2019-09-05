@@ -640,3 +640,21 @@ test "zero-bit field in packed struct" {
     };
     var x: S = undefined;
 }
+
+test "struct field init with catch" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: anyerror!isize = 1;
+            var req = Foo{
+                .field = x catch undefined,
+            };
+            expect(req.field == 1);
+        }
+
+        pub const Foo = extern struct {
+            field: isize,
+        };
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

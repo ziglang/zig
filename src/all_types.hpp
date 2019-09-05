@@ -47,6 +47,7 @@ struct ResultLoc;
 struct ResultLocPeer;
 struct ResultLocPeerParent;
 struct ResultLocBitCast;
+struct ResultLocReturn;
 
 enum PtrLen {
     PtrLenUnknown,
@@ -3584,6 +3585,7 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction base;
 
     IrInstruction *value;
+    ResultLocReturn *result_loc_ret;
 };
 
 // For float ops which take a single argument
@@ -3810,6 +3812,8 @@ struct ResultLocVar {
 
 struct ResultLocReturn {
     ResultLoc base;
+
+    bool implicit_return_type_done;
 };
 
 struct IrSuspendPosition {

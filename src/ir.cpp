@@ -197,6 +197,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
 static IrInstruction *ir_gen_union_init_expr(IrBuilder *irb, Scope *scope, AstNode *source_node,
     IrInstruction *union_type, IrInstruction *field_name, AstNode *expr_node,
     LVal lval, ResultLoc *parent_result_loc);
+static void ir_reset_result(ResultLoc *result_loc);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -3085,10 +3086,11 @@ static IrInstruction *ir_build_save_err_ret_addr(IrBuilder *irb, Scope *scope, A
 }
 
 static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *value)
+        IrInstruction *value, ResultLocReturn *result_loc_ret)
 {
     IrInstructionAddImplicitReturnType *instruction = ir_build_instruction<IrInstructionAddImplicitReturnType>(irb, scope, source_node);
     instruction->value = value;
+    instruction->result_loc_ret = result_loc_ret;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
@@ -3505,7 +3507,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
-                ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
+                ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value, result_loc_ret));
 
                 size_t defer_counts[2];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
@@ -3580,7 +3582,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
                 IrInstruction *err_val_ptr = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
                 IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
-                ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, err_val));
+                ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, err_val, nullptr));
                 IrInstructionSpillBegin *spill_begin = ir_build_spill_begin(irb, scope, node, err_val,
                         SpillIdRetErrCode);
                 ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1);
@@ -3690,6 +3692,7 @@ static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
     result->base.id = ResultLocIdPeer;
     result->base.source_instruction = peer_parent->base.source_instruction;
     result->parent = peer_parent;
+    result->base.allow_write_through_const = peer_parent->parent->allow_write_through_const;
     return result;
 }
 
@@ -3812,7 +3815,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     // no need for save_err_ret_addr because this cannot return error
     // only generate unconditional defers
 
-    ir_mark_gen(ir_build_add_implicit_return_type(irb, child_scope, block_node, result));
+    ir_mark_gen(ir_build_add_implicit_return_type(irb, child_scope, block_node, result, nullptr));
     ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
     return ir_mark_gen(ir_build_return(irb, child_scope, result->source_node, result));
 }
@@ -8207,7 +8210,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     }
 
     if (!instr_is_unreachable(result)) {
-        ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, result->source_node, result));
+        ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, result->source_node, result, nullptr));
         // no need for save_err_ret_addr because this cannot return error
         ir_mark_gen(ir_build_return(irb, scope, result->source_node, result));
     }
@@ -12939,7 +12942,9 @@ static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze 
     if (type_is_invalid(value->value.type))
         return ir_unreach_error(ira);
 
-    ira->src_implicit_return_type_list.append(value);
+    if (instruction->result_loc_ret == nullptr || !instruction->result_loc_ret->implicit_return_type_done) {
+        ira->src_implicit_return_type_list.append(value);
+    }
 
     return ir_const_void(ira, &instruction->base);
 }
@@ -14976,6 +14981,24 @@ static void set_up_result_loc_for_inferred_comptime(IrInstruction *ptr) {
     ptr->value.data.x_ptr.data.ref.pointee = undef_child;
 }
 
+static bool ir_result_has_type(ResultLoc *result_loc) {
+    switch (result_loc->id) {
+        case ResultLocIdInvalid:
+        case ResultLocIdPeerParent:
+            zig_unreachable();
+        case ResultLocIdNone:
+        case ResultLocIdPeer:
+            return false;
+        case ResultLocIdReturn:
+        case ResultLocIdInstruction:
+        case ResultLocIdBitCast:
+            return true;
+        case ResultLocIdVar:
+            return reinterpret_cast<ResultLocVar *>(result_loc)->var->decl_node->data.variable_declaration.type != nullptr;
+    }
+    zig_unreachable();
+}
+
 // when calling this function, at the callsite must check for result type noreturn and propagate it up
 static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime, bool non_null_comptime)
@@ -15105,13 +15128,22 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             bool is_comptime;
             if (!ir_resolve_comptime(ira, peer_parent->is_comptime->child, &is_comptime))
                 return ira->codegen->invalid_instruction;
-            peer_parent->skipped = is_comptime;
-            if (peer_parent->skipped) {
+            if (is_comptime) {
+                peer_parent->skipped = true;
                 if (non_null_comptime) {
                     return ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
                             value_type, value, force_runtime, non_null_comptime, true);
                 }
                 return nullptr;
+            }
+            if (ir_result_has_type(peer_parent->parent)) {
+                if (peer_parent->parent->id == ResultLocIdReturn && value != nullptr) {
+                    reinterpret_cast<ResultLocReturn *>(peer_parent->parent)->implicit_return_type_done = true;
+                    ira->src_implicit_return_type_list.append(value);
+                }
+                peer_parent->skipped = true;
+                return ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
+                        value_type, value, force_runtime, true, true);
             }
 
             if (peer_parent->resolved_type == nullptr) {
@@ -15322,9 +15354,11 @@ static void ir_reset_result(ResultLoc *result_loc) {
             alloca_src->base.child = nullptr;
             break;
         }
+        case ResultLocIdReturn:
+            reinterpret_cast<ResultLocReturn *>(result_loc)->implicit_return_type_done = false;
+            break;
         case ResultLocIdPeer:
         case ResultLocIdNone:
-        case ResultLocIdReturn:
         case ResultLocIdInstruction:
         case ResultLocIdBitCast:
             break;
@@ -16880,10 +16914,21 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         return new_incoming_values.at(0);
     }
 
-    ZigType *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
-            new_incoming_values.items, new_incoming_values.length);
-    if (type_is_invalid(resolved_type))
-        return ira->codegen->invalid_instruction;
+    ZigType *resolved_type;
+    if (peer_parent != nullptr && ir_result_has_type(peer_parent->parent)) {
+        if (peer_parent->parent->id == ResultLocIdReturn) {
+            resolved_type = ira->explicit_return_type;
+        } else {
+            ZigType *resolved_loc_ptr_type = peer_parent->parent->resolved_loc->value.type;
+            ir_assert(resolved_loc_ptr_type->id == ZigTypeIdPointer, &phi_instruction->base);
+            resolved_type = resolved_loc_ptr_type->data.pointer.child_type;
+        }
+    } else {
+        resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
+                new_incoming_values.items, new_incoming_values.length);
+        if (type_is_invalid(resolved_type))
+            return ira->codegen->invalid_instruction;
+    }
 
     switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
     case OnePossibleValueInvalid:
@@ -25055,7 +25100,7 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
         if (result_loc->value.type->id == ZigTypeIdUnreachable)
             return result_loc;
 
-        if (!was_written) {
+        if (!was_written || instruction->result_loc->id == ResultLocIdPeer) {
             IrInstruction *store_ptr = ir_analyze_store_ptr(ira, &instruction->base, result_loc, value,
                     instruction->result_loc->allow_write_through_const);
             if (type_is_invalid(store_ptr->value.type)) {
@@ -25063,7 +25108,9 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
             }
         }
 
-        if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer) {
+        if (result_loc->value.data.x_ptr.mut == ConstPtrMutInfer &&
+            instruction->result_loc->id != ResultLocIdPeer)
+        {
             if (instr_is_comptime(value)) {
                 result_loc->value.data.x_ptr.mut = ConstPtrMutComptimeConst;
             } else {
