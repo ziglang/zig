@@ -183,7 +183,7 @@ static void render_const_val(CodeGen *g, ConstExprValue *const_val, const char *
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const char *name);
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name);
 static void generate_error_name_table(CodeGen *g);
-static bool value_is_all_undef(ConstExprValue *const_val);
+static bool value_is_all_undef(CodeGen *g, ConstExprValue *const_val);
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr);
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment);
 
@@ -3377,7 +3377,7 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildTrunc(g->builder, shifted_value, get_llvm_type(g, child_type), "");
 }
 
-static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
+static bool value_is_all_undef_array(CodeGen *g, ConstExprValue *const_val, size_t len) {
     switch (const_val->data.x_array.special) {
         case ConstArraySpecialUndef:
             return true;
@@ -3385,7 +3385,7 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
             return false;
         case ConstArraySpecialNone:
             for (size_t i = 0; i < len; i += 1) {
-                if (!value_is_all_undef(&const_val->data.x_array.data.s_none.elements[i]))
+                if (!value_is_all_undef(g, &const_val->data.x_array.data.s_none.elements[i]))
                     return false;
             }
             return true;
@@ -3393,7 +3393,12 @@ static bool value_is_all_undef_array(ConstExprValue *const_val, size_t len) {
     zig_unreachable();
 }
 
-static bool value_is_all_undef(ConstExprValue *const_val) {
+static bool value_is_all_undef(CodeGen *g, ConstExprValue *const_val) {
+    Error err;
+    if (const_val->special == ConstValSpecialLazy &&
+        (err = ir_resolve_lazy(g, nullptr, const_val)))
+        report_errors_and_exit(g);
+
     switch (const_val->special) {
         case ConstValSpecialLazy:
             zig_unreachable();
@@ -3404,14 +3409,14 @@ static bool value_is_all_undef(ConstExprValue *const_val) {
         case ConstValSpecialStatic:
             if (const_val->type->id == ZigTypeIdStruct) {
                 for (size_t i = 0; i < const_val->type->data.structure.src_field_count; i += 1) {
-                    if (!value_is_all_undef(&const_val->data.x_struct.fields[i]))
+                    if (!value_is_all_undef(g, &const_val->data.x_struct.fields[i]))
                         return false;
                 }
                 return true;
             } else if (const_val->type->id == ZigTypeIdArray) {
-                return value_is_all_undef_array(const_val, const_val->type->data.array.len);
+                return value_is_all_undef_array(g, const_val, const_val->type->data.array.len);
             } else if (const_val->type->id == ZigTypeIdVector) {
-                return value_is_all_undef_array(const_val, const_val->type->data.vector.len);
+                return value_is_all_undef_array(g, const_val, const_val->type->data.vector.len);
             } else {
                 return false;
             }
@@ -3532,7 +3537,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
         return nullptr;
     }
 
-    bool have_init_expr = !value_is_all_undef(&instruction->value->value);
+    bool have_init_expr = !value_is_all_undef(g, &instruction->value->value);
     if (have_init_expr) {
         LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
         LLVMValueRef value = ir_llvm_value(g, instruction->value);
@@ -4887,7 +4892,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
     ZigType *ptr_type = instruction->dest_ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
 
-    bool val_is_undef = value_is_all_undef(&instruction->byte->value);
+    bool val_is_undef = value_is_all_undef(g, &instruction->byte->value);
     LLVMValueRef fill_char;
     if (val_is_undef) {
         fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
