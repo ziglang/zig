@@ -16565,6 +16565,15 @@ static IrInstruction *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *ins
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_instruction;
 
+    if (!(expr_type->id == ZigTypeIdInt || expr_type->id == ZigTypeIdComptimeInt ||
+        expr_type->id == ZigTypeIdFloat || expr_type->id == ZigTypeIdComptimeFloat ||
+        expr_type->id == ZigTypeIdVector))
+    {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("negation of type '%s'", buf_ptr(&expr_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
     bool is_wrap_op = (instruction->op_id == IrUnOpNegationWrap);
 
     ZigType *scalar_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;

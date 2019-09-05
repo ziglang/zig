@@ -3,6 +3,19 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempt to negate a non-integer, non-float or non-vector type",
+        \\fn foo() anyerror!u32 {
+        \\    return 1;
+        \\}
+        \\
+        \\export fn entry() void {
+        \\    const x = -foo();
+        \\}
+    ,
+        "tmp.zig:6:15: error: negation of type 'anyerror!u32'",
+    );
+
+    cases.add(
         "attempt to create 17 bit float type",
         \\const builtin = @import("builtin");
         \\comptime {
