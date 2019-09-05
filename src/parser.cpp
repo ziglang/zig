@@ -578,7 +578,7 @@ static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
 }
 
 // TopLevelDecl
-//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 //      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
 //      / KEYWORD_use Expr SEMICOLON
 static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
@@ -587,12 +587,14 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
         first = eat_token_if(pc, TokenIdKeywordExtern);
     if (first == nullptr)
         first = eat_token_if(pc, TokenIdKeywordInline);
+    if (first == nullptr)
+        first = eat_token_if(pc, TokenIdKeywordNoInline);
     if (first != nullptr) {
         Token *lib_name = nullptr;
         if (first->id == TokenIdKeywordExtern)
             lib_name = eat_token_if(pc, TokenIdStringLiteral);
 
-        if (first->id != TokenIdKeywordInline) {
+        if (first->id != TokenIdKeywordInline && first->id != TokenIdKeywordNoInline) {
             Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
@@ -623,8 +625,19 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
             fn_proto->data.fn_proto.visib_mod = visib_mod;
             fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
-            fn_proto->data.fn_proto.is_inline = first->id == TokenIdKeywordInline;
+            switch (first->id) {
+                case TokenIdKeywordInline:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineAlways;
+                    break;
+                case TokenIdKeywordNoInline:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineNever;
+                    break;
+                default:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineAuto;
+                    break;
+            }
             fn_proto->data.fn_proto.lib_name = token_buf(lib_name);
+
             AstNode *res = fn_proto;
             if (body != nullptr) {
                 res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);

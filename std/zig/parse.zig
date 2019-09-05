@@ -201,7 +201,7 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 }
 
 /// TopLevelDecl
-///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
@@ -213,6 +213,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
             break :blk token;
         }
         if (eatToken(it, .Keyword_inline)) |token| break :blk token;
+        if (eatToken(it, .Keyword_noinline)) |token| break :blk token;
         break :blk null;
     };
 
@@ -232,7 +233,8 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
     }
 
     if (extern_export_inline_token) |token| {
-        if (tree.tokens.at(token).id == .Keyword_inline) {
+        if (tree.tokens.at(token).id == .Keyword_inline or
+            tree.tokens.at(token).id == .Keyword_noinline) {
             putBackToken(it, token);
             return null;
         }

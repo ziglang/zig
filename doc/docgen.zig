@@ -786,6 +786,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_for,
             .Keyword_if,
             .Keyword_inline,
+            .Keyword_noinline,
             .Keyword_nakedcc,
             .Keyword_noalias,
             .Keyword_or,
