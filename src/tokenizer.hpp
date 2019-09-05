@@ -74,6 +74,7 @@ enum TokenId {
     TokenIdKeywordFor,
     TokenIdKeywordIf,
     TokenIdKeywordInline,
+    TokenIdKeywordNoInline,
     TokenIdKeywordLinkSection,
     TokenIdKeywordNakedCC,
     TokenIdKeywordNoAlias,

@@ -3066,8 +3066,7 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    ZigFn *fn_entry = create_fn_raw(g, inline_value);
+    ZigFn *fn_entry = create_fn_raw(g, fn_proto->fn_inline);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :

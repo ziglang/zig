@@ -603,6 +603,12 @@ enum CallingConvention {
     CallingConventionAsync,
 };
 
+enum FnInline {
+    FnInlineAuto,
+    FnInlineAlways,
+    FnInlineNever,
+};
+
 struct AstNodeFnProto {
     VisibMod visib_mod;
     Buf *name;
@@ -612,7 +618,7 @@ struct AstNodeFnProto {
     bool is_var_args;
     bool is_extern;
     bool is_export;
-    bool is_inline;
+    FnInline fn_inline;
     CallingConvention cc;
     AstNode *fn_def_node;
     // populated if this is an extern declaration
@@ -1451,12 +1457,6 @@ enum FnAnalState {
     FnAnalStateProbing,
     FnAnalStateComplete,
     FnAnalStateInvalid,
-};
-
-enum FnInline {
-    FnInlineAuto,
-    FnInlineAlways,
-    FnInlineNever,
 };
 
 struct GlobalExport {
