@@ -1393,16 +1393,17 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
             return "esp";
         case ZigLLVM_x86_64:
             return "rsp";
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
         case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
             return "sp";
 
-        case ZigLLVM_arm:
-        case ZigLLVM_thumb:
-        case ZigLLVM_aarch64_be:
         case ZigLLVM_amdgcn:
         case ZigLLVM_amdil:
         case ZigLLVM_amdil64:
-        case ZigLLVM_armeb:
         case ZigLLVM_arc:
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
@@ -1436,7 +1437,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
-        case ZigLLVM_thumbeb:
         case ZigLLVM_wasm32:
         case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
