@@ -101,6 +101,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --version-script [path]      provide a version .map file\n"
         "  --object [obj]               add object file to build\n"
         "  -L[dir]                      alias for --library-path\n"
+        "  -l[lib]                      alias for --library\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
@@ -688,6 +689,12 @@ int main(int argc, char **argv) {
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
+            } else if (arg[1] == 'l' && arg[2] != 0) {
+                // alias for --library
+                const char *l = &arg[2];
+                if (strcmp(l, "c") == 0)
+                    have_libc = true;
+                link_libs.append(l);
             } else if (arg[1] == 'F' && arg[2] != 0) {
                 framework_dirs.append(&arg[2]);
             } else if (strcmp(arg, "--pkg-begin") == 0) {
@@ -778,7 +785,7 @@ int main(int argc, char **argv) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "-F") == 0) {
                     framework_dirs.append(argv[i]);
-                } else if (strcmp(arg, "--library") == 0) {
+                } else if (strcmp(arg, "--library") == 0 || strcmp(arg, "-l") == 0) {
                     if (strcmp(argv[i], "c") == 0)
                         have_libc = true;
                     link_libs.append(argv[i]);
