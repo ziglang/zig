@@ -57,7 +57,6 @@ pub fn sigaddset(set: *sigset_t, signo: u5) void {
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
-pub extern "c" fn dlopen_preflight(path: [*]const u8) c_int;
 pub extern "c" fn dlopen(path: [*]const u8, mode: c_int) ?*c_void;
 pub extern "c" fn dlclose(handle: *c_void) c_int;
 pub extern "c" fn dlsym(handle: ?*c_void, symbol: [*]const u8) ?*c_void;

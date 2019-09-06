@@ -1177,23 +1177,14 @@ pub fn S_IWHT(m: u32) bool {
 }
 
 pub const RTLD_LAZY = 0x1;
-
 pub const RTLD_NOW = 0x2;
-
 pub const RTLD_LOCAL = 0x4;
-
 pub const RTLD_GLOBAL = 0x8;
-
 pub const RTLD_NOLOAD = 0x10;
-
 pub const RTLD_NODELETE = 0x80;
-
 pub const RTLD_FIRST = 0x100;
 
 pub const RTLD_NEXT = @intToPtr(*c_void, ~maxInt(usize));
-
 pub const RTLD_DEFAULT = @intToPtr(*c_void, ~maxInt(usize) - 1);
-
 pub const RTLD_SELF = @intToPtr(*c_void, ~maxInt(usize) - 2);
-
 pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, ~maxInt(usize) - 4);

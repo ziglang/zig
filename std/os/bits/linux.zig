@@ -1,4 +1,4 @@
-const builtin = @import("builtin");
+ const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 usingnamespace @import("../bits.zig");

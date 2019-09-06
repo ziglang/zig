@@ -7,13 +7,13 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
-const darwin = std.os.darwin;
+const system = std.os.system;
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
     .linux => LinuxDynLib,
     .windows => WindowsDynLib,
-    .macosx, .tvos, .watchos, .ios => DarwinDynLib,
+    .macosx, .tvos, .watchos, .ios => DlDynlib,
     else => void,
 };
 
@@ -101,12 +101,14 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
 }
 
 pub const LinuxDynLib = struct {
+    pub const Error = ElfLib.Error;
+
     elf_lib: ElfLib,
     fd: i32,
     memory: []align(mem.page_size) u8,
 
     /// Trusts the file
-    pub fn open(path: []const u8) !DynLib {
+    pub fn open(path: []const u8) !LinuxDynLib {
         const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
         errdefer os.close(fd);
 
@@ -123,25 +125,39 @@ pub const LinuxDynLib = struct {
         );
         errdefer os.munmap(bytes);
 
-        return DynLib{
+        return LinuxDynLib{
             .elf_lib = try ElfLib.init(bytes),
             .fd = fd,
             .memory = bytes,
         };
     }
 
-    pub fn close(self: *DynLib) void {
+    pub fn close(self: *LinuxDynLib) void {
         os.munmap(self.memory);
         os.close(self.fd);
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DynLib, name: []const u8) ?usize {
-        return self.elf_lib.lookup("", name);
+    pub fn lookup(self: *LinuxDynLib, comptime T: type, name: []const u8) ?T {
+        if (self.elf_lib.lookup("", name)) |symbol| {
+            return @ptrCast(T, symbol);
+        } else {
+            return null;
+        }
     }
 };
 
 pub const ElfLib = struct {
+    pub const Error = error{
+        NotElfFile,
+        NotDynamicLibrary,
+        MissingDynamicLinkingInformation,
+        BaseNotFound,
+        ElfStringSectionNotFound,
+        ElfSymSectionNotFound,
+        ElfHashTableNotFound,
+    };
+
     strings: [*]u8,
     syms: [*]elf.Sym,
     hashtab: [*]os.Elf_Symndx,
@@ -247,6 +263,11 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 pub const WindowsDynLib = struct {
+    pub const Error = error{
+        FileNotFound,
+        SymbolTooLong,
+    };
+
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
@@ -261,43 +282,57 @@ pub const WindowsDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *WindowsDynLib, name: []const u8) ?usize {
-        if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
-            return @ptrToInt(addr);
+    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: []const u8) !?T {
+        const c_name: [512]u8 = []u8{0} ** 512;
+        if (name.len > 512) {
+            return error.SymbolTooLong;
+        }
+
+        mem.copy(&c_name, name);
+
+        if (windows.kernel32.GetProcAddress(self.dll, (&c_name).ptr)) |addr| {
+            return @ptrCast(T, addr);
         } else {
             return null;
         }
     }
 };
 
-pub const DarwinDynLib = struct {
+pub const DlDynlib = struct {
+    pub const Error = error{
+        FileNotFound,
+        SymbolTooLong,
+    };
+
     handle: *c_void,
 
-    pub fn open(path: []const u8) !DarwinDynLib {
-        // should we perform this check?
-        if (false) {
-            // check if dynamic library being loaded is compatible
-            if (darwin.dlopen_preflight(path) == 0) {
-                return error.InvalidDynLib;
-            }
+    pub fn open(path: []const u8) !DlDynlib {
+        if (!builtin.link_libc and !os.darwin.is_the_target) {
+            @compileError("DlDynlib requires libc");
         }
 
-        // see https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlopen.3.html
-        return DarwinDynLib{
-            .handle = darwin.dlopen(path.ptr, darwin.RTLD_LAZY) orelse {
+        return DlDynlib{
+            .handle = system.dlopen(path.ptr, system.RTLD_LAZY) orelse {
                 return error.FileNotFound;
             },
         };
     }
 
-    pub fn close(self: *DarwinDynLib) void {
-        _ = darwin.dlclose(self.handle);
+    pub fn close(self: *DlDynlib) void {
+        _ = system.dlclose(self.handle);
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DarwinDynLib, name: []const u8) ?usize {
-        if (darwin.dlsym(self.handle, name.ptr)) |sym| {
-            return @ptrToInt(sym);
+    pub fn lookup(self: *DlDynlib, comptime T: type, name: []const u8) !?T {
+        const c_name: [512]u8 = []u8{0} ** 512;
+        if (name.len > 512) {
+            return error.SymbolTooLong;
+        }
+
+        mem.copy(&c_name, name);
+
+        if (system.dlsym(self.handle, (&c_name).ptr)) |symbol| {
+            return @ptrCast(T, symbol);
         } else {
             return null;
         }
