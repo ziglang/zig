@@ -1389,7 +1389,7 @@ static IrInstruction *ir_build_union_field_ptr(IrBuilder *irb, Scope *scope, Ast
 
 static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
         ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, bool is_async_call_builtin,
+        bool is_comptime, FnInline fn_inline, CallModifier modifier, bool is_async_call_builtin,
         IrInstruction *new_stack, ResultLoc *result_loc)
 {
     IrInstructionCallSrc *call_instruction = ir_build_instruction<IrInstructionCallSrc>(irb, scope, source_node);
@@ -1399,7 +1399,7 @@ static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *s
     call_instruction->fn_inline = fn_inline;
     call_instruction->args = args;
     call_instruction->arg_count = arg_count;
-    call_instruction->is_async = is_async;
+    call_instruction->modifier = modifier;
     call_instruction->is_async_call_builtin = is_async_call_builtin;
     call_instruction->new_stack = new_stack;
     call_instruction->result_loc = result_loc;
@@ -1407,7 +1407,7 @@ static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *s
     if (fn_ref != nullptr) ir_ref_instruction(fn_ref, irb->current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
         ir_ref_instruction(args[i], irb->current_basic_block);
-    if (is_async && new_stack != nullptr) {
+    if (modifier == CallModifierAsync && new_stack != nullptr) {
         // in this case the arg at the end is the return pointer
         ir_ref_instruction(args[arg_count], irb->current_basic_block);
     }
@@ -1418,7 +1418,7 @@ static IrInstruction *ir_build_call_src(IrBuilder *irb, Scope *scope, AstNode *s
 
 static IrInstructionCallGen *ir_build_call_gen(IrAnalyze *ira, IrInstruction *source_instruction,
         ZigFn *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        FnInline fn_inline, bool is_async, IrInstruction *new_stack, bool is_async_call_builtin,
+        FnInline fn_inline, CallModifier modifier, IrInstruction *new_stack, bool is_async_call_builtin,
         IrInstruction *result_loc, ZigType *return_type)
 {
     IrInstructionCallGen *call_instruction = ir_build_instruction<IrInstructionCallGen>(&ira->new_irb,
@@ -1429,7 +1429,7 @@ static IrInstructionCallGen *ir_build_call_gen(IrAnalyze *ira, IrInstruction *so
     call_instruction->fn_inline = fn_inline;
     call_instruction->args = args;
     call_instruction->arg_count = arg_count;
-    call_instruction->is_async = is_async;
+    call_instruction->modifier = modifier;
     call_instruction->is_async_call_builtin = is_async_call_builtin;
     call_instruction->new_stack = new_stack;
     call_instruction->result_loc = result_loc;
@@ -4412,10 +4412,10 @@ static IrInstruction *ir_gen_async_call(IrBuilder *irb, Scope *scope, AstNode *a
 
     args[arg_count] = ret_ptr;
 
-    bool is_async = await_node == nullptr;
+    CallModifier modifier = (await_node == nullptr) ? CallModifierAsync : CallModifierNone;
     bool is_async_call_builtin = true;
     IrInstruction *call = ir_build_call_src(irb, scope, call_node, nullptr, fn_ref, arg_count, args, false,
-            FnInlineAuto, is_async, is_async_call_builtin, bytes, result_loc);
+            FnInlineAuto, modifier, is_async_call_builtin, bytes, result_loc);
     return ir_lval_wrap(irb, scope, call, lval, result_loc);
 }
 
@@ -5302,7 +5302,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
                 IrInstruction *call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
-                        fn_inline, false, false, nullptr, result_loc);
+                        fn_inline, CallModifierNone, false, nullptr, result_loc);
                 return ir_lval_wrap(irb, scope, call, lval, result_loc);
             }
         case BuiltinFnIdNewStackCall:
@@ -5335,7 +5335,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
 
                 IrInstruction *call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
-                        FnInlineAuto, false, false, new_stack, result_loc);
+                        FnInlineAuto, CallModifierNone, false, new_stack, result_loc);
                 return ir_lval_wrap(irb, scope, call, lval, result_loc);
             }
         case BuiltinFnIdAsyncCall:
@@ -5624,7 +5624,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
 {
     assert(node->type == NodeTypeFnCallExpr);
 
-    if (node->data.fn_call_expr.is_builtin)
+    if (node->data.fn_call_expr.modifier == CallModifierBuiltin)
         return ir_gen_builtin_fn_call(irb, scope, node, lval, result_loc);
 
     AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
@@ -5641,9 +5641,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    bool is_async = node->data.fn_call_expr.is_async;
     IrInstruction *fn_call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
-            FnInlineAuto, is_async, false, nullptr, result_loc);
+            FnInlineAuto, node->data.fn_call_expr.modifier, false, nullptr, result_loc);
     return ir_lval_wrap(irb, scope, fn_call, lval, result_loc);
 }
 
@@ -7937,7 +7936,7 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *scope, AstNode *n
     assert(node->type == NodeTypeAwaitExpr);
 
     AstNode *expr_node = node->data.await_expr.expr;
-    if (expr_node->type == NodeTypeFnCallExpr && expr_node->data.fn_call_expr.is_builtin) {
+    if (expr_node->type == NodeTypeFnCallExpr && expr_node->data.fn_call_expr.modifier == CallModifierBuiltin) {
         AstNode *fn_ref_expr = expr_node->data.fn_call_expr.fn_ref_expr;
         Buf *name = fn_ref_expr->data.symbol_expr.symbol;
         auto entry = irb->codegen->builtin_fn_table.maybe_get(name);
@@ -15408,7 +15407,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
         ZigType *anyframe_type = get_any_frame_type(ira->codegen, fn_ret_type);
 
         IrInstructionCallGen *call_gen = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
-                arg_count, casted_args, FnInlineAuto, true, casted_new_stack,
+                arg_count, casted_args, FnInlineAuto, CallModifierAsync, casted_new_stack,
                 call_instruction->is_async_call_builtin, ret_ptr, anyframe_type);
         return &call_gen->base;
     } else {
@@ -15422,8 +15421,8 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCallSrc
         if (type_is_invalid(result_loc->value.type))
             return ira->codegen->invalid_instruction;
         return &ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref, arg_count,
-                casted_args, FnInlineAuto, true, casted_new_stack, call_instruction->is_async_call_builtin,
-                result_loc, frame_type)->base;
+                casted_args, FnInlineAuto, CallModifierAsync, casted_new_stack,
+                call_instruction->is_async_call_builtin, result_loc, frame_type)->base;
     }
 }
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
@@ -16174,7 +16173,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             return ira->codegen->invalid_instruction;
 
         size_t impl_param_count = impl_fn_type_id->param_count;
-        if (call_instruction->is_async) {
+        if (call_instruction->modifier == CallModifierAsync) {
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry,
                     nullptr, casted_args, impl_param_count, casted_new_stack);
             return ir_finish_anal(ira, result);
@@ -16201,14 +16200,17 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             result_loc = nullptr;
         }
 
-        if (impl_fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
+        if (impl_fn_type_id->cc == CallingConventionAsync &&
+            parent_fn_entry->inferred_async_node == nullptr &&
+            call_instruction->modifier != CallModifierNoAsync)
+        {
             parent_fn_entry->inferred_async_node = fn_ref->source_node;
             parent_fn_entry->inferred_async_fn = impl_fn;
         }
 
         IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, fn_inline,
-                false, casted_new_stack, call_instruction->is_async_call_builtin, result_loc,
+                call_instruction->modifier, casted_new_stack, call_instruction->is_async_call_builtin, result_loc,
                 impl_fn_type_id->return_type);
 
         if (get_scope_typeof(call_instruction->base.scope) == nullptr) {
@@ -16325,13 +16327,16 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (call_instruction->is_async) {
+    if (call_instruction->modifier == CallModifierAsync) {
         IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref,
                 casted_args, call_param_count, casted_new_stack);
         return ir_finish_anal(ira, result);
     }
 
-    if (fn_type_id->cc == CallingConventionAsync && parent_fn_entry->inferred_async_node == nullptr) {
+    if (fn_type_id->cc == CallingConventionAsync &&
+        parent_fn_entry->inferred_async_node == nullptr &&
+        call_instruction->modifier != CallModifierNoAsync)
+    {
         parent_fn_entry->inferred_async_node = fn_ref->source_node;
         parent_fn_entry->inferred_async_fn = fn_entry;
     }
@@ -16358,7 +16363,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
     }
 
     IrInstructionCallGen *new_call_instruction = ir_build_call_gen(ira, &call_instruction->base, fn_entry, fn_ref,
-            call_param_count, casted_args, fn_inline, false, casted_new_stack,
+            call_param_count, casted_args, fn_inline, call_instruction->modifier, casted_new_stack,
             call_instruction->is_async_call_builtin, result_loc, return_type);
     if (get_scope_typeof(call_instruction->base.scope) == nullptr) {
         parent_fn_entry->call_list.append(new_call_instruction);

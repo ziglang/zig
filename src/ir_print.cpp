@@ -608,8 +608,17 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
 }
 
 static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instruction) {
-    if (call_instruction->is_async) {
-        fprintf(irp->f, "async ");
+    switch (call_instruction->modifier) {
+        case CallModifierNone:
+            break;
+        case CallModifierAsync:
+            fprintf(irp->f, "async ");
+            break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
+        case CallModifierBuiltin:
+            zig_unreachable();
     }
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
@@ -629,8 +638,17 @@ static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instructi
 }
 
 static void ir_print_call_gen(IrPrint *irp, IrInstructionCallGen *call_instruction) {
-    if (call_instruction->is_async) {
-        fprintf(irp->f, "async ");
+    switch (call_instruction->modifier) {
+        case CallModifierNone:
+            break;
+        case CallModifierAsync:
+            fprintf(irp->f, "async ");
+            break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
+        case CallModifierBuiltin:
+            zig_unreachable();
     }
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));

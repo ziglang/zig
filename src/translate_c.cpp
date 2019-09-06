@@ -253,7 +253,7 @@ static AstNode *trans_create_node_symbol_str(Context *c, const char *name) {
 static AstNode *trans_create_node_builtin_fn_call(Context *c, Buf *name) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
     node->data.fn_call_expr.fn_ref_expr = trans_create_node_symbol(c, name);
-    node->data.fn_call_expr.is_builtin = true;
+    node->data.fn_call_expr.modifier = CallModifierBuiltin;
     return node;
 }
 

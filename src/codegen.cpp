@@ -186,6 +186,9 @@ static void generate_error_name_table(CodeGen *g);
 static bool value_is_all_undef(CodeGen *g, ConstExprValue *const_val);
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr);
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment);
+static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
+        LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
+        LLVMValueRef result_loc, bool non_async);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -3842,7 +3845,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     LLVMValueRef ret_ptr;
     if (callee_is_async) {
         if (instruction->new_stack == nullptr) {
-            if (instruction->is_async) {
+            if (instruction->modifier == CallModifierAsync) {
                 frame_result_loc = result_loc;
             } else {
                 frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
@@ -3883,7 +3886,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                 }
             }
         }
-        if (instruction->is_async) {
+        if (instruction->modifier == CallModifierAsync) {
             if (instruction->new_stack == nullptr) {
                 awaiter_init_val = zero;
 
@@ -3908,9 +3911,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             // even if prefix_arg_err_ret_stack is true, let the async function do its own
             // initialization.
         } else {
-            // async function called as a normal function
-
-            awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_frame_ptr, usize_type_ref, ""); // caller's own frame pointer
+            if (instruction->modifier == CallModifierNoAsync && !fn_is_async(g->cur_fn)) {
+                // Async function called as a normal function, and calling function is not async.
+                // This is allowed because it was called with `noasync` which asserts that it will
+                // never suspend.
+                awaiter_init_val = zero;
+            } else {
+                // async function called as a normal function
+                awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_frame_ptr, usize_type_ref, ""); // caller's own frame pointer
+            }
             if (ret_has_bits) {
                 if (result_loc == nullptr) {
                     // return type is a scalar, but we still need a pointer to it. Use the async fn frame.
@@ -3951,7 +3960,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start, "");
             LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
         }
-    } else if (instruction->is_async) {
+    } else if (instruction->modifier == CallModifierAsync) {
         // Async call of blocking function
         if (instruction->new_stack != nullptr) {
             zig_panic("TODO @asyncCall of non-async function");
@@ -4048,13 +4057,20 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                     gen_param_values.at(arg_i));
         }
 
-        if (instruction->is_async) {
+        if (instruction->modifier == CallModifierAsync) {
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
             if (instruction->new_stack != nullptr) {
                 return LLVMBuildBitCast(g->builder, frame_result_loc,
                         get_llvm_type(g, instruction->base.value.type), "");
             }
             return nullptr;
+        } else if (instruction->modifier == CallModifierNoAsync && !fn_is_async(g->cur_fn)) {
+            gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
+
+            ZigType *result_type = instruction->base.value.type;
+            ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
+            return gen_await_early_return(g, &instruction->base, frame_result_loc,
+                    result_type, ptr_result_type, result_loc, true);
         } else {
             ZigType *ptr_result_type = get_pointer_to_type(g, src_return_type, true);
 
@@ -4082,7 +4098,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     if (instruction->new_stack == nullptr || instruction->is_async_call_builtin) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
-    } else if (instruction->is_async) {
+    } else if (instruction->modifier == CallModifierAsync) {
         zig_panic("TODO @asyncCall of non-async function");
     } else {
         LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
@@ -4107,7 +4123,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         LLVMValueRef store_instr = LLVMBuildStore(g->builder, result, result_loc);
         LLVMSetAlignment(store_instr, get_ptr_align(g, instruction->result_loc->value.type));
         return result_loc;
-    } else if (!callee_is_async && instruction->is_async) {
+    } else if (!callee_is_async && instruction->modifier == CallModifierAsync) {
         LLVMBuildStore(g->builder, result, ret_ptr);
         return result_loc;
     } else {
@@ -7104,6 +7120,28 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (!is_async) {
+            // allocate async frames for noasync calls & awaits to async functions
+            for (size_t i = 0; i < fn_table_entry->call_list.length; i += 1) {
+                IrInstructionCallGen *call = fn_table_entry->call_list.at(i);
+                if (call->fn_entry == nullptr)
+                    continue;
+                if (!fn_is_async(call->fn_entry))
+                    continue;
+                if (call->modifier != CallModifierNoAsync)
+                    continue;
+                if (call->frame_result_loc != nullptr)
+                    continue;
+                ZigType *callee_frame_type = get_fn_frame_type(g, call->fn_entry);
+                IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
+                alloca_gen->base.id = IrInstructionIdAllocaGen;
+                alloca_gen->base.source_node = call->base.source_node;
+                alloca_gen->base.scope = call->base.scope;
+                alloca_gen->base.value.type = get_pointer_to_type(g, callee_frame_type, false);
+                alloca_gen->base.ref_count = 1;
+                alloca_gen->name_hint = "";
+                fn_table_entry->alloca_gen_list.append(alloca_gen);
+                call->frame_result_loc = &alloca_gen->base;
+            }
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
                 IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);

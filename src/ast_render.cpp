@@ -698,11 +698,18 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeFnCallExpr:
             {
-                if (node->data.fn_call_expr.is_builtin) {
-                    fprintf(ar->f, "@");
-                }
-                if (node->data.fn_call_expr.is_async) {
-                    fprintf(ar->f, "async ");
+                switch (node->data.fn_call_expr.modifier) {
+                    case CallModifierNone:
+                        break;
+                    case CallModifierBuiltin:
+                        fprintf(ar->f, "@");
+                        break;
+                    case CallModifierAsync:
+                        fprintf(ar->f, "async ");
+                        break;
+                    case CallModifierNoAsync:
+                        fprintf(ar->f, "noasync ");
+                        break;
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
                 bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypePointerType);

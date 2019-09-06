@@ -758,11 +758,17 @@ struct AstNodeUnwrapOptional {
     AstNode *expr;
 };
 
+enum CallModifier {
+    CallModifierNone,
+    CallModifierAsync,
+    CallModifierNoAsync,
+    CallModifierBuiltin,
+};
+
 struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
-    bool is_builtin;
-    bool is_async;
+    CallModifier modifier;
     bool seen; // used by @compileLog
 };
 
@@ -2730,8 +2736,10 @@ struct IrInstructionCallSrc {
     ResultLoc *result_loc;
 
     IrInstruction *new_stack;
+
     FnInline fn_inline;
-    bool is_async;
+    CallModifier modifier;
+
     bool is_async_call_builtin;
     bool is_comptime;
 };
@@ -2745,10 +2753,11 @@ struct IrInstructionCallGen {
     IrInstruction **args;
     IrInstruction *result_loc;
     IrInstruction *frame_result_loc;
-
     IrInstruction *new_stack;
+
     FnInline fn_inline;
-    bool is_async;
+    CallModifier modifier;
+
     bool is_async_call_builtin;
 };
 

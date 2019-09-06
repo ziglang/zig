@@ -1092,3 +1092,19 @@ test "recursive call of await @asyncCall with struct return type" {
     expect(res.y == 2);
     expect(res.z == 3);
 }
+
+test "noasync function call" {
+    const S = struct {
+        fn doTheTest() void {
+            const result = noasync add(50, 100);
+            expect(result == 150);
+        }
+        fn add(a: i32, b: i32) i32 {
+            if (a > 100) {
+                suspend;
+            }
+            return a + b;
+        }
+    };
+    S.doTheTest();
+}

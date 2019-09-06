@@ -4214,7 +4214,7 @@ void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("await here is a suspend point"));
     } else if (fn->inferred_async_node->type == NodeTypeFnCallExpr &&
-        fn->inferred_async_node->data.fn_call_expr.is_builtin)
+        fn->inferred_async_node->data.fn_call_expr.modifier == CallModifierBuiltin)
     {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("@frame() causes function to be async"));
@@ -4228,8 +4228,10 @@ void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
 // ErrorIsAsync - yes async
 // ErrorSemanticAnalyzeFail - compile error emitted result is invalid
 static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
-        bool must_not_be_async)
+        bool must_not_be_async, CallModifier modifier)
 {
+    if (modifier == CallModifierNoAsync)
+        return ErrorNone;
     if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
         return ErrorNone;
     if (callee->anal_state == FnAnalStateReady) {
@@ -4312,7 +4314,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
             // TODO function pointer call here, could be anything
             continue;
         }
-        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async)) {
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async,
+                    call->modifier))
+        {
             case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
@@ -4329,7 +4333,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
-        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async)) {
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
+                    CallModifierNone))
+        {
             case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
