@@ -923,6 +923,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("frame too small");
         case PanicMsgIdResumedFnPendingAwait:
             return buf_create_from_str("resumed an async function which can only be awaited");
+        case PanicMsgIdBadNoAsyncCall:
+            return buf_create_from_str("async function called with noasync suspended");
     }
     zig_unreachable();
 }
@@ -4066,6 +4068,25 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             return nullptr;
         } else if (instruction->modifier == CallModifierNoAsync && !fn_is_async(g->cur_fn)) {
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
+
+            if (ir_want_runtime_safety(g, &instruction->base)) {
+                LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                        frame_awaiter_index, "");
+                LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
+                LLVMValueRef prev_val = gen_maybe_atomic_op(g, LLVMAtomicRMWBinOpXchg, awaiter_ptr,
+                        all_ones, LLVMAtomicOrderingRelease);
+                LLVMValueRef ok_val = LLVMBuildICmp(g->builder, LLVMIntEQ, prev_val, all_ones, "");
+
+                LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoAsyncPanic");
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "NoAsyncOk");
+                LLVMBuildCondBr(g->builder, ok_val, ok_block, bad_block);
+
+                // The async function suspended, but this noasync call asserted it wouldn't.
+                LLVMPositionBuilderAtEnd(g->builder, bad_block);
+                gen_safety_crash(g, PanicMsgIdBadNoAsyncCall);
+
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            }
 
             ZigType *result_type = instruction->base.value.type;
             ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
