@@ -1108,3 +1108,19 @@ test "noasync function call" {
     };
     S.doTheTest();
 }
+
+test "await used in expression and awaiting fn with no suspend but async calling convention" {
+    const S = struct {
+        fn atest() void {
+            var f1 = async add(1, 2);
+            var f2 = async add(3, 4);
+
+            const sum = (await f1) + (await f2);
+            expect(sum == 10);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+    };
+    _ = async S.atest();
+}

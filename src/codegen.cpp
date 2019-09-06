@@ -1661,6 +1661,14 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     if (!type_has_bits(instruction->value.type))
         return nullptr;
     if (!instruction->llvm_value) {
+        if (instruction->id == IrInstructionIdAwaitGen) {
+            IrInstructionAwaitGen *await = reinterpret_cast<IrInstructionAwaitGen*>(instruction);
+            if (await->result_loc != nullptr) {
+                instruction->llvm_value = get_handle_value(g, ir_llvm_value(g, await->result_loc),
+                    await->result_loc->value.type->data.pointer.child_type, await->result_loc->value.type);
+                return instruction->llvm_value;
+            }
+        }
         src_assert(instruction->value.special != ConstValSpecialRuntime, instruction->source_node);
         assert(instruction->value.type);
         render_const_val(g, &instruction->value, "");
@@ -5645,7 +5653,6 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // At this point resuming the function will continue from resume_bb.
     // This code is as if it is running inside the suspend block.
 
-
     // supply the awaiter return pointer
     if (type_has_bits(result_type)) {
         LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start + 1, "");
@@ -5703,9 +5710,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     LLVMBuildBr(g->builder, end_bb);
 
     LLVMPositionBuilderAtEnd(g->builder, end_bb);
-    if (type_has_bits(result_type) && result_loc != nullptr) {
-        return get_handle_value(g, result_loc, result_type, ptr_result_type);
-    }
+    // Rely on the spill for the llvm_value to be populated.
+    // See the implementation of ir_llvm_value.
     return nullptr;
 }
 
@@ -7153,15 +7159,8 @@ static void do_code_gen(CodeGen *g) {
                 if (call->frame_result_loc != nullptr)
                     continue;
                 ZigType *callee_frame_type = get_fn_frame_type(g, call->fn_entry);
-                IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
-                alloca_gen->base.id = IrInstructionIdAllocaGen;
-                alloca_gen->base.source_node = call->base.source_node;
-                alloca_gen->base.scope = call->base.scope;
-                alloca_gen->base.value.type = get_pointer_to_type(g, callee_frame_type, false);
-                alloca_gen->base.ref_count = 1;
-                alloca_gen->name_hint = "";
-                fn_table_entry->alloca_gen_list.append(alloca_gen);
-                call->frame_result_loc = &alloca_gen->base;
+                call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node,
+                        fn_table_entry, callee_frame_type, "");
             }
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {

@@ -4232,31 +4232,40 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
 {
     if (modifier == CallModifierNoAsync)
         return ErrorNone;
-    if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
-        return ErrorNone;
-    if (callee->anal_state == FnAnalStateReady) {
-        analyze_fn_body(g, callee);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            return ErrorSemanticAnalyzeFail;
-        }
+    bool callee_is_async = false;
+    switch (callee->type_entry->data.fn.fn_type_id.cc) {
+        case CallingConventionUnspecified:
+            break;
+        case CallingConventionAsync:
+            callee_is_async = true;
+            break;
+        default:
+            return ErrorNone;
     }
-    bool callee_is_async;
-    if (callee->anal_state == FnAnalStateComplete) {
-        analyze_fn_async(g, callee, true);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            return ErrorSemanticAnalyzeFail;
+    if (!callee_is_async) {
+        if (callee->anal_state == FnAnalStateReady) {
+            analyze_fn_body(g, callee);
+            if (callee->anal_state == FnAnalStateInvalid) {
+                return ErrorSemanticAnalyzeFail;
+            }
         }
-        callee_is_async = fn_is_async(callee);
-    } else {
-        // If it's already been determined, use that value. Otherwise
-        // assume non-async, emit an error later if it turned out to be async.
-        if (callee->inferred_async_node == nullptr ||
-            callee->inferred_async_node == inferred_async_checking)
-        {
-            callee->assumed_non_async = call_node;
-            callee_is_async = false;
+        if (callee->anal_state == FnAnalStateComplete) {
+            analyze_fn_async(g, callee, true);
+            if (callee->anal_state == FnAnalStateInvalid) {
+                return ErrorSemanticAnalyzeFail;
+            }
+            callee_is_async = fn_is_async(callee);
         } else {
-            callee_is_async = callee->inferred_async_node != inferred_async_none;
+            // If it's already been determined, use that value. Otherwise
+            // assume non-async, emit an error later if it turned out to be async.
+            if (callee->inferred_async_node == nullptr ||
+                callee->inferred_async_node == inferred_async_checking)
+            {
+                callee->assumed_non_async = call_node;
+                callee_is_async = false;
+            } else {
+                callee_is_async = callee->inferred_async_node != inferred_async_none;
+            }
         }
     }
     if (callee_is_async) {
@@ -4333,6 +4342,8 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
+        // TODO If this is a noasync await, it doesn't count
+        // https://github.com/ziglang/zig/issues/3157
         switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
                     CallModifierNone))
         {
@@ -5771,15 +5782,39 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
-        alloca_gen->base.id = IrInstructionIdAllocaGen;
-        alloca_gen->base.source_node = call->base.source_node;
-        alloca_gen->base.scope = call->base.scope;
-        alloca_gen->base.value.type = get_pointer_to_type(g, callee_frame_type, false);
-        alloca_gen->base.ref_count = 1;
-        alloca_gen->name_hint = "";
-        fn->alloca_gen_list.append(alloca_gen);
-        call->frame_result_loc = &alloca_gen->base;
+        call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
+                callee_frame_type, "");
+    }
+    // Since this frame is async, an await might represent a suspend point, and
+    // therefore need to spill.
+    for (size_t i = 0; i < fn->await_list.length; i += 1) {
+        IrInstructionAwaitGen *await = fn->await_list.at(i);
+        // TODO If this is a noasync await, it doesn't need to spill
+        // https://github.com/ziglang/zig/issues/3157
+        if (await->result_loc != nullptr) {
+            // If there's a result location, that is the spill
+            continue;
+        }
+        if (!type_has_bits(await->base.value.type))
+            continue;
+        if (await->base.value.special != ConstValSpecialRuntime)
+            continue;
+        if (await->base.ref_count == 0)
+            continue;
+        if (await->target_fn != nullptr) {
+            // we might not need to suspend
+            analyze_fn_async(g, await->target_fn, false);
+            if (await->target_fn->anal_state == FnAnalStateInvalid) {
+                frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (!fn_is_async(await->target_fn)) {
+                // This await does not represent a suspend point. No spill needed.
+                continue;
+            }
+        }
+        await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
+                await->base.value.type, "");
     }
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
@@ -8505,3 +8540,18 @@ void src_assert(bool ok, AstNode *source_node) {
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
+
+IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
+        ZigType *var_type, const char *name_hint)
+{
+    IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
+    alloca_gen->base.id = IrInstructionIdAllocaGen;
+    alloca_gen->base.source_node = source_node;
+    alloca_gen->base.scope = scope;
+    alloca_gen->base.value.type = get_pointer_to_type(g, var_type, false);
+    alloca_gen->base.ref_count = 1;
+    alloca_gen->name_hint = name_hint;
+    fn->alloca_gen_list.append(alloca_gen);
+    return &alloca_gen->base;
+}
+
