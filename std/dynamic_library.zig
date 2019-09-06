@@ -263,10 +263,7 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 pub const WindowsDynLib = struct {
-    pub const Error = error{
-        FileNotFound,
-        SymbolTooLong,
-    };
+    pub const Error = error{FileNotFound};
 
     dll: windows.HMODULE,
 
@@ -282,27 +279,24 @@ pub const WindowsDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: []const u8) !?T {
-        const c_name: [512]u8 = []u8{0} ** 512;
-        if (name.len > 512) {
-            return error.SymbolTooLong;
-        }
-
-        mem.copy(&c_name, name);
-
-        if (windows.kernel32.GetProcAddress(self.dll, (&c_name).ptr)) |addr| {
+    pub fn lookupC(self: *WindowsDynLib, comptime T: type, name: [*]const u8) ?T {
+        if (windows.kernel32.GetProcAddress(self.dll, name)) |addr| {
             return @ptrCast(T, addr);
         } else {
             return null;
         }
     }
+
+    pub fn lookup(self: *DlDynlib, comptime T: type, comptime max_name_len: usize, name: []const u8) ?T {
+        const c_name: [max_name_len]u8 = undefined;
+        mem.copy(&c_name, name);
+        c_name[name.len] = 0;
+        return self.lookupC(T, &c_name);
+    }
 };
 
 pub const DlDynlib = struct {
-    pub const Error = error{
-        FileNotFound,
-        SymbolTooLong,
-    };
+    pub const Error = error{FileNotFound};
 
     handle: *c_void,
 
@@ -323,19 +317,19 @@ pub const DlDynlib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DlDynlib, comptime T: type, name: []const u8) !?T {
-        const c_name: [512]u8 = []u8{0} ** 512;
-        if (name.len > 512) {
-            return error.SymbolTooLong;
-        }
-
-        mem.copy(&c_name, name);
-
-        if (system.dlsym(self.handle, (&c_name).ptr)) |symbol| {
+    pub fn lookupC(self: *DlDynlib, comptime T: type, name: [*]const u8) ?T {
+        if (system.dlsym(self.handle, name)) |symbol| {
             return @ptrCast(T, symbol);
         } else {
             return null;
         }
+    }
+
+    pub fn lookup(self: *DlDynlib, comptime T: type, comptime max_name_len: usize, name: []const u8) ?T {
+        const c_name: [max_name_len]u8 = undefined;
+        mem.copy(&c_name, name);
+        c_name[name.len] = 0;
+        return self.lookupC(T, &c_name);
     }
 };
 
