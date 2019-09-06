@@ -8089,10 +8089,12 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
         type->data.pointer.explicit_alignment != 0 || type->data.pointer.ptr_len != PtrLenSingle ||
         type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero)
     {
+        assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
         ZigType *peer_type = get_pointer_to_type_extra(g, elem_type, false, false,
                 PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false);
         type->llvm_type = get_llvm_type(g, peer_type);
         type->llvm_di_type = get_llvm_di_type(g, peer_type);
+        assertNoError(type_resolve(g, elem_type, wanted_resolve_status));
         return;
     }
 
