@@ -11,7 +11,7 @@ const system = std.os.system;
 const maxInt = std.math.maxInt;
 
 pub const DynLib = switch (builtin.os) {
-    .linux => LinuxDynLib,
+    .linux => if (builtin.link_libc) DlDynlib else LinuxDynLib,
     .windows => WindowsDynLib,
     .macosx, .tvos, .watchos, .ios => DlDynlib,
     else => void,
