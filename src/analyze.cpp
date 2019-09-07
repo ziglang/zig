@@ -1757,6 +1757,32 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         return g->builtin_types.entry_invalid;
     }
 
+    switch (specified_return_type->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdArgTuple:
+            add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+            return g->builtin_types.entry_invalid;
+
+        case ZigTypeIdOpaque:
+        {
+            ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
+                buf_sprintf("opaque return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+            Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
+            if (tld != nullptr) {
+                add_error_note(g, msg, tld->source_node, buf_sprintf("declared here"));
+            }
+            return g->builtin_types.entry_invalid;
+        }
+
+        default:
+            break;
+    }
+
     if (fn_proto->auto_err_set) {
         ZigType *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
         if ((err = type_resolve(g, specified_return_type, ResolveStatusSizeKnown)))
@@ -1782,15 +1808,11 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
     switch (fn_type_id.return_type->id) {
         case ZigTypeIdInvalid:
-            zig_unreachable();
-
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
-            return g->builtin_types.entry_invalid;
+            zig_unreachable();
 
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:

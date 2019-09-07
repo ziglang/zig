@@ -6556,4 +6556,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned",
     );
+
+    cases.add(
+        "function returning opaque type",
+        \\const FooType = @OpaqueType();
+        \\export fn bar() !FooType {
+        \\    return error.InvalidValue;
+        \\}
+    ,
+        "tmp.zig:2:18: error: opaque return type 'FooType' not allowed",
+        "tmp.zig:1:1: note: declared here",
+    );
 }
