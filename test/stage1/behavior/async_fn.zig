@@ -1151,3 +1151,30 @@ test "async fn call used in expression after a fn call" {
     };
     _ = async S.atest();
 }
+
+test "suspend in for loop" {
+    const S = struct {
+        var global_frame: ?anyframe = null;
+
+        fn doTheTest() void {
+            _ = async atest();
+            while (global_frame) |f| resume f;
+        }
+
+        fn atest() void {
+            expect(func([_]u8{ 1, 2, 3 }) == 6);
+        }
+        fn func(stuff: []const u8) u32 {
+            global_frame = @frame();
+            var sum: u32 = 0;
+            for (stuff) |x| {
+                suspend;
+                sum += x;
+            }
+            global_frame = null;
+            return sum;
+        }
+    };
+    S.doTheTest();
+}
+

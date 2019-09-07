@@ -6474,6 +6474,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *is_comptime = ir_build_const_bool(irb, parent_scope, node,
         ir_should_inline(irb->exec, parent_scope) || node->data.for_expr.is_inline);
 
+    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, node, parent_scope);
+
     AstNode *index_var_source_node;
     ZigVar *index_var;
     const char *index_var_name;
@@ -6504,11 +6506,11 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     Buf *len_field_name = buf_create_from_str("len");
     IrInstruction *len_ref = ir_build_field_ptr(irb, parent_scope, node, array_val_ptr, len_field_name, false);
-    IrInstruction *len_val = ir_build_load_ptr(irb, parent_scope, node, len_ref);
+    IrInstruction *len_val = ir_build_load_ptr(irb, &spill_scope->base, node, len_ref);
     ir_build_br(irb, parent_scope, node, cond_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, cond_block);
-    IrInstruction *index_val = ir_build_load_ptr(irb, parent_scope, node, index_ptr);
+    IrInstruction *index_val = ir_build_load_ptr(irb, &spill_scope->base, node, index_ptr);
     IrInstruction *cond = ir_build_bin_op(irb, parent_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
     IrBasicBlock *after_cond_block = irb->current_basic_block;
     IrInstruction *void_else_value = else_node ? nullptr : ir_mark_gen(ir_build_const_void(irb, parent_scope, node));
@@ -6518,7 +6520,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ResultLocPeerParent *peer_parent = ir_build_result_peers(irb, cond_br_inst, end_block, result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
-    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, parent_scope, node, array_val_ptr, index_val, false,
+    Scope *elem_ptr_scope = node->data.for_expr.elem_is_ptr ? parent_scope : &spill_scope->base;
+    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, elem_ptr_scope, node, array_val_ptr, index_val, false,
             PtrLenSingle, nullptr);
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
@@ -6526,7 +6529,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *var_ptr = node->data.for_expr.elem_is_ptr ?
-        ir_build_ref(irb, parent_scope, elem_node, elem_ptr, true, false) : elem_ptr;
+        ir_build_ref(irb, &spill_scope->base, elem_node, elem_ptr, true, false) : elem_ptr;
     ir_build_var_decl_src(irb, parent_scope, elem_node, elem_var, nullptr, var_ptr);
 
     ZigList<IrInstruction *> incoming_values = {0};
@@ -6539,6 +6542,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     loop_scope->incoming_values = &incoming_values;
     loop_scope->lval = LValNone;
     loop_scope->peer_parent = peer_parent;
+    loop_scope->spill_scope = spill_scope;
 
     // Note the body block of the loop is not the place that lval and result_loc are used -
     // it's actually in break statements, handled similarly to return statements.
@@ -8166,7 +8170,7 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
     {
         child_scope = scope;
     } else {
-        child_scope = create_expr_scope(irb->codegen, node, scope);
+        child_scope = &create_expr_scope(irb->codegen, node, scope)->base;
     }
     IrInstruction *result = ir_gen_node_raw(irb, node, child_scope, lval, result_loc);
     if (result == irb->codegen->invalid_instruction) {

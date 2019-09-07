@@ -25,6 +25,7 @@ struct ZigFn;
 struct Scope;
 struct ScopeBlock;
 struct ScopeFnDef;
+struct ScopeExpr;
 struct ZigType;
 struct ZigVar;
 struct ErrorTableEntry;
@@ -2230,6 +2231,7 @@ struct ScopeLoop {
     ZigList<IrInstruction *> *incoming_values;
     ZigList<IrBasicBlock *> *incoming_blocks;
     ResultLocPeerParent *peer_parent;
+    ScopeExpr *spill_scope;
 };
 
 // This scope blocks certain things from working such as comptime continue

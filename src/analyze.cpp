@@ -227,7 +227,7 @@ Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
-Scope *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
+ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeExpr *scope = allocate<ScopeExpr>(1);
     init_scope(g, &scope->base, ScopeIdExpr, node, parent);
     ScopeExpr *parent_expr = find_expr_scope(parent);
@@ -238,7 +238,7 @@ Scope *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
         parent_expr->children_ptr[parent_expr->children_len] = scope;
         parent_expr->children_len = new_len;
     }
-    return &scope->base;
+    return scope;
 }
 
 ZigType *get_scope_import(Scope *scope) {
@@ -5713,7 +5713,6 @@ static void mark_suspension_point(Scope *scope) {
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:
-            case ScopeIdBlock:
                 return;
             case ScopeIdLoop:
             case ScopeIdRuntime:
@@ -5730,6 +5729,14 @@ static void mark_suspension_point(Scope *scope) {
                 child_expr_scope = parent_expr_scope;
                 continue;
             }
+            case ScopeIdBlock:
+                if (scope->parent->parent->id == ScopeIdLoop) {
+                    ScopeLoop *loop_scope = reinterpret_cast<ScopeLoop *>(scope->parent->parent);
+                    if (loop_scope->spill_scope != nullptr) {
+                        loop_scope->spill_scope->need_spill = MemoizedBoolTrue;
+                    }
+                }
+                return;
         }
     }
 }
@@ -5927,6 +5934,15 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             continue;
         await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
                 await->base.value.type, "");
+    }
+    for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
+        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstructionIdSuspendFinish) {
+                mark_suspension_point(instruction->scope);
+            }
+        }
     }
     // Now that we've marked all the expr scopes that have to spill, we go over the instructions
     // and spill the relevant ones.
@@ -6395,9 +6411,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
 }
 
 static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
-    assert(type_entry->id == ZigTypeIdPointer);
-
-    if (type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
+    if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
         buf_append_buf(buf, &type_entry->name);
         return;
     }
