@@ -482,3 +482,15 @@ test "comparison between union and enum literal" {
     testComparison();
     comptime testComparison();
 }
+
+test "packed union generates correctly aligned LLVM type" {
+    const U = packed union {
+        f1: fn () void,
+        f2: u32,
+    };
+    var foo = [_]U{
+        U{ .f1 = doTest },
+        U{ .f2 = 0 },
+    };
+    foo[0].f1();
+}
