@@ -7862,6 +7862,8 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveStatus wanted_resolve_status) {
     if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
 
+    bool packed = (union_type->data.unionation.layout == ContainerLayoutPacked);
+
     TypeUnionField *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
     uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
@@ -7928,9 +7930,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
                 most_aligned_union_member->type_entry->llvm_type,
                 get_llvm_type(g, padding_array),
             };
-            LLVMStructSetBody(union_type->llvm_type, union_element_types, 2, false);
+            LLVMStructSetBody(union_type->llvm_type, union_element_types, 2, packed);
         } else {
-            LLVMStructSetBody(union_type->llvm_type, &most_aligned_union_member->type_entry->llvm_type, 1, false);
+            LLVMStructSetBody(union_type->llvm_type, &most_aligned_union_member->type_entry->llvm_type, 1, packed);
         }
         union_type->data.unionation.union_llvm_type = union_type->llvm_type;
         union_type->data.unionation.gen_tag_index = SIZE_MAX;
@@ -7969,7 +7971,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     LLVMTypeRef root_struct_element_types[2];
     root_struct_element_types[union_type->data.unionation.gen_tag_index] = get_llvm_type(g, tag_type);
     root_struct_element_types[union_type->data.unionation.gen_union_index] = union_type_ref;
-    LLVMStructSetBody(union_type->llvm_type, root_struct_element_types, 2, false);
+    LLVMStructSetBody(union_type->llvm_type, root_struct_element_types, 2, packed);
 
     // create debug type for union
     ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
