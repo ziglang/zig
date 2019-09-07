@@ -5883,6 +5883,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
+        mark_suspension_point(call->base.scope);
+
         call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
                 callee_frame_type, "");
     }

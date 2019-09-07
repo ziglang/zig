@@ -1136,3 +1136,18 @@ test "await used in expression after a fn call" {
     };
     _ = async S.atest();
 }
+
+test "async fn call used in expression after a fn call" {
+    const S = struct {
+        fn atest() void {
+            var sum: i32 = 0;
+            sum = foo() + add(3, 4);
+            expect(sum == 8);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+        fn foo() i32 { return 1; }
+    };
+    _ = async S.atest();
+}
