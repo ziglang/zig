@@ -19,6 +19,10 @@
 #ifndef _FPU_CONTROL_H
 #define _FPU_CONTROL_H
 
+#if defined __SPE__ || (defined __NO_FPRS__ && !defined _SOFT_FLOAT)
+# error "SPE/e500 is no longer supported"
+#endif
+
 #ifdef _SOFT_FLOAT
 
 # define _FPU_RESERVED 0xffffffff
@@ -28,41 +32,6 @@ typedef unsigned int fpu_control_t;
 # define _FPU_SETCW(cw) (void) (cw)
 extern fpu_control_t __fpu_control;
 
-#elif defined __NO_FPRS__ /* e500 */
-
-/* rounding control */
-# define _FPU_RC_NEAREST 0x00   /* RECOMMENDED */
-# define _FPU_RC_DOWN    0x03
-# define _FPU_RC_UP      0x02
-# define _FPU_RC_ZERO    0x01
-
-/* masking of interrupts */
-# define _FPU_MASK_ZM  0x10 /* zero divide */
-# define _FPU_MASK_OM  0x04 /* overflow */
-# define _FPU_MASK_UM  0x08 /* underflow */
-# define _FPU_MASK_XM  0x40 /* inexact */
-# define _FPU_MASK_IM  0x20 /* invalid operation */
-
-# define _FPU_RESERVED 0x00c10080 /* These bits are reserved and not changed. */
-
-/* Correct IEEE semantics require traps to be enabled at the hardware
-   level; the kernel then does the emulation and determines whether
-   generation of signals from those traps was enabled using prctl.  */
-# define _FPU_DEFAULT  0x0000003c /* Default value.  */
-# define _FPU_IEEE     _FPU_DEFAULT
-
-/* Type of the control word.  */
-typedef unsigned int fpu_control_t;
-
-/* Macros for accessing the hardware control word.  */
-# define _FPU_GETCW(cw) \
-  __asm__ volatile ("mfspefscr %0" : "=r" (cw))
-# define _FPU_SETCW(cw) \
-  __asm__ volatile ("mtspefscr %0" : : "r" (cw))
-
-/* Default control word set at startup.  */
-extern fpu_control_t __fpu_control;
-
 #else /* PowerPC 6xx floating-point.  */
 
 /* rounding control */
@@ -70,6 +39,8 @@ extern fpu_control_t __fpu_control;
 # define _FPU_RC_DOWN    0x03
 # define _FPU_RC_UP      0x02
 # define _FPU_RC_ZERO    0x01
+
+# define _FPU_MASK_RC (_FPU_RC_NEAREST|_FPU_RC_DOWN|_FPU_RC_UP|_FPU_RC_ZERO)
 
 # define _FPU_MASK_NI  0x04 /* non-ieee mode */
 
@@ -96,12 +67,35 @@ typedef unsigned int fpu_control_t;
 /* Macros for accessing the hardware control word.  */
 # define _FPU_GETCW(cw)						\
   ({union { double __d; unsigned long long __ll; } __u;		\
-    register double __fr;					\
-    __asm__ ("mffs %0" : "=f" (__fr));				\
-    __u.__d = __fr;						\
+    __asm__ __volatile__("mffs %0" : "=f" (__u.__d));		\
     (cw) = (fpu_control_t) __u.__ll;				\
     (fpu_control_t) __u.__ll;					\
   })
+
+# define _FPU_GET_RC_ISA300()						\
+  ({union { double __d; unsigned long long __ll; } __u;			\
+    __asm__ __volatile__(						\
+      ".machine push; .machine \"power9\"; mffsl %0; .machine pop" 	\
+      : "=f" (__u.__d));						\
+    (fpu_control_t) (__u.__ll & _FPU_MASK_RC);				\
+  })
+
+# ifdef _ARCH_PWR9
+#  define _FPU_GET_RC() _FPU_GET_RC_ISA300()
+# elif defined __BUILTIN_CPU_SUPPORTS__
+#  define _FPU_GET_RC()							\
+  ({fpu_control_t __rc;							\
+    __rc = __glibc_likely (__builtin_cpu_supports ("arch_3_00"))	\
+      ? _FPU_GET_RC_ISA300 ()						\
+      : _FPU_GETCW (__rc) & _FPU_MASK_RC;				\
+    __rc;								\
+  })
+# else
+#  define _FPU_GET_RC()						\
+  ({fpu_control_t __rc = _FPU_GETCW (__rc) & _FPU_MASK_RC;	\
+    __rc;							\
+  })
+# endif
 
 # define _FPU_SETCW(cw)						\
   { union { double __d; unsigned long long __ll; } __u;		\
@@ -109,7 +103,7 @@ typedef unsigned int fpu_control_t;
     __u.__ll = 0xfff80000LL << 32; /* This is a QNaN.  */	\
     __u.__ll |= (cw) & 0xffffffffLL;				\
     __fr = __u.__d;						\
-    __asm__ ("mtfsf 255,%0" : : "f" (__fr));			\
+    __asm__ __volatile__("mtfsf 255,%0" : : "f" (__fr));	\
   }
 
 /* Default control word set at startup.  */

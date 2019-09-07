@@ -180,7 +180,19 @@ typedef struct
 {
   size_t dls_size;		/* Size in bytes of the whole buffer.  */
   unsigned int dls_cnt;		/* Number of elements in `dls_serpath'.  */
+# if __GNUC_PREREQ (3, 0)
+  /* The zero-length array avoids an unwanted array subscript check by
+     the compiler, while the surrounding anonymous union preserves the
+     historic size of the type.  At the time of writing, GNU C does
+     not support structs with flexible array members in unions.  */
+  __extension__ union
+  {
+    Dl_serpath dls_serpath[0]; /* Actually longer, dls_cnt elements.  */
+    Dl_serpath __dls_serpath_pad[1];
+  };
+# else
   Dl_serpath dls_serpath[1];	/* Actually longer, dls_cnt elements.  */
+# endif
 } Dl_serinfo;
 #endif /* __USE_GNU */
 

@@ -1,5 +1,5 @@
-/* bits/xtitypes.h -- Define some types used by <bits/stropts.h>.  S390/S390x
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+/* Socket constants which vary among Linux architectures.  Version for POWER.
+   Copyright (C) 2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,18 +16,23 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#ifndef _STROPTS_H
-# error "Never include <bits/xtitypes.h> directly; use <stropts.h> instead."
+#ifndef _SYS_SOCKET_H
+# error "Never include <bits/socket-constants.h> directly; use <sys/socket.h> instead."
 #endif
 
-#ifndef _BITS_XTITYPES_H
-#define _BITS_XTITYPES_H	1
-
-#include <bits/types.h>
-
-/* This type is used by some structs in <bits/stropts.h>.  */
-typedef __S32_TYPE __t_scalar_t;
-typedef __U32_TYPE __t_uscalar_t;
-
-
-#endif /* bits/xtitypes.h */
+#define SOL_SOCKET 1
+#define SO_ACCEPTCONN 30
+#define SO_BROADCAST 6
+#define SO_DONTROUTE 5
+#define SO_ERROR 4
+#define SO_KEEPALIVE 9
+#define SO_LINGER 13
+#define SO_OOBINLINE 10
+#define SO_RCVBUF 8
+#define SO_RCVLOWAT 16
+#define SO_RCVTIMEO 18
+#define SO_REUSEADDR 2
+#define SO_SNDBUF 7
+#define SO_SNDLOWAT 17
+#define SO_SNDTIMEO 19
+#define SO_TYPE 3

@@ -86,6 +86,8 @@ struct __gconv_step
   struct __gconv_loaded_object *__shlib_handle;
   const char *__modname;
 
+  /* For internal use by glibc.  (Accesses to this member must occur
+     when the internal __gconv_lock mutex is acquired).  */
   int __counter;
 
   char *__from_name;
@@ -141,14 +143,5 @@ typedef struct __gconv_info
   struct __gconv_step *__steps;
   __extension__ struct __gconv_step_data __data[0];
 } *__gconv_t;
-
-/* Transliteration using the locale's data.  */
-extern int __gconv_transliterate (struct __gconv_step *step,
-				  struct __gconv_step_data *step_data,
-				  const unsigned char *inbufstart,
-				  const unsigned char **inbufp,
-				  const unsigned char *inbufend,
-				  unsigned char **outbufstart,
-				  size_t *irreversible);
 
 #endif /* gconv.h */

@@ -1,5 +1,5 @@
-/* bits/xtitypes.h -- Define some types used by <bits/stropts.h>.  x86-64.
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+/* System-specific extensions of <signal.h>, Linux version.
+   Copyright (C) 2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,18 +16,16 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#ifndef _STROPTS_H
-# error "Never include <bits/xtitypes.h> directly; use <stropts.h> instead."
+#ifndef _SIGNAL_H
+# error "Never include <bits/signal_ext.h> directly; use <signal.h> instead."
 #endif
 
-#ifndef _BITS_XTITYPES_H
-#define _BITS_XTITYPES_H	1
+#ifdef __USE_GNU
 
-#include <bits/types.h>
+/* Send SIGNAL to the thread TID in the thread group (process)
+   identified by TGID.  This function behaves like kill, but also
+   fails with ESRCH if the specified TID does not belong to the
+   specified thread group.  */
+extern int tgkill (__pid_t __tgid, __pid_t __tid, int __signal);
 
-/* This type is used by some structs in <bits/stropts.h>.  */
-typedef __SLONG32_TYPE __t_scalar_t;
-typedef __ULONG32_TYPE __t_uscalar_t;
-
-
-#endif /* bits/xtitypes.h */
+#endif /* __USE_GNU */

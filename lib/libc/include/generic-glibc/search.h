@@ -150,6 +150,13 @@ typedef void (*__action_fn_t) (const void *__nodep, VISIT __value,
 extern void twalk (const void *__root, __action_fn_t __action);
 
 #ifdef __USE_GNU
+/* Like twalk, but pass down a closure parameter instead of the
+   level.  */
+extern void twalk_r (const void *__root,
+		     void (*) (const void *__nodep, VISIT __value,
+			       void *__closure),
+		     void *__closure);
+
 /* Callback type for function to free a tree node.  If the keys are atomic
    data this function should do nothing.  */
 typedef void (*__free_fn_t) (void *__nodep);

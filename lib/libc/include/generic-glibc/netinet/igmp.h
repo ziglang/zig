@@ -86,6 +86,7 @@ struct igmp {
 
 #define IGMP_MTRACE_RESP		0x1e	/* traceroute resp.(to sender)*/
 #define IGMP_MTRACE			0x1f	/* mcast traceroute messages  */
+#define IGMP_MRDISC_ADV			0x30	/* From RFC4286.  */
 
 #define IGMP_MAX_HOST_REPORT_DELAY	10	/* max delay for response to     */
 						/*  query (in seconds) according */
