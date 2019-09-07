@@ -3364,6 +3364,7 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
             case ScopeIdCompTime:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
+            case ScopeIdExpr:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -3420,6 +3421,7 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
             case ScopeIdCompTime:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
+            case ScopeIdExpr:
                 scope = scope->parent;
                 continue;
             case ScopeIdDeferExpr:
@@ -8158,7 +8160,15 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
         result_loc = no_result_loc();
         ir_build_reset_result(irb, scope, node, result_loc);
     }
-    IrInstruction *result = ir_gen_node_raw(irb, node, scope, lval, result_loc);
+    Scope *child_scope;
+    if (irb->exec->is_inline ||
+        (irb->exec->fn_entry != nullptr && irb->exec->fn_entry->child_scope == scope))
+    {
+        child_scope = scope;
+    } else {
+        child_scope = create_expr_scope(irb->codegen, node, scope);
+    }
+    IrInstruction *result = ir_gen_node_raw(irb, node, child_scope, lval, result_loc);
     if (result == irb->codegen->invalid_instruction) {
         if (irb->exec->first_err_trace_msg == nullptr) {
             irb->exec->first_err_trace_msg = irb->codegen->trace_err;

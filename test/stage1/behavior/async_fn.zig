@@ -921,12 +921,10 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
             var sum: u32 = 0;
 
             f1_awaited = true;
-            const result_f1 = await f1; // TODO https://github.com/ziglang/zig/issues/3077
-            sum += try result_f1;
+            sum += try await f1;
 
             f2_awaited = true;
-            const result_f2 = await f2; // TODO https://github.com/ziglang/zig/issues/3077
-            sum += try result_f2;
+            sum += try await f2;
 
             return sum;
         }
@@ -943,8 +941,7 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
 
         fn amain(result: *u32) void {
             var x = async fib(std.heap.direct_allocator, 10);
-            const res = await x; // TODO https://github.com/ziglang/zig/issues/3077
-            result.* = res catch unreachable;
+            result.* = (await x) catch unreachable;
         }
     };
 }
@@ -1002,8 +999,7 @@ test "@asyncCall using the result location inside the frame" {
             return 1234;
         }
         fn getAnswer(f: anyframe->i32, out: *i32) void {
-            var res = await f; // TODO https://github.com/ziglang/zig/issues/3077
-            out.* = res;
+            out.* = await f;
         }
     };
     var data: i32 = 1;
@@ -1121,6 +1117,22 @@ test "await used in expression and awaiting fn with no suspend but async calling
         async fn add(a: i32, b: i32) i32 {
             return a + b;
         }
+    };
+    _ = async S.atest();
+}
+
+test "await used in expression after a fn call" {
+    const S = struct {
+        fn atest() void {
+            var f1 = async add(3, 4);
+            var sum: i32 = 0;
+            sum = foo() + await f1;
+            expect(sum == 8);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+        fn foo() i32 { return 1; }
     };
     _ = async S.atest();
 }

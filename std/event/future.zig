@@ -104,11 +104,7 @@ fn testFuture(loop: *Loop) void {
     var b = async waitOnFuture(&future);
     resolveFuture(&future);
 
-    // TODO https://github.com/ziglang/zig/issues/3077
-    //const result = (await a) + (await b);
-    const a_result = await a;
-    const b_result = await b;
-    const result = a_result + b_result;
+    const result = (await a) + (await b);
 
     testing.expect(result == 12);
 }

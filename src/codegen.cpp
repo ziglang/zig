@@ -649,6 +649,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdCompTime:
         case ScopeIdRuntime:
         case ScopeIdTypeOf:
+        case ScopeIdExpr:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -1644,7 +1645,6 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
     gen_store(g, ored_value, ptr, ptr_type);
-    return;
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
@@ -1664,10 +1664,15 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         if (instruction->id == IrInstructionIdAwaitGen) {
             IrInstructionAwaitGen *await = reinterpret_cast<IrInstructionAwaitGen*>(instruction);
             if (await->result_loc != nullptr) {
-                instruction->llvm_value = get_handle_value(g, ir_llvm_value(g, await->result_loc),
+                return get_handle_value(g, ir_llvm_value(g, await->result_loc),
                     await->result_loc->value.type->data.pointer.child_type, await->result_loc->value.type);
-                return instruction->llvm_value;
             }
+        }
+        if (instruction->spill != nullptr) {
+            ZigType *ptr_type = instruction->spill->value.type;
+            src_assert(ptr_type->id == ZigTypeIdPointer, instruction->source_node);
+            return get_handle_value(g, ir_llvm_value(g, instruction->spill),
+                ptr_type->data.pointer.child_type, instruction->spill->value.type);
         }
         src_assert(instruction->value.special != ConstValSpecialRuntime, instruction->source_node);
         assert(instruction->value.type);
@@ -3786,6 +3791,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
             case ScopeIdCompTime:
             case ScopeIdRuntime:
             case ScopeIdTypeOf:
+            case ScopeIdExpr:
                 scope = scope->parent;
                 continue;
         }
@@ -6049,6 +6055,11 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
                 set_debug_location(g, instruction);
             }
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
+            if (instruction->spill != nullptr) {
+                LLVMValueRef spill_ptr = ir_llvm_value(g, instruction->spill);
+                gen_assign_raw(g, spill_ptr, instruction->spill->value.type, instruction->llvm_value);
+                instruction->llvm_value = nullptr;
+            }
         }
         current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
     }

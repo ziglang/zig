@@ -96,6 +96,30 @@ static ScopeDecls **get_container_scope_ptr(ZigType *type_entry) {
     zig_unreachable();
 }
 
+static ScopeExpr *find_expr_scope(Scope *scope) {
+    for (;;) {
+        switch (scope->id) {
+            case ScopeIdExpr:
+                return reinterpret_cast<ScopeExpr *>(scope);
+            case ScopeIdDefer:
+            case ScopeIdDeferExpr:
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+            case ScopeIdCompTime:
+            case ScopeIdVarDecl:
+            case ScopeIdCImport:
+            case ScopeIdSuspend:
+            case ScopeIdTypeOf:
+            case ScopeIdBlock:
+                return nullptr;
+            case ScopeIdLoop:
+            case ScopeIdRuntime:
+                scope = scope->parent;
+                continue;
+        }
+    }
+}
+
 ScopeDecls *get_container_scope(ZigType *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
@@ -200,6 +224,20 @@ Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
     init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
+    return &scope->base;
+}
+
+Scope *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeExpr *scope = allocate<ScopeExpr>(1);
+    init_scope(g, &scope->base, ScopeIdExpr, node, parent);
+    ScopeExpr *parent_expr = find_expr_scope(parent);
+    if (parent_expr != nullptr) {
+        size_t new_len = parent_expr->children_len + 1;
+        parent_expr->children_ptr = reallocate_nonzero<ScopeExpr *>(
+                parent_expr->children_ptr, parent_expr->children_len, new_len);
+        parent_expr->children_ptr[parent_expr->children_len] = scope;
+        parent_expr->children_len = new_len;
+    }
     return &scope->base;
 }
 
@@ -5654,6 +5692,69 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     return fn_type;
 }
 
+// Traverse up to the very top ExprScope, which has children.
+// We have just arrived at the top from a child. That child,
+// and its next siblings, do not need to be marked. But the previous
+// siblings do.
+//      x + (await y)
+// vs
+//      (await y) + x
+static void mark_suspension_point(Scope *scope) {
+    ScopeExpr *child_expr_scope = (scope->id == ScopeIdExpr) ? reinterpret_cast<ScopeExpr *>(scope) : nullptr;
+    for (;;) {
+        scope = scope->parent;
+        switch (scope->id) {
+            case ScopeIdDefer:
+            case ScopeIdDeferExpr:
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+            case ScopeIdCompTime:
+            case ScopeIdVarDecl:
+            case ScopeIdCImport:
+            case ScopeIdSuspend:
+            case ScopeIdTypeOf:
+            case ScopeIdBlock:
+                return;
+            case ScopeIdLoop:
+            case ScopeIdRuntime:
+                continue;
+            case ScopeIdExpr: {
+                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
+                if (child_expr_scope != nullptr) {
+                    for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
+                        assert(i < parent_expr_scope->children_len);
+                        parent_expr_scope->children_ptr[i]->need_spill = MemoizedBoolTrue;
+                    }
+                }
+                parent_expr_scope->need_spill = MemoizedBoolTrue;
+                child_expr_scope = parent_expr_scope;
+                continue;
+            }
+        }
+    }
+}
+
+static bool scope_needs_spill(Scope *scope) {
+    ScopeExpr *scope_expr = find_expr_scope(scope);
+    if (scope_expr == nullptr) return false;
+
+    switch (scope_expr->need_spill) {
+        case MemoizedBoolUnknown:
+            if (scope_needs_spill(scope_expr->base.parent)) {
+                scope_expr->need_spill = MemoizedBoolTrue;
+                return true;
+            } else {
+                scope_expr->need_spill = MemoizedBoolFalse;
+                return false;
+            }
+        case MemoizedBoolFalse:
+            return false;
+        case MemoizedBoolTrue:
+            return true;
+    }
+    zig_unreachable();
+}
+
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     Error err;
 
@@ -5786,21 +5887,17 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 callee_frame_type, "");
     }
     // Since this frame is async, an await might represent a suspend point, and
-    // therefore need to spill.
+    // therefore need to spill. It also needs to mark expr scopes as having to spill.
+    // For example: foo() + await z
+    // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't need to spill
+        // TODO If this is a noasync await, it doesn't suspend
         // https://github.com/ziglang/zig/issues/3157
-        if (await->result_loc != nullptr) {
-            // If there's a result location, that is the spill
+        if (await->base.value.special != ConstValSpecialRuntime) {
+            // Known at comptime. No spill, no suspend.
             continue;
         }
-        if (!type_has_bits(await->base.value.type))
-            continue;
-        if (await->base.value.special != ConstValSpecialRuntime)
-            continue;
-        if (await->base.ref_count == 0)
-            continue;
         if (await->target_fn != nullptr) {
             // we might not need to suspend
             analyze_fn_async(g, await->target_fn, false);
@@ -5809,13 +5906,53 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 return ErrorSemanticAnalyzeFail;
             }
             if (!fn_is_async(await->target_fn)) {
-                // This await does not represent a suspend point. No spill needed.
+                // This await does not represent a suspend point. No spill needed,
+                // and no need to mark ExprScope.
                 continue;
             }
         }
+        // This await is a suspend point, but it might not need a spill.
+        // We do need to mark the ExprScope as having a suspend point in it.
+        mark_suspension_point(await->base.scope);
+
+        if (await->result_loc != nullptr) {
+            // If there's a result location, that is the spill
+            continue;
+        }
+        if (await->base.ref_count == 0)
+            continue;
+        if (!type_has_bits(await->base.value.type))
+            continue;
         await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
                 await->base.value.type, "");
     }
+    // Now that we've marked all the expr scopes that have to spill, we go over the instructions
+    // and spill the relevant ones.
+    for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
+        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstructionIdAwaitGen ||
+                instruction->id == IrInstructionIdVarPtr ||
+                instruction->id == IrInstructionIdDeclRef ||
+                instruction->id == IrInstructionIdAllocaGen)
+            {
+                // This instruction does its own spilling specially, or otherwise doesn't need it.
+                continue;
+            }
+            if (instruction->value.special != ConstValSpecialRuntime)
+                continue;
+            if (instruction->ref_count == 0)
+                continue;
+            if (!type_has_bits(instruction->value.type))
+                continue;
+            if (scope_needs_spill(instruction->scope)) {
+                instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
+                        fn, instruction->value.type, "");
+            }
+        }
+    }
+
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
 
