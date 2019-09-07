@@ -115,11 +115,7 @@ struct res_sym {
 #define RES_DEFNAMES	0x00000080	/* use default domain name */
 #define RES_STAYOPEN	0x00000100	/* Keep TCP socket open */
 #define RES_DNSRCH	0x00000200	/* search up local domain tree */
-#define	RES_INSECURE1	0x00000400	/* type 1 security disabled */
-#define	RES_INSECURE2	0x00000800	/* type 2 security disabled */
 #define	RES_NOALIASES	0x00001000	/* shuts off HOSTALIASES feature */
-#define	RES_USE_INET6	\
-  __glibc_macro_warning ("RES_USE_INET6 is deprecated") 0x00002000
 #define RES_ROTATE	0x00004000	/* rotate ns list after each query */
 #define	RES_NOCHECKNAME \
   __glibc_macro_warning ("RES_NOCHECKNAME is deprecated") 0x00008000

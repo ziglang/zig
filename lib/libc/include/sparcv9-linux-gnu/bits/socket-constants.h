@@ -1,5 +1,5 @@
-/* statx-related definitions and declarations.  Linux version.
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+/* Socket constants which vary among Linux architectures.  Version for SPARC.
+   Copyright (C) 2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,22 +16,23 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* This interface is based on <linux/stat.h> in Linux.  */
-
-#ifndef _SYS_STAT_H
-# error Never include <bits/statx.h> directly, include <sys/stat.h> instead.
+#ifndef _SYS_SOCKET_H
+# error "Never include <bits/socket-constants.h> directly; use <sys/socket.h> instead."
 #endif
 
-/* Use the Linux kernel header if available.  */
-
-/* Use "" to work around incorrect macro expansion of the
-   __has_include argument (GCC PR 80005).  */
-#if __glibc_has_include ("linux/stat.h")
-# include "linux/stat.h"
-# ifdef STATX_TYPE
-#  define __statx_timestamp_defined 1
-#  define __statx_defined 1
-# endif
-#endif
-
-#include <bits/statx-generic.h>
+#define SOL_SOCKET 65535
+#define SO_ACCEPTCONN 32768
+#define SO_BROADCAST 32
+#define SO_DONTROUTE 16
+#define SO_ERROR 4103
+#define SO_KEEPALIVE 8
+#define SO_LINGER 128
+#define SO_OOBINLINE 256
+#define SO_RCVBUF 4098
+#define SO_RCVLOWAT 2048
+#define SO_RCVTIMEO 8192
+#define SO_REUSEADDR 4
+#define SO_SNDBUF 4097
+#define SO_SNDLOWAT 4096
+#define SO_SNDTIMEO 16384
+#define SO_TYPE 4104

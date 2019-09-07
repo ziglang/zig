@@ -154,37 +154,20 @@ typedef unsigned int uint;
 
 #include <bits/stdint-intn.h>
 
-#if !__GNUC_PREREQ (2, 7)
-
 /* These were defined by ISO C without the first `_'.  */
-typedef	unsigned char u_int8_t;
-typedef	unsigned short int u_int16_t;
-typedef	unsigned int u_int32_t;
-# if __WORDSIZE == 64
-typedef unsigned long int u_int64_t;
-# else
-__extension__ typedef unsigned long long int u_int64_t;
-# endif
+typedef __uint8_t u_int8_t;
+typedef __uint16_t u_int16_t;
+typedef __uint32_t u_int32_t;
+typedef __uint64_t u_int64_t;
 
-typedef int register_t;
-
-#else
-
-/* For GCC 2.7 and later, we can use specific type-size attributes.  */
-# define __u_intN_t(N, MODE) \
-  typedef unsigned int u_int##N##_t __attribute__ ((__mode__ (MODE)))
-
-__u_intN_t (8, __QI__);
-__u_intN_t (16, __HI__);
-__u_intN_t (32, __SI__);
-__u_intN_t (64, __DI__);
-
+#if __GNUC_PREREQ (2, 7)
 typedef int register_t __attribute__ ((__mode__ (__word__)));
-
+#else
+typedef int register_t;
+#endif
 
 /* Some code from BIND tests this macro to see if the types above are
    defined.  */
-#endif
 #define __BIT_TYPES_DEFINED__	1
 
 

@@ -1,5 +1,5 @@
-/* statx-related definitions and declarations.  Linux version.
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+/* System-specific extensions of <dirent.h>.  Linux version.
+   Copyright (C) 2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,22 +16,18 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* This interface is based on <linux/stat.h> in Linux.  */
-
-#ifndef _SYS_STAT_H
-# error Never include <bits/statx.h> directly, include <sys/stat.h> instead.
+#ifndef _DIRENT_H
+# error "Never include <bits/dirent_ext.h> directly; use <dirent.h> instead."
 #endif
 
-/* Use the Linux kernel header if available.  */
+__BEGIN_DECLS
 
-/* Use "" to work around incorrect macro expansion of the
-   __has_include argument (GCC PR 80005).  */
-#if __glibc_has_include ("linux/stat.h")
-# include "linux/stat.h"
-# ifdef STATX_TYPE
-#  define __statx_timestamp_defined 1
-#  define __statx_defined 1
-# endif
+#ifdef __USE_GNU
+/* Read from the directory descriptor FD into LENGTH bytes at BUFFER.
+   Return the number of bytes read on success (0 for end of
+   directory), and -1 for failure.  */
+extern __ssize_t getdents64 (int __fd, void *__buffer, size_t __length)
+  __THROW __nonnull ((2));
 #endif
 
-#include <bits/statx-generic.h>
+__END_DECLS

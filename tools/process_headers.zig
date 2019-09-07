@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const LibCTarget = struct {
     name: []const u8,
     arch: MultiArch,
+    abi: MultiAbi,
 };
 
 const MultiArch = union(enum) {
@@ -39,396 +40,129 @@ const MultiArch = union(enum) {
     }
 };
 
+const MultiAbi = union(enum) {
+    musl,
+    specific: Abi,
+
+    fn eql(a: MultiAbi, b: MultiAbi) bool {
+        if (@enumToInt(a) != @enumToInt(b))
+            return false;
+        if (@TagType(MultiAbi)(a) != .specific)
+            return true;
+        return a.specific == b.specific;
+    }
+};
+
 const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "aarch64_be-linux-gnu",
-        .zig_arch = Arch.aarch64_be,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.aarch64_be},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "aarch64-linux-gnu",
-        .zig_arch = Arch.aarch64,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "aarch64-linux-gnu-disable-multi-arch",
-        .zig_arch = Arch.aarch64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "alpha-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.aarch64},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "armeb-linux-gnueabi",
-        .zig_arch = Arch.armeb,
-        .zig_abi = Abi.gnueabi,
-    },
-    LibCTarget{
-        .name = "armeb-linux-gnueabi-be8",
-        .zig_arch = Arch.armeb,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.armeb},
+        .abi = MultiAbi {.specific = Abi.gnueabi},
     },
     LibCTarget{
         .name = "armeb-linux-gnueabihf",
-        .zig_arch = Arch.armeb,
-        .zig_abi = Abi.gnueabihf,
-    },
-    LibCTarget{
-        .name = "armeb-linux-gnueabihf-be8",
-        .zig_arch = Arch.armeb,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.armeb},
+        .abi = MultiAbi {.specific = Abi.gnueabihf},
     },
     LibCTarget{
         .name = "arm-linux-gnueabi",
-        .zig_arch = Arch.arm,
-        .zig_abi = Abi.gnueabi,
+        .arch = MultiArch {.specific = Arch.arm},
+        .abi = MultiAbi {.specific = Abi.gnueabi},
     },
     LibCTarget{
         .name = "arm-linux-gnueabihf",
-        .zig_arch = Arch.arm,
-        .zig_abi = Abi.gnueabihf,
-    },
-    LibCTarget{
-        .name = "arm-linux-gnueabihf-v7a",
-        .zig_arch = Arch.arm,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "arm-linux-gnueabihf-v7a-disable-multi-arch",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "hppa-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "i486-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "i586-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "i686-gnu",
-        .zig_arch = Arch.i386,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.arm},
+        .abi = MultiAbi {.specific = Abi.gnueabihf},
     },
     LibCTarget{
         .name = "i686-linux-gnu",
-        .zig_arch = Arch.i386,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "i686-linux-gnu-disable-multi-arch",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "i686-linux-gnu-enable-obsolete",
-        .zig_arch = Arch.i386,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "i686-linux-gnu-static-pie",
-        .zig_arch = Arch.i386,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "ia64-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "m68k-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "m68k-linux-gnu-coldfire",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "m68k-linux-gnu-coldfire-soft",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "microblazeel-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "microblaze-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.i386},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n32",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = Abi.gnuabin32,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n32-nan2008",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n32-nan2008-soft",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n32-soft",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mips64el},
+        .abi = MultiAbi {.specific = Abi.gnuabin32},
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n64",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = Abi.gnuabi64,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n64-nan2008",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n64-nan2008-soft",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64el-linux-gnu-n64-soft",
-        .zig_arch = Arch.mips64el,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mips64el},
+        .abi = MultiAbi {.specific = Abi.gnuabi64},
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n32",
-        .zig_arch = Arch.mips64,
-        .zig_abi = Abi.gnuabin32,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n32-nan2008",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n32-nan2008-soft",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n32-soft",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mips64},
+        .abi = MultiAbi {.specific = Abi.gnuabin32},
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n64",
-        .zig_arch = Arch.mips64,
-        .zig_abi = Abi.gnuabi64,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n64-nan2008",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n64-nan2008-soft",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips64-linux-gnu-n64-soft",
-        .zig_arch = Arch.mips64,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mips64},
+        .abi = MultiAbi {.specific = Abi.gnuabi64},
     },
     LibCTarget{
         .name = "mipsel-linux-gnu",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-gnu-nan2008",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-gnu-nan2008-soft",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mipsel-linux-gnu-soft",
-        .zig_arch = Arch.mipsel,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mipsel},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "mips-linux-gnu",
-        .zig_arch = Arch.mips,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "mips-linux-gnu-nan2008",
-        .zig_arch = Arch.mips,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips-linux-gnu-nan2008-soft",
-        .zig_arch = Arch.mips,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "mips-linux-gnu-soft",
-        .zig_arch = Arch.mips,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.mips},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "powerpc64le-linux-gnu",
-        .zig_arch = Arch.powerpc64le,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.powerpc64le},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "powerpc64-linux-gnu",
-        .zig_arch = Arch.powerpc64,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.powerpc64},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "powerpc-linux-gnu",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnu-power4",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnu-soft",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnuspe",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "powerpc-linux-gnuspe-e500v1",
-        .zig_arch = Arch.powerpc,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.powerpc},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",
-        .zig_arch = Arch.riscv64,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "riscv64-linux-gnu-rv64imafdc-lp64",
-        .zig_arch = Arch.riscv64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "riscv64-linux-gnu-rv64imafdc-lp64d",
-        .zig_arch = Arch.riscv64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "s390-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
+        .arch = MultiArch {.specific = Arch.riscv64},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "s390x-linux-gnu",
-        .zig_arch = Arch.s390x,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sh3eb-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sh3-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sh4eb-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sh4eb-linux-gnu-soft",
-        .zig_arch = null,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "sh4-linux-gnu",
-        .zig_arch = null,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sh4-linux-gnu-soft",
-        .zig_arch = null,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.s390x},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "sparc64-linux-gnu",
-        .zig_arch = Arch.sparc,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sparc64-linux-gnu-disable-multi-arch",
-        .zig_arch = Arch.sparc,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.sparc},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "sparcv9-linux-gnu",
-        .zig_arch = Arch.sparcv9,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "sparcv9-linux-gnu-disable-multi-arch",
-        .zig_arch = Arch.sparcv9,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.sparcv9},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "x86_64-linux-gnu",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = Abi.gnu,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu-disable-multi-arch",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu-enable-obsolete",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = null,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu-static-pie",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.x86_64},
+        .abi = MultiAbi {.specific = Abi.gnu},
     },
     LibCTarget{
         .name = "x86_64-linux-gnu-x32",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = Abi.gnux32,
-    },
-    LibCTarget{
-        .name = "x86_64-linux-gnu-x32-static-pie",
-        .zig_arch = Arch.x86_64,
-        .zig_abi = null,
+        .arch = MultiArch {.specific = Arch.x86_64},
+        .abi = MultiAbi {.specific = Abi.gnux32},
     },
 };
 
@@ -436,42 +170,52 @@ const musl_targets = [_]LibCTarget{
     LibCTarget{
         .name = "aarch64",
         .arch = MultiArch.aarch64,
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "arm",
         .arch = MultiArch.arm,
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "i386",
         .arch = MultiArch{ .specific = .i386 },
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "mips",
         .arch = MultiArch.mips,
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "mips64",
         .arch = MultiArch.mips64,
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "powerpc",
         .arch = MultiArch{ .specific = .powerpc },
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "powerpc64",
         .arch = MultiArch.powerpc64,
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "riscv64",
         .arch = MultiArch{ .specific = .riscv64 },
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "s390x",
         .arch = MultiArch{ .specific = .s390x },
+        .abi = MultiAbi.musl,
     },
     LibCTarget{
         .name = "x86_64",
         .arch = MultiArch{ .specific = .x86_64 },
+        .abi = MultiAbi.musl,
     },
 };
 
@@ -562,7 +306,7 @@ pub fn main() !void {
     var libc_targets: []const LibCTarget = undefined;
     switch (vendor) {
         .musl => libc_targets = musl_targets,
-        .glibc => @panic("TODO this regressed"), // glibc_targets,
+        .glibc => libc_targets = glibc_targets,
     }
 
     var path_table = PathTable.init(allocator);
@@ -577,7 +321,7 @@ pub fn main() !void {
             .arch = libc_target.arch,
             .abi = switch (vendor) {
                 .musl => .musl,
-                else => @panic("TODO this regressed"),
+                .glibc => libc_target.abi.specific,
             },
             .os = .linux,
         };

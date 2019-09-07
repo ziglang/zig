@@ -513,6 +513,7 @@ __libc_realloc c
 __libc_sa_len c
 __libc_start_main c
 __libc_valloc c
+__libpthread_version_placeholder pthread
 __log10_finite m
 __log10f128_finite m
 __log10f_finite m
@@ -625,12 +626,18 @@ __nldbl___vswprintf_chk c
 __nldbl___vsyslog_chk c
 __nldbl___vwprintf_chk c
 __nldbl___wprintf_chk c
+__nldbl_argp_error c
+__nldbl_argp_failure c
 __nldbl_asprintf c
 __nldbl_daddl m
 __nldbl_ddivl m
 __nldbl_dmull m
 __nldbl_dprintf c
 __nldbl_dsubl m
+__nldbl_err c
+__nldbl_error c
+__nldbl_error_at_line c
+__nldbl_errx c
 __nldbl_fprintf c
 __nldbl_fscanf c
 __nldbl_fwprintf c
@@ -651,6 +658,8 @@ __nldbl_swscanf c
 __nldbl_syslog c
 __nldbl_vasprintf c
 __nldbl_vdprintf c
+__nldbl_verr c
+__nldbl_verrx c
 __nldbl_vfprintf c
 __nldbl_vfscanf c
 __nldbl_vfwprintf c
@@ -663,8 +672,12 @@ __nldbl_vsscanf c
 __nldbl_vswprintf c
 __nldbl_vswscanf c
 __nldbl_vsyslog c
+__nldbl_vwarn c
+__nldbl_vwarnx c
 __nldbl_vwprintf c
 __nldbl_vwscanf c
+__nldbl_warn c
+__nldbl_warnx c
 __nldbl_wprintf c
 __nldbl_wscanf c
 __nss_configure_lookup c
@@ -1927,6 +1940,7 @@ getdate c
 getdate_err c
 getdate_r c
 getdelim c
+getdents64 c
 getdirentries c
 getdirentries64 c
 getdomainname c
@@ -2047,6 +2061,7 @@ getspnam c
 getspnam_r c
 getsubopt c
 gettext c
+gettid c
 gettimeofday c
 getttyent c
 getttynam c
@@ -2720,6 +2735,7 @@ pthread_barrierattr_init pthread
 pthread_barrierattr_setpshared pthread
 pthread_cancel pthread
 pthread_cond_broadcast c
+pthread_cond_clockwait pthread
 pthread_cond_destroy c
 pthread_cond_init c
 pthread_cond_signal c
@@ -2748,6 +2764,7 @@ pthread_key_create pthread
 pthread_key_delete pthread
 pthread_kill pthread
 pthread_kill_other_threads_np pthread
+pthread_mutex_clocklock pthread
 pthread_mutex_consistent pthread
 pthread_mutex_consistent_np pthread
 pthread_mutex_destroy c
@@ -2775,6 +2792,8 @@ pthread_mutexattr_setrobust pthread
 pthread_mutexattr_setrobust_np pthread
 pthread_mutexattr_settype pthread
 pthread_once pthread
+pthread_rwlock_clockrdlock pthread
+pthread_rwlock_clockwrlock pthread
 pthread_rwlock_destroy pthread
 pthread_rwlock_init pthread
 pthread_rwlock_rdlock pthread
@@ -3001,6 +3020,7 @@ seed48 c
 seed48_r c
 seekdir c
 select c
+sem_clockwait pthread
 sem_close pthread
 sem_destroy pthread
 sem_getvalue pthread
@@ -3369,6 +3389,7 @@ tgammaf32x m
 tgammaf64 m
 tgammaf64x m
 tgammal m
+tgkill c
 thrd_create pthread
 thrd_current c
 thrd_detach pthread
@@ -3442,6 +3463,7 @@ ttyname c
 ttyname_r c
 ttyslot c
 twalk c
+twalk_r c
 tzname c
 tzset c
 ualarm c

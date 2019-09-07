@@ -401,4 +401,6 @@ extern int versionsort64 (const struct dirent64 **__e1,
 
 __END_DECLS
 
+#include <bits/dirent_ext.h>
+
 #endif /* dirent.h  */

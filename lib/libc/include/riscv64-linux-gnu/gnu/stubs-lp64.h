@@ -13,9 +13,7 @@
 #define __stub___compat_query_module
 #define __stub___compat_uselib
 #define __stub_chflags
-#define __stub_fattach
 #define __stub_fchflags
-#define __stub_fdetach
 #define __stub_feclearexcept
 #define __stub_fedisableexcept
 #define __stub_feenableexcept
@@ -33,12 +31,8 @@
 #define __stub_fesetround
 #define __stub_fetestexcept
 #define __stub_feupdateenv
-#define __stub_getmsg
-#define __stub_getpmsg
 #define __stub_gtty
 #define __stub_lchmod
-#define __stub_putmsg
-#define __stub_putpmsg
 #define __stub_revoke
 #define __stub_setlogin
 #define __stub_sigreturn
