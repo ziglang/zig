@@ -12177,7 +12177,11 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
     assert(wanted_scalar_type->id == ZigTypeIdInt || wanted_scalar_type->id == ZigTypeIdFloat);
     assert((target->value.type->id == ZigTypeIdVector) == is_vector);
     if (is_vector) {
-        assert(target->value.type->data.vector.len == wanted_type->data.vector.len);
+        if (target->value.type->data.vector.len != wanted_type->data.vector.len) {
+            ir_add_error(ira, source_instr, buf_sprintf("vector lengths don't match; %u and %u",
+                target->value.type->data.vector.len, wanted_type->data.vector.len));
+            return ira->codegen->invalid_instruction;
+        }
     }
 
     if (instr_is_comptime(target)) {
