@@ -8774,6 +8774,11 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         }
     }
 
+    for (size_t i = 0; i < g->framework_dirs.length; i += 1) {
+        args.append("-iframework");
+        args.append(g->framework_dirs.at(i));
+    }
+
     //note(dimenus): appending libc headers before c_headers breaks intrinsics 
     //and other compiler specific items
     // According to Rich Felker libc headers are supposed to go before C language headers.
