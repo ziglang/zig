@@ -784,7 +784,9 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "-F") == 0) {
-                    framework_dirs.append(argv[i]);
+                    framework_dirs.append(argv[i]); // embedded linker
+                    clang_argv.append("-iframework"); // embedded clang
+                    clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0 || strcmp(arg, "-l") == 0) {
                     if (strcmp(argv[i], "c") == 0)
                         have_libc = true;
