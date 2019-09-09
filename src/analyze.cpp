@@ -5701,23 +5701,30 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
 //      (await y) + x
 static void mark_suspension_point(Scope *scope) {
     ScopeExpr *child_expr_scope = (scope->id == ScopeIdExpr) ? reinterpret_cast<ScopeExpr *>(scope) : nullptr;
+    bool looking_for_exprs = true;
     for (;;) {
         scope = scope->parent;
         switch (scope->id) {
-            case ScopeIdDefer:
             case ScopeIdDeferExpr:
             case ScopeIdDecls:
             case ScopeIdFnDef:
             case ScopeIdCompTime:
-            case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdSuspend:
             case ScopeIdTypeOf:
                 return;
+            case ScopeIdVarDecl:
+            case ScopeIdDefer:
+                looking_for_exprs = false;
+                continue;
             case ScopeIdLoop:
             case ScopeIdRuntime:
                 continue;
             case ScopeIdExpr: {
+                if (!looking_for_exprs) {
+                    // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
+                    continue;
+                }
                 ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (child_expr_scope != nullptr) {
                     for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
