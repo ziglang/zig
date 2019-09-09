@@ -13247,6 +13247,21 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         if (type_is_invalid(casted_val->value.type))
             return ira->codegen->invalid_instruction;
 
+        if (instr_is_comptime(casted_union)) {
+            ConstExprValue *const_union_val = ir_resolve_const(ira, casted_union, UndefBad);
+            if (!const_union_val)
+                return ira->codegen->invalid_instruction;
+
+            ConstExprValue *const_enum_val = ir_resolve_const(ira, casted_val, UndefBad);
+            if (!const_enum_val)
+                return ira->codegen->invalid_instruction;
+
+            Cmp cmp_result = bigint_cmp(&const_union_val->data.x_union.tag, &const_enum_val->data.x_enum_tag);
+            bool bool_result = (op_id == IrBinOpCmpEq) ? cmp_result == CmpEQ : cmp_result != CmpEQ;
+
+            return ir_const_bool(ira, &bin_op_instruction->base, bool_result);
+        }
+
         IrInstruction *result = ir_build_bin_op(&ira->new_irb,
             bin_op_instruction->base.scope, bin_op_instruction->base.source_node,
             op_id, casted_union, casted_val, bin_op_instruction->safety_check_on);
