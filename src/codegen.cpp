@@ -7381,10 +7381,8 @@ static void do_code_gen(CodeGen *g) {
         LLVMDumpModule(g->module);
     }
 
-#ifndef NDEBUG
     char *error = nullptr;
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
-#endif
 }
 
 static void zig_llvm_emit_output(CodeGen *g) {

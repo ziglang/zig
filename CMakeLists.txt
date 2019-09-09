@@ -590,12 +590,18 @@ if(MSVC)
 else()
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
 endif()
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    set(LIBUSERLAND_RELEASE_MODE "false")
+else()
+    set(LIBUSERLAND_RELEASE_MODE "true")
+endif()
 add_custom_target(zig_build_libuserland ALL
     COMMAND zig0 build
         --override-std-dir std
         --override-lib-dir "${CMAKE_SOURCE_DIR}"
         libuserland install
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
+        "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
         "-Dlib-files-only"
         --prefix "${CMAKE_INSTALL_PREFIX}"
     DEPENDS zig0
