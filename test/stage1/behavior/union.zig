@@ -467,3 +467,18 @@ test "union no tag with struct member" {
     var u = Union{ .s = Struct{} };
     u.foo();
 }
+
+fn testComparison() void {
+    var x = Payload{.A = 42};
+    expect(x == .A);
+    expect(x != .B);
+    expect(x != .C);
+    expect((x == .B) == false);
+    expect((x == .C) == false);
+    expect((x != .A) == false);
+}
+
+test "comparison between union and enum literal" {
+    testComparison();
+    comptime testComparison();
+}

@@ -13228,6 +13228,46 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
             buf_ptr(&non_null_type->name)));
         return ira->codegen->invalid_instruction;
+    } else if (is_equality_cmp && (
+        (op1->value.type->id == ZigTypeIdEnumLiteral && op2->value.type->id == ZigTypeIdUnion) ||
+        (op2->value.type->id == ZigTypeIdEnumLiteral && op1->value.type->id == ZigTypeIdUnion)))
+    {
+        // Support equality comparison between a union's tag value and a enum literal
+        IrInstruction *union_val = op1->value.type->id == ZigTypeIdUnion ? op1 : op2;
+        IrInstruction *enum_val = op1->value.type->id == ZigTypeIdUnion ? op2 : op1;
+
+        ZigType *tag_type = union_val->value.type->data.unionation.tag_type;
+        assert(tag_type != nullptr);
+
+        IrInstruction *casted_union = ir_implicit_cast(ira, union_val, tag_type);
+        if (type_is_invalid(casted_union->value.type))
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *casted_val = ir_implicit_cast(ira, enum_val, tag_type);
+        if (type_is_invalid(casted_val->value.type))
+            return ira->codegen->invalid_instruction;
+
+        if (instr_is_comptime(casted_union)) {
+            ConstExprValue *const_union_val = ir_resolve_const(ira, casted_union, UndefBad);
+            if (!const_union_val)
+                return ira->codegen->invalid_instruction;
+
+            ConstExprValue *const_enum_val = ir_resolve_const(ira, casted_val, UndefBad);
+            if (!const_enum_val)
+                return ira->codegen->invalid_instruction;
+
+            Cmp cmp_result = bigint_cmp(&const_union_val->data.x_union.tag, &const_enum_val->data.x_enum_tag);
+            bool bool_result = (op_id == IrBinOpCmpEq) ? cmp_result == CmpEQ : cmp_result != CmpEQ;
+
+            return ir_const_bool(ira, &bin_op_instruction->base, bool_result);
+        }
+
+        IrInstruction *result = ir_build_bin_op(&ira->new_irb,
+            bin_op_instruction->base.scope, bin_op_instruction->base.source_node,
+            op_id, casted_union, casted_val, bin_op_instruction->safety_check_on);
+        result->value.type = ira->codegen->builtin_types.entry_bool;
+
+        return result;
     }
 
     if (op1->value.type->id == ZigTypeIdErrorSet && op2->value.type->id == ZigTypeIdErrorSet) {
