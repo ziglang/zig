@@ -141,7 +141,7 @@ pub fn initTLS() void {
             elf.AT_PHENT => at_phent = auxv[i].a_un.a_val,
             elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
             elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-            elf.AT_HWCAP => at_phdr = auxv[i].a_un.a_val,
+            elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
             else => continue,
         }
     }
