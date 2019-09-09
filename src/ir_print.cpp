@@ -531,7 +531,7 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
 
 static void ir_print_decl_var_src(IrPrint *irp, IrInstructionDeclVarSrc *decl_var_instruction) {
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
-    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    const char *name = decl_var_instruction->var->name;
     if (decl_var_instruction->var_type) {
         fprintf(irp->f, "%s %s: ", var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
@@ -747,7 +747,7 @@ static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
 }
 
 static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
-    fprintf(irp->f, "&%s", buf_ptr(&instruction->var->name));
+    fprintf(irp->f, "&%s", instruction->var->name);
 }
 
 static void ir_print_return_ptr(IrPrint *irp, IrInstructionReturnPtr *instruction) {
@@ -1852,7 +1852,7 @@ static void ir_print_mul_add(IrPrint *irp, IrInstructionMulAdd *instruction) {
 static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_var_instruction) {
     ZigVar *var = decl_var_instruction->var;
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
-    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    const char *name = decl_var_instruction->var->name;
     fprintf(irp->f, "%s %s: %s align(%u) = ", var_or_const, name, buf_ptr(&var->var_type->name),
             var->align_bytes);
 

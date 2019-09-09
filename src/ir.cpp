@@ -3628,7 +3628,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
     }
 
     if (name) {
-        buf_init_from_buf(&variable_entry->name, name);
+        variable_entry->name = strdup(buf_ptr(name));
 
         if (!skip_name_check) {
             ZigVar *existing_var = find_variable(codegen, parent_scope, name, nullptr);
@@ -3661,7 +3661,7 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
         // TODO make this name not actually be in scope. user should be able to make a variable called "_anon"
         // might already be solved, let's just make sure it has test coverage
         // maybe we put a prefix on this so the debug info doesn't clobber user debug info for same named variables
-        buf_init_from_str(&variable_entry->name, "_anon");
+        variable_entry->name = "_anon";
     }
 
     variable_entry->src_is_const = src_is_const;
@@ -6467,14 +6467,14 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     }
     assert(elem_node->type == NodeTypeSymbol);
 
-    IrInstruction *array_val_ptr = ir_gen_node_extra(irb, array_node, parent_scope, LValPtr, nullptr);
+    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, node, parent_scope);
+
+    IrInstruction *array_val_ptr = ir_gen_node_extra(irb, array_node, &spill_scope->base, LValPtr, nullptr);
     if (array_val_ptr == irb->codegen->invalid_instruction)
         return array_val_ptr;
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, parent_scope, node,
         ir_should_inline(irb->exec, parent_scope) || node->data.for_expr.is_inline);
-
-    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, node, parent_scope);
 
     AstNode *index_var_source_node;
     ZigVar *index_var;
@@ -14559,7 +14559,8 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         // We make a new variable so that it can hold a different type, and so the debug info can
         // be distinct.
         ZigVar *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
-            &var->name, var->src_is_const, var->gen_is_const, var->shadowable, var->is_comptime, true);
+            buf_create_from_str(var->name), var->src_is_const, var->gen_is_const,
+            var->shadowable, var->is_comptime, true);
         new_var->owner_exec = var->owner_exec;
         new_var->align_bytes = var->align_bytes;
         if (var->mem_slot_index != SIZE_MAX) {
@@ -14702,7 +14703,8 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case CallingConventionNaked:
                 case CallingConventionCold:
                 case CallingConventionStdcall:
-                    add_fn_export(ira->codegen, fn_entry, symbol_name, global_linkage_id, cc == CallingConventionC);
+                    add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id,
+                            cc == CallingConventionC);
                     break;
             }
         } break;
@@ -14840,7 +14842,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         if (load_ptr->ptr->id == IrInstructionIdVarPtr) {
             IrInstructionVarPtr *var_ptr = reinterpret_cast<IrInstructionVarPtr *>(load_ptr->ptr);
             ZigVar *var = var_ptr->var;
-            add_var_export(ira->codegen, var, symbol_name, global_linkage_id);
+            add_var_export(ira->codegen, var, buf_ptr(symbol_name), global_linkage_id);
         }
     }
 
@@ -17023,7 +17025,7 @@ static IrInstruction *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructi
     IrInstruction *result = ir_get_var_ptr(ira, &instruction->base, var);
     if (instruction->crossed_fndef_scope != nullptr && !instr_is_comptime(result)) {
         ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-            buf_sprintf("'%s' not accessible from inner function", buf_ptr(&var->name)));
+            buf_sprintf("'%s' not accessible from inner function", var->name));
         add_error_note(ira->codegen, msg, instruction->crossed_fndef_scope->base.source_node,
                 buf_sprintf("crossed function definition here"));
         add_error_note(ira->codegen, msg, var->decl_node,
@@ -17735,7 +17737,8 @@ static IrInstruction *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_
                 return ir_error_dependency_loop(ira, source_instruction);
             }
             if (tld_var->extern_lib_name != nullptr) {
-                add_link_lib_symbol(ira, tld_var->extern_lib_name, &var->name, source_instruction->source_node);
+                add_link_lib_symbol(ira, tld_var->extern_lib_name, buf_create_from_str(var->name),
+                        source_instruction->source_node);
             }
 
             return ir_get_var_ptr(ira, source_instruction, var);
@@ -20189,8 +20192,9 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
                         ConstExprValue *fn_arg_name_val = &fn_arg_name_array->data.x_array.data.s_none.elements[fn_arg_index];
-                        ConstExprValue *arg_name = create_const_str_lit(ira->codegen, &arg_var->name);
-                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, buf_len(&arg_var->name), true);
+                        ConstExprValue *arg_name = create_const_str_lit(ira->codegen,
+                                buf_create_from_str(arg_var->name));
+                        init_const_slice(ira->codegen, fn_arg_name_val, arg_name, 0, strlen(arg_var->name), true);
                         fn_arg_name_val->parent.id = ConstParentIdArray;
                         fn_arg_name_val->parent.data.p_array.array_val = fn_arg_name_array;
                         fn_arg_name_val->parent.data.p_array.elem_index = fn_arg_index;

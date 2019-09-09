@@ -234,18 +234,23 @@ static void addLLVMArgAttrInt(LLVMValueRef fn_val, unsigned param_index, const c
     return addLLVMAttrInt(fn_val, param_index + 1, attr_name, attr_val);
 }
 
-static bool is_symbol_available(CodeGen *g, Buf *name) {
-    return g->exported_symbol_names.maybe_get(name) == nullptr && g->external_prototypes.maybe_get(name) == nullptr;
+static bool is_symbol_available(CodeGen *g, const char *name) {
+    Buf *buf_name = buf_create_from_str(name);
+    bool result =
+        g->exported_symbol_names.maybe_get(buf_name) == nullptr &&
+        g->external_prototypes.maybe_get(buf_name) == nullptr;
+    buf_destroy(buf_name);
+    return result;
 }
 
-static Buf *get_mangled_name(CodeGen *g, Buf *original_name, bool external_linkage) {
+static const char *get_mangled_name(CodeGen *g, const char *original_name, bool external_linkage) {
     if (external_linkage || is_symbol_available(g, original_name)) {
         return original_name;
     }
 
     int n = 0;
     for (;; n += 1) {
-        Buf *new_name = buf_sprintf("%s.%d", buf_ptr(original_name), n);
+        const char *new_name = buf_ptr(buf_sprintf("%s.%d", original_name, n));
         if (is_symbol_available(g, new_name)) {
             return new_name;
         }
@@ -387,8 +392,8 @@ static bool codegen_have_frame_pointer(CodeGen *g) {
 }
 
 static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
-    Buf *unmangled_name = &fn->symbol_name;
-    Buf *symbol_name;
+    const char *unmangled_name = buf_ptr(&fn->symbol_name);
+    const char *symbol_name;
     GlobalLinkageId linkage;
     if (fn->body_node == nullptr) {
         symbol_name = unmangled_name;
@@ -398,7 +403,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         linkage = GlobalLinkageIdInternal;
     } else {
         GlobalExport *fn_export = &fn->export_list.items[0];
-        symbol_name = &fn_export->name;
+        symbol_name = buf_ptr(&fn_export->name);
         linkage = fn_export->linkage;
     }
 
@@ -408,7 +413,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         g->zig_target->arch == ZigLLVM_x86)
     {
         // prevent llvm name mangling
-        symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
+        symbol_name = buf_ptr(buf_sprintf("\x01_%s", symbol_name));
     }
 
     bool is_async = fn_is_async(fn);
@@ -420,13 +425,16 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     LLVMTypeRef fn_llvm_type = fn->raw_type_ref;
     LLVMValueRef llvm_fn = nullptr;
     if (fn->body_node == nullptr) {
-        LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
+        LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, symbol_name);
         if (existing_llvm_fn) {
             return LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
         } else {
-            auto entry = g->exported_symbol_names.maybe_get(symbol_name);
+            Buf *buf_symbol_name = buf_create_from_str(symbol_name);
+            auto entry = g->exported_symbol_names.maybe_get(buf_symbol_name);
+            buf_destroy(buf_symbol_name);
+
             if (entry == nullptr) {
-                llvm_fn = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+                llvm_fn = LLVMAddFunction(g->module, symbol_name, fn_llvm_type);
 
                 if (target_is_wasm(g->zig_target)) {
                     assert(fn->proto_node->type == NodeTypeFnProto);
@@ -440,7 +448,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
                 TldFn *tld_fn = reinterpret_cast<TldFn *>(entry->value);
                 // Make the raw_type_ref populated
                 resolve_llvm_types_fn(g, tld_fn->fn_entry);
-                tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
+                tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, symbol_name,
                         tld_fn->fn_entry->raw_type_ref);
                 llvm_fn = LLVMConstBitCast(tld_fn->fn_entry->llvm_value, LLVMPointerType(fn_llvm_type, 0));
                 return llvm_fn;
@@ -448,7 +456,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         }
     } else {
         if (llvm_fn == nullptr) {
-            llvm_fn = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+            llvm_fn = LLVMAddFunction(g->module, symbol_name, fn_llvm_type);
         }
 
         for (size_t i = 1; i < fn->export_list.length; i += 1) {
@@ -1058,8 +1066,8 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
 
-    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_add_err_ret_trace_addr"), false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    const char *fn_name = get_mangled_name(g, "__zig_add_err_ret_trace_addr", false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "alwaysinline");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
@@ -1138,8 +1146,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 1, false);
 
-    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_return_error"), false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    const char *fn_name = get_mangled_name(g, "__zig_return_error", false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "noinline"); // so that we can look at return address
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
@@ -1208,7 +1216,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(msg_prefix, LLVMInternalLinkage);
     LLVMSetGlobalConstant(msg_prefix, true);
 
-    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_fail_unwrap"), false);
+    const char *fn_name = get_mangled_name(g, "__zig_fail_unwrap", false);
     LLVMTypeRef fn_type_ref;
     if (g->have_err_ret_tracing) {
         LLVMTypeRef arg_types[] = {
@@ -1222,7 +1230,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         };
         fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 1, false);
     }
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "noreturn");
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
@@ -1805,7 +1813,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, ty));
                 break;
             case FnWalkIdVars: {
-                var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
+                var->value_ref = build_alloca(g, ty, var->name, var->align_bytes);
                 di_arg_index = fn_walk->data.vars.gen_i;
                 fn_walk->data.vars.gen_i += 1;
                 dest_ty = ty;
@@ -1916,7 +1924,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                 }
                 case FnWalkIdVars: {
                     di_arg_index = fn_walk->data.vars.gen_i;
-                    var->value_ref = build_alloca(g, ty, buf_ptr(&var->name), var->align_bytes);
+                    var->value_ref = build_alloca(g, ty, var->name, var->align_bytes);
                     fn_walk->data.vars.gen_i += 1;
                     dest_ty = ty;
                     goto var_ok;
@@ -1949,7 +1957,7 @@ var_ok:
     if (dest_ty != nullptr && var->decl_node) {
         // arg index + 1 because the 0 index is return value
         var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                buf_ptr(&var->name), fn_walk->data.vars.import->data.structure.root_struct->di_file,
+                var->name, fn_walk->data.vars.import->data.structure.root_struct->di_file,
                 (unsigned)(var->decl_node->line + 1),
                 get_llvm_di_type(g, dest_ty), !g->strip_debug_symbols, 0, di_arg_index + 1);
     }
@@ -2060,8 +2068,8 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     };
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), param_types, 2, false);
 
-    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_merge_error_return_traces"), false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    const char *fn_name = get_mangled_name(g, "__zig_merge_error_return_traces", false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
@@ -3743,12 +3751,11 @@ static void render_async_spills(CodeGen *g) {
             continue;
         }
 
-        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index,
-                buf_ptr(&var->name));
+        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index, var->name);
         async_var_index += 1;
         if (var->decl_node) {
             var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                buf_ptr(&var->name), import->data.structure.root_struct->di_file,
+                var->name, import->data.structure.root_struct->di_file,
                 (unsigned)(var->decl_node->line + 1),
                 get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);
             gen_var_debug_decl(g, var);
@@ -4653,8 +4660,9 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(get_llvm_type(g, u8_slice_type), 0),
             &tag_int_llvm_type, 1, false);
 
-    Buf *fn_name = get_mangled_name(g, buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name)), false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    const char *fn_name = get_mangled_name(g,
+            buf_ptr(buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name))), false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
@@ -6919,7 +6927,7 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMValueRef err_name_table_init = LLVMConstArray(get_llvm_type(g, str_type), values, (unsigned)g->errors_by_index.length);
 
     g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init),
-            buf_ptr(get_mangled_name(g, buf_create_from_str("__zig_err_name_table"), false)));
+            get_mangled_name(g, buf_ptr(buf_create_from_str("__zig_err_name_table")), false));
     LLVMSetInitializer(g->err_name_table, err_name_table_init);
     LLVMSetLinkage(g->err_name_table, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(g->err_name_table, true);
@@ -6960,8 +6968,8 @@ static void gen_global_var(CodeGen *g, ZigVar *var, LLVMValueRef init_val,
     assert(import);
 
     bool is_local_to_unit = true;
-    ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), buf_ptr(&var->name),
-        buf_ptr(&var->name), import->data.structure.root_struct->di_file,
+    ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), var->name,
+        var->name, import->data.structure.root_struct->di_file,
         (unsigned)(var->decl_node->line + 1),
         get_llvm_di_type(g, type_entry), is_local_to_unit);
 
@@ -7043,8 +7051,8 @@ static void do_code_gen(CodeGen *g) {
         assert(var->decl_node);
 
         GlobalLinkageId linkage;
-        Buf *unmangled_name = &var->name;
-        Buf *symbol_name;
+        const char *unmangled_name = var->name;
+        const char *symbol_name;
         if (var->export_list.length == 0) {
             if (var->decl_node->data.variable_declaration.is_extern) {
                 symbol_name = unmangled_name;
@@ -7055,19 +7063,19 @@ static void do_code_gen(CodeGen *g) {
             }
         } else {
             GlobalExport *global_export = &var->export_list.items[0];
-            symbol_name = &global_export->name;
+            symbol_name = buf_ptr(&global_export->name);
             linkage = global_export->linkage;
         }
 
         LLVMValueRef global_value;
         bool externally_initialized = var->decl_node->data.variable_declaration.expr == nullptr;
         if (externally_initialized) {
-            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, buf_ptr(symbol_name));
+            LLVMValueRef existing_llvm_var = LLVMGetNamedGlobal(g->module, symbol_name);
             if (existing_llvm_var) {
                 global_value = LLVMConstBitCast(existing_llvm_var,
                         LLVMPointerType(get_llvm_type(g, var->var_type), 0));
             } else {
-                global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), buf_ptr(symbol_name));
+                global_value = LLVMAddGlobal(g->module, get_llvm_type(g, var->var_type), symbol_name);
                 // TODO debug info for the extern variable
 
                 LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
@@ -7078,8 +7086,8 @@ static void do_code_gen(CodeGen *g) {
             }
         } else {
             bool exported = (linkage != GlobalLinkageIdInternal);
-            render_const_val(g, var->const_value, buf_ptr(symbol_name));
-            render_const_val_global(g, var->const_value, buf_ptr(symbol_name));
+            render_const_val(g, var->const_value, symbol_name);
+            render_const_val_global(g, var->const_value, symbol_name);
             global_value = var->const_value->global_refs->llvm_global;
 
             if (exported) {
@@ -7234,7 +7242,7 @@ static void do_code_gen(CodeGen *g) {
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                        buf_ptr(&var->name), import->data.structure.root_struct->di_file, (unsigned)(var->decl_node->line + 1),
+                        var->name, import->data.structure.root_struct->di_file, (unsigned)(var->decl_node->line + 1),
                         get_llvm_di_type(g, var->var_type), !g->strip_debug_symbols, 0);
 
             } else if (is_c_abi) {
@@ -7254,11 +7262,11 @@ static void do_code_gen(CodeGen *g) {
                     var->value_ref = LLVMGetParam(fn, gen_info->gen_index);
                 } else {
                     gen_type = var->var_type;
-                    var->value_ref = build_alloca(g, var->var_type, buf_ptr(&var->name), var->align_bytes);
+                    var->value_ref = build_alloca(g, var->var_type, var->name, var->align_bytes);
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                        buf_ptr(&var->name), import->data.structure.root_struct->di_file,
+                        var->name, import->data.structure.root_struct->di_file,
                         (unsigned)(var->decl_node->line + 1),
                         get_llvm_di_type(g, gen_type), !g->strip_debug_symbols, 0, (unsigned)(gen_info->gen_index+1));
                 }

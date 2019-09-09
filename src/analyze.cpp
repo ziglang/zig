@@ -3148,26 +3148,26 @@ ZigType *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
-void add_var_export(CodeGen *g, ZigVar *var, Buf *symbol_name, GlobalLinkageId linkage) {
+void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLinkageId linkage) {
     GlobalExport *global_export = var->export_list.add_one();
     memset(global_export, 0, sizeof(GlobalExport));
-    buf_init_from_buf(&global_export->name, symbol_name);
+    buf_init_from_str(&global_export->name, symbol_name);
     global_export->linkage = linkage;
 }
 
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc) {
     if (ccc) {
-        if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
+        if (strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-        } else if (buf_eql_str(symbol_name, "WinMain") &&
+        } else if (strcmp(symbol_name, "WinMain") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_winmain = true;
-        } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
+        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_winmain_crt_startup = true;
-        } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
+        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_dllmain_crt_startup = true;
@@ -3176,7 +3176,7 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
 
     GlobalExport *fn_export = fn_table_entry->export_list.add_one();
     memset(fn_export, 0, sizeof(GlobalExport));
-    buf_init_from_buf(&fn_export->name, symbol_name);
+    buf_init_from_str(&fn_export->name, symbol_name);
     fn_export->linkage = linkage;
 }
 
@@ -3200,7 +3200,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         if (fn_proto->is_export) {
             bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
-            add_fn_export(g, fn_table_entry, &fn_table_entry->symbol_name, GlobalLinkageIdStrong, ccc);
+            add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name), GlobalLinkageIdStrong, ccc);
         }
 
         if (!is_extern) {
@@ -3559,7 +3559,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
-    buf_init_from_buf(&variable_entry->name, name);
+    variable_entry->name = strdup(buf_ptr(name));
 
     if ((err = type_resolve(g, var_type, ResolveStatusAlignmentKnown))) {
         variable_entry->var_type = g->builtin_types.entry_invalid;
@@ -3707,7 +3707,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (is_export) {
-        add_var_export(g, tld_var->var, &tld_var->var->name, GlobalLinkageIdStrong);
+        add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
     }
 
     g->global_vars.append(tld_var);
@@ -3916,7 +3916,7 @@ ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            if (buf_eql_buf(name, &var_scope->var->name)) {
+            if (buf_eql_str(name, var_scope->var->name)) {
                 if (crossed_fndef_scope != nullptr)
                     *crossed_fndef_scope = my_crossed_fndef_scope;
                 return var_scope->var;

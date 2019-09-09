@@ -2070,7 +2070,7 @@ struct CodeGen {
 };
 
 struct ZigVar {
-    Buf name;
+    const char *name;
     ConstExprValue *const_value;
     ZigType *var_type;
     LLVMValueRef value_ref;
@@ -2085,7 +2085,6 @@ struct ZigVar {
     LLVMValueRef param_value_ref;
     size_t mem_slot_index;
     IrExecutable *owner_exec;
-    size_t ref_count;
 
     // In an inline loop, multiple variables may be created,
     // In this case, a reference to a variable should follow
@@ -2095,6 +2094,7 @@ struct ZigVar {
     ZigList<GlobalExport> export_list;
 
     uint32_t align_bytes;
+    uint32_t ref_count;
 
     bool shadowable;
     bool src_is_const;

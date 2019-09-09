@@ -1201,3 +1201,35 @@ test "correctly spill when returning the error union result of another async fn"
     resume S.global_frame;
 }
 
+
+test "spill target expr in a for loop" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            var foo = Foo{
+                .slice = [_]i32{1, 2},
+            };
+            expect(atest(&foo) == 3);
+        }
+
+        const Foo = struct {
+            slice: []i32,
+        };
+
+        fn atest(foo: *Foo) i32 {
+            var sum: i32 = 0;
+            for (foo.slice) |x| {
+                suspend {
+                    global_frame = @frame();
+                }
+                sum += x;
+            }
+            return sum;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.global_frame;
+    resume S.global_frame;
+}
+
