@@ -7382,7 +7382,9 @@ static void do_code_gen(CodeGen *g) {
     }
 
     char *error = nullptr;
-    LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
+    if (LLVMVerifyModule(g->module, LLVMReturnStatusAction, &error)) {
+        zig_panic("broken LLVM module found: %s", error);
+    }
 }
 
 static void zig_llvm_emit_output(CodeGen *g) {
