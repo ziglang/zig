@@ -1178,3 +1178,26 @@ test "suspend in for loop" {
     S.doTheTest();
 }
 
+test "correctly spill when returning the error union result of another async fn" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            expect((atest() catch unreachable) == 1234);
+        }
+
+        fn atest() !i32 {
+            return fallible1();
+        }
+
+        fn fallible1() anyerror!i32 {
+            suspend {
+                global_frame = @frame();
+            }
+            return 1234;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.global_frame;
+}
+

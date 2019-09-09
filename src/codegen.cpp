@@ -4122,8 +4122,14 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (!type_has_bits(src_return_type))
                 return nullptr;
 
-            if (result_loc != nullptr) 
-                return get_handle_value(g, result_loc, src_return_type, ptr_result_type);
+            if (result_loc != nullptr) {
+                if (instruction->result_loc->id == IrInstructionIdReturnPtr) {
+                    instruction->base.spill = nullptr;
+                    return g->cur_ret_ptr;
+                } else {
+                    return get_handle_value(g, result_loc, src_return_type, ptr_result_type);
+                }
+            }
 
             LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
             return LLVMBuildLoad(g->builder, result_ptr, "");
