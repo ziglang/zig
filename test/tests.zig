@@ -23,7 +23,7 @@ const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const gen_h = @import("gen_h.zig");
 
-const test_targets = [_]CrossTarget{
+const cross_targets = [_]CrossTarget{
     CrossTarget{
         .os = .linux,
         .arch = .x86_64,
@@ -186,7 +186,17 @@ pub fn addPkgTests(
     skip_non_native: bool,
 ) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
-    for (test_targets) |test_target| {
+
+    var targets = std.ArrayList(*const CrossTarget).init(b.allocator);
+    defer targets.deinit();
+    const host = CrossTarget{ .os = builtin.os, .arch = builtin.arch, .abi = builtin.abi };
+    targets.append(&host) catch unreachable;
+    for (cross_targets) |*t| {
+        if (t.os == builtin.os and t.arch == builtin.arch and t.abi == builtin.abi) continue;
+        targets.append(t) catch unreachable;
+    }
+
+    for (targets.toSliceConst()) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
         if (skip_non_native and !is_native)
             continue;
