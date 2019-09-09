@@ -98,9 +98,9 @@ pub const Murmur2_64 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
-        const len = @truncate(u64, str.len);
+        const len = u64(str.len);
         var h1: u64 = seed ^ (len *% m);
-        for (@ptrCast([*]allowzero align(1) const u64, str.ptr)[0..(len >> 3)]) |v| {
+        for (@ptrCast([*]allowzero align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
             var k1: u64 = v;
             if (builtin.endian == builtin.Endian.Big)
                 k1 = @byteSwap(u64, k1);
@@ -114,7 +114,7 @@ pub const Murmur2_64 = struct {
         const offset = len - rest;
         if (rest > 0) {
             var k1: u64 = 0;
-            @memcpy(@ptrCast([*]u8, &k1), @ptrCast([*]const u8, &str[offset]), rest);
+            @memcpy(@ptrCast([*]u8, &k1), @ptrCast([*]const u8, &str[@intCast(usize, offset)]), @intCast(usize, rest));
             if (builtin.endian == builtin.Endian.Big)
                 k1 = @byteSwap(u64, k1);
             h1 ^= k1;

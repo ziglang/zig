@@ -569,3 +569,5 @@ pub const timezone = extern struct {
     tz_minuteswest: i32,
     tz_dsttime: i32,
 };
+
+pub const Elf_Symndx = u32;
