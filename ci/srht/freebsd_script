@@ -56,7 +56,8 @@ release/bin/zig build test-gen-h
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
-  mv ../zig-cache/langref.html release/
+  # Enable when `release/bin/zig build docs` passes without "out of memory" or failures
+  #mv ../zig-cache/langref.html release/
   mv release/bin/zig release/
   rmdir release/bin
 
