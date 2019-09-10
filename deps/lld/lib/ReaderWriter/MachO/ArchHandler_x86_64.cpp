@@ -181,12 +181,29 @@ public:
                                 FindAddressForAtom addressForAtom,
                                 normalized::Relocations &relocs) override;
 
+  bool isDataInCodeTransition(Reference::KindValue refKind) override {
+    return refKind == modeCode || refKind == modeData;
+  }
+
+  Reference::KindValue dataInCodeTransitionStart(
+                                        const MachODefinedAtom &atom) override {
+    return modeData;
+  }
+
+  Reference::KindValue dataInCodeTransitionEnd(
+                                        const MachODefinedAtom &atom) override {
+    return modeCode;
+  }
+
 private:
   static const Registry::KindStrings _sKindStrings[];
   static const StubInfo              _sStubInfo;
 
   enum X86_64Kind: Reference::KindValue {
     invalid,               /// for error condition
+
+    modeCode,              /// Content starting at this offset is code.
+    modeData,              /// Content starting at this offset is data.
 
     // Kinds found in mach-o .o files:
     branch32,              /// ex: call _foo
@@ -242,24 +259,34 @@ private:
 };
 
 const Registry::KindStrings ArchHandler_x86_64::_sKindStrings[] = {
-  LLD_KIND_STRING_ENTRY(invalid), LLD_KIND_STRING_ENTRY(branch32),
-  LLD_KIND_STRING_ENTRY(ripRel32), LLD_KIND_STRING_ENTRY(ripRel32Minus1),
-  LLD_KIND_STRING_ENTRY(ripRel32Minus2), LLD_KIND_STRING_ENTRY(ripRel32Minus4),
+  LLD_KIND_STRING_ENTRY(invalid),
+  LLD_KIND_STRING_ENTRY(modeCode),
+  LLD_KIND_STRING_ENTRY(modeData),
+  LLD_KIND_STRING_ENTRY(branch32),
+  LLD_KIND_STRING_ENTRY(ripRel32),
+  LLD_KIND_STRING_ENTRY(ripRel32Minus1),
+  LLD_KIND_STRING_ENTRY(ripRel32Minus2),
+  LLD_KIND_STRING_ENTRY(ripRel32Minus4),
   LLD_KIND_STRING_ENTRY(ripRel32Anon),
   LLD_KIND_STRING_ENTRY(ripRel32Minus1Anon),
   LLD_KIND_STRING_ENTRY(ripRel32Minus2Anon),
   LLD_KIND_STRING_ENTRY(ripRel32Minus4Anon),
   LLD_KIND_STRING_ENTRY(ripRel32GotLoad),
   LLD_KIND_STRING_ENTRY(ripRel32GotLoadNowLea),
-  LLD_KIND_STRING_ENTRY(ripRel32Got), LLD_KIND_STRING_ENTRY(ripRel32Tlv),
+  LLD_KIND_STRING_ENTRY(ripRel32Got),
+  LLD_KIND_STRING_ENTRY(ripRel32Tlv),
   LLD_KIND_STRING_ENTRY(lazyPointer),
   LLD_KIND_STRING_ENTRY(lazyImmediateLocation),
-  LLD_KIND_STRING_ENTRY(pointer64), LLD_KIND_STRING_ENTRY(pointer64Anon),
-  LLD_KIND_STRING_ENTRY(delta32), LLD_KIND_STRING_ENTRY(delta64),
-  LLD_KIND_STRING_ENTRY(delta32Anon), LLD_KIND_STRING_ENTRY(delta64Anon),
+  LLD_KIND_STRING_ENTRY(pointer64),
+  LLD_KIND_STRING_ENTRY(pointer64Anon),
+  LLD_KIND_STRING_ENTRY(delta32),
+  LLD_KIND_STRING_ENTRY(delta64),
+  LLD_KIND_STRING_ENTRY(delta32Anon),
+  LLD_KIND_STRING_ENTRY(delta64Anon),
   LLD_KIND_STRING_ENTRY(negDelta64),
   LLD_KIND_STRING_ENTRY(negDelta32),
-  LLD_KIND_STRING_ENTRY(imageOffset), LLD_KIND_STRING_ENTRY(imageOffsetGot),
+  LLD_KIND_STRING_ENTRY(imageOffset),
+  LLD_KIND_STRING_ENTRY(imageOffsetGot),
   LLD_KIND_STRING_ENTRY(unwindFDEToFunction),
   LLD_KIND_STRING_ENTRY(unwindInfoToEhFrame),
   LLD_KIND_STRING_ENTRY(tlvInitSectionOffset),
@@ -601,6 +628,8 @@ void ArchHandler_x86_64::applyFixupFinal(
   case negDelta32:
     *loc32 = fixupAddress - targetAddress + ref.addend();
     return;
+  case modeCode:
+  case modeData:
   case lazyPointer:
     // Do nothing
     return;
@@ -720,6 +749,8 @@ void ArchHandler_x86_64::applyFixupRelocatable(const Reference &ref,
   case unwindInfoToEhFrame:
     llvm_unreachable("fixup implies __unwind_info");
     return;
+  case modeCode:
+  case modeData:
   case unwindFDEToFunction:
     // Do nothing for now
     return;
@@ -743,6 +774,9 @@ void ArchHandler_x86_64::appendSectionRelocations(
   assert(ref.kindArch() == Reference::KindArch::x86_64);
   uint32_t sectionOffset = atomSectionOffset + ref.offsetInAtom();
   switch (static_cast<X86_64Kind>(ref.kindValue())) {
+  case modeCode:
+  case modeData:
+    return;
   case branch32:
     appendReloc(relocs, sectionOffset, symbolIndexForAtom(*ref.target()), 0,
                 X86_64_RELOC_BRANCH | rPcRel | rExtern | rLength4);
