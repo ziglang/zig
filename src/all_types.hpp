@@ -1972,6 +1972,8 @@ struct CodeGen {
     ZigFn *panic_fn;
     TldFn *panic_tld_fn;
 
+    ZigFn *largest_frame_fn;
+
     WantPIC want_pic;
     WantStackCheck want_stack_check;
     CacheHash cache_hash;
@@ -2004,6 +2006,7 @@ struct CodeGen {
     bool generate_error_name_table;
     bool enable_cache; // mutually exclusive with output_dir
     bool enable_time_report;
+    bool enable_stack_report;
     bool system_linker_hack;
     bool reported_bad_link_libc_error;
     bool is_dynamic; // shared library rather than static library. dynamic musl rather than static musl.
