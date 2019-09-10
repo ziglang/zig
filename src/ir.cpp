@@ -19735,6 +19735,11 @@ static IrInstruction *ir_analyze_instruction_compile_log(IrAnalyze *ira, IrInstr
         if (type_is_invalid(msg->value.type))
             return ira->codegen->invalid_instruction;
         buf_resize(&buf, 0);
+        if (msg->value.special == ConstValSpecialLazy) {
+            // Resolve any lazy value that's passed, we need its value
+            if (ir_resolve_lazy(ira->codegen, msg->source_node, &msg->value))
+                return ira->codegen->invalid_instruction;
+        }
         render_const_value(ira->codegen, &buf, &msg->value);
         const char *comma_str = (i != 0) ? ", " : "";
         fprintf(stderr, "%s%s", comma_str, buf_ptr(&buf));
