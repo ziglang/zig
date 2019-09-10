@@ -15350,7 +15350,7 @@ ndrange_t __ovld ndrange_3D(const size_t[3]);
 ndrange_t __ovld ndrange_3D(const size_t[3], const size_t[3]);
 ndrange_t __ovld ndrange_3D(const size_t[3], const size_t[3], const size_t[3]);
 
-int __ovld enqueue_marker(queue_t, uint, const __private clk_event_t*, __private clk_event_t*);
+int __ovld enqueue_marker(queue_t, uint, const clk_event_t*, clk_event_t*);
 
 void __ovld retain_event(clk_event_t);
 
