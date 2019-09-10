@@ -10,6 +10,11 @@
 
 #include "all_types.hpp"
 
+enum IrPass {
+    IrPassSrc,
+    IrPassGen,
+};
+
 bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutable *ir_executable);
 bool ir_gen_fn(CodeGen *g, ZigFn *fn_entry);
 

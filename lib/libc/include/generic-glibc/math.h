@@ -874,7 +874,8 @@ enum
    the __SUPPORT_SNAN__ check may be skipped for those versions.  */
 
 /* Return number of classification appropriate for X.  */
-# if __GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__			      \
+# if ((__GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__)		      \
+      || __glibc_clang_prereq (2,8))					      \
      && (!defined __OPTIMIZE_SIZE__ || defined __cplusplus)
      /* The check for __cplusplus allows the use of the builtin, even
 	when optimization for size is on.  This is provided for
@@ -889,7 +890,7 @@ enum
 # endif
 
 /* Return nonzero value if sign of X is negative.  */
-# if __GNUC_PREREQ (6,0)
+# if __GNUC_PREREQ (6,0) || __glibc_clang_prereq (3,3)
 #  define signbit(x) __builtin_signbit (x)
 # elif defined __cplusplus
   /* In C++ mode, __MATH_TG cannot be used, because it relies on
@@ -907,14 +908,16 @@ enum
 # endif
 
 /* Return nonzero value if X is not +-Inf or NaN.  */
-# if __GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__
+# if (__GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__) \
+     || __glibc_clang_prereq (2,8)
 #  define isfinite(x) __builtin_isfinite (x)
 # else
 #  define isfinite(x) __MATH_TG ((x), __finite, (x))
 # endif
 
 /* Return nonzero value if X is neither zero, subnormal, Inf, nor NaN.  */
-# if __GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__
+# if (__GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__) \
+     || __glibc_clang_prereq (2,8)
 #  define isnormal(x) __builtin_isnormal (x)
 # else
 #  define isnormal(x) (fpclassify (x) == FP_NORMAL)
@@ -922,7 +925,8 @@ enum
 
 /* Return nonzero value if X is a NaN.  We could use `fpclassify' but
    we already have this functions `__isnan' and it is faster.  */
-# if __GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__
+# if (__GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__) \
+     || __glibc_clang_prereq (2,8)
 #  define isnan(x) __builtin_isnan (x)
 # else
 #  define isnan(x) __MATH_TG ((x), __isnan, (x))
@@ -939,7 +943,8 @@ enum
 #  define isinf(x) \
     (__builtin_types_compatible_p (__typeof (x), _Float128) \
      ? __isinff128 (x) : __builtin_isinf_sign (x))
-# elif __GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__
+# elif (__GNUC_PREREQ (4,4) && !defined __SUPPORT_SNAN__) \
+       || __glibc_clang_prereq (3,7)
 #  define isinf(x) __builtin_isinf_sign (x)
 # else
 #  define isinf(x) __MATH_TG ((x), __isinf, (x))

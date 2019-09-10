@@ -123,6 +123,7 @@ pub fn main() !void {
         }
     }
 
+    builder.resolveInstallPrefix();
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
@@ -151,6 +152,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
+        builder.resolveInstallPrefix();
         try runBuild(builder);
     }
 

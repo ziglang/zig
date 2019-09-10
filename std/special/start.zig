@@ -44,7 +44,7 @@ nakedcc fn _start() noreturn {
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
-        .aarch64, .aarch64_be => {
+        .aarch64, .aarch64_be, .arm => {
             argc_ptr = asm ("mov %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );

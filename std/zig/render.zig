@@ -483,9 +483,23 @@ fn renderExpression(
                 },
 
                 ast.Node.PrefixOp.Op.ArrayType => |array_index| {
-                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, array_index, Space.None);
-                    try renderToken(tree, stream, tree.nextToken(array_index.lastToken()), indent, start_col, Space.None); // ]
+                    const lbracket = prefix_op_node.op_token;
+                    const rbracket = tree.nextToken(array_index.lastToken());
+
+                    try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
+
+                    const starts_with_comment = tree.tokens.at(lbracket + 1).id == .LineComment;
+                    const ends_with_comment = tree.tokens.at(rbracket - 1).id == .LineComment;
+                    const new_indent = if (ends_with_comment) indent + indent_delta else indent;
+                    const new_space = if (ends_with_comment) Space.Newline else Space.None;
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, array_index, new_space);
+                    if (starts_with_comment) {
+                        try stream.writeByte('\n');
+                    }
+                    if (ends_with_comment or starts_with_comment) {
+                        try stream.writeByteNTimes(' ', indent);
+                    }
+                    try renderToken(tree, stream, rbracket, indent, start_col, Space.None); // ]
                 },
                 ast.Node.PrefixOp.Op.BitNot,
                 ast.Node.PrefixOp.Op.BoolNot,
@@ -580,7 +594,18 @@ fn renderExpression(
 
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
                     try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
-                    try renderExpression(allocator, stream, tree, indent, start_col, index_expr, Space.None);
+
+                    const starts_with_comment = tree.tokens.at(lbracket + 1).id == .LineComment;
+                    const ends_with_comment = tree.tokens.at(rbracket - 1).id == .LineComment;
+                    const new_indent = if (ends_with_comment) indent + indent_delta else indent;
+                    const new_space = if (ends_with_comment) Space.Newline else Space.None;
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, index_expr, new_space);
+                    if (starts_with_comment) {
+                        try stream.writeByte('\n');
+                    }
+                    if (ends_with_comment or starts_with_comment) {
+                        try stream.writeByteNTimes(' ', indent);
+                    }
                     return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
                 },
 
@@ -615,7 +640,7 @@ fn renderExpression(
 
                     if (field_inits.len == 0) {
                         try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
-                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
+                        try renderToken(tree, stream, lbrace, indent + indent_delta, start_col, Space.None);
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
 
@@ -714,7 +739,7 @@ fn renderExpression(
                         try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
-                    if (exprs.len == 1) {
+                    if (exprs.len == 1 and tree.tokens.at(exprs.at(0).*.lastToken() + 1).id == .RBrace) {
                         const expr = exprs.at(0).*;
 
                         try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
@@ -775,7 +800,7 @@ fn renderExpression(
                         while (it.next()) |expr| : (i += 1) {
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
-                            try renderExpression(allocator, &counting_stream.stream, tree, 0, &dummy_col, expr.*, Space.None);
+                            try renderExpression(allocator, &counting_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
                             const width = @intCast(usize, counting_stream.bytes_written);
                             const col = i % row_size;
                             column_widths[col] = std.math.max(column_widths[col], width);
@@ -1191,8 +1216,8 @@ fn renderExpression(
             });
 
             const src_params_trailing_comma = blk: {
-                const maybe_comma = tree.prevToken(rparen);
-                break :blk tree.tokens.at(maybe_comma).id == Token.Id.Comma;
+                const maybe_comma = tree.tokens.at(rparen - 1).id;
+                break :blk maybe_comma == .Comma or maybe_comma == .LineComment;
             };
 
             if (!src_params_trailing_comma) {

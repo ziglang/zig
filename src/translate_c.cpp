@@ -253,7 +253,7 @@ static AstNode *trans_create_node_symbol_str(Context *c, const char *name) {
 static AstNode *trans_create_node_builtin_fn_call(Context *c, Buf *name) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
     node->data.fn_call_expr.fn_ref_expr = trans_create_node_symbol(c, name);
-    node->data.fn_call_expr.is_builtin = true;
+    node->data.fn_call_expr.modifier = CallModifierBuiltin;
     return node;
 }
 
@@ -432,7 +432,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
     AstNode *fn_proto = trans_create_node(c, NodeTypeFnProto);
     fn_proto->data.fn_proto.visib_mod = c->visib_mod;
     fn_proto->data.fn_proto.name = fn_name;
-    fn_proto->data.fn_proto.is_inline = true;
+    fn_proto->data.fn_proto.fn_inline = FnInlineAlways;
     fn_proto->data.fn_proto.return_type = src_proto_node->data.fn_proto.return_type; // TODO ok for these to alias?
 
     fn_def->data.fn_def.fn_proto = fn_proto;

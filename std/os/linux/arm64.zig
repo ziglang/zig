@@ -2,7 +2,7 @@ pub fn syscall0(number: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={x0}" (-> usize)
         : [number] "{x8}" (number)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -11,7 +11,7 @@ pub fn syscall1(number: usize, arg1: usize) usize {
         : [ret] "={x0}" (-> usize)
         : [number] "{x8}" (number),
           [arg1] "{x0}" (arg1)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -21,7 +21,7 @@ pub fn syscall2(number: usize, arg1: usize, arg2: usize) usize {
         : [number] "{x8}" (number),
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -32,7 +32,7 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -44,7 +44,7 @@ pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -57,7 +57,7 @@ pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5)
-        : "memory"
+        : "memory", "cc"
     );
 }
 
@@ -79,7 +79,7 @@ pub fn syscall6(
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5),
           [arg6] "{x5}" (arg6)
-        : "memory"
+        : "memory", "cc"
     );
 }
 

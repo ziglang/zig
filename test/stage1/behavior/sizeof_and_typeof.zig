@@ -115,3 +115,12 @@ test "branching logic inside @typeOf" {
     comptime expect(T == i32);
     expect(S.data == 0);
 }
+
+fn fn1(alpha: bool) void {
+    const n: usize = 7;
+    const v = if (alpha) n else @sizeOf(usize);
+}
+
+test "lazy @sizeOf result is checked for definedness" {
+    const f = fn1;
+}

@@ -18,6 +18,8 @@
 #ifndef	_SYS_SYSCTL_H
 #define	_SYS_SYSCTL_H	1
 
+#warning "The <sys/sysctl.h> header is deprecated and will be removed."
+
 #include <features.h>
 #define __need_size_t
 #include <stddef.h>
@@ -66,7 +68,8 @@ __BEGIN_DECLS
 
 /* Read or write system parameters.  */
 extern int sysctl (int *__name, int __nlen, void *__oldval,
-		   size_t *__oldlenp, void *__newval, size_t __newlen) __THROW;
+		   size_t *__oldlenp, void *__newval, size_t __newlen) __THROW
+  __attribute_deprecated__;
 
 __END_DECLS
 

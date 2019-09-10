@@ -457,3 +457,40 @@ test "@unionInit can modify a pointer value" {
     value_ptr.* = @unionInit(UnionInitEnum, "Byte", 2);
     expect(value.Byte == 2);
 }
+
+test "union no tag with struct member" {
+    const Struct = struct {};
+    const Union = union {
+        s: Struct,
+        pub fn foo(self: *@This()) void {}
+    };
+    var u = Union{ .s = Struct{} };
+    u.foo();
+}
+
+fn testComparison() void {
+    var x = Payload{.A = 42};
+    expect(x == .A);
+    expect(x != .B);
+    expect(x != .C);
+    expect((x == .B) == false);
+    expect((x == .C) == false);
+    expect((x != .A) == false);
+}
+
+test "comparison between union and enum literal" {
+    testComparison();
+    comptime testComparison();
+}
+
+test "packed union generates correctly aligned LLVM type" {
+    const U = packed union {
+        f1: fn () void,
+        f2: u32,
+    };
+    var foo = [_]U{
+        U{ .f1 = doTest },
+        U{ .f2 = 0 },
+    };
+    foo[0].f1();
+}

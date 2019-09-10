@@ -921,12 +921,10 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
             var sum: u32 = 0;
 
             f1_awaited = true;
-            const result_f1 = await f1; // TODO https://github.com/ziglang/zig/issues/3077
-            sum += try result_f1;
+            sum += try await f1;
 
             f2_awaited = true;
-            const result_f2 = await f2; // TODO https://github.com/ziglang/zig/issues/3077
-            sum += try result_f2;
+            sum += try await f2;
 
             return sum;
         }
@@ -943,8 +941,7 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
 
         fn amain(result: *u32) void {
             var x = async fib(std.heap.direct_allocator, 10);
-            const res = await x; // TODO https://github.com/ziglang/zig/issues/3077
-            result.* = res catch unreachable;
+            result.* = (await x) catch unreachable;
         }
     };
 }
@@ -1002,8 +999,7 @@ test "@asyncCall using the result location inside the frame" {
             return 1234;
         }
         fn getAnswer(f: anyframe->i32, out: *i32) void {
-            var res = await f; // TODO https://github.com/ziglang/zig/issues/3077
-            out.* = res;
+            out.* = await f;
         }
     };
     var data: i32 = 1;
@@ -1091,4 +1087,184 @@ test "recursive call of await @asyncCall with struct return type" {
     expect(res.x == 1);
     expect(res.y == 2);
     expect(res.z == 3);
+}
+
+test "noasync function call" {
+    const S = struct {
+        fn doTheTest() void {
+            const result = noasync add(50, 100);
+            expect(result == 150);
+        }
+        fn add(a: i32, b: i32) i32 {
+            if (a > 100) {
+                suspend;
+            }
+            return a + b;
+        }
+    };
+    S.doTheTest();
+}
+
+test "await used in expression and awaiting fn with no suspend but async calling convention" {
+    const S = struct {
+        fn atest() void {
+            var f1 = async add(1, 2);
+            var f2 = async add(3, 4);
+
+            const sum = (await f1) + (await f2);
+            expect(sum == 10);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+    };
+    _ = async S.atest();
+}
+
+test "await used in expression after a fn call" {
+    const S = struct {
+        fn atest() void {
+            var f1 = async add(3, 4);
+            var sum: i32 = 0;
+            sum = foo() + await f1;
+            expect(sum == 8);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+        fn foo() i32 { return 1; }
+    };
+    _ = async S.atest();
+}
+
+test "async fn call used in expression after a fn call" {
+    const S = struct {
+        fn atest() void {
+            var sum: i32 = 0;
+            sum = foo() + add(3, 4);
+            expect(sum == 8);
+        }
+        async fn add(a: i32, b: i32) i32 {
+            return a + b;
+        }
+        fn foo() i32 { return 1; }
+    };
+    _ = async S.atest();
+}
+
+test "suspend in for loop" {
+    const S = struct {
+        var global_frame: ?anyframe = null;
+
+        fn doTheTest() void {
+            _ = async atest();
+            while (global_frame) |f| resume f;
+        }
+
+        fn atest() void {
+            expect(func([_]u8{ 1, 2, 3 }) == 6);
+        }
+        fn func(stuff: []const u8) u32 {
+            global_frame = @frame();
+            var sum: u32 = 0;
+            for (stuff) |x| {
+                suspend;
+                sum += x;
+            }
+            global_frame = null;
+            return sum;
+        }
+    };
+    S.doTheTest();
+}
+
+test "correctly spill when returning the error union result of another async fn" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            expect((atest() catch unreachable) == 1234);
+        }
+
+        fn atest() !i32 {
+            return fallible1();
+        }
+
+        fn fallible1() anyerror!i32 {
+            suspend {
+                global_frame = @frame();
+            }
+            return 1234;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.global_frame;
+}
+
+
+test "spill target expr in a for loop" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            var foo = Foo{
+                .slice = [_]i32{1, 2},
+            };
+            expect(atest(&foo) == 3);
+        }
+
+        const Foo = struct {
+            slice: []i32,
+        };
+
+        fn atest(foo: *Foo) i32 {
+            var sum: i32 = 0;
+            for (foo.slice) |x| {
+                suspend {
+                    global_frame = @frame();
+                }
+                sum += x;
+            }
+            return sum;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.global_frame;
+    resume S.global_frame;
+}
+
+test "spill target expr in a for loop, with a var decl in the loop body" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+
+        fn doTheTest() void {
+            var foo = Foo{
+                .slice = [_]i32{1, 2},
+            };
+            expect(atest(&foo) == 3);
+        }
+
+        const Foo = struct {
+            slice: []i32,
+        };
+
+        fn atest(foo: *Foo) i32 {
+            var sum: i32 = 0;
+            for (foo.slice) |x| {
+                // Previously this var decl would prevent spills. This test makes sure
+                // the for loop spills still happen even though there is a VarDecl in scope
+                // before the suspend.
+                var anything = true;
+                _ = anything;
+                suspend {
+                    global_frame = @frame();
+                }
+                sum += x;
+            }
+            return sum;
+        }
+    };
+    _ = async S.doTheTest();
+    resume S.global_frame;
+    resume S.global_frame;
 }

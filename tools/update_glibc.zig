@@ -135,7 +135,7 @@ pub fn main() !void {
     const allocator = &arena.allocator;
     const args = try std.process.argsAlloc(allocator);
     const in_glibc_dir = args[1]; // path to the unzipped tarball of glibc, e.g. ~/downloads/glibc-2.25
-    const zig_src_dir = args[2]; // path to the source checkout of zig
+    const zig_src_dir = args[2]; // path to the source checkout of zig, lib dir, e.g. ~/zig-src/lib
 
     const prefix = try fs.path.join(allocator, [_][]const u8{ in_glibc_dir, "sysdeps", "unix", "sysv", "linux" });
     const glibc_out_dir = try fs.path.join(allocator, [_][]const u8{ zig_src_dir, "libc", "glibc" });

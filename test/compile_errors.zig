@@ -3,6 +3,71 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "attempt to negate a non-integer, non-float or non-vector type",
+        \\fn foo() anyerror!u32 {
+        \\    return 1;
+        \\}
+        \\
+        \\export fn entry() void {
+        \\    const x = -foo();
+        \\}
+    ,
+        "tmp.zig:6:15: error: negation of type 'anyerror!u32'",
+    );
+
+    cases.add(
+        "attempt to create 17 bit float type",
+        \\const builtin = @import("builtin");
+        \\comptime {
+        \\    _ = @Type(builtin.TypeInfo { .Float = builtin.TypeInfo.Float { .bits = 17 } });
+        \\}
+    ,
+        "tmp.zig:3:32: error: 17-bit float unsupported",
+    );
+
+    cases.add(
+        "wrong type for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(0);
+        \\}
+    ,
+        "tmp.zig:2:15: error: expected type 'builtin.TypeInfo', found 'comptime_int'",
+    );
+
+    cases.add(
+        "@Type with non-constant expression",
+        \\const builtin = @import("builtin");
+        \\var globalTypeInfo : builtin.TypeInfo = undefined;
+        \\export fn entry() void {
+        \\    _ = @Type(globalTypeInfo);
+        \\}
+    ,
+        "tmp.zig:4:15: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
+        "@Type with TypeInfo.Int",
+        \\const builtin = @import("builtin");
+        \\export fn entry() void {
+        \\    _ = @Type(builtin.TypeInfo.Int {
+        \\        .is_signed = true,
+        \\        .bits = 8,
+        \\    });
+        \\}
+    ,
+        "tmp.zig:3:36: error: expected type 'builtin.TypeInfo', found 'builtin.Int'",
+    );
+
+    cases.add(
+        "Struct unavailable for @Type",
+        \\export fn entry() void {
+        \\    _ = @Type(@typeInfo(struct { }));
+        \\}
+    ,
+        "tmp.zig:2:15: error: @Type not availble for 'TypeInfo.Struct'",
+    );
+
+    cases.add(
         "wrong type for result ptr to @asyncCall",
         \\export fn entry() void {
         \\    _ = async amain();
@@ -16,6 +81,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:6:37: error: expected type '*i32', found 'bool'",
+    );
+
+    cases.add(
+        "shift amount has to be an integer type",
+        \\export fn entry() void {
+        \\    const x = 1 << &u8(10);
+        \\}
+    ,
+        "tmp.zig:2:23: error: shift amount has to be an integer type, but found '*u8'",
+        "tmp.zig:2:17: note: referenced here",
+    );
+
+    cases.add(
+        "bit shifting only works on integer types",
+        \\export fn entry() void {
+        \\    const x = &u8(1) << 10;
+        \\}
+    ,
+        "tmp.zig:2:18: error: bit shifting operation expected integer type, found '*u8'",
+        "tmp.zig:2:22: note: referenced here",
     );
 
     cases.add(
@@ -6461,5 +6546,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:5:30: error: expression value is ignored",
         "tmp.zig:9:30: error: expression value is ignored",
+    );
+
+    cases.add(
+        "aligned variable of zero-bit type",
+        \\export fn f() void {
+        \\    var s: struct {} align(4) = undefined;
+        \\}
+    ,
+        "tmp.zig:2:5: error: variable 's' of zero-bit type 'struct:2:12' has no in-memory representation, it cannot be aligned",
+    );
+
+    cases.add(
+        "function returning opaque type",
+        \\const FooType = @OpaqueType();
+        \\export fn bar() !FooType {
+        \\    return error.InvalidValue;
+        \\}
+    ,
+        "tmp.zig:2:18: error: opaque return type 'FooType' not allowed",
+        "tmp.zig:1:1: note: declared here",
     );
 }

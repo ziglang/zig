@@ -86,18 +86,10 @@ pub const Loop = struct {
         };
     };
 
-    pub const IoMode = enum {
-        blocking,
-        evented,
-        mixed,
-    };
-    pub const io_mode: IoMode = if (@hasDecl(root, "io_mode")) root.io_mode else IoMode.blocking;
     var global_instance_state: Loop = undefined;
-    threadlocal var per_thread_instance: ?*Loop = null;
-    const default_instance: ?*Loop = switch (io_mode) {
+    const default_instance: ?*Loop = switch (std.io.mode) {
         .blocking => null,
         .evented => &global_instance_state,
-        .mixed => per_thread_instance,
     };
     pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
 
@@ -468,6 +460,10 @@ pub const Loop = struct {
             };
             try self.linuxAddFd(fd, &resume_node.base, flags);
         }
+    }
+
+    pub fn waitUntilFdReadable(self: *Loop, fd: os.fd_t) !void {
+        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLIN);
     }
 
     pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {

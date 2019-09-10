@@ -23,14 +23,18 @@ find_program(GIT_EXE NAMES git)
 if(GIT_EXE)
     execute_process(
         COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} name-rev HEAD --tags --name-only --no-undefined --always
+        RESULT_VARIABLE EXIT_STATUS
         OUTPUT_VARIABLE ZIG_GIT_REV
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(ZIG_GIT_REV MATCHES "\\^0$")
-        if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
-            message("WARNING: Tag does not match configured Zig version")
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(EXIT_STATUS EQUAL "0")
+        if(ZIG_GIT_REV MATCHES "\\^0$")
+            if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
+                message("WARNING: Tag does not match configured Zig version")
+            endif()
+        else()
+            set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
         endif()
-    else()
-        set(ZIG_VERSION "${ZIG_VERSION}+${ZIG_GIT_REV}")
     endif()
 endif()
 message("Configuring zig version ${ZIG_VERSION}")
@@ -448,6 +452,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stack_report.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
@@ -504,7 +509,7 @@ endif()
 if(MSVC)
     set(EXE_CFLAGS "${EXE_CFLAGS}")
 else()
-    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces")
     if(MINGW)
         set(EXE_CFLAGS "${EXE_CFLAGS} -Wno-format")
     endif()
@@ -515,6 +520,9 @@ set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
 set(EXE_LDFLAGS " ")
 if(MSVC)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} /STACK:16777216")
+    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Release" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+        set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
+    endif()
 elseif(MINGW) 
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -Wl,--stack,16777216")
 endif()
@@ -586,12 +594,18 @@ if(MSVC)
 else()
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
 endif()
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    set(LIBUSERLAND_RELEASE_MODE "false")
+else()
+    set(LIBUSERLAND_RELEASE_MODE "true")
+endif()
 add_custom_target(zig_build_libuserland ALL
     COMMAND zig0 build
         --override-std-dir std
         --override-lib-dir "${CMAKE_SOURCE_DIR}"
         libuserland install
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
+        "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
         "-Dlib-files-only"
         --prefix "${CMAKE_INSTALL_PREFIX}"
     DEPENDS zig0

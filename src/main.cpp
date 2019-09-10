@@ -16,6 +16,7 @@
 #include "libc_installation.hpp"
 #include "userland.h"
 #include "glibc.hpp"
+#include "stack_report.hpp"
 
 #include <stdio.h>
 
@@ -62,6 +63,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fPIC                        enable Position Independent Code\n"
         "  -fno-PIC                     disable Position Independent Code\n"
         "  -ftime-report                print timing diagnostics\n"
+        "  -fstack-report               print stack size diagnostics\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
@@ -101,6 +103,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --version-script [path]      provide a version .map file\n"
         "  --object [obj]               add object file to build\n"
         "  -L[dir]                      alias for --library-path\n"
+        "  -l[lib]                      alias for --library\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --subsystem [subsystem]      (windows) /SUBSYSTEM:<subsystem> to the linker\n"
@@ -475,6 +478,7 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
+    bool stack_report = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
@@ -663,6 +667,8 @@ int main(int argc, char **argv) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "-ftime-report") == 0) {
                 timing_info = true;
+            } else if (strcmp(arg, "-fstack-report") == 0) {
+                stack_report = true;
             } else if (strcmp(arg, "--enable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
@@ -688,6 +694,12 @@ int main(int argc, char **argv) {
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
+            } else if (arg[1] == 'l' && arg[2] != 0) {
+                // alias for --library
+                const char *l = &arg[2];
+                if (strcmp(l, "c") == 0)
+                    have_libc = true;
+                link_libs.append(l);
             } else if (arg[1] == 'F' && arg[2] != 0) {
                 framework_dirs.append(&arg[2]);
             } else if (strcmp(arg, "--pkg-begin") == 0) {
@@ -778,7 +790,7 @@ int main(int argc, char **argv) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "-F") == 0) {
                     framework_dirs.append(argv[i]);
-                } else if (strcmp(arg, "--library") == 0) {
+                } else if (strcmp(arg, "--library") == 0 || strcmp(arg, "-l") == 0) {
                     if (strcmp(argv[i], "c") == 0)
                         have_libc = true;
                     link_libs.append(argv[i]);
@@ -1129,6 +1141,7 @@ int main(int argc, char **argv) {
             g->subsystem = subsystem;
 
             g->enable_time_report = timing_info;
+            g->enable_stack_report = stack_report;
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
@@ -1216,6 +1229,8 @@ int main(int argc, char **argv) {
                 codegen_build_and_link(g);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
+                if (stack_report)
+                    zig_print_stack_report(g, stdout);
 
                 if (cmd == CmdRun) {
                     const char *exec_path = buf_ptr(&g->output_file_path);
@@ -1263,6 +1278,10 @@ int main(int argc, char **argv) {
 
                 if (timing_info) {
                     codegen_print_timing_report(g, stdout);
+                }
+
+                if (stack_report) {
+                    zig_print_stack_report(g, stdout);
                 }
 
                 Buf *test_exe_path_unresolved = &g->output_file_path;

@@ -22,7 +22,7 @@ using InstructionSet = HashMap<IrInstruction*, uint8_t, hash_instruction_ptr, in
 using InstructionList = ZigList<IrInstruction*>;
 
 struct IrPrint {
-    size_t pass_num;
+    IrPass pass;
     CodeGen *codegen;
     FILE *f;
     int indent;
@@ -280,6 +280,8 @@ static const char* ir_instruction_type_str(IrInstruction* instruction) {
             return "BitOffsetOf";
         case IrInstructionIdTypeInfo:
             return "TypeInfo";
+        case IrInstructionIdType:
+            return "Type";
         case IrInstructionIdHasField:
             return "HasField";
         case IrInstructionIdTypeId:
@@ -389,7 +391,7 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
 
 static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
     fprintf(irp->f, "#%" ZIG_PRI_usize "", instruction->debug_id);
-    if (irp->pass_num == 2 && irp->printed.maybe_get(instruction) == nullptr) {
+    if (irp->pass != IrPassSrc && irp->printed.maybe_get(instruction) == nullptr) {
         irp->printed.put(instruction, 0);
         irp->pending.append(instruction);
     }
@@ -529,7 +531,7 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
 
 static void ir_print_decl_var_src(IrPrint *irp, IrInstructionDeclVarSrc *decl_var_instruction) {
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
-    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    const char *name = decl_var_instruction->var->name;
     if (decl_var_instruction->var_type) {
         fprintf(irp->f, "%s %s: ", var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
@@ -606,8 +608,17 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
 }
 
 static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instruction) {
-    if (call_instruction->is_async) {
-        fprintf(irp->f, "async ");
+    switch (call_instruction->modifier) {
+        case CallModifierNone:
+            break;
+        case CallModifierAsync:
+            fprintf(irp->f, "async ");
+            break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
+        case CallModifierBuiltin:
+            zig_unreachable();
     }
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
@@ -627,8 +638,17 @@ static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instructi
 }
 
 static void ir_print_call_gen(IrPrint *irp, IrInstructionCallGen *call_instruction) {
-    if (call_instruction->is_async) {
-        fprintf(irp->f, "async ");
+    switch (call_instruction->modifier) {
+        case CallModifierNone:
+            break;
+        case CallModifierAsync:
+            fprintf(irp->f, "async ");
+            break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
+        case CallModifierBuiltin:
+            zig_unreachable();
     }
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
@@ -727,7 +747,7 @@ static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
 }
 
 static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {
-    fprintf(irp->f, "&%s", buf_ptr(&instruction->var->name));
+    fprintf(irp->f, "&%s", instruction->var->name);
 }
 
 static void ir_print_return_ptr(IrPrint *irp, IrInstructionReturnPtr *instruction) {
@@ -1627,6 +1647,12 @@ static void ir_print_type_info(IrPrint *irp, IrInstructionTypeInfo *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_type(IrPrint *irp, IrInstructionType *instruction) {
+    fprintf(irp->f, "@Type(");
+    ir_print_other_instruction(irp, instruction->type_info);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_has_field(IrPrint *irp, IrInstructionHasField *instruction) {
     fprintf(irp->f, "@hasField(");
     ir_print_other_instruction(irp, instruction->container_type);
@@ -1826,7 +1852,7 @@ static void ir_print_mul_add(IrPrint *irp, IrInstructionMulAdd *instruction) {
 static void ir_print_decl_var_gen(IrPrint *irp, IrInstructionDeclVarGen *decl_var_instruction) {
     ZigVar *var = decl_var_instruction->var;
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
-    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    const char *name = decl_var_instruction->var->name;
     fprintf(irp->f, "%s %s: %s align(%u) = ", var_or_const, name, buf_ptr(&var->var_type->name),
             var->align_bytes);
 
@@ -2258,6 +2284,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdTypeInfo:
             ir_print_type_info(irp, (IrInstructionTypeInfo *)instruction);
             break;
+        case IrInstructionIdType:
+            ir_print_type(irp, (IrInstructionType *)instruction);
+            break;
         case IrInstructionIdHasField:
             ir_print_has_field(irp, (IrInstructionHasField *)instruction);
             break;
@@ -2388,10 +2417,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
     fprintf(irp->f, "\n");
 }
 
-void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, size_t pass_num) {
+void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
-    irp->pass_num = pass_num;
+    irp->pass = pass;
     irp->codegen = codegen;
     irp->f = f;
     irp->indent = indent_size;
@@ -2405,7 +2434,7 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
         fprintf(irp->f, "%s_%" ZIG_PRI_usize ":\n", current_block->name_hint, current_block->debug_id);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
-            if (irp->pass_num == 2) {
+            if (irp->pass != IrPassSrc) {
                 irp->printed.put(instruction, 0);
                 irp->pending.clear();
             }
@@ -2419,10 +2448,10 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
     irp->printed.deinit();
 }
 
-void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size, size_t pass_num) {
+void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
-    irp->pass_num = pass_num;
+    irp->pass = pass;
     irp->codegen = codegen;
     irp->f = f;
     irp->indent = indent_size;

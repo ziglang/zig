@@ -1,5 +1,5 @@
-/* bits/xtitypes.h -- Define some types used by <bits/stropts.h>.  Generic.
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+/* Definition of the generic version of struct statx_timestamp.
+   Copyright (C) 2018-2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,18 +16,18 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
-#ifndef _STROPTS_H
-# error "Never include <bits/xtitypes.h> directly; use <stropts.h> instead."
+#ifndef _SYS_STAT_H
+# error Never include <bits/types/struct_statx_timestamp.h> directly, include <sys/stat.h> instead.
 #endif
 
-#ifndef _BITS_XTITYPES_H
-#define _BITS_XTITYPES_H	1
+#ifndef __statx_timestamp_defined
+#define __statx_timestamp_defined 1
 
-#include <bits/types.h>
+struct statx_timestamp
+{
+  __int64_t tv_sec;
+  __uint32_t tv_nsec;
+  __int32_t __statx_timestamp_pad1[1];
+};
 
-/* This type is used by some structs in <bits/stropts.h>.  */
-typedef __SLONGWORD_TYPE __t_scalar_t;
-typedef __ULONGWORD_TYPE __t_uscalar_t;
-
-
-#endif /* bits/xtitypes.h */
+#endif /* __statx_timestamp_defined */

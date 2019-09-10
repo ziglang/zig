@@ -57,6 +57,11 @@ static inline void buf_deinit(Buf *buf) {
     buf->list.deinit();
 }
 
+static inline void buf_destroy(Buf *buf) {
+    buf_deinit(buf);
+    free(buf);
+}
+
 static inline void buf_init_from_mem(Buf *buf, const char *ptr, size_t len) {
     assert(len != SIZE_MAX);
     buf->list.resize(len + 1);

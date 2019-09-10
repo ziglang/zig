@@ -6323,7 +6323,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       {#header_close#}
 
       {#header_close#}
-      {#header_open|Builtin Functions#}
+      {#header_open|Builtin Functions|3col#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
       The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
@@ -6976,10 +6976,28 @@ export fn @"A function name that is a complete sentence."() void {}
 
       {#header_open|@field#}
       <pre>{#syntax#}@field(lhs: var, comptime field_name: []const u8) (field){#endsyntax#}</pre>
-      <p>Preforms field access equivalent to {#syntax#}lhs.field_name{#endsyntax#}, except instead
-      of the field {#syntax#}"field_name"{#endsyntax#}, it accesses the field named by the string
-      value of {#syntax#}field_name{#endsyntax#}.
+      <p>Performs field access by a compile-time string.
       </p>
+       {#code_begin|test#}
+const std = @import("std");
+
+const Point = struct {
+    x: u32,
+    y: u32
+};
+
+test "field access by string" {
+    const assert = std.debug.assert;
+    var p = Point {.x = 0, .y = 0};
+
+    @field(p, "x") = 4;
+    @field(p, "y") = @field(p, "x") + 1;
+
+    assert(@field(p, "x") == 4);
+    assert(@field(p, "y") == 5);
+}
+      {#code_end#}
+
       {#header_close#}
 
       {#header_open|@fieldParentPtr#}
@@ -7231,6 +7249,9 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       <p>
       This function returns an integer type with the given signness and bit count. The maximum
       bit count for an integer type is {#syntax#}65535{#endsyntax#}.
+      </p>
+      <p>
+      Deprecated. Use {#link|@Type#}.
       </p>
       {#header_close#}
 
@@ -7869,6 +7890,57 @@ test "integer truncation" {
       If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
       then this is semantically equivalent to an {#link|implicit cast|Implicit Casts#}.
       </p>
+      {#header_close#}
+
+      {#header_open|@Type#}
+      <pre>{#syntax#}@Type(comptime info: @import("builtin").TypeInfo) type{#endsyntax#}</pre>
+      <p>
+      This function is the inverse of {#link|@typeInfo#}. It reifies type information
+      into a {#syntax#}type{#endsyntax#}.
+      </p>
+      <p>
+      It is available for the following types:
+      </p>
+      <ul>
+          <li>{#syntax#}type{#endsyntax#}</li>
+          <li>{#syntax#}noreturn{#endsyntax#}</li>
+          <li>{#syntax#}void{#endsyntax#}</li>
+          <li>{#syntax#}bool{#endsyntax#}</li>
+          <li>{#link|Integers#}</li> - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.
+          <li>{#link|Floats#}</li>
+          <li>{#link|Pointers#}</li>
+          <li>{#syntax#}comptime_int{#endsyntax#}</li>
+          <li>{#syntax#}comptime_float{#endsyntax#}</li>
+          <li>{#syntax#}@typeOf(undefined){#endsyntax#}</li>
+          <li>{#syntax#}@typeOf(null){#endsyntax#}</li>
+      </ul>
+      <p>
+      For these types it is a
+      <a href="https://github.com/ziglang/zig/issues/2907">TODO in the compiler to implement</a>:
+      </p>
+      <ul>
+          <li>Array</li>
+          <li>Optional</li>
+          <li>ErrorUnion</li>
+          <li>ErrorSet</li>
+          <li>Enum</li>
+          <li>Opaque</li>
+          <li>FnFrame</li>
+          <li>AnyFrame</li>
+          <li>Vector</li>
+          <li>EnumLiteral</li>
+      </ul>
+      <p>
+      For these types, {#syntax#}@Type{#endsyntax#} is not available.
+      <a href="https://github.com/ziglang/zig/issues/383">There is an open proposal to allow unions and structs</a>.
+      </p>
+      <ul>
+          <li>{#link|union#}</li>
+          <li>{#link|Functions#}</li>
+          <li>BoundFn</li>
+          <li>ArgTuple</li>
+          <li>{#link|struct#}</li>
+      </ul>
       {#header_close#}
 
       {#header_open|@typeId#}

@@ -17,6 +17,7 @@ pub const is_the_target = builtin.os == .linux;
 pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
+    .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     else => struct {},
 };
@@ -190,7 +191,11 @@ pub fn umount2(special: [*]const u8, flags: u32) usize {
 }
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: isize) usize {
-    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
+    if (@hasDecl(@This(), "SYS_mmap2")) {
+        return syscall6(SYS_mmap2, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, @divTrunc(offset, MMAP2_UNIT)));
+    } else {
+        return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @bitCast(usize, offset));
+    }
 }
 
 pub fn mprotect(address: [*]const u8, length: usize, protection: usize) usize {
@@ -206,11 +211,26 @@ pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
 }
 
 pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: u64) usize {
-    return syscall4(SYS_preadv, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return syscall5(
+        SYS_preadv,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+    );
 }
 
 pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: kernel_rwf) usize {
-    return syscall5(SYS_preadv2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
+    return syscall6(
+        SYS_preadv2,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+        flags,
+    );
 }
 
 pub fn readv(fd: i32, iov: [*]const iovec, count: usize) usize {
@@ -222,11 +242,26 @@ pub fn writev(fd: i32, iov: [*]const iovec_const, count: usize) usize {
 }
 
 pub fn pwritev(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64) usize {
-    return syscall4(SYS_pwritev, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset);
+    return syscall5(
+        SYS_pwritev,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+    );
 }
 
 pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, flags: kernel_rwf) usize {
-    return syscall5(SYS_pwritev2, @bitCast(usize, isize(fd)), @ptrToInt(iov), count, offset, flags);
+    return syscall6(
+        SYS_pwritev2,
+        @bitCast(usize, isize(fd)),
+        @ptrToInt(iov),
+        count,
+        @truncate(usize, offset),
+        @truncate(usize, offset >> 32),
+        flags,
+    );
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -482,67 +517,123 @@ pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
 }
 
 pub fn setuid(uid: u32) usize {
-    return syscall1(SYS_setuid, uid);
+    if (@hasDecl(@This(), "SYS_setuid32")) {
+        return syscall1(SYS_setuid32, uid);
+    } else {
+        return syscall1(SYS_setuid, uid);
+    }
 }
 
 pub fn setgid(gid: u32) usize {
-    return syscall1(SYS_setgid, gid);
+    if (@hasDecl(@This(), "SYS_setgid32")) {
+        return syscall1(SYS_setgid32, gid);
+    } else {
+        return syscall1(SYS_setgid, gid);
+    }
 }
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
-    return syscall2(SYS_setreuid, ruid, euid);
+    if (@hasDecl(@This(), "SYS_setreuid32")) {
+        return syscall2(SYS_setreuid32, ruid, euid);
+    } else {
+        return syscall2(SYS_setreuid, ruid, euid);
+    }
 }
 
 pub fn setregid(rgid: u32, egid: u32) usize {
-    return syscall2(SYS_setregid, rgid, egid);
+    if (@hasDecl(@This(), "SYS_setregid32")) {
+        return syscall2(SYS_setregid32, rgid, egid);
+    } else {
+        return syscall2(SYS_setregid, rgid, egid);
+    }
 }
 
 pub fn getuid() u32 {
-    return u32(syscall0(SYS_getuid));
+    if (@hasDecl(@This(), "SYS_getuid32")) {
+        return u32(syscall0(SYS_getuid32));
+    } else {
+        return u32(syscall0(SYS_getuid));
+    }
 }
 
 pub fn getgid() u32 {
-    return u32(syscall0(SYS_getgid));
+    if (@hasDecl(@This(), "SYS_getgid32")) {
+        return u32(syscall0(SYS_getgid32));
+    } else {
+        return u32(syscall0(SYS_getgid));
+    }
 }
 
 pub fn geteuid() u32 {
-    return u32(syscall0(SYS_geteuid));
+    if (@hasDecl(@This(), "SYS_geteuid32")) {
+        return u32(syscall0(SYS_geteuid32));
+    } else {
+        return u32(syscall0(SYS_geteuid));
+    }
 }
 
 pub fn getegid() u32 {
-    return u32(syscall0(SYS_getegid));
+    if (@hasDecl(@This(), "SYS_getegid32")) {
+        return u32(syscall0(SYS_getegid32));
+    } else {
+        return u32(syscall0(SYS_getegid));
+    }
 }
 
 pub fn seteuid(euid: u32) usize {
-    return syscall1(SYS_seteuid, euid);
+    return setreuid(std.math.maxInt(u32), euid);
 }
 
 pub fn setegid(egid: u32) usize {
-    return syscall1(SYS_setegid, egid);
+    return setregid(std.math.maxInt(u32), egid);
 }
 
 pub fn getresuid(ruid: *u32, euid: *u32, suid: *u32) usize {
-    return syscall3(SYS_getresuid, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    if (@hasDecl(@This(), "SYS_getresuid32")) {
+        return syscall3(SYS_getresuid32, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    } else {
+        return syscall3(SYS_getresuid, @ptrToInt(ruid), @ptrToInt(euid), @ptrToInt(suid));
+    }
 }
 
 pub fn getresgid(rgid: *u32, egid: *u32, sgid: *u32) usize {
-    return syscall3(SYS_getresgid, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    if (@hasDecl(@This(), "SYS_getresgid32")) {
+        return syscall3(SYS_getresgid32, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    } else {
+        return syscall3(SYS_getresgid, @ptrToInt(rgid), @ptrToInt(egid), @ptrToInt(sgid));
+    }
 }
 
 pub fn setresuid(ruid: u32, euid: u32, suid: u32) usize {
-    return syscall3(SYS_setresuid, ruid, euid, suid);
+    if (@hasDecl(@This(), "SYS_setresuid32")) {
+        return syscall3(SYS_setresuid32, ruid, euid, suid);
+    } else {
+        return syscall3(SYS_setresuid, ruid, euid, suid);
+    }
 }
 
 pub fn setresgid(rgid: u32, egid: u32, sgid: u32) usize {
-    return syscall3(SYS_setresgid, rgid, egid, sgid);
+    if (@hasDecl(@This(), "SYS_setresgid32")) {
+        return syscall3(SYS_setresgid32, rgid, egid, sgid);
+    } else {
+        return syscall3(SYS_setresgid, rgid, egid, sgid);
+    }
 }
 
 pub fn getgroups(size: usize, list: *u32) usize {
-    return syscall2(SYS_getgroups, size, @ptrToInt(list));
+    if (@hasDecl(@This(), "SYS_getgroups32")) {
+        return syscall2(SYS_getgroups32, size, @ptrToInt(list));
+    } else {
+        return syscall2(SYS_getgroups, size, @ptrToInt(list));
+    }
 }
 
 pub fn setgroups(size: usize, list: *const u32) usize {
-    return syscall2(SYS_setgroups, size, @ptrToInt(list));
+    if (@hasDecl(@This(), "SYS_setgroups32")) {
+        return syscall2(SYS_setgroups32, size, @ptrToInt(list));
+    } else {
+        return syscall2(SYS_setgroups, size, @ptrToInt(list));
+    }
 }
 
 pub fn getpid() i32 {
@@ -709,22 +800,38 @@ pub fn accept4(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t, flags:
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    return syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    if (@hasDecl(@This(), "SYS_fstat64")) {
+        return syscall2(SYS_fstat64, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    } else {
+        return syscall2(SYS_fstat, @bitCast(usize, isize(fd)), @ptrToInt(stat_buf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    if (@hasDecl(@This(), "SYS_stat64")) {
+        return syscall2(SYS_stat64, @ptrToInt(pathname), @ptrToInt(statbuf));
+    } else {
+        return syscall2(SYS_stat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
-    return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    if (@hasDecl(@This(), "SYS_lstat64")) {
+        return syscall2(SYS_lstat64, @ptrToInt(pathname), @ptrToInt(statbuf));
+    } else {
+        return syscall2(SYS_lstat, @ptrToInt(pathname), @ptrToInt(statbuf));
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
 pub fn fstatat(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32) usize {
-    return syscall4(SYS_fstatat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    if (@hasDecl(@This(), "SYS_fstatat64")) {
+        return syscall4(SYS_fstatat64, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    } else {
+        return syscall4(SYS_fstatat, @bitCast(usize, isize(dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
+    }
 }
 
 // TODO https://github.com/ziglang/zig/issues/265

@@ -63,7 +63,7 @@ pub fn build(b: *Builder) !void {
     try configureStage2(b, test_stage2, ctx);
     try configureStage2(b, exe, ctx);
 
-    addLibUserlandStep(b);
+    addLibUserlandStep(b, mode);
 
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -138,12 +138,13 @@ pub fn build(b: *Builder) !void {
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addGenHTests(b, test_filter));
+    test_step.dependOn(tests.addCompileErrorTests(b, test_filter, modes));
     test_step.dependOn(docs_step);
 }
 
@@ -369,11 +370,15 @@ const Context = struct {
     llvm: LibraryDep,
 };
 
-fn addLibUserlandStep(b: *Builder) void {
+fn addLibUserlandStep(b: *Builder, mode: builtin.Mode) void {
     const artifact = b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
     artifact.disable_gen_h = true;
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
+    artifact.setBuildMode(mode);
+    if (mode != .Debug) {
+        artifact.strip = true;
+    }
     artifact.linkSystemLibrary("c");
     if (builtin.os == .windows) {
         artifact.linkSystemLibrary("ntdll");

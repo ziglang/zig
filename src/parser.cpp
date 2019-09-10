@@ -113,7 +113,7 @@ static AstNode *ast_parse_multiply_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_op(ParseContext *pc);
 static AstNode *ast_parse_prefix_type_op(ParseContext *pc);
 static AstNode *ast_parse_suffix_op(ParseContext *pc);
-static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc);
+static AstNode *ast_parse_fn_call_arguments(ParseContext *pc);
 static AstNode *ast_parse_array_type_start(ParseContext *pc);
 static AstNode *ast_parse_ptr_type_start(ParseContext *pc);
 static AstNode *ast_parse_container_decl_auto(ParseContext *pc);
@@ -578,7 +578,7 @@ static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
 }
 
 // TopLevelDecl
-//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
 //      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
 //      / KEYWORD_use Expr SEMICOLON
 static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
@@ -587,12 +587,14 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
         first = eat_token_if(pc, TokenIdKeywordExtern);
     if (first == nullptr)
         first = eat_token_if(pc, TokenIdKeywordInline);
+    if (first == nullptr)
+        first = eat_token_if(pc, TokenIdKeywordNoInline);
     if (first != nullptr) {
         Token *lib_name = nullptr;
         if (first->id == TokenIdKeywordExtern)
             lib_name = eat_token_if(pc, TokenIdStringLiteral);
 
-        if (first->id != TokenIdKeywordInline) {
+        if (first->id != TokenIdKeywordInline && first->id != TokenIdKeywordNoInline) {
             Token *thread_local_kw = eat_token_if(pc, TokenIdKeywordThreadLocal);
             AstNode *var_decl = ast_parse_var_decl(pc);
             if (var_decl != nullptr) {
@@ -623,8 +625,19 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod) {
             fn_proto->data.fn_proto.visib_mod = visib_mod;
             fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
-            fn_proto->data.fn_proto.is_inline = first->id == TokenIdKeywordInline;
+            switch (first->id) {
+                case TokenIdKeywordInline:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineAlways;
+                    break;
+                case TokenIdKeywordNoInline:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineNever;
+                    break;
+                default:
+                    fn_proto->data.fn_proto.fn_inline = FnInlineAuto;
+                    break;
+            }
             fn_proto->data.fn_proto.lib_name = token_buf(lib_name);
+
             AstNode *res = fn_proto;
             if (body != nullptr) {
                 res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
@@ -1390,12 +1403,14 @@ static AstNode *ast_parse_error_union_expr(ParseContext *pc) {
 }
 
 // SuffixExpr
-//     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
+//     <- KEYWORD_async   PrimaryTypeExpr SuffixOp* FnCallArguments
+//      / KEYWORD_noasync PrimaryTypeExpr SuffixOp* FnCallArguments
 //      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
-    Token *async_token = eat_token_if(pc, TokenIdKeywordAsync);
-    if (async_token != nullptr) {
-        if (eat_token_if(pc, TokenIdKeywordFn) != nullptr) {
+    Token *async_token = eat_token(pc);
+    bool is_async = async_token->id == TokenIdKeywordAsync;
+    if (is_async || async_token->id == TokenIdKeywordNoAsync) {
+        if (is_async && eat_token_if(pc, TokenIdKeywordFn) != nullptr) {
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
@@ -1434,24 +1449,24 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
             child = suffix;
         }
 
-        // TODO: Both *_async_prefix and *_fn_call_argumnets returns an
+        // TODO: Both *_async_prefix and *_fn_call_arguments returns an
         //       AstNode *. All we really want here is the arguments of
         //       the call we parse. We therefor "leak" the node for now.
         //       Wait till we get async rework to fix this.
-        AstNode *args = ast_parse_fn_call_argumnets(pc);
+        AstNode *args = ast_parse_fn_call_arguments(pc);
         if (args == nullptr)
             ast_invalid_token_error(pc, peek_token(pc));
 
         assert(args->type == NodeTypeFnCallExpr);
 
         AstNode *res = ast_create_node(pc, NodeTypeFnCallExpr, async_token);
-        res->data.fn_call_expr.is_async = true;
+        res->data.fn_call_expr.modifier = is_async ? CallModifierAsync : CallModifierNoAsync;
         res->data.fn_call_expr.seen = false;
         res->data.fn_call_expr.fn_ref_expr = child;
         res->data.fn_call_expr.params = args->data.fn_call_expr.params;
-        res->data.fn_call_expr.is_builtin = false;
         return res;
     }
+    put_back_token(pc);
 
     AstNode *res = ast_parse_primary_type_expr(pc);
     if (res == nullptr)
@@ -1483,7 +1498,7 @@ static AstNode *ast_parse_suffix_expr(ParseContext *pc) {
             continue;
         }
 
-        AstNode * call = ast_parse_fn_call_argumnets(pc);
+        AstNode * call = ast_parse_fn_call_arguments(pc);
         if (call != nullptr) {
             assert(call->type == NodeTypeFnCallExpr);
             call->data.fn_call_expr.fn_ref_expr = res;
@@ -1539,7 +1554,7 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
             name = buf_create_from_str("export");
         }
 
-        AstNode *res = ast_expect(pc, ast_parse_fn_call_argumnets);
+        AstNode *res = ast_expect(pc, ast_parse_fn_call_arguments);
         AstNode *name_sym = ast_create_node(pc, NodeTypeSymbol, token);
         name_sym->data.symbol_expr.symbol = name;
 
@@ -1547,7 +1562,7 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         res->line = at_sign->start_line;
         res->column = at_sign->start_column;
         res->data.fn_call_expr.fn_ref_expr = name_sym;
-        res->data.fn_call_expr.is_builtin = true;
+        res->data.fn_call_expr.modifier = CallModifierBuiltin;
         return res;
     }
 
@@ -2659,7 +2674,7 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
 }
 
 // FnCallArguments <- LPAREN ExprList RPAREN
-static AstNode *ast_parse_fn_call_argumnets(ParseContext *pc) {
+static AstNode *ast_parse_fn_call_arguments(ParseContext *pc) {
     Token *paren = eat_token_if(pc, TokenIdLParen);
     if (paren == nullptr)
         return nullptr;

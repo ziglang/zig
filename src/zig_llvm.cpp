@@ -853,6 +853,7 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
 
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
+    unwrap(module)->addModuleFlag(Module::Warning, "Dwarf Version", 4);
 }
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {

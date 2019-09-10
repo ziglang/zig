@@ -96,6 +96,30 @@ static ScopeDecls **get_container_scope_ptr(ZigType *type_entry) {
     zig_unreachable();
 }
 
+static ScopeExpr *find_expr_scope(Scope *scope) {
+    for (;;) {
+        switch (scope->id) {
+            case ScopeIdExpr:
+                return reinterpret_cast<ScopeExpr *>(scope);
+            case ScopeIdDefer:
+            case ScopeIdDeferExpr:
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+            case ScopeIdCompTime:
+            case ScopeIdVarDecl:
+            case ScopeIdCImport:
+            case ScopeIdSuspend:
+            case ScopeIdTypeOf:
+            case ScopeIdBlock:
+                return nullptr;
+            case ScopeIdLoop:
+            case ScopeIdRuntime:
+                scope = scope->parent;
+                continue;
+        }
+    }
+}
+
 ScopeDecls *get_container_scope(ZigType *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
@@ -201,6 +225,20 @@ Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
     ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
     init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
     return &scope->base;
+}
+
+ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
+    ScopeExpr *scope = allocate<ScopeExpr>(1);
+    init_scope(g, &scope->base, ScopeIdExpr, node, parent);
+    ScopeExpr *parent_expr = find_expr_scope(parent);
+    if (parent_expr != nullptr) {
+        size_t new_len = parent_expr->children_len + 1;
+        parent_expr->children_ptr = reallocate_nonzero<ScopeExpr *>(
+                parent_expr->children_ptr, parent_expr->children_len, new_len);
+        parent_expr->children_ptr[parent_expr->children_len] = scope;
+        parent_expr->children_len = new_len;
+    }
+    return scope;
 }
 
 ZigType *get_scope_import(Scope *scope) {
@@ -1719,6 +1757,32 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         return g->builtin_types.entry_invalid;
     }
 
+    switch (specified_return_type->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdArgTuple:
+            add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+            return g->builtin_types.entry_invalid;
+
+        case ZigTypeIdOpaque:
+        {
+            ErrorMsg* msg = add_node_error(g, fn_proto->return_type,
+                buf_sprintf("opaque return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
+            Tld *tld = find_decl(g, &fn_entry->fndef_scope->base, &specified_return_type->name);
+            if (tld != nullptr) {
+                add_error_note(g, msg, tld->source_node, buf_sprintf("declared here"));
+            }
+            return g->builtin_types.entry_invalid;
+        }
+
+        default:
+            break;
+    }
+
     if (fn_proto->auto_err_set) {
         ZigType *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
         if ((err = type_resolve(g, specified_return_type, ResolveStatusSizeKnown)))
@@ -1744,15 +1808,11 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
     switch (fn_type_id.return_type->id) {
         case ZigTypeIdInvalid:
-            zig_unreachable();
-
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
-            return g->builtin_types.entry_invalid;
+            zig_unreachable();
 
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -2043,33 +2103,29 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
 
     // Resolve types for fields
-    if (!packed) {
-        for (size_t i = 0; i < field_count; i += 1) {
-            TypeStructField *field = &struct_type->data.structure.fields[i];
-            ZigType *field_type = resolve_struct_field_type(g, field);
-            if (field_type == nullptr) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
+    for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *field = &struct_type->data.structure.fields[i];
+        ZigType *field_type = resolve_struct_field_type(g, field);
+        if (field_type == nullptr) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return err;
+        }
 
-            if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
-            }
+        if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return err;
+        }
 
-            if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-                !type_allowed_in_extern(g, field_type))
-            {
-                add_node_error(g, field->decl_node,
-                        buf_sprintf("extern structs cannot contain fields of type '%s'",
-                            buf_ptr(&field_type->name)));
-                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return ErrorSemanticAnalyzeFail;
-            }
-
+        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
+            !type_allowed_in_extern(g, field_type))
+        {
+            add_node_error(g, field->decl_node,
+                    buf_sprintf("extern structs cannot contain fields of type '%s'",
+                        buf_ptr(&field_type->name)));
+            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+            return ErrorSemanticAnalyzeFail;
         }
     }
-
 
     return ErrorNone;
 }
@@ -2671,6 +2727,10 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         }
     }
 
+    if (!type_has_bits(struct_type)) {
+        assert(struct_type->abi_align == 0);
+    }
+
     struct_type->data.structure.resolve_loop_flag_other = false;
 
     if (struct_type->data.structure.resolve_status == ResolveStatusInvalid) {
@@ -3062,8 +3122,7 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    ZigFn *fn_entry = create_fn_raw(g, inline_value);
+    ZigFn *fn_entry = create_fn_raw(g, fn_proto->fn_inline);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -3111,26 +3170,26 @@ ZigType *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
-void add_var_export(CodeGen *g, ZigVar *var, Buf *symbol_name, GlobalLinkageId linkage) {
+void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLinkageId linkage) {
     GlobalExport *global_export = var->export_list.add_one();
     memset(global_export, 0, sizeof(GlobalExport));
-    buf_init_from_buf(&global_export->name, symbol_name);
+    buf_init_from_str(&global_export->name, symbol_name);
     global_export->linkage = linkage;
 }
 
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc) {
     if (ccc) {
-        if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
+        if (strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
             g->have_c_main = true;
-        } else if (buf_eql_str(symbol_name, "WinMain") &&
+        } else if (strcmp(symbol_name, "WinMain") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_winmain = true;
-        } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
+        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_winmain_crt_startup = true;
-        } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
+        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0 &&
             g->zig_target->os == OsWindows)
         {
             g->have_dllmain_crt_startup = true;
@@ -3139,7 +3198,7 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, Buf *symbol_name, GlobalLi
 
     GlobalExport *fn_export = fn_table_entry->export_list.add_one();
     memset(fn_export, 0, sizeof(GlobalExport));
-    buf_init_from_buf(&fn_export->name, symbol_name);
+    buf_init_from_str(&fn_export->name, symbol_name);
     fn_export->linkage = linkage;
 }
 
@@ -3163,7 +3222,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         if (fn_proto->is_export) {
             bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
-            add_fn_export(g, fn_table_entry, &fn_table_entry->symbol_name, GlobalLinkageIdStrong, ccc);
+            add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name), GlobalLinkageIdStrong, ccc);
         }
 
         if (!is_extern) {
@@ -3522,7 +3581,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
-    buf_init_from_buf(&variable_entry->name, name);
+    variable_entry->name = strdup(buf_ptr(name));
 
     if ((err = type_resolve(g, var_type, ResolveStatusAlignmentKnown))) {
         variable_entry->var_type = g->builtin_types.entry_invalid;
@@ -3670,7 +3729,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (is_export) {
-        add_var_export(g, tld_var->var, &tld_var->var->name, GlobalLinkageIdStrong);
+        add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
     }
 
     g->global_vars.append(tld_var);
@@ -3879,7 +3938,7 @@ ZigVar *find_variable(CodeGen *g, Scope *scope, Buf *name, ScopeFnDef **crossed_
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            if (buf_eql_buf(name, &var_scope->var->name)) {
+            if (buf_eql_str(name, var_scope->var->name)) {
                 if (crossed_fndef_scope != nullptr)
                     *crossed_fndef_scope = my_crossed_fndef_scope;
                 return var_scope->var;
@@ -4191,7 +4250,7 @@ bool fn_is_async(ZigFn *fn) {
     return fn->inferred_async_node != inferred_async_none;
 }
 
-static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
+void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
     assert(fn->inferred_async_node != nullptr);
     assert(fn->inferred_async_node != inferred_async_checking);
     assert(fn->inferred_async_node != inferred_async_none);
@@ -4215,7 +4274,7 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("await here is a suspend point"));
     } else if (fn->inferred_async_node->type == NodeTypeFnCallExpr &&
-        fn->inferred_async_node->data.fn_call_expr.is_builtin)
+        fn->inferred_async_node->data.fn_call_expr.modifier == CallModifierBuiltin)
     {
         add_error_note(g, msg, fn->inferred_async_node,
             buf_sprintf("@frame() causes function to be async"));
@@ -4229,33 +4288,44 @@ static void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn) {
 // ErrorIsAsync - yes async
 // ErrorSemanticAnalyzeFail - compile error emitted result is invalid
 static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode *call_node,
-        bool must_not_be_async)
+        bool must_not_be_async, CallModifier modifier)
 {
-    if (callee->type_entry->data.fn.fn_type_id.cc != CallingConventionUnspecified)
+    if (modifier == CallModifierNoAsync)
         return ErrorNone;
-    if (callee->anal_state == FnAnalStateReady) {
-        analyze_fn_body(g, callee);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            return ErrorSemanticAnalyzeFail;
-        }
+    bool callee_is_async = false;
+    switch (callee->type_entry->data.fn.fn_type_id.cc) {
+        case CallingConventionUnspecified:
+            break;
+        case CallingConventionAsync:
+            callee_is_async = true;
+            break;
+        default:
+            return ErrorNone;
     }
-    bool callee_is_async;
-    if (callee->anal_state == FnAnalStateComplete) {
-        analyze_fn_async(g, callee, true);
-        if (callee->anal_state == FnAnalStateInvalid) {
-            return ErrorSemanticAnalyzeFail;
+    if (!callee_is_async) {
+        if (callee->anal_state == FnAnalStateReady) {
+            analyze_fn_body(g, callee);
+            if (callee->anal_state == FnAnalStateInvalid) {
+                return ErrorSemanticAnalyzeFail;
+            }
         }
-        callee_is_async = fn_is_async(callee);
-    } else {
-        // If it's already been determined, use that value. Otherwise
-        // assume non-async, emit an error later if it turned out to be async.
-        if (callee->inferred_async_node == nullptr ||
-            callee->inferred_async_node == inferred_async_checking)
-        {
-            callee->assumed_non_async = call_node;
-            callee_is_async = false;
+        if (callee->anal_state == FnAnalStateComplete) {
+            analyze_fn_async(g, callee, true);
+            if (callee->anal_state == FnAnalStateInvalid) {
+                return ErrorSemanticAnalyzeFail;
+            }
+            callee_is_async = fn_is_async(callee);
         } else {
-            callee_is_async = callee->inferred_async_node != inferred_async_none;
+            // If it's already been determined, use that value. Otherwise
+            // assume non-async, emit an error later if it turned out to be async.
+            if (callee->inferred_async_node == nullptr ||
+                callee->inferred_async_node == inferred_async_checking)
+            {
+                callee->assumed_non_async = call_node;
+                callee_is_async = false;
+            } else {
+                callee_is_async = callee->inferred_async_node != inferred_async_none;
+            }
         }
     }
     if (callee_is_async) {
@@ -4313,7 +4383,9 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
             // TODO function pointer call here, could be anything
             continue;
         }
-        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async)) {
+        switch (analyze_callee_async(g, fn, call->fn_entry, call->base.source_node, must_not_be_async,
+                    call->modifier))
+        {
             case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
@@ -4330,7 +4402,11 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
-        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async)) {
+        // TODO If this is a noasync await, it doesn't count
+        // https://github.com/ziglang/zig/issues/3157
+        switch (analyze_callee_async(g, fn, await->target_fn, await->base.source_node, must_not_be_async,
+                    CallModifierNone))
+        {
             case ErrorSemanticAnalyzeFail:
                 fn->anal_state = FnAnalStateInvalid;
                 return;
@@ -4415,7 +4491,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
 
     if (g->verbose_ir) {
         fprintf(stderr, "fn %s() { // (analyzed)\n", buf_ptr(&fn->symbol_name));
-        ir_print(g, stderr, &fn->analyzed_executable, 4, 2);
+        ir_print(g, stderr, &fn->analyzed_executable, 4, IrPassGen);
         fprintf(stderr, "}\n");
     }
     fn->anal_state = FnAnalStateComplete;
@@ -4448,8 +4524,8 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
-        fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, 1);
+        fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
+        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, IrPassSrc);
         fprintf(stderr, "}\n");
     }
 
@@ -5638,6 +5714,83 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     return fn_type;
 }
 
+// Traverse up to the very top ExprScope, which has children.
+// We have just arrived at the top from a child. That child,
+// and its next siblings, do not need to be marked. But the previous
+// siblings do.
+//      x + (await y)
+// vs
+//      (await y) + x
+static void mark_suspension_point(Scope *scope) {
+    ScopeExpr *child_expr_scope = (scope->id == ScopeIdExpr) ? reinterpret_cast<ScopeExpr *>(scope) : nullptr;
+    bool looking_for_exprs = true;
+    for (;;) {
+        scope = scope->parent;
+        switch (scope->id) {
+            case ScopeIdDeferExpr:
+            case ScopeIdDecls:
+            case ScopeIdFnDef:
+            case ScopeIdCompTime:
+            case ScopeIdCImport:
+            case ScopeIdSuspend:
+            case ScopeIdTypeOf:
+                return;
+            case ScopeIdVarDecl:
+            case ScopeIdDefer:
+            case ScopeIdBlock:
+                looking_for_exprs = false;
+                continue;
+            case ScopeIdRuntime:
+                continue;
+            case ScopeIdLoop: {
+                ScopeLoop *loop_scope = reinterpret_cast<ScopeLoop *>(scope);
+                if (loop_scope->spill_scope != nullptr) {
+                    loop_scope->spill_scope->need_spill = MemoizedBoolTrue;
+                }
+                looking_for_exprs = false;
+                continue;
+            }
+            case ScopeIdExpr: {
+                if (!looking_for_exprs) {
+                    // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
+                    continue;
+                }
+                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
+                if (child_expr_scope != nullptr) {
+                    for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
+                        assert(i < parent_expr_scope->children_len);
+                        parent_expr_scope->children_ptr[i]->need_spill = MemoizedBoolTrue;
+                    }
+                }
+                parent_expr_scope->need_spill = MemoizedBoolTrue;
+                child_expr_scope = parent_expr_scope;
+                continue;
+            }
+        }
+    }
+}
+
+static bool scope_needs_spill(Scope *scope) {
+    ScopeExpr *scope_expr = find_expr_scope(scope);
+    if (scope_expr == nullptr) return false;
+
+    switch (scope_expr->need_spill) {
+        case MemoizedBoolUnknown:
+            if (scope_needs_spill(scope_expr->base.parent)) {
+                scope_expr->need_spill = MemoizedBoolTrue;
+                return true;
+            } else {
+                scope_expr->need_spill = MemoizedBoolFalse;
+                return false;
+            }
+        case MemoizedBoolFalse:
+            return false;
+        case MemoizedBoolTrue:
+            return true;
+    }
+    zig_unreachable();
+}
+
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     Error err;
 
@@ -5766,16 +5919,87 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         if (!fn_is_async(callee))
             continue;
 
-        IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
-        alloca_gen->base.id = IrInstructionIdAllocaGen;
-        alloca_gen->base.source_node = call->base.source_node;
-        alloca_gen->base.scope = call->base.scope;
-        alloca_gen->base.value.type = get_pointer_to_type(g, callee_frame_type, false);
-        alloca_gen->base.ref_count = 1;
-        alloca_gen->name_hint = "";
-        fn->alloca_gen_list.append(alloca_gen);
-        call->frame_result_loc = &alloca_gen->base;
+        mark_suspension_point(call->base.scope);
+
+        call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
+                callee_frame_type, "");
     }
+    // Since this frame is async, an await might represent a suspend point, and
+    // therefore need to spill. It also needs to mark expr scopes as having to spill.
+    // For example: foo() + await z
+    // The funtion call result of foo() must be spilled.
+    for (size_t i = 0; i < fn->await_list.length; i += 1) {
+        IrInstructionAwaitGen *await = fn->await_list.at(i);
+        // TODO If this is a noasync await, it doesn't suspend
+        // https://github.com/ziglang/zig/issues/3157
+        if (await->base.value.special != ConstValSpecialRuntime) {
+            // Known at comptime. No spill, no suspend.
+            continue;
+        }
+        if (await->target_fn != nullptr) {
+            // we might not need to suspend
+            analyze_fn_async(g, await->target_fn, false);
+            if (await->target_fn->anal_state == FnAnalStateInvalid) {
+                frame_type->data.frame.locals_struct = g->builtin_types.entry_invalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (!fn_is_async(await->target_fn)) {
+                // This await does not represent a suspend point. No spill needed,
+                // and no need to mark ExprScope.
+                continue;
+            }
+        }
+        // This await is a suspend point, but it might not need a spill.
+        // We do need to mark the ExprScope as having a suspend point in it.
+        mark_suspension_point(await->base.scope);
+
+        if (await->result_loc != nullptr) {
+            // If there's a result location, that is the spill
+            continue;
+        }
+        if (await->base.ref_count == 0)
+            continue;
+        if (!type_has_bits(await->base.value.type))
+            continue;
+        await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
+                await->base.value.type, "");
+    }
+    for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
+        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstructionIdSuspendFinish) {
+                mark_suspension_point(instruction->scope);
+            }
+        }
+    }
+    // Now that we've marked all the expr scopes that have to spill, we go over the instructions
+    // and spill the relevant ones.
+    for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
+        IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
+        for (size_t instr_i = 0; instr_i < block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = block->instruction_list.at(instr_i);
+            if (instruction->id == IrInstructionIdAwaitGen ||
+                instruction->id == IrInstructionIdVarPtr ||
+                instruction->id == IrInstructionIdDeclRef ||
+                instruction->id == IrInstructionIdAllocaGen)
+            {
+                // This instruction does its own spilling specially, or otherwise doesn't need it.
+                continue;
+            }
+            if (instruction->value.special != ConstValSpecialRuntime)
+                continue;
+            if (instruction->ref_count == 0)
+                continue;
+            if (!type_has_bits(instruction->value.type))
+                continue;
+            if (scope_needs_spill(instruction->scope)) {
+                instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
+                        fn, instruction->value.type, "");
+            }
+        }
+    }
+
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     ZigType *ptr_return_type = get_pointer_to_type(g, fn_type_id->return_type, false);
 
@@ -5858,6 +6082,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
     frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
     frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
+
+    if (g->largest_frame_fn == nullptr || frame_type->abi_size > g->largest_frame_fn->frame_type->abi_size) {
+        g->largest_frame_fn = fn;
+    }
+
     return ErrorNone;
 }
 
@@ -6216,9 +6445,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
 }
 
 static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
-    assert(type_entry->id == ZigTypeIdPointer);
-
-    if (type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
+    if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
         buf_append_buf(buf, &type_entry->name);
         return;
     }
@@ -7683,12 +7910,19 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveStatus wanted_resolve_status) {
     if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
 
+    bool packed = (union_type->data.unionation.layout == ContainerLayoutPacked);
+
     TypeUnionField *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
     uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
     if (gen_field_count == 0) {
-        union_type->llvm_type = get_llvm_type(g, tag_type);
-        union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        if (tag_type == nullptr) {
+            union_type->llvm_type = g->builtin_types.entry_void->llvm_type;
+            union_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+        } else {
+            union_type->llvm_type = get_llvm_type(g, tag_type);
+            union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
+        }
         union_type->data.unionation.resolve_status = ResolveStatusLLVMFull;
         return;
     }
@@ -7744,9 +7978,9 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
                 most_aligned_union_member->type_entry->llvm_type,
                 get_llvm_type(g, padding_array),
             };
-            LLVMStructSetBody(union_type->llvm_type, union_element_types, 2, false);
+            LLVMStructSetBody(union_type->llvm_type, union_element_types, 2, packed);
         } else {
-            LLVMStructSetBody(union_type->llvm_type, &most_aligned_union_member->type_entry->llvm_type, 1, false);
+            LLVMStructSetBody(union_type->llvm_type, &most_aligned_union_member->type_entry->llvm_type, 1, packed);
         }
         union_type->data.unionation.union_llvm_type = union_type->llvm_type;
         union_type->data.unionation.gen_tag_index = SIZE_MAX;
@@ -7785,7 +8019,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     LLVMTypeRef root_struct_element_types[2];
     root_struct_element_types[union_type->data.unionation.gen_tag_index] = get_llvm_type(g, tag_type);
     root_struct_element_types[union_type->data.unionation.gen_union_index] = union_type_ref;
-    LLVMStructSetBody(union_type->llvm_type, root_struct_element_types, 2, false);
+    LLVMStructSetBody(union_type->llvm_type, root_struct_element_types, 2, packed);
 
     // create debug type for union
     ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
@@ -8495,3 +8729,18 @@ void src_assert(bool ok, AstNode *source_node) {
     const char *msg = "assertion failed. This is a bug in the Zig compiler.";
     stage2_panic(msg, strlen(msg));
 }
+
+IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
+        ZigType *var_type, const char *name_hint)
+{
+    IrInstructionAllocaGen *alloca_gen = allocate<IrInstructionAllocaGen>(1);
+    alloca_gen->base.id = IrInstructionIdAllocaGen;
+    alloca_gen->base.source_node = source_node;
+    alloca_gen->base.scope = scope;
+    alloca_gen->base.value.type = get_pointer_to_type(g, var_type, false);
+    alloca_gen->base.ref_count = 1;
+    alloca_gen->name_hint = name_hint;
+    fn->alloca_gen_list.append(alloca_gen);
+    return &alloca_gen->base;
+}
+

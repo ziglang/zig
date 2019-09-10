@@ -307,7 +307,7 @@ const Node = union(enum) {
 const Toc = struct {
     nodes: []Node,
     toc: []u8,
-    urls: std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8),
+    urls: std.StringHashMap(Token),
 };
 
 const Action = enum {
@@ -316,11 +316,12 @@ const Action = enum {
 };
 
 fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
-    var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
+    var urls = std.StringHashMap(Token).init(allocator);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action = Action.Open;
+    var last_columns: ?u8 = null;
 
     var toc_buf = try std.Buffer.initSize(allocator, 0);
     defer toc_buf.deinit();
@@ -361,7 +362,23 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
                     const content = tokenizer.buffer[content_token.start..content_token.end];
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    var columns: ?u8 = null;
+                    while (true) {
+                        const bracket_tok = tokenizer.next();
+                        switch (bracket_tok.id) {
+                            .BracketClose => break,
+                            .Separator => continue,
+                            .TagContent => {
+                                const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
+                                if (mem.eql(u8, param, "3col")) {
+                                    columns = 3;
+                                } else {
+                                    return parseError(tokenizer, bracket_tok, "unrecognized header_open param: {}", param);
+                                }
+                            },
+                            else => return parseError(tokenizer, bracket_tok, "invalid header_open token"),
+                        }
+                    }
 
                     header_stack_size += 1;
 
@@ -381,10 +398,15 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     if (last_action == Action.Open) {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
-                        try toc.write("<ul>\n");
+                        if (last_columns) |n| {
+                            try toc.print("<ul style=\"columns: {}\">\n", n);
+                        } else {
+                            try toc.write("<ul>\n");
+                        }
                     } else {
                         last_action = Action.Open;
                     }
+                    last_columns = columns;
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
                     try toc.print("<li><a id=\"toc-{}\" href=\"#{}\">{}</a>", urlized, urlized, content);
                 } else if (mem.eql(u8, tag_name, "header_close")) {
@@ -766,6 +788,8 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_inline,
             .Keyword_nakedcc,
             .Keyword_noalias,
+            .Keyword_noasync,
+            .Keyword_noinline,
             .Keyword_or,
             .Keyword_orelse,
             .Keyword_packed,
