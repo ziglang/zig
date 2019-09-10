@@ -6,7 +6,6 @@ pub const Locked = @import("event/locked.zig").Locked;
 pub const RwLock = @import("event/rwlock.zig").RwLock;
 pub const RwLocked = @import("event/rwlocked.zig").RwLocked;
 pub const Loop = @import("event/loop.zig").Loop;
-pub const io = @import("event/io.zig");
 pub const fs = @import("event/fs.zig");
 pub const net = @import("event/net.zig");
 
@@ -15,7 +14,6 @@ test "import event tests" {
     _ = @import("event/fs.zig");
     _ = @import("event/future.zig");
     _ = @import("event/group.zig");
-    _ = @import("event/io.zig");
     _ = @import("event/lock.zig");
     _ = @import("event/locked.zig");
     _ = @import("event/rwlock.zig");

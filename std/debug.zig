@@ -330,14 +330,16 @@ pub fn writeCurrentStackTraceWindows(
     }
 }
 
+/// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
+/// make this `noasync fn` and remove the individual noasync calls.
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
     if (windows.is_the_target) {
-        return printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
+        return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
     }
     if (os.darwin.is_the_target) {
-        return printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
+        return noasync printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
     }
-    return printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
+    return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
 }
 
 fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_address: usize, tty_color: bool) !void {
@@ -793,7 +795,7 @@ fn printLineInfo(
                 try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
             }
         } else |err| switch (err) {
-            error.EndOfFile, error.FileNotFound  => {},
+            error.EndOfFile, error.FileNotFound => {},
             else => return err,
         }
     } else {
@@ -816,16 +818,18 @@ pub const OpenSelfDebugInfoError = error{
     UnsupportedOperatingSystem,
 };
 
+/// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
+/// make this `noasync fn` and remove the individual noasync calls.
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (builtin.strip_debug_info)
         return error.MissingDebugInfo;
     if (windows.is_the_target) {
-        return openSelfDebugInfoWindows(allocator);
+        return noasync openSelfDebugInfoWindows(allocator);
     }
     if (os.darwin.is_the_target) {
-        return openSelfDebugInfoMacOs(allocator);
+        return noasync openSelfDebugInfoMacOs(allocator);
     }
-    return openSelfDebugInfoPosix(allocator);
+    return noasync openSelfDebugInfoPosix(allocator);
 }
 
 fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
@@ -1508,15 +1512,25 @@ fn parseFormValueBlock(allocator: *mem.Allocator, in_stream: var, size: usize) !
 }
 
 fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: bool, comptime size: i32) !FormValue {
+    // TODO: Please forgive me, I've worked around zig not properly spilling some intermediate values here.
+    // `noasync` should be removed from all the function calls once it is fixed.
     return FormValue{
         .Const = Constant{
             .signed = signed,
             .payload = switch (size) {
-                1 => try in_stream.readIntLittle(u8),
-                2 => try in_stream.readIntLittle(u16),
-                4 => try in_stream.readIntLittle(u32),
-                8 => try in_stream.readIntLittle(u64),
-                -1 => if (signed) @bitCast(u64, try leb.readILEB128(i64, in_stream)) else try leb.readULEB128(u64, in_stream),
+                1 => try noasync in_stream.readIntLittle(u8),
+                2 => try noasync in_stream.readIntLittle(u16),
+                4 => try noasync in_stream.readIntLittle(u32),
+                8 => try noasync in_stream.readIntLittle(u64),
+                -1 => blk: {
+                    if (signed) {
+                        const x = try noasync leb.readILEB128(i64, in_stream);
+                        break :blk @bitCast(u64, x);
+                    } else {
+                        const x = try noasync leb.readULEB128(u64, in_stream);
+                        break :blk x;
+                    }
+                },
                 else => @compileError("Invalid size"),
             },
         },
@@ -1584,7 +1598,10 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = try leb.readULEB128(u64, in_stream);
-            return parseFormValue(allocator, in_stream, child_form_id, is_64);
+            const F = @typeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
+            var frame = try allocator.create(F);
+            defer allocator.destroy(frame);
+            return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, is_64);
         },
         else => error.InvalidDebugInfo,
     };

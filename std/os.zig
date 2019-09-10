@@ -254,13 +254,18 @@ pub const ReadError = error{
     IsDir,
     OperationAborted,
     BrokenPipe,
+
+    /// This error occurs when no global event loop is configured,
+    /// and reading from the file descriptor would block.
+    WouldBlock,
+
     Unexpected,
 };
 
 /// Returns the number of bytes that were read, which can be less than
 /// buf.len. If 0 bytes were read, that means EOF.
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `readAsync`.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (windows.is_the_target) {
         return windows.ReadFile(fd, buf);
@@ -279,28 +284,19 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
         }
     }
 
-    // Linux can return EINVAL when read amount is > 0x7ffff000
-    // See https://github.com/ziglang/zig/pull/743#issuecomment-363158274
-    // TODO audit this. Shawn Landden says that this is not actually true.
-    // if this logic should stay, move it to std.os.linux
-    const max_buf_len = 0x7ffff000;
-
-    var index: usize = 0;
-    while (index < buf.len) {
-        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
-        const rc = system.read(fd, buf.ptr + index, want_to_read);
+    while (true) {
+        const rc = system.read(fd, buf.ptr, buf.len);
         switch (errno(rc)) {
-            0 => {
-                const amt_read = @intCast(usize, rc);
-                index += amt_read;
-                if (amt_read == want_to_read) continue;
-                // Read returned less than buf.len.
-                return index;
-            },
+            0 => return @intCast(usize, rc),
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => unreachable, // This function is for blocking reads.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(fd) catch return error.WouldBlock;
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // Always a race condition.
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -313,8 +309,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `preadvAsync`.
+/// This function is for blocking file descriptors only.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
     if (darwin.is_the_target) {
         // Darwin does not have preadv but it does have pread.
@@ -386,8 +381,7 @@ pub const WriteError = error{
 };
 
 /// Write to a file descriptor. Keeps trying if it gets interrupted.
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `writeAsync`.
+/// This function is for blocking file descriptors only.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     if (windows.is_the_target) {
         return windows.WriteFile(fd, bytes);

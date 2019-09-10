@@ -5737,11 +5737,19 @@ static void mark_suspension_point(Scope *scope) {
                 return;
             case ScopeIdVarDecl:
             case ScopeIdDefer:
+            case ScopeIdBlock:
                 looking_for_exprs = false;
                 continue;
-            case ScopeIdLoop:
             case ScopeIdRuntime:
                 continue;
+            case ScopeIdLoop: {
+                ScopeLoop *loop_scope = reinterpret_cast<ScopeLoop *>(scope);
+                if (loop_scope->spill_scope != nullptr) {
+                    loop_scope->spill_scope->need_spill = MemoizedBoolTrue;
+                }
+                looking_for_exprs = false;
+                continue;
+            }
             case ScopeIdExpr: {
                 if (!looking_for_exprs) {
                     // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
@@ -5758,14 +5766,6 @@ static void mark_suspension_point(Scope *scope) {
                 child_expr_scope = parent_expr_scope;
                 continue;
             }
-            case ScopeIdBlock:
-                if (scope->parent->parent->id == ScopeIdLoop) {
-                    ScopeLoop *loop_scope = reinterpret_cast<ScopeLoop *>(scope->parent->parent);
-                    if (loop_scope->spill_scope != nullptr) {
-                        loop_scope->spill_scope->need_spill = MemoizedBoolTrue;
-                    }
-                }
-                return;
         }
     }
 }
@@ -6082,6 +6082,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     frame_type->abi_size = frame_type->data.frame.locals_struct->abi_size;
     frame_type->abi_align = frame_type->data.frame.locals_struct->abi_align;
     frame_type->size_in_bits = frame_type->data.frame.locals_struct->size_in_bits;
+
+    if (g->largest_frame_fn == nullptr || frame_type->abi_size > g->largest_frame_fn->frame_type->abi_size) {
+        g->largest_frame_fn = fn;
+    }
+
     return ErrorNone;
 }
 
