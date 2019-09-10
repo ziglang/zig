@@ -57,9 +57,6 @@
    2.6.27.  */
 #define __ASSUME_IN_NONBLOCK	1
 
-/* Support for the FUTEX_CLOCK_REALTIME flag was added in 2.6.29.  */
-#define __ASSUME_FUTEX_CLOCK_REALTIME	1
-
 /* Support for preadv and pwritev was added in 2.6.30.  */
 #define __ASSUME_PREADV	1
 #define __ASSUME_PWRITEV	1
@@ -101,10 +98,6 @@
 
 #if __LINUX_KERNEL_VERSION >= 0x040400
 # define __ASSUME_MLOCK2 1
-#endif
-
-#if __LINUX_KERNEL_VERSION >= 0x040500
-# define __ASSUME_COPY_FILE_RANGE 1
 #endif
 
 /* Support for statx was added in kernel 4.11.  */

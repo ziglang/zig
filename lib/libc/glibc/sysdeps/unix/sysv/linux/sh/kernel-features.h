@@ -49,10 +49,11 @@
 # undef __ASSUME_RENAMEAT2
 # undef __ASSUME_EXECVEAT
 # undef __ASSUME_MLOCK2
-# undef __ASSUME_COPY_FILE_RANGE
 #endif
 
-/* sh does not support the statx system call.  */
-#undef __ASSUME_STATX
+/* sh does not support the statx system call before 5.1.  */
+#if __LINUX_KERNEL_VERSION < 0x050100
+# undef __ASSUME_STATX
+#endif
 
 #endif

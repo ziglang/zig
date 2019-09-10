@@ -1776,6 +1776,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lgcc_s");
                 lj->args.append("--no-as-needed");
             }
+
+            if (g->zig_target->os == OsFreeBSD) {
+                lj->args.append("-lpthread");
+            }
         } else if (target_is_glibc(g->zig_target)) {
             if (target_supports_libunwind(g->zig_target)) {
                 lj->args.append(build_libunwind(g));

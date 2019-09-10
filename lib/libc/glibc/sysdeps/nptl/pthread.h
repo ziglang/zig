@@ -770,6 +770,13 @@ extern int pthread_mutex_timedlock (pthread_mutex_t *__restrict __mutex,
 				    __abstime) __THROWNL __nonnull ((1, 2));
 #endif
 
+#ifdef __USE_GNU
+extern int pthread_mutex_clocklock (pthread_mutex_t *__restrict __mutex,
+				    clockid_t __clockid,
+				    const struct timespec *__restrict
+				    __abstime) __THROWNL __nonnull ((1, 3));
+#endif
+
 /* Unlock a mutex.  */
 extern int pthread_mutex_unlock (pthread_mutex_t *__mutex)
      __THROWNL __nonnull ((1));
@@ -909,6 +916,13 @@ extern int pthread_rwlock_timedrdlock (pthread_rwlock_t *__restrict __rwlock,
 				       __abstime) __THROWNL __nonnull ((1, 2));
 # endif
 
+# ifdef __USE_GNU
+extern int pthread_rwlock_clockrdlock (pthread_rwlock_t *__restrict __rwlock,
+				       clockid_t __clockid,
+				       const struct timespec *__restrict
+				       __abstime) __THROWNL __nonnull ((1, 3));
+# endif
+
 /* Acquire write lock for RWLOCK.  */
 extern int pthread_rwlock_wrlock (pthread_rwlock_t *__rwlock)
      __THROWNL __nonnull ((1));
@@ -922,6 +936,13 @@ extern int pthread_rwlock_trywrlock (pthread_rwlock_t *__rwlock)
 extern int pthread_rwlock_timedwrlock (pthread_rwlock_t *__restrict __rwlock,
 				       const struct timespec *__restrict
 				       __abstime) __THROWNL __nonnull ((1, 2));
+# endif
+
+# ifdef __USE_GNU
+extern int pthread_rwlock_clockwrlock (pthread_rwlock_t *__restrict __rwlock,
+				       clockid_t __clockid,
+				       const struct timespec *__restrict
+				       __abstime) __THROWNL __nonnull ((1, 3));
 # endif
 
 /* Unlock RWLOCK.  */
@@ -1002,6 +1023,21 @@ extern int pthread_cond_timedwait (pthread_cond_t *__restrict __cond,
 				   pthread_mutex_t *__restrict __mutex,
 				   const struct timespec *__restrict __abstime)
      __nonnull ((1, 2, 3));
+
+# ifdef __USE_GNU
+/* Wait for condition variable COND to be signaled or broadcast until
+   ABSTIME measured by the specified clock. MUTEX is assumed to be
+   locked before. CLOCK is the clock to use. ABSTIME is an absolute
+   time specification against CLOCK's epoch.
+
+   This function is a cancellation point and therefore not marked with
+   __THROW. */
+extern int pthread_cond_clockwait (pthread_cond_t *__restrict __cond,
+				   pthread_mutex_t *__restrict __mutex,
+				   __clockid_t __clock_id,
+				   const struct timespec *__restrict __abstime)
+     __nonnull ((1, 2, 4));
+# endif
 
 /* Functions for handling condition variable attributes.  */
 

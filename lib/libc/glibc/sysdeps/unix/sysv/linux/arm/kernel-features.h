@@ -45,7 +45,6 @@
    present in 32-bit kernels from 4.4 and 4.5 respectively.  */
 #if __LINUX_KERNEL_VERSION < 0x040700
 # undef __ASSUME_MLOCK2
-# undef __ASSUME_COPY_FILE_RANGE
 #endif
 
 #undef __ASSUME_CLONE_DEFAULT

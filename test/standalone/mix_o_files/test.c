@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stdint.h>
 
 extern int *x_ptr;
 
