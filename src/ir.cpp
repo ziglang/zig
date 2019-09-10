@@ -21383,15 +21383,20 @@ static IrInstruction *ir_analyze_instruction_c_define(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    Buf *define_value = ir_resolve_str(ira, value);
-    if (!define_value)
-        return ira->codegen->invalid_instruction;
+    Buf *define_value = nullptr;
+    // The second parameter is either a string or void (equivalent to "")
+    if (value->value.type->id != ZigTypeIdVoid) {
+        define_value = ir_resolve_str(ira, value);
+        if (!define_value)
+            return ira->codegen->invalid_instruction;
+    }
 
     Buf *c_import_buf = exec_c_import_buf(ira->new_irb.exec);
     // We check for this error in pass1
     assert(c_import_buf);
 
-    buf_appendf(c_import_buf, "#define %s %s\n", buf_ptr(define_name), buf_ptr(define_value));
+    buf_appendf(c_import_buf, "#define %s %s\n", buf_ptr(define_name),
+        define_value ? buf_ptr(define_value) : "");
 
     return ir_const_void(ira, &instruction->base);
 }
