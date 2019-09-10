@@ -36,6 +36,20 @@ static int compare_type_abi_sizes_desc(const void *a, const void *b) {
     return 0;
 }
 
+static void start_child(FILE *f, size_t indent) {
+    fprintf(f, "\n");
+    for (size_t i = 0; i < indent; i += 1) {
+        fprintf(f, " ");
+    }
+}
+
+static void start_peer(FILE *f, size_t indent) {
+    fprintf(f, ",\n");
+    for (size_t i = 0; i < indent; i += 1) {
+        fprintf(f, " ");
+    }
+}
+
 static void tree_print_struct(FILE *f, ZigType *struct_type, size_t indent) {
     ZigList<ZigType *> children = {};
     uint64_t sum_from_fields = 0;
@@ -45,34 +59,63 @@ static void tree_print_struct(FILE *f, ZigType *struct_type, size_t indent) {
         sum_from_fields += field->type_entry->abi_size;
     }
     qsort(children.items, children.length, sizeof(ZigType *), compare_type_abi_sizes_desc);
-    fprintf(f, " (padding = %" ZIG_PRI_u64 ")\n", struct_type->abi_size - sum_from_fields);
+
+    start_peer(f, indent);
+    fprintf(f, "\"padding\": \"%" ZIG_PRI_u64 "\"", struct_type->abi_size - sum_from_fields);
+
+    start_peer(f, indent);
+    fprintf(f, "\"fields\": [");
+
     for (size_t i = 0; i < children.length; i += 1) {
+        if (i == 0) {
+            start_child(f, indent + 1);
+        } else {
+            start_peer(f, indent + 1);
+        }
+        fprintf(f, "{");
+
         ZigType *child_type = children.at(i);
-        tree_print(f, child_type, indent + 1);
+        tree_print(f, child_type, indent + 2);
+
+        start_child(f, indent + 1);
+        fprintf(f, "}");
     }
+
+    start_child(f, indent);
+    fprintf(f, "]");
 }
 
 static void tree_print(FILE *f, ZigType *ty, size_t indent) {
-    for (size_t i = 0; i < indent; i += 1) {
-        fprintf(f, " ");
-    }
-    fprintf(f, "%s: ", buf_ptr(&ty->name));
+    start_child(f, indent);
+    fprintf(f, "\"type\": \"%s\"", buf_ptr(&ty->name));
+
+    start_peer(f, indent);
+    fprintf(f, "\"sizef\": \"");
     pretty_print_bytes(f, ty->abi_size);
+    fprintf(f, "\"");
+
+    start_peer(f, indent);
+    fprintf(f, "\"size\": \"%" ZIG_PRI_u64 "\"", ty->abi_size);
+
     switch (ty->id) {
         case ZigTypeIdFnFrame:
             return tree_print_struct(f, ty->data.frame.locals_struct, indent);
         case ZigTypeIdStruct:
             return tree_print_struct(f, ty, indent);
         default:
-            fprintf(f, "\n");
+            start_child(f, indent);
             return;
     }
 }
 
 void zig_print_stack_report(CodeGen *g, FILE *f) {
     if (g->largest_frame_fn == nullptr) {
-        fprintf(f, "No async function frames in entire compilation.\n");
+        fprintf(f, "{\"error\": \"No async function frames in entire compilation.\"}\n");
         return;
     }
-    tree_print(f, g->largest_frame_fn->frame_type, 0);
+    fprintf(f, "{");
+    tree_print(f, g->largest_frame_fn->frame_type, 1);
+
+    start_child(f, 0);
+    fprintf(f, "}\n");
 }
