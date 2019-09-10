@@ -21,6 +21,7 @@
 
 #ifdef USE_STAP_PROBE
 
+# include <stap-probe-machine.h>
 # include <sys/sdt.h>
 
 /* Our code uses one macro LIBC_PROBE (name, n, arg1, ..., argn).
@@ -59,11 +60,11 @@
 /* Evaluate all the arguments and verify that N matches their number.  */
 #  define LIBC_PROBE(name, n, ...) STAP_PROBE##n (__VA_ARGS__)
 
-#  define STAP_PROBE0()
-#  define STAP_PROBE1(a1)
-#  define STAP_PROBE2(a1, a2)
-#  define STAP_PROBE3(a1, a2, a3)
-#  define STAP_PROBE4(a1, a2, a3, a4)
+#  define STAP_PROBE0()				do {} while (0)
+#  define STAP_PROBE1(a1)			do {} while (0)
+#  define STAP_PROBE2(a1, a2)			do {} while (0)
+#  define STAP_PROBE3(a1, a2, a3)		do {} while (0)
+#  define STAP_PROBE4(a1, a2, a3, a4)		do {} while (0)
 
 # else
 #  define LIBC_PROBE(name, n, ...)		/* Nothing.  */

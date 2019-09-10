@@ -218,8 +218,8 @@ struct stat64
 #define S_IMMAP0	000100000000
 
 /* ALL the unused bits.  */
-#define	S_ISPARE	(~(S_IFMT|S_ITRANS|S_INOCACHE|S_IMMAP0|    \
-			   S_IUSEUNK|S_IUNKNOWN|07777))
+#define	S_ISPARE	(~(S_IFMT|S_ITRANS|S_INOCACHE|S_IMMAP0    \
+			   |S_IUSEUNK|S_IUNKNOWN|07777))
 #endif
 
 #ifdef	__USE_MISC

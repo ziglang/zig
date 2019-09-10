@@ -32,7 +32,7 @@
 #define	ENTRY(name)							      \
   .globl C_SYMBOL_NAME(name);						      \
   .type C_SYMBOL_NAME(name),@function;					      \
-  .align ALIGNARG(2);							      \
+  .align ALIGNARG(4);							      \
   C_LABEL(name)								      \
   cfi_startproc;							      \
   CALL_MCOUNT

@@ -51,7 +51,9 @@
  * Some syscalls no Linux program should know about:
  */
 #define __NR_osf_sigprocmask	 48
-#define __NR_osf_shmat		209
+#ifndef __NR_osf_shmat
+# define __NR_osf_shmat		209
+#endif
 #define __NR_osf_getsysinfo	256
 #define __NR_osf_setsysinfo	257
 

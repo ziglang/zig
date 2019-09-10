@@ -255,9 +255,9 @@
 #endif	/* __ASSEMBLER__ */
 
 /* Pointer mangling is supported for AArch64.  */
-#if (IS_IN (rtld) || \
-     (!defined SHARED && (IS_IN (libc) \
-			  || IS_IN (libpthread))))
+#if (IS_IN (rtld) \
+     || (!defined SHARED && (IS_IN (libc) \
+			     || IS_IN (libpthread))))
 # ifdef __ASSEMBLER__
 /* Note, dst, src, guard, and tmp are all register numbers rather than
    register names so they will work with both ILP32 and LP64. */

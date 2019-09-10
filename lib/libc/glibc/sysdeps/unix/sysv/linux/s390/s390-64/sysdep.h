@@ -239,9 +239,9 @@
 
 #undef INTERNAL_SYSCALL
 #define INTERNAL_SYSCALL(name, err, nr, args...)			      \
-  (((__NR_##name) < 256) ?						      \
-    INTERNAL_SYSCALL_DIRECT(name, err, nr, args) :			      \
-    INTERNAL_SYSCALL_SVC0(name, err,nr, args))
+  (((__NR_##name) < 256)						      \
+   ? INTERNAL_SYSCALL_DIRECT(name, err, nr, args)			      \
+   : INTERNAL_SYSCALL_SVC0(name, err,nr, args))
 
 #undef INTERNAL_SYSCALL_ERROR_P
 #define INTERNAL_SYSCALL_ERROR_P(val, err)				      \

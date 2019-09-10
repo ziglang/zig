@@ -60,11 +60,6 @@
 # undef __ASSUME_MLOCK2
 #endif
 
-/* Support for the copy_file_range syscall was added in 4.10.  */
-#if __LINUX_KERNEL_VERSION < 0x040A00
-# undef __ASSUME_COPY_FILE_RANGE
-#endif
-
 /* Support for statx was added in kernel 4.12.  */
 #if __LINUX_KERNEL_VERSION < 0X040C00
 # undef __ASSUME_STATX

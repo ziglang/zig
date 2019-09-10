@@ -11,8 +11,8 @@ asm ("memcpy = __GI_memcpy");
    __stack_chk_fail itself is a global symbol, exported from libc.so,
    and cannot be made hidden.  */
 
-# if IS_IN (libc) && defined SHARED && \
-  defined STACK_PROTECTOR_LEVEL && STACK_PROTECTOR_LEVEL > 0
+# if IS_IN (libc) && defined SHARED \
+  && defined STACK_PROTECTOR_LEVEL && STACK_PROTECTOR_LEVEL > 0
 asm (".hidden __stack_chk_fail_local\n"
      "__stack_chk_fail = __stack_chk_fail_local");
 # endif

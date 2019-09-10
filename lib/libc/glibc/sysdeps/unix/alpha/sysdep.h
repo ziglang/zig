@@ -200,7 +200,7 @@ __LABEL(name)						\
    no matter what the "real" sign of the 32-bit type.  We want to
    preserve that when filling in values for the kernel.  */
 #define syscall_promote(arg) \
-  (sizeof(arg) == 4 ? (long)(int)(long)(arg) : (long)(arg))
+  (sizeof (arg) == 4 ? (long)(int)(long)(arg) : (long)(arg))
 
 /* Make sure and "use" the variable that we're not returning,
    in order to suppress unused variable warnings.  */

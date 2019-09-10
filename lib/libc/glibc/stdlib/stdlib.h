@@ -536,10 +536,11 @@ extern int lcong48_r (unsigned short int __param[7],
 #endif	/* Use misc or X/Open.  */
 
 /* Allocate SIZE bytes of memory.  */
-extern void *malloc (size_t __size) __THROW __attribute_malloc__ __wur;
+extern void *malloc (size_t __size) __THROW __attribute_malloc__
+     __attribute_alloc_size__ ((1)) __wur;
 /* Allocate NMEMB elements of SIZE bytes each, all initialized to 0.  */
 extern void *calloc (size_t __nmemb, size_t __size)
-     __THROW __attribute_malloc__ __wur;
+     __THROW __attribute_malloc__ __attribute_alloc_size__ ((1, 2)) __wur;
 
 /* Re-allocate the previously allocated block
    in PTR, making the new block SIZE bytes long.  */
@@ -547,7 +548,7 @@ extern void *calloc (size_t __nmemb, size_t __size)
    the same pointer that was passed to it, aliasing needs to be allowed
    between objects pointed by the old and new pointers.  */
 extern void *realloc (void *__ptr, size_t __size)
-     __THROW __attribute_warn_unused_result__;
+     __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 
 #ifdef __USE_MISC
 /* Re-allocate the previously allocated block in PTR, making the new
@@ -556,7 +557,8 @@ extern void *realloc (void *__ptr, size_t __size)
    the same pointer that was passed to it, aliasing needs to be allowed
    between objects pointed by the old and new pointers.  */
 extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
-     __THROW __attribute_warn_unused_result__;
+     __THROW __attribute_warn_unused_result__
+     __attribute_alloc_size__ ((2, 3));
 #endif
 
 /* Free a block allocated by `malloc', `realloc' or `calloc'.  */
@@ -569,7 +571,8 @@ extern void free (void *__ptr) __THROW;
 #if (defined __USE_XOPEN_EXTENDED && !defined __USE_XOPEN2K) \
     || defined __USE_MISC
 /* Allocate SIZE bytes on a page boundary.  The storage cannot be freed.  */
-extern void *valloc (size_t __size) __THROW __attribute_malloc__ __wur;
+extern void *valloc (size_t __size) __THROW __attribute_malloc__
+     __attribute_alloc_size__ ((1)) __wur;
 #endif
 
 #ifdef __USE_XOPEN2K
