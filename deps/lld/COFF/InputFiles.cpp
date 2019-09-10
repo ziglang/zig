@@ -85,16 +85,16 @@ void ArchiveFile::parse() {
 }
 
 // Returns a buffer pointing to a member file containing a given symbol.
-void ArchiveFile::addMember(const Archive::Symbol *sym) {
+void ArchiveFile::addMember(const Archive::Symbol &sym) {
   const Archive::Child &c =
-      CHECK(sym->getMember(),
-            "could not get the member for symbol " + sym->getName());
+      CHECK(sym.getMember(),
+            "could not get the member for symbol " + toCOFFString(sym));
 
   // Return an empty buffer if we have already returned the same buffer.
   if (!seen.insert(c.getChildOffset()).second)
     return;
 
-  driver->enqueueArchiveMember(c, sym->getName(), getName());
+  driver->enqueueArchiveMember(c, sym, getName());
 }
 
 std::vector<MemoryBufferRef> getArchiveMembers(Archive *file) {

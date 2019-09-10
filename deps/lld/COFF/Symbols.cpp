@@ -20,18 +20,23 @@ using namespace llvm::object;
 
 using namespace lld::coff;
 
+namespace lld {
+
 static_assert(sizeof(SymbolUnion) <= 48,
               "symbols should be optimized for memory usage");
 
 // Returns a symbol name for an error message.
-std::string lld::toString(coff::Symbol &b) {
+static std::string demangle(StringRef symName) {
   if (config->demangle)
-    if (Optional<std::string> s = lld::demangleMSVC(b.getName()))
+    if (Optional<std::string> s = demangleMSVC(symName))
       return *s;
-  return b.getName();
+  return symName;
+}
+std::string toString(coff::Symbol &b) { return demangle(b.getName()); }
+std::string toCOFFString(const Archive::Symbol &b) {
+  return demangle(b.getName());
 }
 
-namespace lld {
 namespace coff {
 
 StringRef Symbol::getName() {
@@ -112,6 +117,15 @@ Defined *Undefined::getWeakAlias() {
     if (auto *d = dyn_cast<Defined>(a))
       return d;
   return nullptr;
+}
+
+MemoryBufferRef Lazy::getMemberBuffer() {
+  Archive::Child c =
+    CHECK(sym.getMember(),
+          "could not get the member for symbol " + toCOFFString(sym));
+  return CHECK(c.getMemoryBufferRef(),
+      "could not get the buffer for the member defining symbol " +
+      toCOFFString(sym));
 }
 } // namespace coff
 } // namespace lld

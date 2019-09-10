@@ -21,6 +21,14 @@
 #include <vector>
 
 namespace lld {
+
+std::string toString(coff::Symbol &b);
+
+// There are two different ways to convert an Archive::Symbol to a string:
+// One for Microsoft name mangling and one for Itanium name mangling.
+// Call the functions toCOFFString and toELFString, not just toString.
+std::string toCOFFString(const coff::Archive::Symbol &b);
+
 namespace coff {
 
 using llvm::object::Archive;
@@ -257,6 +265,8 @@ public:
 
   static bool classof(const Symbol *s) { return s->kind() == LazyKind; }
 
+  MemoryBufferRef getMemberBuffer();
+
   ArchiveFile *file;
 
 private:
@@ -429,7 +439,6 @@ void replaceSymbol(Symbol *s, ArgT &&... arg) {
 }
 } // namespace coff
 
-std::string toString(coff::Symbol &b);
 } // namespace lld
 
 #endif

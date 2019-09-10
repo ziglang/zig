@@ -189,6 +189,7 @@ struct Configuration {
   // Used for /thinlto-object-suffix-replace:
   std::pair<llvm::StringRef, llvm::StringRef> thinLTOObjectSuffixReplace;
 
+  uint64_t align = 4096;
   uint64_t imageBase = -1;
   uint64_t fileAlign = 512;
   uint64_t stackReserve = 1024 * 1024;

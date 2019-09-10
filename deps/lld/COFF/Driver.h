@@ -72,7 +72,7 @@ public:
   void parseDirectives(InputFile *file);
 
   // Used by ArchiveFile to enqueue members.
-  void enqueueArchiveMember(const Archive::Child &c, StringRef symName,
+  void enqueueArchiveMember(const Archive::Child &c, const Archive::Symbol &sym,
                             StringRef parentName);
 
   MemoryBufferRef takeBuffer(std::unique_ptr<MemoryBuffer> mb);

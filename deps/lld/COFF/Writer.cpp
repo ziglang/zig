@@ -626,6 +626,9 @@ void Writer::run() {
 
   writeMapFile(outputSections);
 
+  if (errorCount())
+    return;
+
   ScopedTimer t2(diskCommitTimer);
   if (auto e = buffer->commit())
     fatal("failed to write the output file: " + toString(std::move(e)));
@@ -1205,8 +1208,10 @@ void Writer::assignAddresses() {
   sizeOfHeaders +=
       config->is64() ? sizeof(pe32plus_header) : sizeof(pe32_header);
   sizeOfHeaders = alignTo(sizeOfHeaders, config->fileAlign);
-  uint64_t rva = pageSize; // The first page is kept unmapped.
   fileSize = sizeOfHeaders;
+
+  // The first page is kept unmapped.
+  uint64_t rva = alignTo(sizeOfHeaders, config->align);
 
   for (OutputSection *sec : outputSections) {
     if (sec == relocSec)
@@ -1237,10 +1242,10 @@ void Writer::assignAddresses() {
     sec->header.SizeOfRawData = rawSize;
     if (rawSize != 0)
       sec->header.PointerToRawData = fileSize;
-    rva += alignTo(virtualSize, pageSize);
+    rva += alignTo(virtualSize, config->align);
     fileSize += alignTo(rawSize, config->fileAlign);
   }
-  sizeOfImage = alignTo(rva, pageSize);
+  sizeOfImage = alignTo(rva, config->align);
 
   // Assign addresses to sections in MergeChunks.
   for (MergeChunk *mc : MergeChunk::instances)
@@ -1309,7 +1314,7 @@ template <typename PEHeaderTy> void Writer::writeHeader() {
   pe->MinorLinkerVersion = 0;
 
   pe->ImageBase = config->imageBase;
-  pe->SectionAlignment = pageSize;
+  pe->SectionAlignment = config->align;
   pe->FileAlignment = config->fileAlign;
   pe->MajorImageVersion = config->majorImageVersion;
   pe->MinorImageVersion = config->minorImageVersion;

@@ -15,7 +15,7 @@
 # CHECK-NEXT:     SHF_WRITE
 # CHECK-NEXT:   ]
 # CHECK-NEXT:   Address: 0x203000
-# CHECK-NEXT:   Offset: 0x20B0
+# CHECK-NEXT:   Offset: 0x3000
 # CHECK-NEXT:   Size: 16
 # CHECK-NEXT:   Link: 0
 # CHECK-NEXT:   Info: 0

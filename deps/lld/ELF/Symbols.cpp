@@ -42,6 +42,20 @@ Defined *ElfSym::relaIpltEnd;
 Defined *ElfSym::riscvGlobalPointer;
 Defined *ElfSym::tlsModuleBase;
 
+// Returns a symbol for an error message.
+static std::string demangle(StringRef symName) {
+  if (config->demangle)
+    if (Optional<std::string> s = demangleItanium(symName))
+      return *s;
+  return symName;
+}
+namespace lld {
+std::string toString(const Symbol &b) { return demangle(b.getName()); }
+std::string toELFString(const Archive::Symbol &b) {
+  return demangle(b.getName());
+}
+} // namespace lld
+
 static uint64_t getSymVA(const Symbol &sym, int64_t &addend) {
   switch (sym.kind()) {
   case Symbol::DefinedKind: {
@@ -250,12 +264,13 @@ void Symbol::fetch() const {
 }
 
 MemoryBufferRef LazyArchive::getMemberBuffer() {
-  Archive::Child c = CHECK(
-      sym.getMember(), "could not get the member for symbol " + sym.getName());
+  Archive::Child c =
+      CHECK(sym.getMember(),
+            "could not get the member for symbol " + toELFString(sym));
 
   return CHECK(c.getMemoryBufferRef(),
                "could not get the buffer for the member defining symbol " +
-                   sym.getName());
+                   toELFString(sym));
 }
 
 uint8_t Symbol::computeBinding() const {
@@ -329,14 +344,6 @@ void elf::maybeWarnUnorderableSymbol(const Symbol *sym) {
     report(": unable to order synthetic symbol: ");
   else if (d && !d->section->repl->isLive())
     report(": unable to order discarded symbol: ");
-}
-
-// Returns a symbol for an error message.
-std::string lld::toString(const Symbol &b) {
-  if (config->demangle)
-    if (Optional<std::string> s = demangleItanium(b.getName()))
-      return *s;
-  return b.getName();
 }
 
 static uint8_t getMinVisibility(uint8_t va, uint8_t vb) {

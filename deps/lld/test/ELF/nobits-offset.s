@@ -1,10 +1,6 @@
-# REQUIRES: x86
-# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: echo "SECTIONS { \
-# RUN:         .sec1 (NOLOAD) : { . += 1; } \
-# RUN:         .bss           : { *(.bss) } \
-# RUN:       };" > %t.script
-# RUN: ld.lld %t.o -T %t.script -o %t
+# REQUIRES: aarch64
+# RUN: llvm-mc -filetype=obj -triple=aarch64 %s -o %t.o
+# RUN: ld.lld %t.o -o %t
 # RUN: llvm-readelf -S -l %t | FileCheck %s
 
 ## If a SHT_NOBITS section is the only section of a PT_LOAD segment,
@@ -13,13 +9,13 @@
 ## p_align).
 
 # CHECK: Name Type   Address          Off     Size   ES Flg Lk Inf Al
-# CHECK: .bss NOBITS 0000000000000400 001400  000001 00  WA  0   0 1024
+# CHECK: .bss NOBITS 0000000000210000 010000  000001 00  WA  0   0 4096
 
 # CHECK: Type Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-# CHECK: LOAD 0x001400 0x0000000000000400 0x0000000000000400 0x000000 0x000001 RW  0x1000
+# CHECK: LOAD 0x010000 0x0000000000210000 0x0000000000210000 0x000000 0x000001 RW  0x10000
 
-# CHECK: 00 .bss
+# CHECK: 02 .bss
 
 .bss
-.p2align 10
+.p2align 12
 .byte 0

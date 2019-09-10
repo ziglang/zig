@@ -36,6 +36,7 @@
 #include "llvm/Option/Option.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LEB128.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/TarWriter.h"
@@ -270,13 +271,12 @@ void LinkerDriver::addArchiveBuffer(MemoryBufferRef mb, StringRef symName,
 }
 
 void LinkerDriver::enqueueArchiveMember(const Archive::Child &c,
-                                        StringRef symName,
+                                        const Archive::Symbol &sym,
                                         StringRef parentName) {
 
-  auto reportBufferError = [=](Error &&e,
-                              StringRef childName) {
+  auto reportBufferError = [=](Error &&e, StringRef childName) {
     fatal("could not get the buffer for the member defining symbol " +
-          symName + ": " + parentName + "(" + childName + "): " +
+          toCOFFString(sym) + ": " + parentName + "(" + childName + "): " +
           toString(std::move(e)));
   };
 
@@ -287,7 +287,8 @@ void LinkerDriver::enqueueArchiveMember(const Archive::Child &c,
       reportBufferError(mbOrErr.takeError(), check(c.getFullName()));
     MemoryBufferRef mb = mbOrErr.get();
     enqueueTask([=]() {
-      driver->addArchiveBuffer(mb, symName, parentName, offsetInArchive);
+      driver->addArchiveBuffer(mb, toCOFFString(sym), parentName,
+                               offsetInArchive);
     });
     return;
   }
@@ -295,15 +296,16 @@ void LinkerDriver::enqueueArchiveMember(const Archive::Child &c,
   std::string childName = CHECK(
       c.getFullName(),
       "could not get the filename for the member defining symbol " +
-      symName);
+      toCOFFString(sym));
   auto future = std::make_shared<std::future<MBErrPair>>(
       createFutureForFile(childName));
   enqueueTask([=]() {
     auto mbOrErr = future->get();
     if (mbOrErr.second)
       reportBufferError(errorCodeToError(mbOrErr.second), childName);
-    driver->addArchiveBuffer(takeBuffer(std::move(mbOrErr.first)), symName,
-                             parentName, /* OffsetInArchive */ 0);
+    driver->addArchiveBuffer(takeBuffer(std::move(mbOrErr.first)),
+                             toCOFFString(sym), parentName,
+                             /*OffsetInArchive=*/0);
   });
 }
 
@@ -1053,6 +1055,12 @@ void LinkerDriver::maybeExportMinGWSymbols(const opt::InputArgList &args) {
   });
 }
 
+static const char *libcallRoutineNames[] = {
+#define HANDLE_LIBCALL(code, name) name,
+#include "llvm/IR/RuntimeLibcalls.def"
+#undef HANDLE_LIBCALL
+};
+
 void LinkerDriver::link(ArrayRef<const char *> argsArr) {
   // Needed for LTO.
   InitializeAllTargetInfos();
@@ -1421,6 +1429,13 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
   for (auto *arg : args.filtered(OPT_section))
     parseSection(arg->getValue());
 
+  // Handle /align
+  if (auto *arg = args.getLastArg(OPT_align)) {
+    parseNumbers(arg->getValue(), &config->align);
+    if (!isPowerOf2_64(config->align))
+      error("/align: not a power of two: " + StringRef(arg->getValue()));
+  }
+
   // Handle /aligncomm
   for (auto *arg : args.filtered(OPT_aligncomm))
     parseAligncomm(arg->getValue());
@@ -1747,6 +1762,15 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
         if (!u->weakAlias)
           u->weakAlias = symtab->addUndefined(to);
     }
+
+    // If any inputs are bitcode files, the LTO code generator may create
+    // references to library functions that are not explicit in the bitcode
+    // file's symbol table. If any of those library functions are defined in a
+    // bitcode file in an archive member, we need to arrange to use LTO to
+    // compile those archive members by adding them to the link beforehand.
+    if (!BitcodeFile::instances.empty())
+      for (const char *s : libcallRoutineNames)
+        symtab->addLibcall(s);
 
     // Windows specific -- if __load_config_used can be resolved, resolve it.
     if (symtab->findUnderscore("_load_config_used"))
