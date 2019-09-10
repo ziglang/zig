@@ -50,7 +50,9 @@ release/bin/zig build test-gen-h
 # See https://github.com/ziglang/zig/issues/3210
 # release/bin/zig build test-compile-errors
 
-release/bin/zig build docs
+# This test is disabled because it triggers "out of memory" on the sr.ht CI service.
+# See https://github.com/ziglang/zig/issues/3210
+# release/bin/zig build docs
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
