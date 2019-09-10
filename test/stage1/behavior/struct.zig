@@ -658,3 +658,22 @@ test "struct field init with catch" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "non-packed struct with u128 entry in union" {
+    const U = union(enum) {
+        Num: u128,
+        Void,
+    };
+
+    const S = struct {
+        f1: U,
+        f2: U,
+    };
+
+    var sx: S = undefined;
+    var s = &sx;
+    std.testing.expect(@ptrToInt(&s.f2) - @ptrToInt(&s.f1) == @byteOffsetOf(S, "f2"));
+    var v2 = U{ .Num = 123 };
+    s.f2 = v2;
+    std.testing.expect(s.f2.Num == 123);
+}
