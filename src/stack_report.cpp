@@ -95,7 +95,7 @@ static void tree_print(FILE *f, ZigType *ty, size_t indent) {
     fprintf(f, "\"");
 
     start_peer(f, indent);
-    fprintf(f, "\"size\": \"%" ZIG_PRI_u64 "\"", ty->abi_size);
+    fprintf(f, "\"size\": \"%" ZIG_PRI_usize "\"", ty->abi_size);
 
     switch (ty->id) {
         case ZigTypeIdFnFrame:
