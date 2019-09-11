@@ -2538,6 +2538,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->data.enumeration.resolve_loop_flag = false;
     enum_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
 
+    occupied_tag_values.deinit();
+
     return ErrorNone;
 }
 
@@ -5878,6 +5880,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         fn->err_code_spill = &alloca_gen->base;
     }
 
+    ZigType *largest_call_frame_type = nullptr;
+    // Later we'll change this to be largest_call_frame_type instead of void.
+    IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
+            fn, g->builtin_types.entry_void, "@async_call_frame");
+
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
         if (call->new_stack != nullptr) {
@@ -5921,9 +5928,21 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
         mark_suspension_point(call->base.scope);
 
-        call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
-                callee_frame_type, "");
+        if ((err = type_resolve(g, callee_frame_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
+        if (largest_call_frame_type == nullptr ||
+            callee_frame_type->abi_size > largest_call_frame_type->abi_size)
+        {
+            largest_call_frame_type = callee_frame_type;
+        }
+
+        call->frame_result_loc = all_calls_alloca;
     }
+    if (largest_call_frame_type != nullptr) {
+        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+    }
+
     // Since this frame is async, an await might represent a suspend point, and
     // therefore need to spill. It also needs to mark expr scopes as having to spill.
     // For example: foo() + await z

@@ -3863,6 +3863,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     ZigList<ZigType *> gen_param_types = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+    LLVMValueRef frame_result_loc_uncasted = nullptr;
     LLVMValueRef frame_result_loc;
     LLVMValueRef awaiter_init_val;
     LLVMValueRef ret_ptr;
@@ -3871,7 +3872,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (instruction->modifier == CallModifierAsync) {
                 frame_result_loc = result_loc;
             } else {
-                frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
+                frame_result_loc_uncasted = ir_llvm_value(g, instruction->frame_result_loc);
+                src_assert(instruction->fn_entry != nullptr, instruction->base.source_node);
+                frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,
+                        LLVMPointerType(get_llvm_type(g, instruction->fn_entry->frame_type), 0), "");
             }
         } else {
             if (instruction->new_stack->value.type->id == ZigTypeIdPointer &&
@@ -4136,6 +4140,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                 } else {
                     return get_handle_value(g, result_loc, src_return_type, ptr_result_type);
                 }
+            }
+
+            if (frame_result_loc_uncasted != nullptr && instruction->fn_entry != nullptr) {
+                // Instead of a spill, we do the bitcast again. The uncasted LLVM IR instruction will
+                // be an Alloca from the entry block, so it does not need to be spilled.
+                frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,
+                        LLVMPointerType(get_llvm_type(g, instruction->fn_entry->frame_type), 0), "");
             }
 
             LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
