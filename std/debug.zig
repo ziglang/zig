@@ -1655,28 +1655,9 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
-fn parseDie1(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
+fn parseDie(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
     const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
     if (abbrev_code == 0) return null;
-    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
-
-    var result = Die{
-        .tag_id = table_entry.tag_id,
-        .has_children = table_entry.has_children,
-        .attrs = ArrayList(Die.Attr).init(di.allocator()),
-    };
-    try result.attrs.resize(table_entry.attrs.len);
-    for (table_entry.attrs.toSliceConst()) |attr, i| {
-        result.attrs.items[i] = Die.Attr{
-            .id = attr.attr_id,
-            .value = try parseFormValue(di.allocator(), di.dwarf_in_stream, attr.form_id, is_64),
-        };
-    }
-    return result;
-}
-
-fn parseDie(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !Die {
-    const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
     const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
 
     var result = Die{
@@ -2103,7 +2084,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
         const next_unit_pos = this_unit_offset + next_offset;
 
         while ((try di.dwarf_seekable_stream.getPos()) < next_unit_pos) {
-            const die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse continue;
+            const die_obj = (try parseDie(di, abbrev_table, is_64)) orelse continue;
             const after_die_offset = try di.dwarf_seekable_stream.getPos();
 
             switch (die_obj.tag_id) {
@@ -2121,13 +2102,13 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
                                 const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                this_die_obj = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                             } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
                                 // Follow the DIE it points to and repeat
                                 const ref_offset = try this_die_obj.getAttrRef(DW.AT_specification);
                                 if (ref_offset > next_offset) return error.InvalidDebugInfo;
                                 try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                this_die_obj = (try parseDie1(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                this_die_obj = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
                             } else {
                                 break :x null;
                             }
@@ -2203,7 +2184,7 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
 
         const compile_unit_die = try di.allocator().create(Die);
-        compile_unit_die.* = try parseDie(di, abbrev_table, is_64);
+        compile_unit_die.* = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
 
