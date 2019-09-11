@@ -1007,3 +1007,10 @@ test "enum literal casting to error union with payload enum" {
 
     expect((try bar) == Bar.B);
 }
+
+test "enum with one member and u1 tag type @enumToInt" {
+    const Enum = enum(u1) {
+        Test,
+    };
+    expect(@enumToInt(Enum.Test) == 0);
+}
