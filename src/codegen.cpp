@@ -10037,8 +10037,13 @@ void codegen_build_and_link(CodeGen *g) {
     Error err;
     assert(g->out_type != OutTypeUnknown);
 
-    if (!g->enable_cache && g->output_dir == nullptr) {
-        g->output_dir = buf_create_from_str(".");
+    if (!g->enable_cache) {
+        if (g->output_dir == nullptr) {
+            g->output_dir = buf_create_from_str(".");
+        } else if ((err = os_make_path(g->output_dir))) {
+            fprintf(stderr, "Unable to create output directory: %s\n", err_str(err));
+            exit(1);
+        }
     }
 
     g->have_dynamic_link = detect_dynamic_link(g);

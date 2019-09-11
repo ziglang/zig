@@ -34,6 +34,7 @@ pub fn main() !void {
         testZigInitLib,
         testZigInitExe,
         testGodboltApi,
+        testMissingOutputPath,
     };
     for (test_fns) |testFn| {
         try fs.deleteTree(a, dir_path);
@@ -128,4 +129,13 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);
     testing.expect(std.mem.indexOf(u8, out_asm, "mov\teax, edi") != null);
     testing.expect(std.mem.indexOf(u8, out_asm, "imul\teax, edi") != null);
+}
+
+fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
+    _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-exe" });
+    const output_path = try fs.path.join(a, [_][]const u8{ "does", "not", "exist" });
+    const source_path = try fs.path.join(a, [_][]const u8{ "src", "main.zig" });
+    _ = try exec(dir_path, [_][]const u8{
+        zig_exe, "build-exe", source_path, "--output-dir", output_path
+    });
 }
