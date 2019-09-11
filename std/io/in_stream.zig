@@ -32,10 +32,10 @@ pub fn InStream(comptime ReadError: type) type {
         /// End of stream is not an error condition.
         pub fn read(self: *Self, buffer: []u8) Error!usize {
             if (std.io.is_async) {
+                // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
+                @setRuntimeSafety(false);
                 var stack_frame: [stack_size]u8 align(stack_align) = undefined;
-                // TODO https://github.com/ziglang/zig/issues/3068
-                var result: Error!usize = undefined;
-                return await @asyncCall(&stack_frame, &result, self.readFn, self, buffer);
+                return await @asyncCall(&stack_frame, {}, self.readFn, self, buffer);
             } else {
                 return self.readFn(self, buffer);
             }
