@@ -2688,6 +2688,28 @@ pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
     }
 }
 
+pub const GetHostNameError = error{Unexpected};
+
+pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
+    if (builtin.link_libc) {
+        @compileError("TODO implement gethostname when linking libc");
+    }
+    if (linux.is_the_target) {
+        var uts: utsname = undefined;
+        switch (errno(system.uname(&uts))) {
+            0 => {
+                const hostname = mem.toSlice(u8, &uts.nodename);
+                mem.copy(u8, name_buffer, hostname);
+                return name_buffer[0..hostname.len];
+            },
+            EFAULT => unreachable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    @compileError("TODO implement gethostname for this OS");
+}
+
 test "" {
     _ = @import("os/darwin.zig");
     _ = @import("os/freebsd.zig");

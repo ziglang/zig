@@ -245,3 +245,11 @@ pub fn connectUnixSocket(path: []const u8) !std.fs.File {
 
     return std.fs.File.openHandle(sockfd);
 }
+
+pub const getHostName = os.gethostname;
+
+test "getHostName" {
+    var buf: [os.HOST_NAME_MAX]u8 = undefined;
+    const hostname = try getHostName(&buf);
+    expect(hostname.len != 0);
+}

@@ -1175,3 +1175,13 @@ pub const IORING_REGISTER_FILES = 2;
 pub const IORING_UNREGISTER_FILES = 3;
 pub const IORING_REGISTER_EVENTFD = 4;
 pub const IORING_UNREGISTER_EVENTFD = 5;
+
+pub const utsname = extern struct {
+    sysname: [65]u8,
+    nodename: [65]u8,
+    release: [65]u8,
+    version: [65]u8,
+    machine: [65]u8,
+    domainname: [65]u8,
+};
+pub const HOST_NAME_MAX = 64;
