@@ -5,7 +5,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-var argc_ptr: [*]usize = undefined;
+var starting_stack_ptr: [*]usize = undefined;
 
 const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
@@ -35,17 +35,17 @@ nakedcc fn _start() noreturn {
 
     switch (builtin.arch) {
         .x86_64 => {
-            argc_ptr = asm (""
+            starting_stack_ptr = asm (""
                 : [argc] "={rsp}" (-> [*]usize)
             );
         },
         .i386 => {
-            argc_ptr = asm (""
+            starting_stack_ptr = asm (""
                 : [argc] "={esp}" (-> [*]usize)
             );
         },
         .aarch64, .aarch64_be, .arm => {
-            argc_ptr = asm ("mov %[argc], sp"
+            starting_stack_ptr = asm ("mov %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );
         },
@@ -72,8 +72,8 @@ fn posixCallMainAndExit() noreturn {
     if (builtin.os == builtin.Os.freebsd) {
         @setAlignStack(16);
     }
-    const argc = argc_ptr[0];
-    const argv = @ptrCast([*][*]u8, argc_ptr + 1);
+    const argc = starting_stack_ptr[0];
+    const argv = @ptrCast([*][*]u8, starting_stack_ptr + 1);
 
     const envp_optional = @ptrCast([*]?[*]u8, argv + argc + 1);
     var envp_count: usize = 0;
@@ -85,21 +85,40 @@ fn posixCallMainAndExit() noreturn {
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
         std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
-        std.os.linux.tls.initTLS();
+        const gnu_stack_phdr = std.os.linux.tls.initTLS() orelse @panic("ELF missing stack size");
 
         if (std.os.linux.tls.tls_image) |tls_img| {
             const tls_addr = std.os.linux.tls.allocateTLS(tls_img.alloc_size);
             const tp = std.os.linux.tls.copyTLS(tls_addr);
             std.os.linux.tls.setThreadPointer(tp);
         }
+
+        // TODO This is disabled because what should we do when linking libc and this code
+        // does not execute? And also it's causing a test failure in stack traces in release modes.
+
+        //// Linux ignores the stack size from the ELF file, and instead always does 8 MiB. A further
+        //// problem is that it uses PROT_GROWSDOWN which prevents stores to addresses too far down
+        //// the stack and requires "probing". So here we allocate our own stack.
+        //const wanted_stack_size = gnu_stack_phdr.p_memsz;
+        //assert(wanted_stack_size % std.mem.page_size == 0);
+        //// Allocate an extra page as the guard page.
+        //const total_size = wanted_stack_size + std.mem.page_size;
+        //const new_stack = std.os.mmap(
+        //    null,
+        //    total_size,
+        //    std.os.PROT_READ | std.os.PROT_WRITE,
+        //    std.os.MAP_PRIVATE | std.os.MAP_ANONYMOUS,
+        //    -1,
+        //    0,
+        //) catch @panic("out of memory");
+        //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
+        //std.os.exit(@newStackCall(new_stack, callMainWithArgs, argc, argv, envp));
     }
 
-    std.os.exit(callMainWithArgs(argc, argv, envp));
+    std.os.exit(@inlineCall(callMainWithArgs, argc, argv, envp));
 }
 
-// This is marked inline because for some reason LLVM in release mode fails to inline it,
-// and we want fewer call frames in stack traces.
-inline fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
+fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
@@ -112,7 +131,7 @@ extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*]u8, c_envp)[0..env_count];
-    return callMainWithArgs(@intCast(usize, c_argc), c_argv, envp);
+    return @inlineCall(callMainWithArgs, @intCast(usize, c_argc), c_argv, envp);
 }
 
 // General error message for a malformed return type

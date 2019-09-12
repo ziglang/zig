@@ -125,7 +125,7 @@ pub fn setThreadPointer(addr: usize) void {
     }
 }
 
-pub fn initTLS() void {
+pub fn initTLS() ?*elf.Phdr {
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
@@ -152,10 +152,13 @@ pub fn initTLS() void {
     // Search the TLS section
     const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
 
+    var gnu_stack: ?*elf.Phdr = null;
+
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_PHDR => img_base = at_phdr - phdr.p_vaddr,
             elf.PT_TLS => tls_phdr = phdr,
+            elf.PT_GNU_STACK => gnu_stack = phdr,
             else => continue,
         }
     }
@@ -217,6 +220,8 @@ pub fn initTLS() void {
             .data_offset = data_offset,
         };
     }
+
+    return gnu_stack;
 }
 
 pub fn copyTLS(addr: usize) usize {

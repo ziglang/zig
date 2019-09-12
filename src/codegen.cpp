@@ -7184,6 +7184,9 @@ static void do_code_gen(CodeGen *g) {
 
         if (!is_async) {
             // allocate async frames for noasync calls & awaits to async functions
+            ZigType *largest_call_frame_type = nullptr;
+            IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn_table_entry->fndef_scope->base,
+                    fn_table_entry->body_node, fn_table_entry, g->builtin_types.entry_void, "@async_call_frame");
             for (size_t i = 0; i < fn_table_entry->call_list.length; i += 1) {
                 IrInstructionCallGen *call = fn_table_entry->call_list.at(i);
                 if (call->fn_entry == nullptr)
@@ -7195,8 +7198,15 @@ static void do_code_gen(CodeGen *g) {
                 if (call->frame_result_loc != nullptr)
                     continue;
                 ZigType *callee_frame_type = get_fn_frame_type(g, call->fn_entry);
-                call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node,
-                        fn_table_entry, callee_frame_type, "");
+                if (largest_call_frame_type == nullptr ||
+                    callee_frame_type->abi_size > largest_call_frame_type->abi_size)
+                {
+                    largest_call_frame_type = callee_frame_type;
+                }
+                call->frame_result_loc = all_calls_alloca;
+            }
+            if (largest_call_frame_type != nullptr) {
+                all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
             }
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {

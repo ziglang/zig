@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const Buffer = std.Buffer;
 
-pub const default_stack_size = 4 * 1024 * 1024;
+pub const default_stack_size = 1 * 1024 * 1024;
 pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_InStream"))
     root.stack_size_std_io_InStream
 else
