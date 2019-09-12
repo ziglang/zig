@@ -488,7 +488,7 @@ test "@typeName" {
         expect(mem.eql(u8, @typeName(i64), "i64"));
         expect(mem.eql(u8, @typeName(*usize), "*usize"));
         // https://github.com/ziglang/zig/issues/675
-        expectEqualSlices(u8, "behavior.misc.TypeFromFn(u8)", @typeName(TypeFromFn(u8)));
+        expect(mem.eql(u8, "behavior.misc.TypeFromFn(u8)", @typeName(TypeFromFn(u8))));
         expect(mem.eql(u8, @typeName(Struct), "Struct"));
         expect(mem.eql(u8, @typeName(Union), "Union"));
         expect(mem.eql(u8, @typeName(Enum), "Enum"));
@@ -740,4 +740,17 @@ test "peer result location with typed parent, runtime condition, comptime prongs
     };
     expect(S.doTheTest(0) == 1234);
     expect(S.doTheTest(1) == 1234);
+}
+
+test "nested optional field in struct" {
+    const S2 = struct {
+        y: u8,
+    };
+    const S1 = struct {
+        x: ?S2,
+    };
+    var s = S1{
+        .x = S2{ .y = 127 },
+    };
+    expect(s.x.?.y == 127);
 }

@@ -15487,6 +15487,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
             value_type->id != ZigTypeIdNull)
     {
+        result_loc_pass1->written = false;
         return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
     } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
         if (value_type->id == ZigTypeIdErrorSet) {
