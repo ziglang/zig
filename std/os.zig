@@ -172,8 +172,7 @@ pub fn abort() noreturn {
         system.abort();
     }
     if (builtin.os == .uefi) {
-        // TODO there must be a better thing to do here than loop forever
-        while (true) {}
+        exit(0); // TODO choose appropriate exit code
     }
 
     raise(SIGABRT) catch {};
@@ -244,6 +243,15 @@ pub fn exit(status: u8) noreturn {
     }
     if (linux.is_the_target and !builtin.single_threaded) {
         linux.exit_group(status);
+    }
+    if (uefi.is_the_target) {
+        // exit() is only avaliable if exitBootServices() has not been called yet.
+        // This call to exit should not fail, so we don't care about its return value.
+        if (uefi.system_table.boot_services) |bs| {
+            _ = bs.exit(uefi.handle, status, 0, null);
+        }
+        // If we can't exit, reboot the system instead.
+        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, status, 0, null);
     }
     system.exit(status);
 }
