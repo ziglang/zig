@@ -516,7 +516,9 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
             }
         }
         if (g->have_stack_probing && !fn->def_scope->safety_off) {
-            addLLVMFnAttrStr(llvm_fn, "probe-stack", "__zig_probe_stack");
+            addLLVMFnAttrStr(fn->llvm_value, "probe-stack", "__zig_probe_stack");
+        } else {
+            addLLVMFnAttrStr(fn->llvm_value, "no-stack-arg-probe", "");
         }
     } else {
         maybe_import_dll(g, llvm_fn, linkage);
@@ -9081,10 +9083,6 @@ static bool want_startup_code(CodeGen *g) {
     if (g->is_test_build)
         return false;
 
-    // start code does not handle UEFI target
-    if (g->zig_target->os == OsUefi)
-        return false;
-
     // WASM freestanding can still have an entry point but other freestanding targets do not.
     if (g->zig_target->os == OsFreestanding && !target_is_wasm(g->zig_target))
         return false;
@@ -9094,8 +9092,12 @@ static bool want_startup_code(CodeGen *g) {
         return false;
 
     // If there is a pub main in the root source file, that means we need start code.
-    if (g->have_pub_main)
+    if (g->have_pub_main) {
         return true;
+    } else {
+        if (g->zig_target->os == OsUefi)
+            return false;
+    }
 
     if (g->out_type == OutTypeExe) {
         // For build-exe, we might add start code even though there is no pub main, so that the
