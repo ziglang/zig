@@ -300,6 +300,10 @@ static int zig_error_no_build_file(void) {
     return EXIT_FAILURE;
 }
 
+static void fatal_llvm_error_handler(const char *reason) {
+    zig_panic("LLVM error: %s", reason);
+}
+
 extern "C" int ZigClang_main(int argc, char **argv);
 
 int main(int argc, char **argv) {
@@ -946,6 +950,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Unmatched --pkg-begin\n");
         return EXIT_FAILURE;
     }
+
+    LLVMInstallFatalErrorHandler(fatal_llvm_error_handler);
 
     init_all_targets();
 
