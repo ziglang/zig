@@ -754,3 +754,15 @@ test "nested optional field in struct" {
     };
     expect(s.x.?.y == 127);
 }
+
+fn maybe(x: bool) anyerror!?u32 {
+    return switch (x) {
+        true => u32(42),
+        else => null,
+    };
+}
+
+test "result location is optional inside error union" {
+    const x = maybe(true) catch unreachable;
+    expect(x.? == 42);
+}
