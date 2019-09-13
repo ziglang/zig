@@ -15329,7 +15329,8 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
             IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
                     result_loc, false, true);
             ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
-            if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional) {
+            if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
+                value_type->id != ZigTypeIdNull) {
                 return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
             } else {
                 return unwrapped_err_ptr;

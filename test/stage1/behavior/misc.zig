@@ -721,3 +721,15 @@ test "global variable assignment with optional unwrapping with var initialized t
     };
     expect(global_foo.* == 1234);
 }
+
+fn maybe(x: bool) anyerror!?u32 {
+    return switch (x) {
+        true => u32(42),
+        else => null,
+    };
+}
+
+test "result location is optional inside error union" {
+    const x = maybe(true) catch unreachable;
+    expect(x.? == 42);
+}
