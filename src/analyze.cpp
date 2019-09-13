@@ -2406,8 +2406,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
         tag_int_type = get_c_int_type(g, CIntTypeInt);
-    } else if (enum_type->data.enumeration.layout == ContainerLayoutAuto && field_count == 1) {
-        tag_int_type = g->builtin_types.entry_num_lit_int;
     } else {
         tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     }
@@ -2420,7 +2418,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        } else if (wanted_tag_int_type->id != ZigTypeIdInt) {
+        } else if (wanted_tag_int_type->id != ZigTypeIdInt &&
+                   wanted_tag_int_type->id != ZigTypeIdComptimeInt) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
@@ -2806,14 +2805,12 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-            if (tag_int_type->id != ZigTypeIdInt) {
+            if (tag_int_type->id != ZigTypeIdInt && tag_int_type->id != ZigTypeIdComptimeInt) {
                 add_node_error(g, enum_type_node,
                     buf_sprintf("expected integer tag type, found '%s'", buf_ptr(&tag_int_type->name)));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-        } else if (auto_layout && field_count == 1) {
-            tag_int_type = g->builtin_types.entry_num_lit_int;
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
