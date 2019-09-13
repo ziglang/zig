@@ -1014,3 +1014,19 @@ test "enum with one member and u1 tag type @enumToInt" {
     };
     expect(@enumToInt(Enum.Test) == 0);
 }
+
+test "enum with comptime_int tag type" {
+    const Enum = enum(comptime_int) {
+        One = 3,
+        Two = 2,
+        Three = 1,
+    };
+    comptime expect(@TagType(Enum) == comptime_int);
+}
+
+test "enum with one member default to u0 tag type" {
+    const E0 = enum {
+        X,
+    };
+    comptime expect(@TagType(E0) == u0);
+}

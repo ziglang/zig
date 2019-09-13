@@ -324,7 +324,7 @@ test "union with only 1 field casted to its enum type" {
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const Tag = @TagType(Expr);
-    comptime expect(@TagType(Tag) == comptime_int);
+    comptime expect(@TagType(Tag) == u0);
     var t = Tag(e);
     expect(t == Expr.Literal);
 }
@@ -335,7 +335,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
         Bool: bool,
     };
 
-    const Tag = enum {
+    const Tag = enum(comptime_int) {
         Literal = 33,
     };
 
@@ -469,7 +469,7 @@ test "union no tag with struct member" {
 }
 
 fn testComparison() void {
-    var x = Payload{.A = 42};
+    var x = Payload{ .A = 42 };
     expect(x == .A);
     expect(x != .B);
     expect(x != .C);
@@ -493,4 +493,20 @@ test "packed union generates correctly aligned LLVM type" {
         U{ .f2 = 0 },
     };
     foo[0].f1();
+}
+
+test "union with one member defaults to u0 tag type" {
+    const U0 = union(enum) {
+        X: u32,
+    };
+    comptime expect(@TagType(@TagType(U0)) == u0);
+}
+
+test "union with comptime_int tag" {
+    const Union = union(enum(comptime_int)) {
+        X: u32,
+        Y: u16,
+        Z: u8,
+    };
+    comptime expect(@TagType(@TagType(Union)) == comptime_int);
 }
