@@ -656,3 +656,242 @@ test "vector | & ^" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "truncating shift left" {
+    testShlTrunc(@splat(2, u16(std.math.maxInt(u16))));
+    comptime testShlTrunc(@splat(2, u16(std.math.maxInt(u16))));
+}
+fn testShlTrunc(x: @Vector(2, u16)) void {
+    const all = std.vector.all;
+    const shifted = x << @splat(2, u4(1));
+    expect(all(shifted == @splat(2, u16(65534))));
+}
+
+test "truncating shift right" {
+    testShrTrunc(@splat(2, u16(std.math.maxInt(u16))));
+    comptime testShrTrunc(@splat(2, u16(std.math.maxInt(u16))));
+    testShrTrunc2(@splat(2, @bitCast(u64, f64(20.0))));
+    comptime testShrTrunc2(@splat(2, @bitCast(u64, f64(20.0))));
+}
+fn testShrTrunc(x: @Vector(2, u16)) void {
+    const all = std.vector.all;
+    const shifted = x >> @splat(2, u4(1));
+    expect(all(shifted == @splat(2, u16(32767))));
+}
+fn testShrTrunc2(x: @Vector(2, u64)) void {
+    const all = std.vector.all;
+    const shifted = x >> @splat(2, u6(52));
+    expect(all(shifted == @splat(2, u64(0x403))));
+}
+
+test "vectors - % and @mod" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            var w: @Vector(4, u32) = [_]u32{1, 2, 3, 4};
+            var x: @Vector(4, u32) = v % w;
+            expect(x[0] == 0);
+            expect(x[1] == 0);
+            expect(x[2] == 1);
+            expect(x[3] == 0);
+            var y: @Vector(4, u32) = @mod(v, w);
+            expect(y[0] == 0);
+            expect(y[1] == 0);
+            expect(y[2] == 1);
+            expect(y[3] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vectors - indxed load from vector, SIMD" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, i32) = [_]i32{1, 2};
+            var x = v[w];
+            expect(x[0] == 6);
+            expect(x[1] == 7);
+            const w2 = [_]i32{1, 2};
+            var x2 = v[w2];
+            expect(x2[0] == 6);
+            expect(x2[1] == 7);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vectors - indexed assign to vector, SIMD" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, i32) = [_]i32{1, 2};
+            var a: @Vector(2, u32) = [_]u32{45, 46};
+            v[w] = a;
+            expect(v[0] == 5);
+            expect(v[1] == 45);
+            expect(v[2] == 46);
+            expect(v[3] == 8);
+            const w2 = [_]i32{2, 3};
+            v[w2] = a;
+            expect(v[0] == 5);
+            expect(v[1] == 45);
+            expect(v[2] == 45);
+            expect(v[3] == 46);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "arrays - indexed SIMD load" {
+    const S = struct {
+        fn doTheTest() void {
+            var v = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, u16) = [_]u16{1, 2};
+            var x = v[w];
+            expect(x[0] == 6);
+            expect(x[1] == 7);
+            const w2: @Vector(2, u16) = [_]u16{1, 2};
+            var x2 = v[w2];
+            expect(x2[0] == 6);
+            expect(x2[1] == 7);
+        }
+    };
+    S.doTheTest();
+    // Requires quite a bit of work
+    //comptime S.doTheTest();
+}
+
+test "arrays - indexed SIMD store" {
+    const S = struct {
+        fn doTheTest() void {
+            var v = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, u16) = [_]u16{1, 2};
+            var put: @Vector(2, u32) = [_]u32{56, 57};
+            v[w] = put;
+            expect(v[0] == 5);
+            expect(v[1] == 56);
+            expect(v[2] == 57);
+            expect(v[3] == 8);
+        }
+    };
+    S.doTheTest();
+    // Requires quite a bit of work
+    //comptime S.doTheTest();
+}
+
+test "vectors - % and @mod" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            var w: @Vector(4, u32) = [_]u32{1, 2, 3, 4};
+            var x: @Vector(4, u32) = v % w;
+            expect(x[0] == 0);
+            expect(x[1] == 0);
+            expect(x[2] == 1);
+            expect(x[3] == 0);
+            var y: @Vector(4, u32) = @mod(v, w);
+            expect(y[0] == 0);
+            expect(y[1] == 0);
+            expect(y[2] == 1);
+            expect(y[3] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vectors - indxed load from vector, SIMD" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, i32) = [_]i32{1, 2};
+            var x = v[w];
+            expect(x[0] == 6);
+            expect(x[1] == 7);
+            const w2 = [_]i32{1, 2};
+            var x2 = v[w2];
+            expect(x2[0] == 6);
+            expect(x2[1] == 7);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "vectors - indexed assign to vector, SIMD" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, u32) = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, i32) = [_]i32{1, 2};
+            var a: @Vector(2, u32) = [_]u32{45, 46};
+            v[w] = a;
+            expect(v[0] == 5);
+            expect(v[1] == 45);
+            expect(v[2] == 46);
+            expect(v[3] == 8);
+            const w2 = [_]i32{2, 3};
+            v[w2] = a;
+            expect(v[0] == 5);
+            expect(v[1] == 45);
+            expect(v[2] == 45);
+            expect(v[3] == 46);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "arrays - indexed SIMD load" {
+    const S = struct {
+        fn doTheTest() void {
+            var v = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, u16) = [_]u16{1, 2};
+            var x = v[w];
+            expect(x[0] == 6);
+            expect(x[1] == 7);
+            const w2: @Vector(2, u16) = [_]u16{1, 2};
+            var x2 = v[w2];
+            expect(x2[0] == 6);
+            expect(x2[1] == 7);
+        }
+    };
+    S.doTheTest();
+    // Requires quite a bit of work
+    //comptime S.doTheTest();
+}
+
+test "arrays - indexed SIMD store" {
+    const S = struct {
+        fn doTheTest() void {
+            var v = [_]u32{5, 6, 7, 8};
+            const w: @Vector(2, u16) = [_]u16{1, 2};
+            var put: @Vector(2, u32) = [_]u32{56, 57};
+            v[w] = put;
+            expect(v[0] == 5);
+            expect(v[1] == 56);
+            expect(v[2] == 57);
+            expect(v[3] == 8);
+        }
+    };
+    S.doTheTest();
+    // Requires quite a bit of work
+    //comptime S.doTheTest();
+}
+
+test "bounds checks - loads" {
+    const S = struct {
+        fn doTheTest() void {
+            var v = [_]u32{7, 8};
+            var s: @Vector(2, usize) = [_]usize{1, 0};
+            var res = v[s];
+            expect(res[0] == 8);
+            expect(res[1] == 7);
+        }
+    };
+    S.doTheTest();
+    // comptime S.doTheTest();
+}
