@@ -145,7 +145,7 @@ pub const Thread = struct {
         if (builtin.single_threaded) @compileError("cannot spawn thread when building in single-threaded mode");
         // TODO compile-time call graph analysis to determine stack upper bound
         // https://github.com/ziglang/zig/issues/157
-        const default_stack_size = 8 * 1024 * 1024;
+        const default_stack_size = 16 * 1024 * 1024;
 
         const Context = @typeOf(context);
         comptime assert(@ArgType(@typeOf(startFn), 0) == Context);

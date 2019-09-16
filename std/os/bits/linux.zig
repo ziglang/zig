@@ -25,7 +25,7 @@ pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
 /// Special value used to indicate openat should use the current working directory
-pub const AT_FDCWD = 100;
+pub const AT_FDCWD = -100;
 
 /// Do not follow symbolic links
 pub const AT_SYMLINK_NOFOLLOW = 0x100;

@@ -222,9 +222,11 @@ pub const Tokenizer = struct {
                 },
             };
         } else {
+            // Skip the UTF-8 BOM if present
+            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else usize(0);
             return Tokenizer{
                 .buffer = buffer,
-                .index = 0,
+                .index = src_start,
                 .pending_invalid_token = null,
             };
         }
@@ -1452,6 +1454,13 @@ test "tokenizer - line comment followed by identifier" {
         Token.Id.LineComment,
         Token.Id.Identifier,
         Token.Id.Comma,
+    });
+}
+
+test "tokenizer - UTF-8 BOM is recognized and skipped" {
+    testTokenize("\xEF\xBB\xBFa;\n", [_]Token.Id{
+        Token.Id.Identifier,
+        Token.Id.Semicolon,
     });
 }
 

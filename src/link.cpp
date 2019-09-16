@@ -1615,6 +1615,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     lj->args.append("-error-limit=0");
 
+    if (g->out_type == OutTypeExe) {
+        lj->args.append("-z");
+        lj->args.append("stack-size=16777216"); // default to 16 MiB
+    }
+
     if (g->linker_script) {
         lj->args.append("-T");
         lj->args.append(g->linker_script);

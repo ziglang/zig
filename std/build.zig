@@ -1175,6 +1175,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isUefi(self: Target) bool {
+        return switch (self.getOs()) {
+            .uefi => true,
+            else => false,
+        };
+    }
+
     pub fn isWasm(self: Target) bool {
         return switch (self.getArch()) {
             .wasm32, .wasm64 => true,
@@ -1490,7 +1497,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn producesPdbFile(self: *LibExeObjStep) bool {
-        if (!self.target.isWindows()) return false;
+        if (!self.target.isWindows() and !self.target.isUefi()) return false;
         if (self.strip) return false;
         return self.isDynamicLibrary() or self.kind == .Exe;
     }
@@ -1587,7 +1594,7 @@ pub const LibExeObjStep = struct {
     /// Unless setOutputDir was called, this function must be called only in
     /// the make step, from a step that has declared a dependency on this one.
     pub fn getOutputPdbPath(self: *LibExeObjStep) []const u8 {
-        assert(self.target.isWindows());
+        assert(self.target.isWindows() or self.target.isUefi());
         return fs.path.join(
             self.builder.allocator,
             [_][]const u8{ self.output_dir.?, self.out_pdb_filename },

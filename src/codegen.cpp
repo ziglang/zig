@@ -517,6 +517,8 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         }
         if (g->have_stack_probing && !fn->def_scope->safety_off) {
             addLLVMFnAttrStr(llvm_fn, "probe-stack", "__zig_probe_stack");
+        } else if (g->zig_target->os == OsUefi) {
+            addLLVMFnAttrStr(llvm_fn, "no-stack-arg-probe", "");
         }
     } else {
         maybe_import_dll(g, llvm_fn, linkage);
@@ -3863,6 +3865,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     ZigList<ZigType *> gen_param_types = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+    LLVMValueRef frame_result_loc_uncasted = nullptr;
     LLVMValueRef frame_result_loc;
     LLVMValueRef awaiter_init_val;
     LLVMValueRef ret_ptr;
@@ -3871,7 +3874,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (instruction->modifier == CallModifierAsync) {
                 frame_result_loc = result_loc;
             } else {
-                frame_result_loc = ir_llvm_value(g, instruction->frame_result_loc);
+                frame_result_loc_uncasted = ir_llvm_value(g, instruction->frame_result_loc);
+                src_assert(instruction->fn_entry != nullptr, instruction->base.source_node);
+                frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,
+                        LLVMPointerType(get_llvm_type(g, instruction->fn_entry->frame_type), 0), "");
             }
         } else {
             if (instruction->new_stack->value.type->id == ZigTypeIdPointer &&
@@ -4136,6 +4142,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                 } else {
                     return get_handle_value(g, result_loc, src_return_type, ptr_result_type);
                 }
+            }
+
+            if (frame_result_loc_uncasted != nullptr && instruction->fn_entry != nullptr) {
+                // Instead of a spill, we do the bitcast again. The uncasted LLVM IR instruction will
+                // be an Alloca from the entry block, so it does not need to be spilled.
+                frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,
+                        LLVMPointerType(get_llvm_type(g, instruction->fn_entry->frame_type), 0), "");
             }
 
             LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
@@ -7173,6 +7186,9 @@ static void do_code_gen(CodeGen *g) {
 
         if (!is_async) {
             // allocate async frames for noasync calls & awaits to async functions
+            ZigType *largest_call_frame_type = nullptr;
+            IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn_table_entry->fndef_scope->base,
+                    fn_table_entry->body_node, fn_table_entry, g->builtin_types.entry_void, "@async_call_frame");
             for (size_t i = 0; i < fn_table_entry->call_list.length; i += 1) {
                 IrInstructionCallGen *call = fn_table_entry->call_list.at(i);
                 if (call->fn_entry == nullptr)
@@ -7184,8 +7200,15 @@ static void do_code_gen(CodeGen *g) {
                 if (call->frame_result_loc != nullptr)
                     continue;
                 ZigType *callee_frame_type = get_fn_frame_type(g, call->fn_entry);
-                call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node,
-                        fn_table_entry, callee_frame_type, "");
+                if (largest_call_frame_type == nullptr ||
+                    callee_frame_type->abi_size > largest_call_frame_type->abi_size)
+                {
+                    largest_call_frame_type = callee_frame_type;
+                }
+                call->frame_result_loc = all_calls_alloca;
+            }
+            if (largest_call_frame_type != nullptr) {
+                all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
             }
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
@@ -9074,10 +9097,6 @@ static bool want_startup_code(CodeGen *g) {
     if (g->is_test_build)
         return false;
 
-    // start code does not handle UEFI target
-    if (g->zig_target->os == OsUefi)
-        return false;
-
     // WASM freestanding can still have an entry point but other freestanding targets do not.
     if (g->zig_target->os == OsFreestanding && !target_is_wasm(g->zig_target))
         return false;
@@ -9087,8 +9106,12 @@ static bool want_startup_code(CodeGen *g) {
         return false;
 
     // If there is a pub main in the root source file, that means we need start code.
-    if (g->have_pub_main)
+    if (g->have_pub_main) {
         return true;
+    } else {
+        if (g->zig_target->os == OsUefi)
+            return false;
+    }
 
     if (g->out_type == OutTypeExe) {
         // For build-exe, we might add start code even though there is no pub main, so that the

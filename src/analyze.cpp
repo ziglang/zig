@@ -2406,8 +2406,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
         tag_int_type = get_c_int_type(g, CIntTypeInt);
-    } else if (enum_type->data.enumeration.layout == ContainerLayoutAuto && field_count == 1) {
-        tag_int_type = g->builtin_types.entry_num_lit_int;
     } else {
         tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     }
@@ -2420,7 +2418,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        } else if (wanted_tag_int_type->id != ZigTypeIdInt) {
+        } else if (wanted_tag_int_type->id != ZigTypeIdInt &&
+                   wanted_tag_int_type->id != ZigTypeIdComptimeInt) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
@@ -2537,6 +2536,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     enum_type->data.enumeration.resolve_loop_flag = false;
     enum_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
+
+    occupied_tag_values.deinit();
 
     return ErrorNone;
 }
@@ -2804,14 +2805,12 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-            if (tag_int_type->id != ZigTypeIdInt) {
+            if (tag_int_type->id != ZigTypeIdInt && tag_int_type->id != ZigTypeIdComptimeInt) {
                 add_node_error(g, enum_type_node,
                     buf_sprintf("expected integer tag type, found '%s'", buf_ptr(&tag_int_type->name)));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-        } else if (auto_layout && field_count == 1) {
-            tag_int_type = g->builtin_types.entry_num_lit_int;
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
@@ -5878,6 +5877,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         fn->err_code_spill = &alloca_gen->base;
     }
 
+    ZigType *largest_call_frame_type = nullptr;
+    // Later we'll change this to be largest_call_frame_type instead of void.
+    IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
+            fn, g->builtin_types.entry_void, "@async_call_frame");
+
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
         if (call->new_stack != nullptr) {
@@ -5921,9 +5925,21 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
         mark_suspension_point(call->base.scope);
 
-        call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
-                callee_frame_type, "");
+        if ((err = type_resolve(g, callee_frame_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
+        if (largest_call_frame_type == nullptr ||
+            callee_frame_type->abi_size > largest_call_frame_type->abi_size)
+        {
+            largest_call_frame_type = callee_frame_type;
+        }
+
+        call->frame_result_loc = all_calls_alloca;
     }
+    if (largest_call_frame_type != nullptr) {
+        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+    }
+
     // Since this frame is async, an await might represent a suspend point, and
     // therefore need to spill. It also needs to mark expr scopes as having to spill.
     // For example: foo() + await z
