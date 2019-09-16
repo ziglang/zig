@@ -299,7 +299,7 @@ pub const Headers = struct {
         return buf;
     }
 
-    /// Returns all headers with the given name as a comma seperated string.
+    /// Returns all headers with the given name as a comma separated string.
     ///
     /// Useful for HTTP headers that follow RFC-7230 section 3.2.2:
     ///   A recipient MAY combine multiple header fields with the same field
