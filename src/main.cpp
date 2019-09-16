@@ -90,7 +90,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -mllvm [arg]                 (unsupported) forward an arg to LLVM's option processing\n"
         "  --override-std-dir [arg]     override path to Zig standard library\n"
         "  --override-lib-dir [arg]     override path to Zig lib library\n"
-        "  -ffunction-sections          places each function in a seperate section\n"
+        "  -ffunction-sections          places each function in a separate section\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
