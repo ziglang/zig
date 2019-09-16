@@ -1,4 +1,5 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
 
 const Value = union(enum) {
     Int: u64,
