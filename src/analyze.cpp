@@ -7864,6 +7864,26 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     }
 }
 
+// This is to be used instead of void for debug info types, to avoid tripping
+// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
+// when targeting CodeView (Windows).
+static ZigLLVMDIType *make_empty_namespace_llvm_di_type(CodeGen *g, ZigType *import, const char *name,
+        AstNode *decl_node)
+{
+    uint64_t debug_size_in_bits = 0;
+    uint64_t debug_align_in_bits = 0;
+    ZigLLVMDIType **di_element_types = nullptr;
+    size_t debug_field_count = 0;
+    return ZigLLVMCreateDebugStructType(g->dbuilder,
+        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+        name,
+        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+        debug_size_in_bits,
+        debug_align_in_bits,
+        ZigLLVM_DIFlags_Zero,
+        nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+}
+
 static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatus wanted_resolve_status) {
     assert(enum_type->data.enumeration.resolve_status >= ResolveStatusSizeKnown);
     if (enum_type->data.enumeration.resolve_status >= wanted_resolve_status) return;
@@ -7874,19 +7894,8 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
     if (!type_has_bits(enum_type)) {
         enum_type->llvm_type = g->builtin_types.entry_void->llvm_type;
-
-        uint64_t debug_size_in_bits = 0;
-        uint64_t debug_align_in_bits = 0;
-        ZigLLVMDIType **di_element_types = nullptr;
-        size_t debug_field_count = 0;
-        enum_type->llvm_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
-                buf_ptr(&enum_type->name),
-                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
-                debug_size_in_bits,
-                debug_align_in_bits,
-                ZigLLVM_DIFlags_Zero,
-                nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+        enum_type->llvm_di_type = make_empty_namespace_llvm_di_type(g, import, buf_ptr(&enum_type->name),
+                decl_node);
         enum_type->data.enumeration.resolve_status = ResolveStatusLLVMFull;
         return;
     }
@@ -7927,6 +7936,8 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
 
     bool packed = (union_type->data.unionation.layout == ContainerLayoutPacked);
+    Scope *scope = &union_type->data.unionation.decls_scope->base;
+    ZigType *import = get_scope_import(scope);
 
     TypeUnionField *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
@@ -7934,7 +7945,8 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     if (gen_field_count == 0) {
         if (tag_type == nullptr) {
             union_type->llvm_type = g->builtin_types.entry_void->llvm_type;
-            union_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+            union_type->llvm_di_type = make_empty_namespace_llvm_di_type(g, import, buf_ptr(&union_type->name),
+                    union_type->data.unionation.decl_node);
         } else {
             union_type->llvm_type = get_llvm_type(g, tag_type);
             union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
@@ -7943,8 +7955,6 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         return;
     }
 
-    Scope *scope = &union_type->data.unionation.decls_scope->base;
-    ZigType *import = get_scope_import(scope);
     AstNode *decl_node = union_type->data.unionation.decl_node;
 
     if (union_type->data.unionation.resolve_status < ResolveStatusLLVMFwdDecl) {
