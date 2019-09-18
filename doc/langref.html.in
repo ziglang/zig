@@ -7673,6 +7673,43 @@ test "@setRuntimeSafety" {
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
+      {#header_open|@shuffle#}
+      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <p>
+      Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
+      {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
+      </p>
+      <p>
+      Each element in {#syntax#}mask{#endsyntax#} selects an element from either {#syntax#}a{#endsyntax#} or
+      {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
+      Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
+      It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
+      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~i32(0){#endsyntax#} is
+      {#syntax#}-1{#endsyntax#}).
+      </p>
+      <p>
+      For each element of {#syntax#}mask{#endsyntax#}, if it or the selected value from
+      {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#},
+      then the resulting element is {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}a_len{#endsyntax#} and {#syntax#}b_len{#endsyntax#} may differ in length. Out-of-bounds element
+      indexes in {#syntax#}mask{#endsyntax#} result in compile errors.
+      </p>
+      <p>
+      If {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#}, it
+      is equivalent to a vector of all {#syntax#}undefined{#endsyntax#} with the same length as the other vector.
+      If both vectors are {#syntax#}undefined{#endsyntax#}, {#syntax#}@shuffle{#endsyntax#} returns
+      a vector with all elements {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}E{#endsyntax#} must be an {#link|integer|Integers#}, {#link|float|Floats#},
+      {#link|pointer|Pointers#}, or {#syntax#}bool{#endsyntax#}. The mask may be any vector length, and its
+      length determines the result length.
+      </p>
+      {#see_also|SIMD#}
+      {#header_close#}
+
       {#header_open|@sizeOf#}
       <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>

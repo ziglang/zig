@@ -116,7 +116,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
                 // Otherwise, hash every element.
                 // TODO remove the copy to an array once field access is done.
                 const array: [info.len]info.child = key;
-                comptime var i: u32 = 0;
+                comptime var i = 0;
                 inline while (i < info.len) : (i += 1) {
                     hash(hasher, array[i], strat);
                 }
@@ -357,10 +357,13 @@ test "testHash union" {
 test "testHash vector" {
     const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
     const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
-    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
     testing.expect(testHash(a) == testHash(a));
     testing.expect(testHash(a) != testHash(b));
-    testing.expect(testHash(a) != testHash(c));
+
+    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    testing.expect(testHash(c) == testHash(c));
+    testing.expect(testHash(c) != testHash(d));
 }
 
 test "testHash error union" {

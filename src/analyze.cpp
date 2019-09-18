@@ -4708,6 +4708,7 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
 bool is_valid_vector_elem_type(ZigType *elem_type) {
     return elem_type->id == ZigTypeIdInt ||
         elem_type->id == ZigTypeIdFloat ||
+        elem_type->id == ZigTypeIdBool ||
         get_codegen_ptr_type(elem_type) != nullptr;
 }
 
@@ -4727,7 +4728,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
 
     ZigType *entry = new_type_table_entry(ZigTypeIdVector);
     if ((len != 0) && type_has_bits(elem_type)) {
-        // Vectors can only be ints, floats, or pointers. ints and floats have trivially resolvable
+        // Vectors can only be ints, floats, bools, or pointers. ints (inc. bools) and floats have trivially resolvable
         // llvm type refs. pointers we will use usize instead.
         LLVMTypeRef example_vector_llvm_type;
         if (elem_type->id == ZigTypeIdPointer) {
