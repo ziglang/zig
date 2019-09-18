@@ -15198,7 +15198,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 }
                 peer_parent->skipped = true;
                 return ir_resolve_result(ira, suspend_source_instr, peer_parent->parent,
-                        value_type, value, force_runtime, true, true);
+                        value_type, value, force_runtime || !is_comptime, true, true);
             }
 
             if (peer_parent->resolved_type == nullptr) {

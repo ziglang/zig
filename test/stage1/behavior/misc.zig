@@ -721,3 +721,23 @@ test "global variable assignment with optional unwrapping with var initialized t
     };
     expect(global_foo.* == 1234);
 }
+
+test "peer result location with typed parent, runtime condition, comptime prongs" {
+    const S = struct {
+        fn doTheTest(arg: i32) i32 {
+            const st = Structy{
+                .bleh = if (arg == 1) 1 else 1,
+            };
+
+            if (st.bleh == 1)
+                return 1234;
+            return 0;
+        }
+
+        const Structy = struct {
+            bleh: i32,
+        };
+    };
+    expect(S.doTheTest(0) == 1234);
+    expect(S.doTheTest(1) == 1234);
+}
