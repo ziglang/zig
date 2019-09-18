@@ -6485,16 +6485,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
-        "using LLVM syntax for @shuffle",
+        "@shuffle with selected index past first vector length",
         \\export fn entry() void {
-        \\    const v: @Vector(4, u32) = [4]u32{0, 1, 2, 3};
-        \\    const x: @Vector(4, u32) = [4]u32{4, 5, 6, 7};
-        \\    var z = @shuffle(u32, v, x, [8]i32{0, 1, 2, 3, 4, 5, 6, 7});
+        \\    const v: @Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
+        \\    const x: @Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
+        \\    var z = @shuffle(u32, v, x, [8]i32{ 0, 1, 2, 3, 7, 6, 5, 4 });
         \\}
     ,
-        "tmp.zig:4:39: error: mask index out of bounds",
-        "tmp.zig:4:39: note: when computing vector element at index 4",
-        "tmp.zig:4:39: note: selections from the second vector are specified with negative numbers",
+        "tmp.zig:4:39: error: mask index '4' has out-of-bounds selection",
+        "tmp.zig:4:27: note: selected index '7' out of bounds of @Vector(4, u32)",
+        "tmp.zig:4:30: note: selections from the second vector are specified with negative numbers",
     );
 
     cases.addTest(

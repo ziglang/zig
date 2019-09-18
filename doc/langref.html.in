@@ -7673,6 +7673,43 @@ test "@setRuntimeSafety" {
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
+      {#header_open|@shuffle#}
+      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <p>
+      Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
+      {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
+      </p>
+      <p>
+      Each element in {#syntax#}mask{#endsyntax#} selects an element from either {#syntax#}a{#endsyntax#} or
+      {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
+      Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
+      It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
+      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~i32(0){#endsyntax#} is
+      {#syntax#}-1{#endsyntax#}).
+      </p>
+      <p>
+      For each element of {#syntax#}mask{#endsyntax#}, if it or the selected value from
+      {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#},
+      then the resulting element is {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}a_len{#endsyntax#} and {#syntax#}b_len{#endsyntax#} may differ in length. Out-of-bounds element
+      indexes in {#syntax#}mask{#endsyntax#} result in compile errors.
+      </p>
+      <p>
+      If {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#}, it
+      is equivalent to a vector of all {#syntax#}undefined{#endsyntax#} with the same length as the other vector.
+      If both vectors are {#syntax#}undefined{#endsyntax#}, {#syntax#}@shuffle{#endsyntax#} returns
+      a vector with all elements {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}E{#endsyntax#} must be an {#link|integer|Integers#}, {#link|float|Floats#},
+      {#link|pointer|Pointers#}, or {#syntax#}bool{#endsyntax#}. The mask may be any vector length, and its
+      length determines the result length.
+      </p>
+      {#see_also|SIMD#}
+      {#header_close#}
+
       {#header_open|@sizeOf#}
       <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -8224,28 +8261,6 @@ fn foo(comptime T: type, ptr: *T) T {
       <p>
       {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
       {#link|pointer|Pointers#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime ElemType: type, a: @Vector(_, ElemType), b: @Vector(_, ElemType), comptime mask: @Vector(_, u32)) @Vector(mask.len, ElemType){#endsyntax#}</pre>
-      <p>
-      Does the {#syntax#}shufflevector{#endsyntax#} instruction. Each element in {#syntax#}comptime{#endsyntax#}
-      (and always {#syntax#}i32{#endsyntax#}) {#syntax#}mask{#endsyntax#} selects a element from either {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#}.
-      Positive numbers select from {#syntax#}a{#endsyntax#} (starting at 0), while negative values select
-      from {#syntax#}b{#endsyntax#} (starting at -1 and going down). It is recommended to use the {#syntax#}~{#endsyntax#}
-      operator from indexes from b so that both indexes can start from 0 (i.e. ~0 is -1). If either the {#syntax#}mask{#endsyntax#}
-      value or the value from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} that it selects are {#syntax#}undefined{#endsyntax#}
-      then the resulting value is {#syntax#}undefined{#endsyntax#}. Also see {#link|SIMD#} and
-      the relevent <a href="https://llvm.org/docs/LangRef.html#i-shufflevector">LLVM Documentation on
-      {#syntax#}shufflevector{#endsyntax#}</a>, although note that the mask values are interpreted differently than in LLVM-IR.
-      Also, unlike LLVM-IR, the number of elements in {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} do not have to match.
-      The {#syntax#}undefined{#endsyntax#} identifier can be selected from up to the length of the other vector,
-      and yields {#syntax#}undefined{#endsyntax#}. If both vectors are {#syntax#}undefined{#endsyntax#}, yields an
-      {#syntax#}undefined{#endsyntax#} {#syntax#}ElemType{#endsyntax#} vector with length of {#syntax#}mask{#endsyntax#}.</p>
-      <p>
-      {#syntax#}ElemType{#endsyntax#} must be an {#link|integer|Integers#}, a {#link|float|Floats#}, or a
-      {#link|pointer|Pointers#}. The mask may be any vector length that the target supports, and its' length determines the result length.
       </p>
       {#header_close#}
       {#header_close#}

@@ -4583,7 +4583,7 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 
 static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executable, IrInstructionShuffleVector *instruction) {
     uint64_t len_a = instruction->a->value.type->data.vector.len;
-    uint64_t len_c = instruction->mask->value.type->data.vector.len;
+    uint64_t len_mask = instruction->mask->value.type->data.vector.len;
 
     // LLVM uses integers larger than the length of the first array to
     // index into the second array. This was deemed unnecessarily fragile
@@ -4591,23 +4591,24 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executabl
     // second vector. These start at -1 and go down, and are easiest to use
     // with the ~ operator. Here we convert between the two formats.
     IrInstruction *mask = instruction->mask;
-    LLVMValueRef *values = allocate<LLVMValueRef>(len_c);
-    for (uint64_t i = 0;i < len_c;i++) {
+    LLVMValueRef *values = allocate<LLVMValueRef>(len_mask);
+    for (uint64_t i = 0; i < len_mask; i++) {
         if (mask->value.data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef) {
             values[i] = LLVMGetUndef(LLVMInt32Type());
         } else {
-            int64_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
-            if (v < 0)
-                v = (uint32_t)~v + (uint32_t)len_a;
-            values[i] = LLVMConstInt(LLVMInt32Type(), v, false);
+            int32_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
+            uint32_t index_val = (v >= 0) ? (uint32_t)v : (uint32_t)~v + (uint32_t)len_a;
+            values[i] = LLVMConstInt(LLVMInt32Type(), index_val, false);
         }
     }
+
+    LLVMValueRef llvm_mask_value = LLVMConstVector(values, len_mask);
+    free(values);
 
     return LLVMBuildShuffleVector(g->builder,
         ir_llvm_value(g, instruction->a),
         ir_llvm_value(g, instruction->b),
-        LLVMConstVector(values, len_c),
-        "");
+        llvm_mask_value, "");
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
