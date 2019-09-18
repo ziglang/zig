@@ -1351,7 +1351,7 @@ struct ZigTypeBoundFn {
 };
 
 struct ZigTypeVector {
-    // The type must be a pointer, integer, or float
+    // The type must be a pointer, integer, bool, or float
     ZigType *elem_type;
     uint32_t len;
 };

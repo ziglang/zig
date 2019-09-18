@@ -5549,14 +5549,29 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executab
     assert(handle_is_ptr(array_type));
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
-    LLVMValueRef array = LLVMGetUndef(get_llvm_type(g, array_type));
-    for (uintptr_t i = 0; i < instruction->vector->value.type->data.vector.len; i++) {
-        LLVMValueRef index = LLVMConstInt(g->builtin_types.entry_u32->llvm_type, i, false);
-        LLVMValueRef elem = LLVMBuildExtractElement(g->builder, vector,
-            index, "vector_to_array");
-        array = LLVMBuildInsertValue(g->builder, array, elem, i, "");
+
+    ZigType *elem_type = array_type->data.array.child_type;
+    bool bitcast_ok = (elem_type->size_in_bits * 8) == elem_type->abi_size;
+    if (bitcast_ok) {
+        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
+                LLVMPointerType(get_llvm_type(g, instruction->vector->value.type), 0), "");
+        uint32_t alignment = get_ptr_align(g, instruction->result_loc->value.type);
+        gen_store_untyped(g, vector, casted_ptr, alignment, false);
+    } else {
+        // If the ABI size of the element type is not evenly divisible by size_in_bits, a simple bitcast
+        // will not work, and we fall back to extractelement.
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+        LLVMTypeRef u32_type_ref = LLVMInt32Type();
+        LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
+        for (uintptr_t i = 0; i < instruction->vector->value.type->data.vector.len; i++) {
+            LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
+            LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
+            LLVMValueRef indexes[] = { zero, index_usize };
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, result_loc, indexes, 2, "");
+            LLVMValueRef elem = LLVMBuildExtractElement(g->builder, vector, index_u32, "");
+            LLVMBuildStore(g->builder, elem, elem_ptr);
+        }
     }
-    LLVMBuildStore(g->builder, array, result_loc);
     return result_loc;
 }
 
@@ -5567,16 +5582,34 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executab
     assert(vector_type->id == ZigTypeIdVector);
     assert(!handle_is_ptr(vector_type));
     LLVMValueRef array_ptr = ir_llvm_value(g, instruction->array);
-    LLVMValueRef array = LLVMBuildLoad2(g->builder, get_llvm_type(g, instruction->array->value.type),
-        array_ptr, "");
-    LLVMValueRef vector = LLVMGetUndef(get_llvm_type(g, vector_type));
-    for (uintptr_t i = 0; i < instruction->base.value.type->data.vector.len; i++) {
-        LLVMValueRef index = LLVMConstInt(g->builtin_types.entry_u32->llvm_type, i, false);
-        LLVMValueRef elem = LLVMBuildExtractValue(g->builder, array,
-            i, "vector_to_array");
-        vector = LLVMBuildInsertElement(g->builder, vector, elem, index, "");
+    LLVMTypeRef vector_type_ref = get_llvm_type(g, vector_type);
+
+    ZigType *elem_type = vector_type->data.vector.elem_type;
+    bool bitcast_ok = (elem_type->size_in_bits * 8) == elem_type->abi_size;
+    if (bitcast_ok) {
+        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, array_ptr,
+                LLVMPointerType(vector_type_ref, 0), "");
+        ZigType *array_type = instruction->array->value.type;
+        assert(array_type->id == ZigTypeIdArray);
+        uint32_t alignment = get_abi_alignment(g, array_type->data.array.child_type);
+        return gen_load_untyped(g, casted_ptr, alignment, false, "");
+    } else {
+        // If the ABI size of the element type is not evenly divisible by size_in_bits, a simple bitcast
+        // will not work, and we fall back to insertelement.
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+        LLVMTypeRef u32_type_ref = LLVMInt32Type();
+        LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
+        LLVMValueRef vector = LLVMGetUndef(vector_type_ref);
+        for (uintptr_t i = 0; i < instruction->base.value.type->data.vector.len; i++) {
+            LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
+            LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
+            LLVMValueRef indexes[] = { zero, index_usize };
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indexes, 2, "");
+            LLVMValueRef elem = LLVMBuildLoad(g->builder, elem_ptr, "");
+            vector = LLVMBuildInsertElement(g->builder, vector, elem, index_u32, "");
+        }
+        return vector;
     }
-    return vector;
 }
 
 static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
