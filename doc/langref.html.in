@@ -6641,7 +6641,7 @@ async fn func(y: *i32) void {
       {#header_open|@clz#}
       <pre>{#syntax#}@clz(comptime T: type, integer: T){#endsyntax#}</pre>
       <p>
-      This function counts the number of leading zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
       </p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
@@ -6783,7 +6783,7 @@ test "main" {
       {#header_open|@ctz#}
       <pre>{#syntax#}@ctz(comptime T: type, integer: T){#endsyntax#}</pre>
       <p>
-      This function counts the number of trailing zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
       </p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
