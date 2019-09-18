@@ -1606,6 +1606,10 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
                 *result = false;
                 return ErrorNone;
             }
+            if (!type_is_nonnull_ptr(child_type)) {
+                *result = false;
+                return ErrorNone;
+            }
             return type_allowed_in_extern(g, child_type, result);
         }
         case ZigTypeIdEnum:

@@ -16,6 +16,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "invalid optional type in extern struct",
+        \\const stroo = extern struct {
+        \\    moo: ?[*c]u8,
+        \\};
+        \\export fn testf(fluff: *stroo) void {}
+    ,
+        "tmp.zig:2:5: error: extern structs cannot contain fields of type '?[*c]u8'",
+    );
+
+    cases.add(
         "attempt to negate a non-integer, non-float or non-vector type",
         \\fn foo() anyerror!u32 {
         \\    return 1;
