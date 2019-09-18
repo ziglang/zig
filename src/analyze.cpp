@@ -1580,6 +1580,9 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
                 if (child_type->id != ZigTypeIdPointer && child_type->id != ZigTypeIdFn) {
                     return false;
                 }
+                if (!type_is_nonnull_ptr(child_type)) {
+                    return false;
+                }
                 return type_allowed_in_extern(g, child_type);
             }
         case ZigTypeIdEnum:
