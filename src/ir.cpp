@@ -13480,8 +13480,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     }
 
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
-        // TODO do we need lazy values on vector comparisons?
-        if (resolved_type->id != ZigTypeIdVector) {
+        {
             // Before resolving the values, we special case comparisons against zero. These can often be done
             // without resolving lazy values, preventing potential dependency loops.
             Cmp op1_cmp_zero;
@@ -13589,11 +13588,12 @@ never_mind_just_calculate_it_normally:
     IrInstruction *result = ir_build_bin_op(&ira->new_irb,
             bin_op_instruction->base.scope, bin_op_instruction->base.source_node,
             op_id, casted_op1, casted_op2, bin_op_instruction->safety_check_on);
-    if (resolved_type->id == ZigTypeIdVector)
+    if (resolved_type->id == ZigTypeIdVector) {
         result->value.type = get_vector_type(ira->codegen, resolved_type->data.vector.len,
             ira->codegen->builtin_types.entry_bool);
-    else
+    } else {
         result->value.type = ira->codegen->builtin_types.entry_bool;
+    }
     return result;
 }
 
