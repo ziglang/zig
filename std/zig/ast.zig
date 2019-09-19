@@ -255,39 +255,39 @@ pub const Error = union(enum) {
         }
     }
 
-    pub const InvalidToken = SingleTokenError("Invalid token {}");
-    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found {}");
-    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found {}");
-    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found {}");
-    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found {}");
-    pub const ExpectedStatement = SingleTokenError("Expected statement, found {}");
-    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found {}");
-    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found {}");
-    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found {}");
-    pub const ExpectedAggregateKw = SingleTokenError("Expected " ++ @tagName(Token.Id.Keyword_struct) ++ ", " ++ @tagName(Token.Id.Keyword_union) ++ ", or " ++ @tagName(Token.Id.Keyword_enum) ++ ", found {}");
-    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found {}");
-    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found {}");
-    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found {}");
-    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found {}");
-    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found {}");
-    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found {}");
-    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found {}");
-    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found {}");
-    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or " ++ @tagName(Token.Id.Identifier) ++ ", found {}");
-    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found {}");
-    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found {}");
-    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found {}");
-    pub const ExpectedExpr = SingleTokenError("Expected expression, found {}");
-    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found {}");
-    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found {}");
-    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found {}");
-    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found {}");
-    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found {}");
-    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found {}");
-    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found {}");
-    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found {}");
-    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found {}");
-    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found {}");
+    pub const InvalidToken = SingleTokenError("Invalid token '{}'");
+    pub const ExpectedContainerMembers = SingleTokenError("Expected test, comptime, var decl, or container field, found '{}'");
+    pub const ExpectedStringLiteral = SingleTokenError("Expected string literal, found '{}'");
+    pub const ExpectedIntegerLiteral = SingleTokenError("Expected integer literal, found '{}'");
+    pub const ExpectedIdentifier = SingleTokenError("Expected identifier, found '{}'");
+    pub const ExpectedStatement = SingleTokenError("Expected statement, found '{}'");
+    pub const ExpectedVarDeclOrFn = SingleTokenError("Expected variable declaration or function, found '{}'");
+    pub const ExpectedVarDecl = SingleTokenError("Expected variable declaration, found '{}'");
+    pub const ExpectedReturnType = SingleTokenError("Expected 'var' or return type expression, found '{}'");
+    pub const ExpectedAggregateKw = SingleTokenError("Expected '" ++ Token.Id.Keyword_struct.symbol() ++ "', '" ++ Token.Id.Keyword_union.symbol() ++ "', or '" ++ Token.Id.Keyword_enum.symbol() ++ "', found '{}'");
+    pub const ExpectedEqOrSemi = SingleTokenError("Expected '=' or ';', found '{}'");
+    pub const ExpectedSemiOrLBrace = SingleTokenError("Expected ';' or '{{', found '{}'");
+    pub const ExpectedSemiOrElse = SingleTokenError("Expected ';' or 'else', found '{}'");
+    pub const ExpectedLBrace = SingleTokenError("Expected '{{', found '{}'");
+    pub const ExpectedLabelOrLBrace = SingleTokenError("Expected label or '{{', found '{}'");
+    pub const ExpectedColonOrRParen = SingleTokenError("Expected ':' or ')', found '{}'");
+    pub const ExpectedLabelable = SingleTokenError("Expected 'while', 'for', 'inline', 'suspend', or '{{', found '{}'");
+    pub const ExpectedInlinable = SingleTokenError("Expected 'while' or 'for', found '{}'");
+    pub const ExpectedAsmOutputReturnOrType = SingleTokenError("Expected '->' or '" ++ Token.Id.Identifier.symbol() ++ "', found '{}'");
+    pub const ExpectedSliceOrRBracket = SingleTokenError("Expected ']' or '..', found '{}'");
+    pub const ExpectedTypeExpr = SingleTokenError("Expected type expression, found '{}'");
+    pub const ExpectedPrimaryTypeExpr = SingleTokenError("Expected primary type expression, found '{}'");
+    pub const ExpectedExpr = SingleTokenError("Expected expression, found '{}'");
+    pub const ExpectedPrimaryExpr = SingleTokenError("Expected primary expression, found '{}'");
+    pub const ExpectedParamList = SingleTokenError("Expected parameter list, found '{}'");
+    pub const ExpectedPayload = SingleTokenError("Expected loop payload, found '{}'");
+    pub const ExpectedBlockOrAssignment = SingleTokenError("Expected block or assignment, found '{}'");
+    pub const ExpectedBlockOrExpression = SingleTokenError("Expected block or expression, found '{}'");
+    pub const ExpectedExprOrAssignment = SingleTokenError("Expected expression or assignment, found '{}'");
+    pub const ExpectedPrefixExpr = SingleTokenError("Expected prefix expression, found '{}'");
+    pub const ExpectedLoopExpr = SingleTokenError("Expected loop expression, found '{}'");
+    pub const ExpectedDerefOrUnwrap = SingleTokenError("Expected pointer dereference or optional unwrap, found '{}'");
+    pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{}'");
 
     pub const ExpectedParamType = SimpleError("Expected parameter type");
     pub const ExpectedPubItem = SimpleError("Pub must be followed by fn decl, var decl, or container member");
@@ -324,11 +324,11 @@ pub const Error = union(enum) {
                     return stream.print("`&&` is invalid. Note that `and` is boolean AND.");
                 },
                 .Invalid => {
-                    return stream.print("expected {}, found invalid bytes", @tagName(self.expected_id));
+                    return stream.print("expected '{}', found invalid bytes", self.expected_id.symbol());
                 },
                 else => {
-                    const token_name = @tagName(found_token.id);
-                    return stream.print("expected {}, found {}", @tagName(self.expected_id), token_name);
+                    const token_name = found_token.id.symbol();
+                    return stream.print("expected '{}', found '{}'", self.expected_id.symbol(), token_name);
                 },
             }
         }
@@ -339,8 +339,8 @@ pub const Error = union(enum) {
         end_id: Token.Id,
 
         pub fn render(self: *const ExpectedCommaOrEnd, tokens: *Tree.TokenList, stream: var) !void {
-            const token_name = @tagName(tokens.at(self.token).id);
-            return stream.print("expected ',' or {}, found {}", @tagName(self.end_id), token_name);
+            const actual_token = tokens.at(self.token);
+            return stream.print("expected ',' or '{}', found '{}'", self.end_id.symbol(), actual_token.id.symbol());
         }
     };
 
@@ -351,8 +351,8 @@ pub const Error = union(enum) {
             token: TokenIndex,
 
             pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
-                const token_name = @tagName(tokens.at(self.token).id);
-                return stream.print(msg, token_name);
+                const actual_token = tokens.at(self.token);
+                return stream.print(msg, actual_token.id.symbol());
             }
         };
     }
