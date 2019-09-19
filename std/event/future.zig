@@ -85,6 +85,8 @@ pub fn Future(comptime T: type) type {
 test "std.event.Future" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+    // https://github.com/ziglang/zig/issues/3251
+    if (std.os.freebsd.is_the_target) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 
