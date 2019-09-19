@@ -1612,6 +1612,7 @@ enum BuiltinFnId {
     BuiltinFnIdIntType,
     BuiltinFnIdVectorType,
     BuiltinFnIdShuffle,
+    BuiltinFnIdSplat,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
@@ -2431,6 +2432,8 @@ enum IrInstructionId {
     IrInstructionIdIntType,
     IrInstructionIdVectorType,
     IrInstructionIdShuffleVector,
+    IrInstructionIdSplatSrc,
+    IrInstructionIdSplatGen,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
@@ -3679,6 +3682,19 @@ struct IrInstructionShuffleVector {
     IrInstruction *a;
     IrInstruction *b;
     IrInstruction *mask; // This is in zig-format, not llvm format
+};
+
+struct IrInstructionSplatSrc {
+    IrInstruction base;
+
+    IrInstruction *len;
+    IrInstruction *scalar;
+};
+
+struct IrInstructionSplatGen {
+    IrInstruction base;
+
+    IrInstruction *scalar;
 };
 
 struct IrInstructionAssertZero {

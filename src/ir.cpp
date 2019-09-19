@@ -721,6 +721,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionShuffleVector *)
     return IrInstructionIdShuffleVector;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSplatSrc *) {
+    return IrInstructionIdSplatSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSplatGen *) {
+    return IrInstructionIdSplatGen;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolNot *) {
     return IrInstructionIdBoolNot;
 }
@@ -2300,6 +2308,19 @@ static IrInstruction *ir_build_shuffle_vector(IrBuilder *irb, Scope *scope, AstN
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_splat_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *len, IrInstruction *scalar)
+{
+    IrInstructionSplatSrc *instruction = ir_build_instruction<IrInstructionSplatSrc>(irb, scope, source_node);
+    instruction->len = len;
+    instruction->scalar = scalar;
+
+    ir_ref_instruction(len, irb->current_basic_block);
+    ir_ref_instruction(scalar, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_bool_not(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
     IrInstructionBoolNot *instruction = ir_build_instruction<IrInstructionBoolNot>(irb, scope, source_node);
     instruction->value = value;
@@ -2352,6 +2373,19 @@ static IrInstruction *ir_build_slice_src(IrBuilder *irb, Scope *scope, AstNode *
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(start, irb->current_basic_block);
     if (end) ir_ref_instruction(end, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_splat_gen(IrAnalyze *ira, IrInstruction *source_instruction, ZigType *result_type,
+    IrInstruction *scalar)
+{
+    IrInstructionSplatGen *instruction = ir_build_instruction<IrInstructionSplatGen>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = result_type;
+    instruction->scalar = scalar;
+
+    ir_ref_instruction(scalar, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -4984,6 +5018,22 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *shuffle_vector = ir_build_shuffle_vector(irb, scope, node,
                     arg0_value, arg1_value, arg2_value, arg3_value);
                 return ir_lval_wrap(irb, scope, shuffle_vector, lval, result_loc);
+            }
+        case BuiltinFnIdSplat:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *splat = ir_build_splat_src(irb, scope, node,
+                    arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, splat, lval, result_loc);
             }
         case BuiltinFnIdMemcpy:
             {
@@ -11049,16 +11099,23 @@ static ZigType *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
     return ir_resolve_const_type(ira->codegen, ira->new_irb.exec, type_value->source_node, val);
 }
 
+static Error ir_validate_vector_elem_type(IrAnalyze *ira, IrInstruction *source_instr, ZigType *elem_type) {
+    if (!is_valid_vector_elem_type(elem_type)) {
+        ir_add_error(ira, source_instr,
+            buf_sprintf("vector element type must be integer, float, bool, or pointer; '%s' is invalid",
+                buf_ptr(&elem_type->name)));
+        return ErrorSemanticAnalyzeFail;
+    }
+    return ErrorNone;
+}
+
 static ZigType *ir_resolve_vector_elem_type(IrAnalyze *ira, IrInstruction *elem_type_value) {
+    Error err;
     ZigType *elem_type = ir_resolve_type(ira, elem_type_value);
     if (type_is_invalid(elem_type))
         return ira->codegen->builtin_types.entry_invalid;
-    if (!is_valid_vector_elem_type(elem_type)) {
-        ir_add_error(ira, elem_type_value,
-            buf_sprintf("vector element type must be integer, float, bool, or pointer; '%s' is invalid",
-                buf_ptr(&elem_type->name)));
+    if ((err = ir_validate_vector_elem_type(ira, elem_type_value, elem_type)))
         return ira->codegen->builtin_types.entry_invalid;
-    }
     return elem_type;
 }
 
@@ -22324,6 +22381,45 @@ static IrInstruction *ir_analyze_instruction_shuffle_vector(IrAnalyze *ira, IrIn
     return ir_analyze_shuffle_vector(ira, &instruction->base, scalar_type, a, b, mask);
 }
 
+static IrInstruction *ir_analyze_instruction_splat(IrAnalyze *ira, IrInstructionSplatSrc *instruction) {
+    Error err;
+
+    IrInstruction *len = instruction->len->child;
+    if (type_is_invalid(len->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *scalar = instruction->scalar->child;
+    if (type_is_invalid(scalar->value.type))
+        return ira->codegen->invalid_instruction;
+
+    uint64_t len_u64;
+    if (!ir_resolve_unsigned(ira, len, ira->codegen->builtin_types.entry_u32, &len_u64))
+        return ira->codegen->invalid_instruction;
+    uint32_t len_int = len_u64;
+
+    if ((err = ir_validate_vector_elem_type(ira, scalar, scalar->value.type)))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *return_type = get_vector_type(ira->codegen, len_int, scalar->value.type);
+
+    if (instr_is_comptime(scalar)) {
+        ConstExprValue *scalar_val = ir_resolve_const(ira, scalar, UndefOk);
+        if (scalar_val == nullptr)
+            return ira->codegen->invalid_instruction;
+        if (scalar_val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, return_type);
+
+        IrInstruction *result = ir_const(ira, &instruction->base, return_type);
+        result->value.data.x_array.data.s_none.elements = create_const_vals(len_int);
+        for (uint32_t i = 0; i < len_int; i += 1) {
+            copy_const_val(&result->value.data.x_array.data.s_none.elements[i], scalar_val, false);
+        }
+        return result;
+    }
+
+    return ir_build_splat_gen(ira, &instruction->base, return_type, scalar);
+}
+
 static IrInstruction *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstructionBoolNot *instruction) {
     IrInstruction *value = instruction->value->child;
     if (type_is_invalid(value->value.type))
@@ -25778,6 +25874,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdTestErrGen:
         case IrInstructionIdFrameSizeGen:
         case IrInstructionIdAwaitGen:
+        case IrInstructionIdSplatGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -25908,6 +26005,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_vector_type(ira, (IrInstructionVectorType *)instruction);
         case IrInstructionIdShuffleVector:
             return ir_analyze_instruction_shuffle_vector(ira, (IrInstructionShuffleVector *)instruction);
+         case IrInstructionIdSplatSrc:
+            return ir_analyze_instruction_splat(ira, (IrInstructionSplatSrc *)instruction);
         case IrInstructionIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdMemset:
@@ -26244,6 +26343,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdIntType:
         case IrInstructionIdVectorType:
         case IrInstructionIdShuffleVector:
+        case IrInstructionIdSplatSrc:
+        case IrInstructionIdSplatGen:
         case IrInstructionIdBoolNot:
         case IrInstructionIdSliceSrc:
         case IrInstructionIdMemberCount:

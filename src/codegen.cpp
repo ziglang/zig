@@ -4619,6 +4619,18 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executabl
         llvm_mask_value, "");
 }
 
+static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInstructionSplatGen *instruction) {
+    ZigType *result_type = instruction->base.value.type;
+    src_assert(result_type->id == ZigTypeIdVector, instruction->base.source_node);
+    uint32_t len = result_type->data.vector.len;
+    LLVMTypeRef op_llvm_type = LLVMVectorType(get_llvm_type(g, instruction->scalar->value.type), 1);
+    LLVMTypeRef mask_llvm_type = LLVMVectorType(LLVMInt32Type(), len);
+    LLVMValueRef undef_vector = LLVMGetUndef(op_llvm_type);
+    LLVMValueRef op_vector = LLVMBuildInsertElement(g->builder, undef_vector,
+            ir_llvm_value(g, instruction->scalar), LLVMConstInt(LLVMInt32Type(), 0, false), "");
+    return LLVMBuildShuffleVector(g->builder, op_vector, undef_vector, LLVMConstNull(mask_llvm_type), "");
+}
+
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
     ZigType *int_type = instruction->op->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
@@ -5986,6 +5998,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFrameSizeSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdAwaitSrc:
+        case IrInstructionIdSplatSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6146,6 +6159,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_spill_end(g, executable, (IrInstructionSpillEnd *)instruction);
         case IrInstructionIdShuffleVector:
             return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
+        case IrInstructionIdSplatGen:
+            return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
     }
     zig_unreachable();
 }
@@ -7837,6 +7852,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdVectorType, "Vector", 2);
     create_builtin_fn(g, BuiltinFnIdShuffle, "shuffle", 4);
+    create_builtin_fn(g, BuiltinFnIdSplat, "splat", 2);
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 1);
