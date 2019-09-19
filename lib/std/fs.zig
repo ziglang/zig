@@ -37,6 +37,8 @@ pub const MAX_PATH_BYTES = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
+pub const MAX_BUF_BYTES: usize = 8192;
+
 // here we replace the standard +/ with -_ so that it can be used in a file name
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
@@ -371,7 +373,7 @@ const DeleteTreeError = error{
 /// this function recursively removes its entries and then tries again.
 /// TODO determine if we can remove the allocator requirement
 /// https://github.com/ziglang/zig/issues/2886
-pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!void {
+pub fn deleteTree(full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
@@ -395,7 +397,7 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             => return err,
         }
         {
-            var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
+            var dir = Dir.open(full_path) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -424,17 +426,14 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
             };
             defer dir.close();
 
-            var full_entry_buf = std.ArrayList(u8).init(allocator);
-            defer full_entry_buf.deinit();
-
             while (try dir.next()) |entry| {
-                try full_entry_buf.resize(full_path.len + entry.name.len + 1);
-                const full_entry_path = full_entry_buf.toSlice();
+                var full_entry_buf: [MAX_BUF_BYTES]u8 = undefined;
+                const full_entry_path = full_entry_buf[0..];
                 mem.copy(u8, full_entry_path, full_path);
                 full_entry_path[full_path.len] = path.sep;
                 mem.copy(u8, full_entry_path[full_path.len + 1 ..], entry.name);
 
-                try deleteTree(allocator, full_entry_path);
+                try deleteTree(full_entry_path[0..full_path.len + entry.name.len + 1]);
             }
         }
         return deleteDir(full_path);
@@ -445,19 +444,18 @@ pub fn deleteTree(allocator: *Allocator, full_path: []const u8) DeleteTreeError!
 /// files, and into the one that reads files from an open directory handle.
 pub const Dir = struct {
     handle: Handle,
-    allocator: *Allocator,
 
     pub const Handle = switch (builtin.os) {
         .macosx, .ios, .freebsd, .netbsd => struct {
             fd: i32,
             seek: i64,
-            buf: []u8,
+            buf: [MAX_BUF_BYTES]u8,
             index: usize,
             end_index: usize,
         },
         .linux => struct {
             fd: i32,
-            buf: []u8,
+            buf: [MAX_BUF_BYTES]u8,
             index: usize,
             end_index: usize,
         },
@@ -512,9 +510,8 @@ pub const Dir = struct {
     /// Call close when done.
     /// TODO remove the allocator requirement from this API
     /// https://github.com/ziglang/zig/issues/2885
-    pub fn open(allocator: *Allocator, dir_path: []const u8) OpenError!Dir {
+    pub fn open(dir_path: []const u8) OpenError!Dir {
         return Dir{
-            .allocator = allocator,
             .handle = switch (builtin.os) {
                 .windows => blk: {
                     var find_file_data: os.windows.WIN32_FIND_DATAW = undefined;
@@ -548,7 +545,6 @@ pub const Dir = struct {
         if (os.windows.is_the_target) {
             return os.windows.FindClose(self.handle.handle);
         }
-        self.allocator.free(self.handle.buf);
         os.close(self.handle.fd);
     }
 
@@ -579,14 +575,10 @@ pub const Dir = struct {
     fn nextDarwin(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.handle.index >= self.handle.end_index) {
-                if (self.handle.buf.len == 0) {
-                    self.handle.buf = try self.allocator.alloc(u8, mem.page_size);
-                }
-
                 while (true) {
                     const rc = os.system.__getdirentries64(
                         self.handle.fd,
-                        self.handle.buf.ptr,
+                        self.handle.buf[0..].ptr,
                         self.handle.buf.len,
                         &self.handle.seek,
                     );
@@ -596,10 +588,7 @@ pub const Dir = struct {
                             os.EBADF => unreachable,
                             os.EFAULT => unreachable,
                             os.ENOTDIR => unreachable,
-                            os.EINVAL => {
-                                self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
-                                continue;
-                            },
+                            os.EINVAL => unreachable,
                             else => |err| return os.unexpectedErrno(err),
                         }
                     }
@@ -666,21 +655,14 @@ pub const Dir = struct {
     fn nextLinux(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.handle.index >= self.handle.end_index) {
-                if (self.handle.buf.len == 0) {
-                    self.handle.buf = try self.allocator.alloc(u8, mem.page_size);
-                }
-
                 while (true) {
-                    const rc = os.linux.getdents64(self.handle.fd, self.handle.buf.ptr, self.handle.buf.len);
+                    const rc = os.linux.getdents64(self.handle.fd, self.handle.buf[0..].ptr, self.handle.buf.len);
                     switch (os.linux.getErrno(rc)) {
                         0 => {},
                         os.EBADF => unreachable,
                         os.EFAULT => unreachable,
                         os.ENOTDIR => unreachable,
-                        os.EINVAL => {
-                            self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
-                            continue;
-                        },
+                        os.EINVAL => unreachable,
                         else => |err| return os.unexpectedErrno(err),
                     }
                     if (rc == 0) return null;
@@ -720,14 +702,10 @@ pub const Dir = struct {
     fn nextBsd(self: *Dir) !?Entry {
         start_over: while (true) {
             if (self.handle.index >= self.handle.end_index) {
-                if (self.handle.buf.len == 0) {
-                    self.handle.buf = try self.allocator.alloc(u8, mem.page_size);
-                }
-
                 while (true) {
                     const rc = os.system.getdirentries(
                         self.handle.fd,
-                        self.handle.buf.ptr,
+                        self.handle.buf[0..].ptr,
                         self.handle.buf.len,
                         &self.handle.seek,
                     );
@@ -736,10 +714,7 @@ pub const Dir = struct {
                         os.EBADF => unreachable,
                         os.EFAULT => unreachable,
                         os.ENOTDIR => unreachable,
-                        os.EINVAL => {
-                            self.handle.buf = try self.allocator.realloc(self.handle.buf, self.handle.buf.len * 2);
-                            continue;
-                        },
+                        os.EINVAL => unreachable,
                         else => |err| return os.unexpectedErrno(err),
                     }
                     if (rc == 0) return null;
@@ -807,7 +782,7 @@ pub const Walker = struct {
                 try self.name_buffer.append(base.name);
                 if (base.kind == .Directory) {
                     // TODO https://github.com/ziglang/zig/issues/2888
-                    var new_dir = try Dir.open(self.stack.allocator, self.name_buffer.toSliceConst());
+                    var new_dir = try Dir.open(self.name_buffer.toSliceConst());
                     {
                         errdefer new_dir.close();
                         try self.stack.append(StackItem{
@@ -841,7 +816,7 @@ pub const Walker = struct {
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
-    var dir_it = try Dir.open(allocator, dir_path);
+    var dir_it = try Dir.open(dir_path);
     errdefer dir_it.close();
 
     var name_buffer = try std.Buffer.init(allocator, dir_path);

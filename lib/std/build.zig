@@ -331,7 +331,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", full_path);
             }
-            fs.deleteTree(self.allocator, full_path) catch {};
+            fs.deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -2671,7 +2671,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(self.builder.allocator, full_path) catch |err| {
+        fs.deleteTree(full_path) catch |err| {
             warn("Unable to remove {}: {}\n", full_path, @errorName(err));
             return err;
         };

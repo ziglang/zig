@@ -1312,7 +1312,7 @@ const test_tmp_dir = "std_event_fs_test";
 //
 //    // TODO move this into event loop too
 //    try os.makePath(allocator, test_tmp_dir);
-//    defer os.deleteTree(allocator, test_tmp_dir) catch {};
+//    defer os.deleteTree(test_tmp_dir) catch {};
 //
 //    var loop: Loop = undefined;
 //    try loop.initMultiThreaded(allocator);

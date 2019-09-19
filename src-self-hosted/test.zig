@@ -56,11 +56,11 @@ pub const TestContext = struct {
         errdefer allocator.free(self.zig_lib_dir);
 
         try std.fs.makePath(allocator, tmp_dir_name);
-        errdefer std.fs.deleteTree(allocator, tmp_dir_name) catch {};
+        errdefer std.fs.deleteTree(tmp_dir_name) catch {};
     }
 
     fn deinit(self: *TestContext) void {
-        std.fs.deleteTree(allocator, tmp_dir_name) catch {};
+        std.fs.deleteTree(tmp_dir_name) catch {};
         allocator.free(self.zig_lib_dir);
         self.zig_compiler.deinit();
         self.loop.deinit();
