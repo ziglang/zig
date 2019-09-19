@@ -306,6 +306,8 @@ pub fn Channel(comptime T: type) type {
 test "std.event.Channel" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+    // https://github.com/ziglang/zig/issues/3251
+    if (std.os.freebsd.is_the_target) return error.SkipZigTest;
 
     var loop: Loop = undefined;
     // TODO make a multi threaded test

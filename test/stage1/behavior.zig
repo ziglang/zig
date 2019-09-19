@@ -80,6 +80,7 @@ comptime {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
+    _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slicetobytes.zig");

@@ -6485,13 +6485,36 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
+        "@shuffle with selected index past first vector length",
+        \\export fn entry() void {
+        \\    const v: @Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
+        \\    const x: @Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
+        \\    var z = @shuffle(u32, v, x, [8]i32{ 0, 1, 2, 3, 7, 6, 5, 4 });
+        \\}
+    ,
+        "tmp.zig:4:39: error: mask index '4' has out-of-bounds selection",
+        "tmp.zig:4:27: note: selected index '7' out of bounds of @Vector(4, u32)",
+        "tmp.zig:4:30: note: selections from the second vector are specified with negative numbers",
+    );
+
+    cases.addTest(
         "nested vectors",
         \\export fn entry() void {
         \\    const V = @Vector(4, @Vector(4, u8));
         \\    var v: V = undefined;
         \\}
     ,
-        "tmp.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:2:26: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+    );
+
+    cases.addTest(
+        "bad @splat type",
+        \\export fn entry() void {
+        \\    const c = 4;
+        \\    var v = @splat(4, c);
+        \\}
+    ,
+        "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
     );
 
     cases.add("compileLog of tagged enum doesn't crash the compiler",

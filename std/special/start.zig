@@ -23,7 +23,7 @@ comptime {
     } else if (builtin.os == .uefi) {
         @export("EfiMain", EfiMain, .Strong);
     } else {
-        @export("_start", _start, .Strong);
+        if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
     }
 }
 

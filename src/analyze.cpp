@@ -4708,6 +4708,7 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
 bool is_valid_vector_elem_type(ZigType *elem_type) {
     return elem_type->id == ZigTypeIdInt ||
         elem_type->id == ZigTypeIdFloat ||
+        elem_type->id == ZigTypeIdBool ||
         get_codegen_ptr_type(elem_type) != nullptr;
 }
 
@@ -4727,7 +4728,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
 
     ZigType *entry = new_type_table_entry(ZigTypeIdVector);
     if ((len != 0) && type_has_bits(elem_type)) {
-        // Vectors can only be ints, floats, or pointers. ints and floats have trivially resolvable
+        // Vectors can only be ints, floats, bools, or pointers. ints (inc. bools) and floats have trivially resolvable
         // llvm type refs. pointers we will use usize instead.
         LLVMTypeRef example_vector_llvm_type;
         if (elem_type->id == ZigTypeIdPointer) {
@@ -6895,7 +6896,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
                    (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBswap:
-            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
+            return (uint32_t)(x.data.bswap.bit_count) * ((uint32_t)3661994335) +
+                   (uint32_t)(x.data.bswap.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBitReverse:
             return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
         case ZigLLVMFnIdOverflowArithmetic:
@@ -6918,7 +6920,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
         case ZigLLVMFnIdPopCount:
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdBswap:
-            return a.data.bswap.bit_count == b.data.bswap.bit_count;
+            return a.data.bswap.bit_count == b.data.bswap.bit_count &&
+                   a.data.bswap.vector_len == b.data.bswap.vector_len;
         case ZigLLVMFnIdBitReverse:
             return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
         case ZigLLVMFnIdFloatOp:

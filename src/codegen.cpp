@@ -4505,7 +4505,11 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *exec
     }
 }
 
-static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnId fn_id) {
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFnId fn_id) {
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *int_type = is_vector ? expr_type->data.vector.elem_type : expr_type;
+    assert(int_type->id == ZigTypeIdInt);
+    uint32_t vector_len = is_vector ? expr_type->data.vector.len : 0;
     ZigLLVMFnKey key = {};
     const char *fn_name;
     uint32_t n_args;
@@ -4529,6 +4533,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         n_args = 1;
         key.id = ZigLLVMFnIdBswap;
         key.data.bswap.bit_count = (uint32_t)int_type->data.integral.bit_count;
+        key.data.bswap.vector_len = vector_len;
     } else if (fn_id == BuiltinFnIdBitReverse) {
         fn_name = "bitreverse";
         n_args = 1;
@@ -4543,12 +4548,15 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *int_type, BuiltinFnI
         return existing_entry->value;
 
     char llvm_name[64];
-    sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
+    if (is_vector)
+        sprintf(llvm_name, "llvm.%s.v%" PRIu32 "i%" PRIu32, fn_name, vector_len, int_type->data.integral.bit_count);
+    else
+        sprintf(llvm_name, "llvm.%s.i%" PRIu32, fn_name, int_type->data.integral.bit_count);
     LLVMTypeRef param_types[] = {
-        get_llvm_type(g, int_type),
+        get_llvm_type(g, expr_type),
         LLVMInt1Type(),
     };
-    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, int_type), param_types, n_args, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, expr_type), param_types, n_args, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
     assert(LLVMGetIntrinsicID(fn_val));
 
@@ -4579,6 +4587,48 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
     };
     LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
+}
+
+static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executable, IrInstructionShuffleVector *instruction) {
+    uint64_t len_a = instruction->a->value.type->data.vector.len;
+    uint64_t len_mask = instruction->mask->value.type->data.vector.len;
+
+    // LLVM uses integers larger than the length of the first array to
+    // index into the second array. This was deemed unnecessarily fragile
+    // when changing code, so Zig uses negative numbers to index the
+    // second vector. These start at -1 and go down, and are easiest to use
+    // with the ~ operator. Here we convert between the two formats.
+    IrInstruction *mask = instruction->mask;
+    LLVMValueRef *values = allocate<LLVMValueRef>(len_mask);
+    for (uint64_t i = 0; i < len_mask; i++) {
+        if (mask->value.data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef) {
+            values[i] = LLVMGetUndef(LLVMInt32Type());
+        } else {
+            int32_t v = bigint_as_signed(&mask->value.data.x_array.data.s_none.elements[i].data.x_bigint);
+            uint32_t index_val = (v >= 0) ? (uint32_t)v : (uint32_t)~v + (uint32_t)len_a;
+            values[i] = LLVMConstInt(LLVMInt32Type(), index_val, false);
+        }
+    }
+
+    LLVMValueRef llvm_mask_value = LLVMConstVector(values, len_mask);
+    free(values);
+
+    return LLVMBuildShuffleVector(g->builder,
+        ir_llvm_value(g, instruction->a),
+        ir_llvm_value(g, instruction->b),
+        llvm_mask_value, "");
+}
+
+static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInstructionSplatGen *instruction) {
+    ZigType *result_type = instruction->base.value.type;
+    src_assert(result_type->id == ZigTypeIdVector, instruction->base.source_node);
+    uint32_t len = result_type->data.vector.len;
+    LLVMTypeRef op_llvm_type = LLVMVectorType(get_llvm_type(g, instruction->scalar->value.type), 1);
+    LLVMTypeRef mask_llvm_type = LLVMVectorType(LLVMInt32Type(), len);
+    LLVMValueRef undef_vector = LLVMGetUndef(op_llvm_type);
+    LLVMValueRef op_vector = LLVMBuildInsertElement(g->builder, undef_vector,
+            ir_llvm_value(g, instruction->scalar), LLVMConstInt(LLVMInt32Type(), 0, false), "");
+    return LLVMBuildShuffleVector(g->builder, op_vector, undef_vector, LLVMConstNull(mask_llvm_type), "");
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
@@ -5512,25 +5562,36 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrIn
 
 static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
-    ZigType *int_type = instruction->base.value.type;
+    ZigType *expr_type = instruction->base.value.type;
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *int_type = is_vector ? expr_type->data.vector.elem_type : expr_type;
     assert(int_type->id == ZigTypeIdInt);
     if (int_type->data.integral.bit_count % 16 == 0) {
-        LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value.type, BuiltinFnIdBswap);
+        LLVMValueRef fn_val = get_int_builtin_fn(g, expr_type, BuiltinFnIdBswap);
         return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
     }
     // Not an even number of bytes, so we zext 1 byte, then bswap, shift right 1 byte, truncate
     ZigType *extended_type = get_int_type(g, int_type->data.integral.is_signed,
             int_type->data.integral.bit_count + 8);
+    LLVMValueRef shift_amt = LLVMConstInt(get_llvm_type(g, extended_type), 8, false);
+    if (is_vector) {
+        extended_type = get_vector_type(g, expr_type->data.vector.len, extended_type);
+        LLVMValueRef *values = allocate_nonzero<LLVMValueRef>(expr_type->data.vector.len);
+        for (uint32_t i = 0; i < expr_type->data.vector.len; i += 1) {
+            values[i] = shift_amt;
+        }
+        shift_amt = LLVMConstVector(values, expr_type->data.vector.len);
+        free(values);
+    }
     // aabbcc
     LLVMValueRef extended = LLVMBuildZExt(g->builder, op, get_llvm_type(g, extended_type), "");
     // 00aabbcc
     LLVMValueRef fn_val = get_int_builtin_fn(g, extended_type, BuiltinFnIdBswap);
     LLVMValueRef swapped = LLVMBuildCall(g->builder, fn_val, &extended, 1, "");
     // ccbbaa00
-    LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped,
-            LLVMConstInt(get_llvm_type(g, extended_type), 8, false), "");
+    LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped, shift_amt, "");
     // 00ccbbaa
-    return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, int_type), "");
+    return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, expr_type), "");
 }
 
 static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, IrInstructionBitReverse *instruction) {
@@ -5549,10 +5610,29 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executab
     assert(handle_is_ptr(array_type));
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
-    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
-            LLVMPointerType(get_llvm_type(g, instruction->vector->value.type), 0), "");
-    uint32_t alignment = get_ptr_align(g, instruction->result_loc->value.type);
-    gen_store_untyped(g, vector, casted_ptr, alignment, false);
+
+    ZigType *elem_type = array_type->data.array.child_type;
+    bool bitcast_ok = elem_type->size_in_bits == elem_type->abi_size * 8;
+    if (bitcast_ok) {
+        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
+                LLVMPointerType(get_llvm_type(g, instruction->vector->value.type), 0), "");
+        uint32_t alignment = get_ptr_align(g, instruction->result_loc->value.type);
+        gen_store_untyped(g, vector, casted_ptr, alignment, false);
+    } else {
+        // If the ABI size of the element type is not evenly divisible by size_in_bits, a simple bitcast
+        // will not work, and we fall back to extractelement.
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+        LLVMTypeRef u32_type_ref = LLVMInt32Type();
+        LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
+        for (uintptr_t i = 0; i < instruction->vector->value.type->data.vector.len; i++) {
+            LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
+            LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
+            LLVMValueRef indexes[] = { zero, index_usize };
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, result_loc, indexes, 2, "");
+            LLVMValueRef elem = LLVMBuildExtractElement(g->builder, vector, index_u32, "");
+            LLVMBuildStore(g->builder, elem, elem_ptr);
+        }
+    }
     return result_loc;
 }
 
@@ -5563,12 +5643,34 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executab
     assert(vector_type->id == ZigTypeIdVector);
     assert(!handle_is_ptr(vector_type));
     LLVMValueRef array_ptr = ir_llvm_value(g, instruction->array);
-    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, array_ptr,
-            LLVMPointerType(get_llvm_type(g, vector_type), 0), "");
-    ZigType *array_type = instruction->array->value.type;
-    assert(array_type->id == ZigTypeIdArray);
-    uint32_t alignment = get_abi_alignment(g, array_type->data.array.child_type);
-    return gen_load_untyped(g, casted_ptr, alignment, false, "");
+    LLVMTypeRef vector_type_ref = get_llvm_type(g, vector_type);
+
+    ZigType *elem_type = vector_type->data.vector.elem_type;
+    bool bitcast_ok = elem_type->size_in_bits == elem_type->abi_size * 8;
+    if (bitcast_ok) {
+        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, array_ptr,
+                LLVMPointerType(vector_type_ref, 0), "");
+        ZigType *array_type = instruction->array->value.type;
+        assert(array_type->id == ZigTypeIdArray);
+        uint32_t alignment = get_abi_alignment(g, array_type->data.array.child_type);
+        return gen_load_untyped(g, casted_ptr, alignment, false, "");
+    } else {
+        // If the ABI size of the element type is not evenly divisible by size_in_bits, a simple bitcast
+        // will not work, and we fall back to insertelement.
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+        LLVMTypeRef u32_type_ref = LLVMInt32Type();
+        LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
+        LLVMValueRef vector = LLVMGetUndef(vector_type_ref);
+        for (uintptr_t i = 0; i < instruction->base.value.type->data.vector.len; i++) {
+            LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
+            LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
+            LLVMValueRef indexes[] = { zero, index_usize };
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indexes, 2, "");
+            LLVMValueRef elem = LLVMBuildLoad(g->builder, elem_ptr, "");
+            vector = LLVMBuildInsertElement(g->builder, vector, elem, index_u32, "");
+        }
+        return vector;
+    }
 }
 
 static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
@@ -5896,6 +5998,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFrameSizeSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdAwaitSrc:
+        case IrInstructionIdSplatSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6054,6 +6157,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_spill_begin(g, executable, (IrInstructionSpillBegin *)instruction);
         case IrInstructionIdSpillEnd:
             return ir_render_spill_end(g, executable, (IrInstructionSpillEnd *)instruction);
+        case IrInstructionIdShuffleVector:
+            return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
+        case IrInstructionIdSplatGen:
+            return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
     }
     zig_unreachable();
 }
@@ -7419,7 +7526,9 @@ static void do_code_gen(CodeGen *g) {
     }
 
     char *error = nullptr;
-    LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
+    if (LLVMVerifyModule(g->module, LLVMReturnStatusAction, &error)) {
+        zig_panic("broken LLVM module found: %s", error);
+    }
 }
 
 static void zig_llvm_emit_output(CodeGen *g) {
@@ -7744,6 +7853,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdVectorType, "Vector", 2);
+    create_builtin_fn(g, BuiltinFnIdShuffle, "shuffle", 4);
+    create_builtin_fn(g, BuiltinFnIdSplat, "splat", 2);
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 1);
