@@ -51,7 +51,7 @@ pub fn main() !void {
     var toc = try genToc(allocator, &tokenizer);
 
     try fs.makePath(allocator, tmp_dir_name);
-    defer fs.deleteTree(allocator, tmp_dir_name) catch {};
+    defer fs.deleteTree(tmp_dir_name) catch {};
 
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
