@@ -6896,7 +6896,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
                    (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBswap:
-            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
+            return (uint32_t)(x.data.bswap.bit_count) * ((uint32_t)3661994335) +
+                   (uint32_t)(x.data.bswap.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBitReverse:
             return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
         case ZigLLVMFnIdOverflowArithmetic:
@@ -6919,7 +6920,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
         case ZigLLVMFnIdPopCount:
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdBswap:
-            return a.data.bswap.bit_count == b.data.bswap.bit_count;
+            return a.data.bswap.bit_count == b.data.bswap.bit_count &&
+                   a.data.bswap.vector_len == b.data.bswap.vector_len;
         case ZigLLVMFnIdBitReverse:
             return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
         case ZigLLVMFnIdFloatOp:
