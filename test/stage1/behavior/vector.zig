@@ -145,10 +145,11 @@ test "vector @splat" {
             var v: u32 = 5;
             var x = @splat(4, v);
             expect(@typeOf(x) == @Vector(4, u32));
-            expect(x[0] == 5);
-            expect(x[1] == 5);
-            expect(x[2] == 5);
-            expect(x[3] == 5);
+            var array_x: [4]u32 = x;
+            expect(array_x[0] == 5);
+            expect(array_x[1] == 5);
+            expect(array_x[2] == 5);
+            expect(array_x[3] == 5);
         }
     };
     S.doTheTest();

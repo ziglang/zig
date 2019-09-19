@@ -44,8 +44,10 @@ static const char* ir_instruction_type_str(IrInstruction* instruction) {
             return "Invalid";
         case IrInstructionIdShuffleVector:
             return "Shuffle";
-        case IrInstructionIdSplat:
-            return "Splat";
+        case IrInstructionIdSplatSrc:
+            return "SplatSrc";
+        case IrInstructionIdSplatGen:
+            return "SplatGen";
         case IrInstructionIdDeclVarSrc:
             return "DeclVarSrc";
         case IrInstructionIdDeclVarGen:
@@ -1224,10 +1226,16 @@ static void ir_print_shuffle_vector(IrPrint *irp, IrInstructionShuffleVector *in
     fprintf(irp->f, ")");
 }
 
-static void ir_print_splat(IrPrint *irp, IrInstructionSplat *instruction) {
+static void ir_print_splat_src(IrPrint *irp, IrInstructionSplatSrc *instruction) {
     fprintf(irp->f, "@splat(");
     ir_print_other_instruction(irp, instruction->len);
     fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->scalar);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_splat_gen(IrPrint *irp, IrInstructionSplatGen *instruction) {
+    fprintf(irp->f, "@splat(");
     ir_print_other_instruction(irp, instruction->scalar);
     fprintf(irp->f, ")");
 }
@@ -2170,8 +2178,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdShuffleVector:
             ir_print_shuffle_vector(irp, (IrInstructionShuffleVector *)instruction);
             break;
-        case IrInstructionIdSplat:
-            ir_print_splat(irp, (IrInstructionSplat *)instruction);
+        case IrInstructionIdSplatSrc:
+            ir_print_splat_src(irp, (IrInstructionSplatSrc *)instruction);
+            break;
+        case IrInstructionIdSplatGen:
+            ir_print_splat_gen(irp, (IrInstructionSplatGen *)instruction);
             break;
         case IrInstructionIdBoolNot:
             ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);

@@ -6514,7 +6514,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var v = @splat(4, c);
         \\}
     ,
-        "tmp.zig:3:20: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
+        "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
     );
 
     cases.add("compileLog of tagged enum doesn't crash the compiler",

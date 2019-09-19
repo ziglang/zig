@@ -4619,18 +4619,16 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executabl
         llvm_mask_value, "");
 }
 
-static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInstructionSplat *instruction) {
-    uint64_t len = bigint_as_u64(&instruction->len->value.data.x_bigint);
-    LLVMValueRef wrapped_scalar_undef = LLVMGetUndef(instruction->base.value.type->llvm_type);
-    LLVMValueRef wrapped_scalar = LLVMBuildInsertElement(g->builder, wrapped_scalar_undef,
-        ir_llvm_value(g, instruction->scalar),
-        LLVMConstInt(LLVMInt32Type(), 0, false),
-        "");
-    return LLVMBuildShuffleVector(g->builder,
-        wrapped_scalar,
-        wrapped_scalar_undef,
-        LLVMConstNull(LLVMVectorType(g->builtin_types.entry_u32->llvm_type, (uint32_t)len)),
-        "");
+static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInstructionSplatGen *instruction) {
+    ZigType *result_type = instruction->base.value.type;
+    src_assert(result_type->id == ZigTypeIdVector, instruction->base.source_node);
+    uint32_t len = result_type->data.vector.len;
+    LLVMTypeRef op_llvm_type = LLVMVectorType(get_llvm_type(g, instruction->scalar->value.type), 1);
+    LLVMTypeRef mask_llvm_type = LLVMVectorType(LLVMInt32Type(), len);
+    LLVMValueRef undef_vector = LLVMGetUndef(op_llvm_type);
+    LLVMValueRef op_vector = LLVMBuildInsertElement(g->builder, undef_vector,
+            ir_llvm_value(g, instruction->scalar), LLVMConstInt(LLVMInt32Type(), 0, false), "");
+    return LLVMBuildShuffleVector(g->builder, op_vector, undef_vector, LLVMConstNull(mask_llvm_type), "");
 }
 
 static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
@@ -6000,6 +5998,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFrameSizeSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdAwaitSrc:
+        case IrInstructionIdSplatSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6160,8 +6159,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_spill_end(g, executable, (IrInstructionSpillEnd *)instruction);
         case IrInstructionIdShuffleVector:
             return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
-        case IrInstructionIdSplat:
-            return ir_render_splat(g, executable, (IrInstructionSplat *) instruction);
+        case IrInstructionIdSplatGen:
+            return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
     }
     zig_unreachable();
 }

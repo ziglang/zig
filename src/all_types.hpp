@@ -2432,7 +2432,8 @@ enum IrInstructionId {
     IrInstructionIdIntType,
     IrInstructionIdVectorType,
     IrInstructionIdShuffleVector,
-    IrInstructionIdSplat,
+    IrInstructionIdSplatSrc,
+    IrInstructionIdSplatGen,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
@@ -3683,10 +3684,16 @@ struct IrInstructionShuffleVector {
     IrInstruction *mask; // This is in zig-format, not llvm format
 };
 
-struct IrInstructionSplat {
+struct IrInstructionSplatSrc {
     IrInstruction base;
 
     IrInstruction *len;
+    IrInstruction *scalar;
+};
+
+struct IrInstructionSplatGen {
+    IrInstruction base;
+
     IrInstruction *scalar;
 };
 
