@@ -6542,11 +6542,20 @@ async fn func(y: *i32) void {
       {#header_close#}
 
       {#header_open|@byteSwap#}
-      <pre>{#syntax#}@byteSwap(comptime T: type, integer: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@byteSwap(comptime T: type, operand: T) T{#endsyntax#}</pre>
       <p>{#syntax#}T{#endsyntax#} must be an integer type with bit count evenly divisible by 8.</p>
+      <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
       Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
       and converts a little endian integer to a big endian integer.
+      </p>
+      <p>
+      Note that for the purposes of memory layout with respect to endianness, the integer type should be
+      related to the number of bytes reported by {#link|@sizeOf#} bytes. This is demonstrated with
+      {#syntax#}u24{#endsyntax#}. {#syntax#}@sizeOf(u24) == 4{#endsyntax#}, which means that a
+      {#syntax#}u24{#endsyntax#} stored in memory takes 4 bytes, and those 4 bytes are what are swapped on
+      a little vs big endian system. On the other hand, if {#syntax#}T{#endsyntax#} is specified to
+      be {#syntax#}u24{#endsyntax#}, then only 3 bytes are reversed.
       </p>
       {#header_close#}
 

@@ -11068,8 +11068,15 @@ static ZigType *ir_resolve_int_type(IrAnalyze *ira, IrInstruction *type_value) {
         return ira->codegen->builtin_types.entry_invalid;
 
     if (ty->id != ZigTypeIdInt) {
-        ir_add_error(ira, type_value,
+        ErrorMsg *msg = ir_add_error(ira, type_value,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&ty->name)));
+        if (ty->id == ZigTypeIdVector &&
+            ty->data.vector.elem_type->id == ZigTypeIdInt)
+        {
+            add_error_note(ira->codegen, msg, type_value->source_node,
+                buf_sprintf("represent vectors with their element types, i.e. '%s'",
+                    buf_ptr(&ty->data.vector.elem_type->name)));
+        }
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -25253,21 +25260,35 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
+    Error err;
+
     ZigType *int_type = ir_resolve_int_type(ira, instruction->type->child);
     if (type_is_invalid(int_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *op = ir_implicit_cast(ira, instruction->op->child, int_type);
+    IrInstruction *uncasted_op = instruction->op->child;
+    if (type_is_invalid(uncasted_op->value.type))
+        return ira->codegen->invalid_instruction;
+
+    uint32_t vector_len; // UINT32_MAX means not a vector
+    if (uncasted_op->value.type->id == ZigTypeIdArray &&
+        is_valid_vector_elem_type(uncasted_op->value.type->data.array.child_type))
+    {
+        vector_len = uncasted_op->value.type->data.array.len;
+    } else if (uncasted_op->value.type->id == ZigTypeIdVector) {
+        vector_len = uncasted_op->value.type->data.vector.len;
+    } else {
+        vector_len = UINT32_MAX;
+    }
+
+    bool is_vector = (vector_len != UINT32_MAX);
+    ZigType *op_type = is_vector ? get_vector_type(ira->codegen, vector_len, int_type) : int_type;
+
+    IrInstruction *op = ir_implicit_cast(ira, uncasted_op, op_type);
     if (type_is_invalid(op->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (int_type->data.integral.bit_count == 0) {
-        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
-        bigint_init_unsigned(&result->value.data.x_bigint, 0);
-        return result;
-    }
-
-    if (int_type->data.integral.bit_count == 8)
+    if (int_type->data.integral.bit_count == 8 || int_type->data.integral.bit_count == 0)
         return op;
 
     if (int_type->data.integral.bit_count % 8 != 0) {
@@ -25282,20 +25303,44 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
         if (val == nullptr)
             return ira->codegen->invalid_instruction;
         if (val->special == ConstValSpecialUndef)
-            return ir_const_undef(ira, &instruction->base, int_type);
+            return ir_const_undef(ira, &instruction->base, op_type);
 
-        IrInstruction *result = ir_const(ira, &instruction->base, int_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, op_type);
         size_t buf_size = int_type->data.integral.bit_count / 8;
         uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
-        bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
-        bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
-                int_type->data.integral.is_signed);
+        if (is_vector) {
+            expand_undef_array(ira->codegen, val);
+            result->value.data.x_array.data.s_none.elements = create_const_vals(op_type->data.vector.len);
+            for (unsigned i = 0; i < op_type->data.vector.len; i += 1) {
+                ConstExprValue *op_elem_val = &val->data.x_array.data.s_none.elements[i];
+                if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, instruction->base.source_node,
+                    op_elem_val, UndefOk)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                ConstExprValue *result_elem_val = &result->value.data.x_array.data.s_none.elements[i];
+                result_elem_val->type = int_type;
+                result_elem_val->special = op_elem_val->special;
+                if (op_elem_val->special == ConstValSpecialUndef)
+                    continue;
+
+                bigint_write_twos_complement(&op_elem_val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+                bigint_read_twos_complement(&result->value.data.x_array.data.s_none.elements[i].data.x_bigint,
+                        buf, int_type->data.integral.bit_count, false,
+                        int_type->data.integral.is_signed);
+            }
+        } else {
+            bigint_write_twos_complement(&val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+            bigint_read_twos_complement(&result->value.data.x_bigint, buf, int_type->data.integral.bit_count, false,
+                    int_type->data.integral.is_signed);
+        }
+        free(buf);
         return result;
     }
 
     IrInstruction *result = ir_build_bswap(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, op);
-    result->value.type = int_type;
+    result->value.type = op_type;
     return result;
 }
 
