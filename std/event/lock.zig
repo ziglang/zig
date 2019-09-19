@@ -117,8 +117,9 @@ pub const Lock = struct {
 
 test "std.event.Lock" {
     // TODO https://github.com/ziglang/zig/issues/1908
+    if (builtin.single_threaded) return error.SkipZigTest;
     // TODO https://github.com/ziglang/zig/issues/3251
-    if (builtin.single_threaded or std.os.freebsd.is_the_target) return error.SkipZigTest;
+    if (std.os.freebsd.is_the_target) return error.SkipZigTest;
 
     const allocator = std.heap.direct_allocator;
 
