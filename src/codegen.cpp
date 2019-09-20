@@ -3706,7 +3706,8 @@ static LLVMValueRef get_new_stack_addr(CodeGen *g, LLVMValueRef new_stack) {
 
     LLVMValueRef ptr_addr = LLVMBuildPtrToInt(g->builder, ptr_value, LLVMTypeOf(len_value), "");
     LLVMValueRef end_addr = LLVMBuildNUWAdd(g->builder, ptr_addr, len_value, "");
-    LLVMValueRef align_amt = LLVMConstInt(LLVMTypeOf(end_addr), get_abi_alignment(g, g->builtin_types.entry_usize), false);
+    const unsigned alignment_factor = ZigLLVMDataLayoutGetStackAlignment(g->target_data_ref);
+    LLVMValueRef align_amt = LLVMConstInt(LLVMTypeOf(end_addr), alignment_factor, false);
     LLVMValueRef align_adj = LLVMBuildURem(g->builder, end_addr, align_amt, "");
     return LLVMBuildNUWSub(g->builder, end_addr, align_adj, "");
 }

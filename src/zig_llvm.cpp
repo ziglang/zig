@@ -149,6 +149,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     return reinterpret_cast<LLVMTargetMachineRef>(TM);
 }
 
+unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
+    return unwrap(TD)->getStackAlignment();
+}
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
         bool is_small, bool time_report)
