@@ -295,6 +295,8 @@ pub const SYS_fsopen = 430;
 pub const SYS_fsconfig = 431;
 pub const SYS_fsmount = 432;
 pub const SYS_fspick = 433;
+pub const SYS_pidfd_open = 434;
+pub const SYS_clone3 = 435;
 
 pub const O_CREAT = 0o100;
 pub const O_EXCL = 0o200;
@@ -351,21 +353,6 @@ pub const MAP_LOCKED = 0x2000;
 
 /// don't check for reservations
 pub const MAP_NORESERVE = 0x4000;
-
-/// populate (prefault) pagetables
-pub const MAP_POPULATE = 0x8000;
-
-/// do not block on IO
-pub const MAP_NONBLOCK = 0x10000;
-
-/// give out an address that is best suited for process/thread stacks
-pub const MAP_STACK = 0x20000;
-
-/// create a huge page mapping
-pub const MAP_HUGETLB = 0x40000;
-
-/// perform synchronous page faults for the mapping
-pub const MAP_SYNC = 0x80000;
 
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";

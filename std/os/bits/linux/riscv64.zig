@@ -292,3 +292,5 @@ pub const SYS_fsopen = 430;
 pub const SYS_fsconfig = 431;
 pub const SYS_fsmount = 432;
 pub const SYS_fspick = 433;
+pub const SYS_pidfd_open = 434;
+pub const SYS_clone3 = 435;
