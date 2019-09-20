@@ -32,10 +32,13 @@ Note that you can
 
 ##### Windows
 
- * cmake >= 2.8.5
- * Microsoft Visual Studio 2017 (version 15.8)
- * LLVM, Clang, LLD development libraries == 9.x, compiled with the same MSVC version above
-   - Use the [pre-built binaries](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#pre-built-binaries) or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#windows).
+ * cmake >= 3.15.3
+ * Microsoft Visual Studio. Supported versions:
+   - 2015 (version 14)
+   - 2017 (version 15.8)
+   - 2019 (version 16)
+ * LLVM, Clang, LLD development libraries == 9.x
+   - Use the [pre-built binaries](https://github.com/ziglang/zig/wiki/Building-Zig-on-Windows) or [build from source](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source#windows).
 
 #### Instructions
 

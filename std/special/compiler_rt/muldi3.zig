@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 
 // Ported from
-// https://github.com/llvm/llvm-project/blob/552c2c09d354a3ad9c1c9647e0a3bb5099c31088/compiler-rt/lib/builtins/muldi3.c
+// https://github.com/llvm/llvm-project/blob/llvmorg-9.0.0/compiler-rt/lib/builtins/muldi3.c
 
 const dwords = extern union {
     all: i64,
