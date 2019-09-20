@@ -1303,7 +1303,7 @@ a ^= b{#endsyntax#}</pre></td>
             Bitwise NOT.
           </td>
           <td>
-            <pre>{#syntax#}~u8(0b0101111) == 0b1010000{#endsyntax#}</pre>
+            <pre>{#syntax#}~u8(0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
