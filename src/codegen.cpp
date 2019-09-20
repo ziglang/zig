@@ -964,7 +964,9 @@ static ZigType *ptr_to_stack_trace_type(CodeGen *g) {
     return get_pointer_to_type(g, get_stack_trace_type(g), false);
 }
 
-static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace_arg) {
+static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace_arg,
+        bool stack_trace_is_llvm_alloca)
+{
     assert(g->panic_fn != nullptr);
     LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
     LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
@@ -975,14 +977,20 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
         msg_arg,
         stack_trace_arg,
     };
-    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_FnInlineAuto, "");
-    LLVMSetTailCall(call_instruction, true);
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_FnInlineAuto, "");
+    if (!stack_trace_is_llvm_alloca) {
+        // The stack trace argument is not in the stack of the caller, so
+        // we'd like to set tail call here, but because slices (the type of msg_arg) are
+        // still passed as pointers (see https://github.com/ziglang/zig/issues/561) we still
+        // cannot make this a tail call.
+        //LLVMSetTailCall(call_instruction, true);
+    }
     LLVMBuildUnreachable(g->builder);
 }
 
 // TODO update most callsites to call gen_assertion instead of this
 static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
-    gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
+    gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr, false);
 }
 
 static void gen_assertion_scope(CodeGen *g, PanicMsgId msg_id, Scope *source_scope) {
@@ -1320,7 +1328,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     gen_store_untyped(g, slice_len, msg_slice_len_field_ptr, 0, false);
 
     // Call panic()
-    gen_panic(g, msg_slice, err_ret_trace_arg);
+    gen_panic(g, msg_slice, err_ret_trace_arg, false);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
     if (!g->strip_debug_symbols) {
@@ -1331,21 +1339,25 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     return fn_val;
 }
 
-static LLVMValueRef get_cur_err_ret_trace_val(CodeGen *g, Scope *scope) {
+static LLVMValueRef get_cur_err_ret_trace_val(CodeGen *g, Scope *scope, bool *is_llvm_alloca) {
     if (!g->have_err_ret_tracing) {
+        *is_llvm_alloca = false;
         return nullptr;
     }
     if (g->cur_err_ret_trace_val_stack != nullptr) {
+        *is_llvm_alloca = !fn_is_async(g->cur_fn);
         return g->cur_err_ret_trace_val_stack;
     }
+    *is_llvm_alloca = false;
     return g->cur_err_ret_trace_val_arg;
 }
 
 static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *scope) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
     LLVMValueRef call_instruction;
+    bool is_llvm_alloca = false;
     if (g->have_err_ret_tracing) {
-        LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope);
+        LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope, &is_llvm_alloca);
         if (err_ret_trace_val == nullptr) {
             err_ret_trace_val = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
         }
@@ -1362,7 +1374,9 @@ static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *sc
         call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 1,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
     }
-    LLVMSetTailCall(call_instruction, true);
+    if (!is_llvm_alloca) {
+        LLVMSetTailCall(call_instruction, true);
+    }
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -2202,7 +2216,9 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     assert(g->have_err_ret_tracing);
 
     LLVMValueRef return_err_fn = get_return_err_fn(g);
-    LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope);
+    bool is_llvm_alloca;
+    LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope,
+            &is_llvm_alloca);
     ZigLLVMBuildCall(g->builder, return_err_fn, &my_err_trace_val, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
 
@@ -2256,6 +2272,10 @@ static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
     return resume_bb;
 }
 
+// Be careful setting tail call. According to LLVM lang ref,
+// tail and musttail imply that the callee does not access allocas from the caller.
+// This works for async functions since the locals are spilled.
+// http://llvm.org/docs/LangRef.html#id320
 static void set_tail_call_if_appropriate(CodeGen *g, LLVMValueRef call_inst) {
     LLVMSetTailCall(call_inst, true);
 }
@@ -2361,7 +2381,8 @@ static void gen_async_return(CodeGen *g, IrInstructionReturn *instruction) {
             LLVMValueRef awaiter_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                     frame_index_trace_arg(g, ret_type) + 1, "");
             LLVMValueRef dest_trace_ptr = LLVMBuildLoad(g->builder, awaiter_trace_ptr_ptr, "");
-            LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+            bool is_llvm_alloca;
+            LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
             LLVMValueRef args[] = { dest_trace_ptr, my_err_trace_val };
             ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
                     get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
@@ -3967,7 +3988,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (prefix_arg_err_ret_stack) {
                 LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
                         frame_index_trace_arg(g, src_return_type) + 1, "");
-                LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+                bool is_llvm_alloca;
+                LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope,
+                        &is_llvm_alloca);
                 LLVMBuildStore(g->builder, my_err_ret_trace_val, err_ret_trace_ptr_ptr);
             }
         }
@@ -4024,7 +4047,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
                 gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
 
-                gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+                bool is_llvm_alloca;
+                gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca));
             }
         }
     } else {
@@ -4032,7 +4056,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             gen_param_values.append(result_loc);
         }
         if (prefix_arg_err_ret_stack) {
-            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope));
+            bool is_llvm_alloca;
+            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca));
         }
     }
     FnWalk fn_walk = {};
@@ -4912,7 +4937,8 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *executable,
         IrInstructionErrorReturnTrace *instruction)
 {
-    LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+    bool is_llvm_alloca;
+    LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
     if (cur_err_ret_trace_val == nullptr) {
         return LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
     }
@@ -5496,7 +5522,9 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
-    gen_panic(g, ir_llvm_value(g, instruction->msg), get_cur_err_ret_trace_val(g, instruction->base.scope));
+    bool is_llvm_alloca;
+    LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
+    gen_panic(g, ir_llvm_value(g, instruction->msg), err_ret_trace_val, is_llvm_alloca);
     return nullptr;
 }
 
@@ -5753,7 +5781,8 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_ins
         LLVMValueRef their_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
                 frame_index_trace_arg(g, result_type), "");
         LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, their_trace_ptr_ptr, "");
-        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope);
+        bool is_llvm_alloca;
+        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope, &is_llvm_alloca);
         LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
         ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
@@ -5802,7 +5831,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
 
     // supply the error return trace pointer
     if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
-        LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+        bool is_llvm_alloca;
+        LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
         assert(my_err_ret_trace_val != nullptr);
         LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
                 frame_index_trace_arg(g, result_type) + 1, "");
