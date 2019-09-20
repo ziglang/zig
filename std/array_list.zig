@@ -229,39 +229,18 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
                 it.removed_index = null;
             }
 
-            //
-            // NOTE: inlining these removal routines is important.
-            // It gains ~5% in debug mode, and ~8% in release-safe; within 1% of the performance of ArrayList.swapRemove/orderedRemove.
-            //
-            // Also note that you'd think that just checking for the index==0 in the removal routines would be
-            // good for making it illegal if next has not been called yet.
-            // But no, it is slower to do this for release-safe, and debug modes.
-            //
-
-            pub inline fn swapRemove(it: *Iterator) T {
-                const cursor = it.cursor orelse @panic("must call next at least once");
-                if (it.removed_index == null or
-                    it.removed_index.? != cursor
-                ) {
-                    it.removed_index = cursor;
-                    return it.list.swapRemove(cursor);
-                } else switch (builtin.mode) {
-                    .ReleaseFast => unreachable,
-                    else => @panic("removed element more than once"),
-                }
+            pub fn swapRemove(it: *Iterator) T {
+                var cursor = it.cursor.?; // must call .next() at least once
+                if (it.removed_index) |ri| assert(ri != cursor); // removed the same element more than once
+                it.removed_index = cursor;
+                return it.list.swapRemove(cursor);
             }
 
-            pub inline fn orderedRemove(it: *Iterator) T {
-                const cursor = it.cursor orelse @panic("must call next at least once");
-                if (it.removed_index == null or
-                    it.removed_index.? != cursor
-                ) {
-                    it.removed_index = cursor;
-                    return it.list.orderedRemove(cursor);
-                } else switch (builtin.mode) {
-                    .ReleaseFast => unreachable,
-                    else => @panic("removed element more than once"),
-                }
+            pub fn orderedRemove(it: *Iterator) T {
+                var cursor = it.cursor.?; // must call .next() at least once
+                if (it.removed_index) |ri| assert(ri != cursor); // removed the same element more than once
+                it.removed_index = cursor;
+                return it.list.orderedRemove(cursor);
             }
         };
 
