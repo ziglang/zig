@@ -97,13 +97,28 @@ pub const MAP_FIXED = 0x10;
 /// don't use a file
 pub const MAP_ANONYMOUS = 0x20;
 
-/// For anonymous mmap, memory could be uninitialized
-pub const MAP_UNINITIALIZED = 0x4000000;
+// MAP_ 0x0100 - 0x4000 flags are per architecture
 
-// MAP_ 0x0100 - 0x80000 flags are per architecture
+/// populate (prefault) pagetables
+pub const MAP_POPULATE = 0x8000;
+
+/// do not block on IO
+pub const MAP_NONBLOCK = 0x10000;
+
+/// give out an address that is best suited for process/thread stacks
+pub const MAP_STACK = 0x20000;
+
+/// create a huge page mapping
+pub const MAP_HUGETLB = 0x40000;
+
+/// perform synchronous page faults for the mapping
+pub const MAP_SYNC = 0x80000;
 
 /// MAP_FIXED which doesn't unmap underlying mapping
 pub const MAP_FIXED_NOREPLACE = 0x100000;
+
+/// For anonymous mmap, memory could be uninitialized
+pub const MAP_UNINITIALIZED = 0x4000000;
 
 pub const F_OK = 0;
 pub const X_OK = 1;
@@ -377,16 +392,12 @@ pub const SO_DETACH_FILTER = 27;
 pub const SO_GET_FILTER = SO_ATTACH_FILTER;
 
 pub const SO_PEERNAME = 28;
-pub const SO_TIMESTAMP = 29;
-pub const SCM_TIMESTAMP = SO_TIMESTAMP;
-
+pub const SO_TIMESTAMP_OLD = 29;
 pub const SO_PEERSEC = 31;
 pub const SO_PASSSEC = 34;
-pub const SO_TIMESTAMPNS = 35;
-pub const SCM_TIMESTAMPNS = SO_TIMESTAMPNS;
+pub const SO_TIMESTAMPNS_OLD = 35;
 pub const SO_MARK = 36;
-pub const SO_TIMESTAMPING = 37;
-pub const SCM_TIMESTAMPING = SO_TIMESTAMPING;
+pub const SO_TIMESTAMPING_OLD = 37;
 pub const SO_RXQ_OVFL = 40;
 pub const SO_WIFI_STATUS = 41;
 pub const SCM_WIFI_STATUS = SO_WIFI_STATUS;
@@ -410,6 +421,15 @@ pub const SO_COOKIE = 57;
 pub const SCM_TIMESTAMPING_PKTINFO = 58;
 pub const SO_PEERGROUPS = 59;
 pub const SO_ZEROCOPY = 60;
+pub const SO_TXTIME = 61
+pub const SCM_TXTIME = SO_TXTIME;
+pub const SO_BINDTOIFINDEX = 62;
+pub const SO_TIMESTAMP_NEW = 63;
+pub const SO_TIMESTAMPNS_NEW = 64;
+pub const SO_TIMESTAMPING_NEW = 65;
+pub const SO_RCVTIMEO_NEW = 66;
+pub const SO_SNDTIMEO_NEW = 67;
+pub const SO_DETACH_REUSEPORT_BPF = 68;
 
 pub const SOL_SOCKET = 1;
 
@@ -1092,6 +1112,7 @@ pub const io_uring_sqe = extern struct {
         fsync_flags: u32,
         poll_events: u16,
         sync_range_flags: u32,
+        msg_flags: u32,
     };
     union1: union1,
     user_data: u64,
@@ -1110,6 +1131,9 @@ pub const IOSQE_FIXED_FILE = (1 << 0);
 /// issue after inflight IO
 pub const IOSQE_IO_DRAIN = (1 << 1);
 
+/// links next sqe
+pub const IOSQE_IO_LINK = (1 << 2);
+
 pub const IORING_OP_NOP = 0;
 pub const IORING_OP_READV = 1;
 pub const IORING_OP_WRITEV = 2;
@@ -1119,6 +1143,8 @@ pub const IORING_OP_WRITE_FIXED = 5;
 pub const IORING_OP_POLL_ADD = 6;
 pub const IORING_OP_POLL_REMOVE = 7;
 pub const IORING_OP_SYNC_FILE_RANGE = 8;
+pub const IORING_OP_SENDMSG = 9;
+pub const IORING_OP_RECVMSG = 10;
 
 // io_uring_sqe.fsync_flags
 pub const IORING_FSYNC_DATASYNC = (1 << 0);
