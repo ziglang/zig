@@ -658,3 +658,15 @@ test "struct field init with catch" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "packed struct with non-ABI-aligned field" {
+    const S = packed struct {
+        x: u9,
+        y: u183,
+    };
+    var s: S = undefined;
+    s.x = 1;
+    s.y = 42;
+    expect(s.x == 1);
+    expect(s.y == 42);
+}

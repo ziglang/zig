@@ -1630,7 +1630,9 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
 
     bool big_endian = g->is_big_endian;
 
-    LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
+    LLVMTypeRef int_ptr_ty = LLVMPointerType(LLVMIntType(host_int_bytes * 8), 0);
+    LLVMValueRef int_ptr = LLVMBuildBitCast(g->builder, ptr, int_ptr_ty, "");
+    LLVMValueRef containing_int = gen_load(g, int_ptr, ptr_type, "");
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
     assert(host_bit_count == host_int_bytes * 8);
     uint32_t size_in_bits = type_size_bits(g, child_type);
@@ -1654,7 +1656,7 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
     LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
-    gen_store(g, ored_value, ptr, ptr_type);
+    gen_store(g, ored_value, int_ptr, ptr_type);
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
@@ -3375,7 +3377,10 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
 
     bool big_endian = g->is_big_endian;
 
-    LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
+    LLVMTypeRef int_ptr_ty = LLVMPointerType(LLVMIntType(host_int_bytes * 8), 0);
+    LLVMValueRef int_ptr = LLVMBuildBitCast(g->builder, ptr, int_ptr_ty, "");
+    LLVMValueRef containing_int = gen_load(g, int_ptr, ptr_type, "");
+
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
     assert(host_bit_count == host_int_bytes * 8);
     uint32_t size_in_bits = type_size_bits(g, child_type);
@@ -6693,8 +6698,10 @@ check: switch (const_val->special) {
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, field_val->type, val);
                         } else {
                             bool is_big_endian = g->is_big_endian; // TODO get endianness from struct type
-                            LLVMTypeRef big_int_type_ref = LLVMStructGetTypeAtIndex(get_llvm_type(g, type_entry),
+                            LLVMTypeRef field_ty = LLVMStructGetTypeAtIndex(get_llvm_type(g, type_entry),
                                     (unsigned)type_struct_field->gen_index);
+                            const size_t size_in_bytes = LLVMStoreSizeOfType(g->target_data_ref, field_ty);
+                            LLVMTypeRef big_int_type_ref = LLVMIntType(size_in_bytes * 8);
                             LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
                             size_t used_bits = 0;
                             for (size_t i = src_field_index; i < src_field_index_end; i += 1) {
@@ -6717,7 +6724,22 @@ check: switch (const_val->special) {
                                     used_bits += packed_bits_size;
                                 }
                             }
-                            fields[type_struct_field->gen_index] = val;
+                            if (LLVMGetTypeKind(field_ty) != LLVMArrayTypeKind) {
+                                assert(LLVMGetTypeKind(field_ty) == LLVMIntegerTypeKind);
+                                fields[type_struct_field->gen_index] = val;
+                            } else {
+                                const LLVMValueRef MASK = LLVMConstInt(LLVMInt8Type(), 255, false);
+                                const LLVMValueRef AMT = LLVMConstInt(LLVMInt8Type(), 8, false);
+
+                                LLVMValueRef *values = allocate<LLVMValueRef>(size_in_bytes);
+                                for (size_t i = 0; i < size_in_bytes; i++) {
+                                    const size_t idx = is_big_endian ? size_in_bytes - 1 - i : i;
+                                    values[idx] = LLVMConstTruncOrBitCast(LLVMConstAnd(val, MASK), LLVMInt8Type());
+                                    val = LLVMConstLShr(val, AMT);
+                                }
+
+                                fields[type_struct_field->gen_index] = LLVMConstArray(LLVMInt8Type(), values, size_in_bytes);
+                            }
                         }
 
                         src_field_index = src_field_index_end;
