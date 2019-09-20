@@ -5846,7 +5846,7 @@ volatile (
 // Next is the output constraint string. This feature is still
 // considered unstable in Zig, and so LLVM/GCC documentation
 // must be used to understand the semantics.
-// http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string
+// http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string
 // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
 // In this example, the constraint string means "the result value of
 // this inline assembly instruction is whatever is in $rax".
@@ -5887,7 +5887,7 @@ volatile (
       <p>
       Output constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -5902,7 +5902,7 @@ volatile (
       <p>
       Input constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
