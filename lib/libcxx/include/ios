@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- ios -------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -203,8 +202,8 @@ enum class io_errc
 };
 
 concept_map ErrorCodeEnum<io_errc> { };
-error_code make_error_code(io_errc e) noexcept; 
-error_condition make_error_condition(io_errc e) noexcept; 
+error_code make_error_code(io_errc e) noexcept;
+error_condition make_error_condition(io_errc e) noexcept;
 storage-class-specifier const error_category& iostream_category() noexcept;
 
 }  // std
@@ -331,6 +330,15 @@ public:
     void __set_badbit_and_consider_rethrow();
     void __set_failbit_and_consider_rethrow();
 
+    _LIBCPP_INLINE_VISIBILITY
+    void __setstate_nothrow(iostate __state)
+    {
+        if (__rdbuf_)
+            __rdstate_ |= __state;
+        else
+            __rdstate_ |= __state | ios_base::badbit;
+    }
+
 protected:
     _LIBCPP_INLINE_VISIBILITY
     ios_base() {// purposefully does no initialization
@@ -425,6 +433,16 @@ public:
     explicit failure(const char* __msg, const error_code& __ec = io_errc::stream);
     virtual ~failure() throw();
 };
+
+_LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
+void __throw_failure(char const* __msg) {
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    throw ios_base::failure(__msg);
+#else
+    ((void)__msg);
+    _VSTD::abort();
+#endif
+}
 
 class _LIBCPP_TYPE_VIS ios_base::Init
 {
@@ -626,47 +644,47 @@ public:
     virtual ~basic_ios();
 
     // 27.5.4.2 Members:
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     basic_ostream<char_type, traits_type>* tie() const;
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     basic_ostream<char_type, traits_type>* tie(basic_ostream<char_type, traits_type>* __tiestr);
 
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     basic_streambuf<char_type, traits_type>* rdbuf() const;
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     basic_streambuf<char_type, traits_type>* rdbuf(basic_streambuf<char_type, traits_type>* __sb);
 
     basic_ios& copyfmt(const basic_ios& __rhs);
 
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     char_type fill() const;
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     char_type fill(char_type __ch);
 
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     locale imbue(const locale& __loc);
 
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     char narrow(char_type __c, char __dfault) const;
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     char_type widen(char __c) const;
 
 protected:
     _LIBCPP_INLINE_VISIBILITY
     basic_ios() {// purposefully does no initialization
                 }
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     void init(basic_streambuf<char_type, traits_type>* __sb);
 
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     void move(basic_ios& __rhs);
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     void move(basic_ios&& __rhs) {move(__rhs);}
 #endif
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     void swap(basic_ios& __rhs) _NOEXCEPT;
-    _LIBCPP_INLINE_VISIBILITY 
+    _LIBCPP_INLINE_VISIBILITY
     void set_rdbuf(basic_streambuf<char_type, traits_type>* __sb);
 private:
     basic_ostream<char_type, traits_type>* __tie_;

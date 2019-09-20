@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld -shared --no-rosegment -o %t %t.o
-# RUN: llvm-readobj -hash-table %t | FileCheck %s
+# RUN: llvm-readobj --hash-table %t | FileCheck %s
 
 # CHECK:      HashTable {
 # CHECK-NEXT:   Num Buckets: 2

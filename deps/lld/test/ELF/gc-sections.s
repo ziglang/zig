@@ -2,11 +2,11 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2
-# RUN: llvm-readobj -sections -symbols %t2 | FileCheck -check-prefix=NOGC %s
+# RUN: llvm-readobj --sections --symbols %t2 | FileCheck -check-prefix=NOGC %s
 # RUN: ld.lld --gc-sections %t -o %t2
-# RUN: llvm-readobj -sections -symbols %t2 | FileCheck -check-prefix=GC1 %s
+# RUN: llvm-readobj --sections --symbols %t2 | FileCheck -check-prefix=GC1 %s
 # RUN: ld.lld --export-dynamic --gc-sections %t -o %t2
-# RUN: llvm-readobj -sections -symbols %t2 | FileCheck -check-prefix=GC2 %s
+# RUN: llvm-readobj --sections --symbols %t2 | FileCheck -check-prefix=GC2 %s
 
 # NOGC: Name: .eh_frame
 # NOGC: Name: .text

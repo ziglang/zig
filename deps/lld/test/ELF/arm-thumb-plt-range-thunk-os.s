@@ -35,6 +35,7 @@ preemptible:
  bl far_nonpreemptible_alias
  bx lr
 // CHECK1: Disassembly of section .text:
+// CHECK1-EMPTY:
 // CHECK1-NEXT: sym1:
 // CHECK1-NEXT:  2000000:       00 f0 00 d8     bl      #8388608
 // CHECK1-NEXT:  2000004:       00 f0 04 d8     bl      #8388616
@@ -84,10 +85,11 @@ far_nonpreemptible_alias:
 // CHECK3:  4000000:       00 f0 16 e8     blx     #44
 
 // CHECK4: Disassembly of section .plt:
+// CHECK4-EMPTY:
 // CHECK4-NEXT: $a:
 // CHECK4-NEXT:  4000010:	04 e0 2d e5 	str	lr, [sp, #-4]!
 // CHECK4-NEXT:  4000014:	00 e6 8f e2 	add	lr, pc, #0, #12
-// CHECK4-NEXT:  4000018:	00 ea 8e e2 	add	lr, lr, #0, #20
+// CHECK4-NEXT:  4000018:	01 ea 8e e2 	add	lr, lr, #4096
 // CHECK4-NEXT:  400001c:	ec ff be e5 	ldr	pc, [lr, #4076]!
 // CHECK4: $d:
 // CHECK4-NEXT:  4000020:	d4 d4 d4 d4 	.word	0xd4d4d4d4
@@ -96,19 +98,19 @@ far_nonpreemptible_alias:
 // CHECK4-NEXT:  400002c:	d4 d4 d4 d4 	.word	0xd4d4d4d4
 // CHECK4: $a:
 // CHECK4-NEXT:  4000030:	00 c6 8f e2 	add	r12, pc, #0, #12
-// CHECK4-NEXT:  4000034:	00 ca 8c e2 	add	r12, r12, #0, #20
+// CHECK4-NEXT:  4000034:	01 ca 8c e2 	add	r12, r12, #4096
 // CHECK4-NEXT:  4000038:	d4 ff bc e5 	ldr	pc, [r12, #4052]!
 // CHECK4: $d:
 // CHECK4-NEXT:  400003c:	d4 d4 d4 d4 	.word	0xd4d4d4d4
 // CHECK4: $a:
 // CHECK4-NEXT:  4000040:	00 c6 8f e2 	add	r12, pc, #0, #12
-// CHECK4-NEXT:  4000044:	00 ca 8c e2 	add	r12, r12, #0, #20
+// CHECK4-NEXT:  4000044:	01 ca 8c e2 	add	r12, r12, #4096
 // CHECK4-NEXT:  4000048:	c8 ff bc e5 	ldr	pc, [r12, #4040]!
 // CHECK4: $d:
 // CHECK4-NEXT:  400004c:	d4 d4 d4 d4 	.word	0xd4d4d4d4
 // CHECK4: $a:
 // CHECK4-NEXT:  4000050:	00 c6 8f e2 	add	r12, pc, #0, #12
-// CHECK4-NEXT:  4000054:	00 ca 8c e2 	add	r12, r12, #0, #20
+// CHECK4-NEXT:  4000054:	01 ca 8c e2 	add	r12, r12, #4096
 // CHECK4-NEXT:  4000058:	bc ff bc e5 	ldr	pc, [r12, #4028]!
 // CHECK4: $d:
 // CHECK4-NEXT:  400005c:	d4 d4 d4 d4 	.word	0xd4d4d4d4

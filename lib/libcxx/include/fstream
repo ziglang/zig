@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===------------------------- fstream ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -236,7 +235,7 @@ public:
     basic_filebuf* open(const string& __s, ios_base::openmode __mode);
 
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     basic_filebuf* open(const _VSTD_FS::path& __p, ios_base::openmode __mode) {
       return open(__p.c_str(), __mode);
     }
@@ -758,7 +757,7 @@ basic_filebuf<_CharT, _Traits>::underflow()
                                        this->eback() + __ibs_, __inext);
                 if (__r == codecvt_base::noconv)
                 {
-                    this->setg((char_type*)__extbuf_, (char_type*)__extbuf_, 
+                    this->setg((char_type*)__extbuf_, (char_type*)__extbuf_,
                                           (char_type*)const_cast<char *>(__extbufend_));
                     __c = traits_type::to_int_type(*this->gptr());
                 }
@@ -1152,7 +1151,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ifstream(const string& __s, ios_base::openmode __mode = ios_base::in);
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     explicit basic_ifstream(const filesystem::path& __p, ios_base::openmode __mode = ios_base::in)
       : basic_ifstream(__p.c_str(), __mode) {}
 #endif // _LIBCPP_STD_VER >= 17
@@ -1178,7 +1177,7 @@ public:
 #endif
     void open(const string& __s, ios_base::openmode __mode = ios_base::in);
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     void open(const filesystem::path& __p,
               ios_base::openmode __mode = ios_base::in) {
       return open(__p.c_str(), __mode);
@@ -1366,7 +1365,7 @@ public:
     explicit basic_ofstream(const string& __s, ios_base::openmode __mode = ios_base::out);
 
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     explicit basic_ofstream(const filesystem::path& __p, ios_base::openmode __mode = ios_base::out)
       : basic_ofstream(__p.c_str(), __mode) {}
 #endif // _LIBCPP_STD_VER >= 17
@@ -1393,7 +1392,7 @@ public:
     void open(const string& __s, ios_base::openmode __mode = ios_base::out);
 
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     void open(const filesystem::path& __p, ios_base::openmode __mode = ios_base::out)
     { return open(__p.c_str(), __mode); }
 #endif // _LIBCPP_STD_VER >= 17
@@ -1580,7 +1579,7 @@ public:
     explicit basic_fstream(const string& __s, ios_base::openmode __mode = ios_base::in | ios_base::out);
 
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     explicit basic_fstream(const filesystem::path& __p, ios_base::openmode __mode = ios_base::in | ios_base::out)
       : basic_fstream(__p.c_str(), __mode) {}
 #endif // _LIBCPP_STD_VER >= 17
@@ -1608,7 +1607,7 @@ public:
     void open(const string& __s, ios_base::openmode __mode = ios_base::in | ios_base::out);
 
 #if _LIBCPP_STD_VER >= 17
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_INLINE_VISIBILITY
     void open(const filesystem::path& __p, ios_base::openmode __mode = ios_base::in|ios_base::out)
     { return open(__p.c_str(), __mode); }
 #endif // _LIBCPP_STD_VER >= 17

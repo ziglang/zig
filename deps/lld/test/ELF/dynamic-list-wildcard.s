@@ -4,7 +4,7 @@
 
 # RUN: echo "{ foo1*; };" > %t.list
 # RUN: ld.lld --hash-style=sysv -pie --dynamic-list %t.list %t -o %t.exe
-# RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.exe | FileCheck %s
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {

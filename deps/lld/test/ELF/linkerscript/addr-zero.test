@@ -1,20 +1,26 @@
-# REQUIRES: x86
+# REQUIRES: x86, aarch64
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t.o
 # RUN: ld.lld -o %t.so --script %s %t.o -shared
 # RUN: llvm-readobj --symbols %t.so | FileCheck %s
 
-# Test that the script creates a non absolute symbol with value
-# 0 I.E., a symbol that refers to the load address.
+## Test that the script creates a non absolute symbol with value
+## 0 I.E., a symbol that refers to the load address.
 
 # CHECK:      Symbol {
 # CHECK:        Name: foo
-# CHECK-NEXT:   Value: 0x70
+# CHECK-NEXT:   Value: 0x0
 # CHECK-NEXT:   Size: 0
 # CHECK-NEXT:   Binding: Global
 # CHECK-NEXT:   Type: None
 # CHECK-NEXT:   Other: 0
 # CHECK-NEXT:   Section: .text
 # CHECK-NEXT: }
+
+## Because of a bug we had a different behavior (different symbol 'foo' value)
+## on a platforms that might use thunks, like AArch64. Check that issue is fixed.
+# RUN: llvm-mc -filetype=obj -triple=aarch64-linux-gnu /dev/null -o %t.o
+# RUN: ld.lld -o %t.so --script %s %t.o -shared
+# RUN: llvm-readobj --symbols %t.so | FileCheck %s
 
 SECTIONS {
   foo = ADDR(.text) - ABSOLUTE(ADDR(.text));

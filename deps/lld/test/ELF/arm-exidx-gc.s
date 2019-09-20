@@ -1,5 +1,5 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
+// RUN: llvm-mc -filetype=obj --arm-add-build-attributes -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t --no-merge-exidx-entries -o %t2 --gc-sections 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-EXIDX %s
@@ -91,6 +91,7 @@ _start:
 // routines are kept alive by references from live .ARM.exidx and .ARM.extab
 // sections
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:   11000:       01 00 00 eb     bl      #4 <func1>
 // CHECK-NEXT:   11004:       01 00 00 eb     bl      #4 <func2>
@@ -111,14 +112,15 @@ _start:
 // CHECK-NOT: __gxx_personality_v1
 
 // CHECK-EXIDX: Contents of section .ARM.exidx:
-// 100d4 + f38 = 1100c = func1
-// 100dc + f34 = 11010 = func2 (100e0 + 1c = 100fc = .ARM.extab)
-// CHECK-EXIDX-NEXT: 100d4 380f0000 08849780 340f0000 1c000000
-// 100e4 + f30 = 11014 = __gxx_personality_v0
-// 100ec + f2c = 11018 = __aeabi_unwind_cpp_pr0
-// CHECK-EXIDX-NEXT: 100e4 300f0000 01000000 2c0f0000 01000000
-// 100f4 + f28 = 1101c = __aeabi_unwind_cpp_pr0 + sizeof(__aeabi_unwind_cpp_pr0)
-// CHECK-EXIDX-NEXT: 100f4 280f0000 01000000
+// 100d4 + f2c = 11000
+// 100dc + f30 = 1100c = func1
+// CHECK-EXIDX-NEXT: 100d4 2c0f0000 01000000 300f0000 08849780
+// 100e4 + f2c = 11010 = func2 (100e8 + 1c = 10104 = .ARM.extab)
+// 100ec + f28 = 11014 = __gxx_personality_v0
+// CHECK-EXIDX-NEXT: 100e4 2c0f0000 1c000000 280f0000 01000000
+// 100f4 + f24 = 11018 = __aeabi_unwind_cpp_pr0
+// 100fc + f20 = 1101c = __aeabi_unwind_cpp_pr0 + sizeof(__aeabi_unwind_cpp_pr0)
+// CHECK-EXIDX-NEXT: 100f4 240f0000 01000000 200f0000 01000000
 // CHECK-EXIDX-NEXT: Contents of section .ARM.extab:
-// 100fc + f18 = 11014 = __gxx_personality_v0
-// CHECK-EXIDX-NEXT: 100fc 180f0000 b0b0b000
+// 10104 + f10 = 11014 = __gxx_personality_v0
+// CHECK-EXIDX-NEXT: 10104 100f0000 b0b0b000

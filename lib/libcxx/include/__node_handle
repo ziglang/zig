@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -57,7 +56,7 @@ private:
     optional<allocator_type> __alloc_;
 
     _LIBCPP_INLINE_VISIBILITY
-    void __release()
+    void __release_ptr()
     {
         __ptr_ = nullptr;
         __alloc_ = _VSTD::nullopt;
@@ -194,8 +193,7 @@ using __map_node_handle =
     __basic_node_handle< _NodeType, _Alloc, __map_node_handle_specifics>;
 
 template <class _Iterator, class _NodeType>
-_LIBCPP_TEMPLATE_VIS
-struct __insert_return_type
+struct _LIBCPP_TEMPLATE_VIS __insert_return_type
 {
     _Iterator position;
     bool inserted;

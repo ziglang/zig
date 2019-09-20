@@ -5,7 +5,7 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-objdump -section-headers %t1 | FileCheck %s
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address
+# CHECK-NEXT: Idx Name          Size     VMA
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .foo          00000004 0000000000000000
 # CHECK-NEXT:   2 .boo          00000004 0000000000000004

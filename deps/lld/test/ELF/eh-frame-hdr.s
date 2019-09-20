@@ -2,15 +2,15 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
 // RUN: ld.lld %t.o -o %t
-// RUN: llvm-readobj -file-headers -s -section-data -program-headers -symbols %t \
+// RUN: llvm-readobj --file-headers -S --section-data -l --symbols %t \
 // RUN:   | FileCheck %s --check-prefix=NOHDR
 
 // RUN: ld.lld -eh-frame-hdr -no-eh-frame-hdr %t.o -o %t
-// RUN: llvm-readobj -file-headers -s -section-data -program-headers -symbols %t \
+// RUN: llvm-readobj --file-headers -S --section-data -l --symbols %t \
 // RUN:   | FileCheck %s --check-prefix=NOHDR
 
 // RUN: ld.lld --eh-frame-hdr %t.o -o %t
-// RUN: llvm-readobj -file-headers -s -section-data -program-headers -symbols %t \
+// RUN: llvm-readobj --file-headers -S --section-data -l --symbols %t \
 // RUN:   | FileCheck %s --check-prefix=HDR
 // RUN: llvm-objdump -d %t | FileCheck %s --check-prefix=HDRDISASM
 
@@ -38,15 +38,20 @@ _start:
 // NOHDR:      ProgramHeaders [
 // NOHDR-NOT:   PT_GNU_EH_FRAME
 
-//HDRDISASM:      Disassembly of section foo:
-//HDRDISASM-NEXT: foo:
-//HDRDISASM-NEXT:    201000: 90 nop
-//HDRDISASM-NEXT: Disassembly of section bar:
-//HDRDISASM-NEXT: bar:
-//HDRDISASM-NEXT:    201001: 90 nop
-//HDRDISASM-NEXT: Disassembly of section dah:
-//HDRDISASM-NEXT: dah:
-//HDRDISASM-NEXT:    201002: 90 nop
+// HDRDISASM:      Disassembly of section foo:
+// HDRDISASM-EMPTY:
+// HDRDISASM-NEXT: foo:
+// HDRDISASM-NEXT:    201000: 90 nop
+// HDRDISASM-EMPTY:
+// HDRDISASM-NEXT: Disassembly of section bar:
+// HDRDISASM-EMPTY:
+// HDRDISASM-NEXT: bar:
+// HDRDISASM-NEXT:    201001: 90 nop
+// HDRDISASM-EMPTY:
+// HDRDISASM-NEXT: Disassembly of section dah:
+// HDRDISASM-EMPTY:
+// HDRDISASM-NEXT: dah:
+// HDRDISASM-NEXT:    201002: 90 nop
 
 // HDR:       Section {
 // HDR:         Index:

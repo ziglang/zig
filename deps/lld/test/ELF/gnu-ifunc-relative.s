@@ -3,7 +3,7 @@
 // RUN: ld.lld --strip-all %t.o -o %t
 // RUN: llvm-readobj -r %t | FileCheck %s
 // RUN: ld.lld %t.o -o %t
-// RUN: llvm-readobj -r -t %t | FileCheck %s --check-prefixes=CHECK,SYM
+// RUN: llvm-readobj -r --symbols %t | FileCheck %s --check-prefixes=CHECK,SYM
 
 .type foo STT_GNU_IFUNC
 .globl foo

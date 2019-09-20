@@ -16,7 +16,7 @@ SECTIONS {
 ## .text does not cause overlapping error and that
 ## .text's VA is 0x1000 + max(sizeof(.out.big), sizeof(.out.small)).
 
-# RUN: llvm-readobj -sections -program-headers -elf-output-style=GNU %t | FileCheck %s
+# RUN: llvm-readelf --sections -l %t | FileCheck %s
 
 # CHECK: Section Headers:
 # CHECK: Name       Type     Address          Off    Size

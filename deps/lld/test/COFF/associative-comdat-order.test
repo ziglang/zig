@@ -1,0 +1,97 @@
+# Tests that an associative comdat being associated with another
+# associated comdat later in the file produces an error.
+# RUN: sed -e s/ASSOC1/2/ -e s/ASSOC2/3/ %s | yaml2obj > %t.obj
+# RUN: not lld-link /include:symbol /dll /noentry /nodefaultlib %t.obj /out:%t.exe 2>&1 | FileCheck --check-prefix=FORWARD %s
+# FORWARD: lld-link: error: {{.*}}: associative comdat .text$ac1 (sec 1) has invalid reference to section .text$ac2 (sec 2)
+# FORWARD-NOT: lld-link: error:
+
+# Tests that an associative comdat being associated with another
+# associated comdat earlier in the file works.
+# RUN: sed -e s/ASSOC1/3/ -e s/ASSOC2/1/ %s | yaml2obj > %t.obj
+
+# RUN: lld-link /include:symbol /dll /noentry /nodefaultlib %t.obj /out:%t.exe
+# RUN: llvm-objdump -s %t.exe | FileCheck --check-prefix=BACKWARD %s
+# BACKWARD: Contents of section .text:
+# BACKWARD:   180001000 01000000 02000000 03000000 ............
+
+# RUN: lld-link /dll /noentry /nodefaultlib %t.obj /out:%t.exe
+# RUN: llvm-objdump -s %t.exe | FileCheck --check-prefix=BACKWARDDROP %s
+# BACKWARDDROP-NOT: Contents of section .text:
+
+--- !COFF
+header:          
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:        
+  - Name:            '.text$ac1'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       1
+    SectionData:     '01000000'
+  - Name:            '.text$ac2'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       1
+    SectionData:     '02000000'
+  - Name:            '.text$nm'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       1
+    SectionData:     '03000000'
+symbols:         
+  - Name:            '.text$ac1'
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          4
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3099354981
+      Number:          ASSOC1
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.text$ac2'
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          4
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3099354981
+      Number:          ASSOC2
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.text$nm'
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          4
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3099354981
+      Number:          4
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            symbol
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            assocsym2
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            assocsym
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+...
+

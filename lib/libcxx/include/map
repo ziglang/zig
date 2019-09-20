@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------- map ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -194,8 +193,8 @@ public:
         const_iterator find(const K& x) const;  // C++14
     template<typename K>
       size_type count(const K& x) const;        // C++14
-
     size_type      count(const key_type& k) const;
+        bool contains(const key_type& x) const; // C++20
           iterator lower_bound(const key_type& k);
     const_iterator lower_bound(const key_type& k) const;
     template<typename K>
@@ -408,8 +407,8 @@ public:
         const_iterator find(const K& x) const;  // C++14
     template<typename K>
       size_type count(const K& x) const;        // C++14
-
     size_type      count(const key_type& k) const;
+        bool contains(const key_type& x) const; // C++20
           iterator lower_bound(const key_type& k);
     const_iterator lower_bound(const key_type& k) const;
     template<typename K>
@@ -903,12 +902,11 @@ public:
     typedef _Key                                     key_type;
     typedef _Tp                                      mapped_type;
     typedef pair<const key_type, mapped_type>        value_type;
-    typedef _Compare                                 key_compare;
-    typedef _Allocator                               allocator_type;
+    typedef typename __identity<_Compare>::type      key_compare;
+    typedef typename __identity<_Allocator>::type    allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 
-    static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
     static_assert((is_same<typename allocator_type::value_type, value_type>::value),
                   "Allocator::value_type must be same type as value_type");
 
@@ -1085,6 +1083,11 @@ public:
         {
             insert(__m.begin(), __m.end());
         }
+
+    _LIBCPP_INLINE_VISIBILITY
+    ~map() {
+        static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
+    }
 
     _LIBCPP_INLINE_VISIBILITY
           iterator begin() _NOEXCEPT {return __tree_.begin();}
@@ -1395,6 +1398,12 @@ public:
     typename enable_if<__is_transparent<_Compare, _K2>::value,size_type>::type
     count(const _K2& __k) const {return __tree_.__count_multi(__k);}
 #endif
+
+#if _LIBCPP_STD_VER > 17
+    _LIBCPP_INLINE_VISIBILITY
+    bool contains(const key_type& __k) const {return find(__k) != end();}
+#endif // _LIBCPP_STD_VER > 17
+
     _LIBCPP_INLINE_VISIBILITY
     iterator lower_bound(const key_type& __k)
         {return __tree_.lower_bound(__k);}
@@ -1462,6 +1471,32 @@ private:
 #endif
 };
 
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _InputIterator, class _Compare = less<__iter_key_type<_InputIterator>>,
+         class _Allocator = allocator<__iter_to_alloc_type<_InputIterator>>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+map(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
+  -> map<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>, _Compare, _Allocator>;
+
+template<class _Key, class _Tp, class _Compare = less<remove_const_t<_Key>>,
+         class _Allocator = allocator<pair<const _Key, _Tp>>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+map(initializer_list<pair<_Key, _Tp>>, _Compare = _Compare(), _Allocator = _Allocator())
+  -> map<remove_const_t<_Key>, _Tp, _Compare, _Allocator>;
+
+template<class _InputIterator, class _Allocator,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+map(_InputIterator, _InputIterator, _Allocator)
+  -> map<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>,
+         less<__iter_key_type<_InputIterator>>, _Allocator>;
+
+template<class _Key, class _Tp, class _Allocator,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+map(initializer_list<pair<_Key, _Tp>>, _Allocator)
+  -> map<remove_const_t<_Key>, _Tp, less<remove_const_t<_Key>>, _Allocator>;
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Key, class _Tp, class _Compare, class _Allocator>
@@ -1536,10 +1571,8 @@ map<_Key, _Tp, _Compare, _Allocator>::at(const key_type& __k)
 {
     __parent_pointer __parent;
     __node_base_pointer& __child = __tree_.__find_equal(__parent, __k);
-#ifndef _LIBCPP_NO_EXCEPTIONS
     if (__child == nullptr)
-        throw out_of_range("map::at:  key not found");
-#endif  // _LIBCPP_NO_EXCEPTIONS
+        __throw_out_of_range("map::at:  key not found");
     return static_cast<__node_pointer>(__child)->__value_.__get_value().second;
 }
 
@@ -1549,10 +1582,8 @@ map<_Key, _Tp, _Compare, _Allocator>::at(const key_type& __k) const
 {
     __parent_pointer __parent;
     __node_base_pointer __child = __tree_.__find_equal(__parent, __k);
-#ifndef _LIBCPP_NO_EXCEPTIONS
     if (__child == nullptr)
-        throw out_of_range("map::at:  key not found");
-#endif  // _LIBCPP_NO_EXCEPTIONS
+        __throw_out_of_range("map::at:  key not found");
     return static_cast<__node_pointer>(__child)->__value_.__get_value().second;
 }
 
@@ -1638,12 +1669,11 @@ public:
     typedef _Key                                     key_type;
     typedef _Tp                                      mapped_type;
     typedef pair<const key_type, mapped_type>        value_type;
-    typedef _Compare                                 key_compare;
-    typedef _Allocator                               allocator_type;
+    typedef typename __identity<_Compare>::type      key_compare;
+    typedef typename __identity<_Allocator>::type    allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 
-    static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
     static_assert((is_same<typename allocator_type::value_type, value_type>::value),
                   "Allocator::value_type must be same type as value_type");
 
@@ -1821,6 +1851,11 @@ public:
         {
             insert(__m.begin(), __m.end());
         }
+
+    _LIBCPP_INLINE_VISIBILITY
+    ~multimap() {
+        static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
+    }
 
     _LIBCPP_INLINE_VISIBILITY
           iterator begin() _NOEXCEPT {return __tree_.begin();}
@@ -2026,6 +2061,12 @@ public:
     typename enable_if<__is_transparent<_Compare, _K2>::value,size_type>::type
     count(const _K2& __k) const {return __tree_.__count_multi(__k);}
 #endif
+
+#if _LIBCPP_STD_VER > 17
+    _LIBCPP_INLINE_VISIBILITY
+    bool contains(const key_type& __k) const {return find(__k) != end();}
+#endif // _LIBCPP_STD_VER > 17
+
     _LIBCPP_INLINE_VISIBILITY
     iterator lower_bound(const key_type& __k)
         {return __tree_.lower_bound(__k);}
@@ -2086,6 +2127,33 @@ private:
     typedef __map_node_destructor<__node_allocator> _Dp;
     typedef unique_ptr<__node, _Dp> __node_holder;
 };
+
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _InputIterator, class _Compare = less<__iter_key_type<_InputIterator>>,
+         class _Allocator = allocator<__iter_to_alloc_type<_InputIterator>>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+multimap(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
+  -> multimap<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>, _Compare, _Allocator>;
+
+template<class _Key, class _Tp, class _Compare = less<remove_const_t<_Key>>,
+         class _Allocator = allocator<pair<const _Key, _Tp>>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+multimap(initializer_list<pair<_Key, _Tp>>, _Compare = _Compare(), _Allocator = _Allocator())
+  -> multimap<remove_const_t<_Key>, _Tp, _Compare, _Allocator>;
+
+template<class _InputIterator, class _Allocator,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+multimap(_InputIterator, _InputIterator, _Allocator)
+  -> multimap<__iter_key_type<_InputIterator>, __iter_mapped_type<_InputIterator>,
+         less<__iter_key_type<_InputIterator>>, _Allocator>;
+
+template<class _Key, class _Tp, class _Allocator,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
+multimap(initializer_list<pair<_Key, _Tp>>, _Allocator)
+  -> multimap<remove_const_t<_Key>, _Tp, less<remove_const_t<_Key>>, _Allocator>;
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Key, class _Tp, class _Compare, class _Allocator>

@@ -14,13 +14,6 @@ Sections:
     Type:            SHT_GNU_versym
     Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
     AddressAlign:    0x1
-    Content:         "00000000"
-
-  - Name:            .verdef
-    Type:            SHT_GNU_verdef
-    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
-    AddressAlign:    0x1
-    Content:         "00000000"
-
+    Entries:         [ 0 ]
 
 # CHECK: SHT_GNU_versym should be associated with symbol table

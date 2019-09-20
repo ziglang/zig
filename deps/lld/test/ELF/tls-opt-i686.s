@@ -8,6 +8,7 @@
 // NORELOC-NEXT: ]
 
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 // LD -> LE:
 // DISASM-NEXT: 401000: 65 a1 00 00 00 00 movl %gs:0, %eax

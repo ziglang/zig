@@ -1,9 +1,8 @@
 //===- OutputSections.h -----------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,7 +20,7 @@ namespace lld {
 namespace wasm {
 class OutputSection;
 }
-std::string toString(const wasm::OutputSection &Section);
+std::string toString(const wasm::OutputSection &section);
 
 namespace wasm {
 
@@ -29,86 +28,67 @@ class OutputSegment;
 
 class OutputSection {
 public:
-  OutputSection(uint32_t Type, std::string Name = "")
-      : Type(Type), Name(Name) {}
+  OutputSection(uint32_t type, std::string name = "")
+      : type(type), name(name) {}
   virtual ~OutputSection() = default;
 
   StringRef getSectionName() const;
-  void setOffset(size_t NewOffset) {
-    log("setOffset: " + toString(*this) + ": " + Twine(NewOffset));
-    Offset = NewOffset;
+  void setOffset(size_t newOffset) {
+    log("setOffset: " + toString(*this) + ": " + Twine(newOffset));
+    offset = newOffset;
   }
-  void createHeader(size_t BodySize);
+  void createHeader(size_t bodySize);
+  virtual bool isNeeded() const { return true; }
   virtual size_t getSize() const = 0;
-  virtual void writeTo(uint8_t *Buf) = 0;
-  virtual void finalizeContents() {}
-  virtual uint32_t numRelocations() const { return 0; }
-  virtual void writeRelocations(raw_ostream &OS) const {}
+  virtual void writeTo(uint8_t *buf) = 0;
+  virtual void finalizeContents() = 0;
+  virtual uint32_t getNumRelocations() const { return 0; }
+  virtual void writeRelocations(raw_ostream &os) const {}
 
-  std::string Header;
-  uint32_t Type;
-  std::string Name;
-
-protected:
-  size_t Offset = 0;
-};
-
-class SyntheticSection : public OutputSection {
-public:
-  SyntheticSection(uint32_t Type, std::string Name = "")
-      : OutputSection(Type, Name), BodyOutputStream(Body) {
-    if (!Name.empty())
-      writeStr(BodyOutputStream, Name, "section name");
-  }
-
-  void writeTo(uint8_t *Buf) override {
-    assert(Offset);
-    log("writing " + toString(*this));
-    memcpy(Buf + Offset, Header.data(), Header.size());
-    memcpy(Buf + Offset + Header.size(), Body.data(), Body.size());
-  }
-
-  size_t getSize() const override { return Header.size() + Body.size(); }
-
-  void finalizeContents() override {
-    BodyOutputStream.flush();
-    createHeader(Body.size());
-  }
-
-  raw_ostream &getStream() { return BodyOutputStream; }
-
-  std::string Body;
+  std::string header;
+  uint32_t type;
+  uint32_t sectionIndex = UINT32_MAX;
+  std::string name;
+  OutputSectionSymbol *sectionSym = nullptr;
 
 protected:
-  llvm::raw_string_ostream BodyOutputStream;
+  size_t offset = 0;
 };
 
 class CodeSection : public OutputSection {
 public:
-  explicit CodeSection(ArrayRef<InputFunction *> Functions);
-  size_t getSize() const override { return Header.size() + BodySize; }
-  void writeTo(uint8_t *Buf) override;
-  uint32_t numRelocations() const override;
-  void writeRelocations(raw_ostream &OS) const override;
+  explicit CodeSection(ArrayRef<InputFunction *> functions)
+      : OutputSection(llvm::wasm::WASM_SEC_CODE), functions(functions) {}
+
+  size_t getSize() const override { return header.size() + bodySize; }
+  void writeTo(uint8_t *buf) override;
+  uint32_t getNumRelocations() const override;
+  void writeRelocations(raw_ostream &os) const override;
+  bool isNeeded() const override { return functions.size() > 0; }
+  void finalizeContents() override;
 
 protected:
-  ArrayRef<InputFunction *> Functions;
-  std::string CodeSectionHeader;
-  size_t BodySize = 0;
+  ArrayRef<InputFunction *> functions;
+  std::string codeSectionHeader;
+  size_t bodySize = 0;
 };
 
 class DataSection : public OutputSection {
 public:
-  explicit DataSection(ArrayRef<OutputSegment *> Segments);
-  size_t getSize() const override { return Header.size() + BodySize; }
-  void writeTo(uint8_t *Buf) override;
-  uint32_t numRelocations() const override;
-  void writeRelocations(raw_ostream &OS) const override;
+  explicit DataSection(ArrayRef<OutputSegment *> segments)
+      : OutputSection(llvm::wasm::WASM_SEC_DATA), segments(segments) {}
+
+  size_t getSize() const override { return header.size() + bodySize; }
+  void writeTo(uint8_t *buf) override;
+  uint32_t getNumRelocations() const override;
+  void writeRelocations(raw_ostream &os) const override;
+  bool isNeeded() const override { return segments.size() > 0; }
+  void finalizeContents() override;
 
 protected:
-  ArrayRef<OutputSegment *> Segments;
-  std::string DataSectionHeader;
-  size_t BodySize = 0;
+  ArrayRef<OutputSegment *> segments;
+  std::string dataSectionHeader;
+  size_t bodySize = 0;
 };
 
 // Represents a custom section in the output file.  Wasm custom sections are
@@ -120,18 +100,21 @@ protected:
 // separately and are instead synthesized by the linker.
 class CustomSection : public OutputSection {
 public:
-  CustomSection(std::string Name, ArrayRef<InputSection *> InputSections);
+  CustomSection(std::string name, ArrayRef<InputSection *> inputSections)
+      : OutputSection(llvm::wasm::WASM_SEC_CUSTOM, name),
+        inputSections(inputSections) {}
   size_t getSize() const override {
-    return Header.size() + NameData.size() + PayloadSize;
+    return header.size() + nameData.size() + payloadSize;
   }
-  void writeTo(uint8_t *Buf) override;
-  uint32_t numRelocations() const override;
-  void writeRelocations(raw_ostream &OS) const override;
+  void writeTo(uint8_t *buf) override;
+  uint32_t getNumRelocations() const override;
+  void writeRelocations(raw_ostream &os) const override;
+  void finalizeContents() override;
 
 protected:
-  size_t PayloadSize;
-  ArrayRef<InputSection *> InputSections;
-  std::string NameData;
+  size_t payloadSize = 0;
+  ArrayRef<InputSection *> inputSections;
+  std::string nameData;
 };
 
 } // namespace wasm

@@ -23,7 +23,7 @@
 
 # CHECK: Section to Segment mapping:
 # CHECK-NEXT: Segment Sections...
-# CHECK-NOT: .foo
+# CHECK: None {{.*}}.foo
 
 # DEFINED: Section to Segment mapping:
 # DEFINED-NEXT: Segment Sections...

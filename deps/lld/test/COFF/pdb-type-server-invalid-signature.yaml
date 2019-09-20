@@ -1,21 +1,29 @@
 
+# Test linking an OBJ with a reference to an out-of-date PDB type server
 # RUN: cd %S/Inputs
 # RUN: yaml2obj %s -o %t.obj
 # RUN: lld-link %t.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s
 # RUN: cd %S
 
-# CHECK: warning: Cannot use debug info for {{.*}}.obj
+# CHECK: warning: Cannot use debug info for '{{.*}}.obj'
 # CHECK-NEXT: The signature does not match; the file(s) might be out of date
 
-# Also test a valid match
-
+# Also test linking an OBJ with a reference to *valid* PDB type server
 # RUN: cd %S/Inputs
 # RUN: yaml2obj %S/Inputs/pdb-type-server-valid-signature.yaml -o %t2.obj
 # RUN: lld-link %t2.obj -out:%t2.exe -debug -pdb:%t2.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s -check-prefix=VALID-SIGNATURE -allow-empty
 # RUN: cd %S
 
-# VALID-SIGNATURE-NOT: warning: Cannot use debug info for {{.*}}.obj
+# VALID-SIGNATURE-NOT: warning: Cannot use debug info for '{{.*}}.obj'
 # VALID-SIGNATURE-NOT: The signature does not match; the file(s) might be out of date
+
+# Test an invalid path reference to a PDB type server; as a fallback LLD should try to load the PDB in the same path as the OBJ
+# RUN: yaml2obj %S/Inputs/pdb-type-server-invalid-path.yaml -o %t3.obj
+# RUN: cp %S/Inputs/pdb-diff-cl.pdb %T
+# RUN: lld-link %t3.obj -out:%t3.exe -debug -pdb:%t3.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s -check-prefix=INVALID-PATH -allow-empty
+
+# INVALID-PATH-NOT: warning: Cannot use debug info for '{{.*}}3.obj' [LNK4099]
+# INVALID-PATH-NOT: failed to load reference 'c:\some_invalid_path_AABB98765\pdb-diff-cl.pdb': {{[Nn]}}o such file or directory
 
 --- !COFF
 header:

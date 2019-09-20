@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- filesystem -------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 #ifndef _LIBCPP_FILESYSTEM
@@ -258,6 +257,8 @@ _LIBCPP_PUSH_MACROS
 #ifndef _LIBCPP_CXX03_LANG
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
+
+_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
 
 typedef chrono::time_point<_FilesystemClock> file_time_type;
 
@@ -1311,7 +1312,11 @@ inline _LIBCPP_INLINE_VISIBILITY bool operator!=(const path::iterator& __lhs,
   return !(__lhs == __rhs);
 }
 
-class _LIBCPP_EXCEPTION_ABI filesystem_error : public system_error {
+// TODO(ldionne): We need to pop the pragma and push it again after
+//                filesystem_error to work around PR41078.
+_LIBCPP_AVAILABILITY_FILESYSTEM_POP
+
+class _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_EXCEPTION_ABI filesystem_error : public system_error {
 public:
   _LIBCPP_INLINE_VISIBILITY
   filesystem_error(const string& __what, error_code __ec)
@@ -1348,11 +1353,10 @@ public:
     return __storage_->__what_.c_str();
   }
 
-  _LIBCPP_FUNC_VIS
   void __create_what(int __num_paths);
 
 private:
-  struct _Storage {
+  struct _LIBCPP_HIDDEN _Storage {
     _LIBCPP_INLINE_VISIBILITY
     _Storage(const path& __p1, const path& __p2) : __p1_(__p1), __p2_(__p2) {}
 
@@ -1363,16 +1367,16 @@ private:
   shared_ptr<_Storage> __storage_;
 };
 
+_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
+
 template <class... _Args>
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    void
-    __throw_filesystem_error(_Args&&... __args) {
+void __throw_filesystem_error(_Args&&... __args) {
   throw filesystem_error(std::forward<_Args>(__args)...);
 }
 #else
-    void
-    __throw_filesystem_error(_Args&&...) {
+void __throw_filesystem_error(_Args&&...) {
   _VSTD::abort();
 }
 #endif
@@ -1938,7 +1942,7 @@ inline _LIBCPP_INLINE_VISIBILITY path weakly_canonical(path const& __p,
 
 class directory_iterator;
 class recursive_directory_iterator;
-class __dir_stream;
+class _LIBCPP_HIDDEN __dir_stream;
 
 class directory_entry {
   typedef _VSTD_FS::path _Path;
@@ -2601,7 +2605,7 @@ private:
   operator==(const recursive_directory_iterator&,
              const recursive_directory_iterator&) noexcept;
 
-  struct __shared_imp;
+  struct _LIBCPP_HIDDEN __shared_imp;
   shared_ptr<__shared_imp> __imp_;
   bool __rec_;
 }; // class recursive_directory_iterator
@@ -2627,6 +2631,8 @@ inline _LIBCPP_INLINE_VISIBILITY recursive_directory_iterator
 end(const recursive_directory_iterator&) noexcept {
   return recursive_directory_iterator();
 }
+
+_LIBCPP_AVAILABILITY_FILESYSTEM_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 

@@ -1,10 +1,10 @@
 # REQUIRES: x86
 
-# RUN: not ld.lld --unknown1 --unknown2 -m foo /no/such/file -lnosuchlib \
+# RUN: not ld.lld --unknown1 --unkn=own2 -m foo /no/such/file -lnosuchlib \
 # RUN:   2>&1 | FileCheck -check-prefix=UNKNOWN %s
 
-# UNKNOWN: unknown argument: --unknown1
-# UNKNOWN: unknown argument: --unknown2
+# UNKNOWN: unknown argument '--unknown1'
+# UNKNOWN: unknown argument '--unkn=own2'
 # UNKNOWN: unknown emulation: foo
 # UNKNOWN: cannot open /no/such/file
 # UNKNOWN: unable to find library -lnosuchlib
@@ -21,6 +21,9 @@
 # RUN: ld.lld -v 2>&1 | FileCheck -check-prefix=VERSION %s
 # RUN: not ld.lld -v xyz 2>&1 | FileCheck -check-prefix=VERSION %s
 # VERSION: LLD {{.*}} (compatible with GNU linkers)
+
+# RUN: not ld.lld --versin 2>&1 | FileCheck -check-prefix=SPELLVERSION %s
+# SPELLVERSION: unknown argument '--versin', did you mean '--version'
 
 ## Attempt to link DSO with -r
 # RUN: ld.lld -shared %t -o %t.so
@@ -60,6 +63,7 @@
 # ERR9: cannot open output file utput=/no/such/file
 
 # RUN: not ld.lld %t -z foo 2>&1 | FileCheck -check-prefix=ERR10 %s
+# RUN: not ld.lld %t -z foo --version 2>&1 | FileCheck -check-prefix=ERR10 %s
 # ERR10: unknown -z value: foo
 
 ## Check we report "unknown -z value" error even with -v.

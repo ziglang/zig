@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 
 # RUN: ld.lld -z max-page-size=0x4000 %t -o %t2
-# RUN: llvm-readobj -program-headers %t2 | FileCheck %s
+# RUN: llvm-readobj -l %t2 | FileCheck %s
 
 # CHECK:      ProgramHeaders [
 # CHECK:        ProgramHeader {

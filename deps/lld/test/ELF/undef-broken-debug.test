@@ -1,12 +1,12 @@
 # REQUIRES: x86
 # RUN: yaml2obj %s -o %t.o
-# RUN: not ld.lld %t.o -o /dev/null 2>&1 | FileCheck %s
+# RUN: not ld.lld %t.o -o /dev/null
 
-# The debug info has a broken relocation. Check that we don't crash
-# and still report the undefined symbol.
+# The debug info has a broken relocation. Check that we don't crash.
 
-# CHECK: error: {{.*}}.o: relocation R_X86_64_64 at 0x29 has unsupported target
-# CHECK: error: undefined symbol: bar
+# We used to dereference null Target in DWARF.cpp:findAux while reporting a duplicate symbol error,
+# because Target wasn't initialized yet.
+# RUN: not ld.lld %t.o %t.o -o /dev/null
 
 --- !ELF
 FileHeader:
@@ -62,7 +62,14 @@ Sections:
     Content:         '0111001017000000'
 
 Symbols:
-  Global:
-    - Name:            _start
-      Section:         .text
-    - Name:            bar
+  - Name:            .debug_abbrev
+    Type:            STT_SECTION
+    Section:         .debug_abbrev
+  - Name:            .debug_line
+    Type:            STT_SECTION
+    Section:         .debug_line
+  - Name:            _start
+    Section:         .text
+    Binding:         STB_GLOBAL 
+  - Name:            bar
+    Binding:         STB_GLOBAL

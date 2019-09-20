@@ -2,7 +2,7 @@
 # RUN: yaml2obj %s -o %t.o
 # RUN: not ld.lld -gdb-index %t.o -o %t.exe 2>&1 | FileCheck %s
 
-# CHECK: error: {{.*}}invalid-debug-relocations.test.tmp.o:(.debug_info+0x0): has non-ABS relocation Unknown (255) against symbol '_start'
+# CHECK: error: {{.*}}invalid-debug-relocations.test.tmp.o:(.debug_info+0x0): unknown relocation (255) against symbol _start
 
 !ELF
 FileHeader:
@@ -33,8 +33,8 @@ Sections:
         Symbol:          _start
         Type:            0xFF
 Symbols:
-  Global:
-    - Name:     _start
-      Type:     STT_FUNC
-      Section:  .text
-      Value:    0x0
+  - Name:     _start
+    Type:     STT_FUNC
+    Section:  .text
+    Value:    0x0
+    Binding:  STB_GLOBAL

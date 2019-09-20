@@ -1,7 +1,7 @@
 # REQUIRES: zlib, x86
 
 # RUN: llvm-mc -compress-debug-sections=zlib -filetype=obj -triple=x86_64-unknown-linux %s -o %t
-# RUN: llvm-readobj -sections %t | FileCheck -check-prefix=ZLIB %s
+# RUN: llvm-readobj --sections %t | FileCheck -check-prefix=ZLIB %s
 # ZLIB:      Section {
 # ZLIB:        Index: 2
 # ZLIB:        Name: .debug_str
@@ -16,12 +16,12 @@
 # ZLIB-NEXT:   Size:
 # ZLIB-NEXT:   Link:
 # ZLIB-NEXT:   Info:
-# ZLIB-NEXT:   AddressAlignment: 1
+# ZLIB-NEXT:   AddressAlignment: 8
 # ZLIB-NEXT:   EntrySize: 1
 # ZLIB-NEXT: }
 
 # RUN: llvm-mc -compress-debug-sections=zlib-gnu -filetype=obj -triple=x86_64-unknown-linux %s -o %t2
-# RUN: llvm-readobj -sections %t2 | FileCheck -check-prefix=GNU %s
+# RUN: llvm-readobj --sections %t2 | FileCheck -check-prefix=GNU %s
 # GNU:      Section {
 # GNU:        Index: 2
 # GNU:        Name: .zdebug_str
@@ -40,10 +40,10 @@
 # GNU-NEXT: }
 
 # RUN: ld.lld --hash-style=sysv %t -o %t.so -shared
-# RUN: llvm-readobj -sections -section-data %t.so | FileCheck -check-prefix=DATA %s
+# RUN: llvm-readobj --sections --section-data %t.so | FileCheck -check-prefix=DATA %s
 
 # RUN: ld.lld --hash-style=sysv %t2 -o %t2.so -shared
-# RUN: llvm-readobj -sections -section-data %t2.so | FileCheck -check-prefix=DATA %s
+# RUN: llvm-readobj --sections --section-data %t2.so | FileCheck -check-prefix=DATA %s
 
 # DATA:      Section {
 # DATA:        Index: 6

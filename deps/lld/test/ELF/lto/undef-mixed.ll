@@ -2,7 +2,7 @@
 ; RUN: llvm-mc %p/Inputs/undef-mixed.s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 ; RUN: llvm-as %s -o %t2.o
 ; RUN: ld.lld %t2.o %t.o -o %t.so -shared
-; RUN: llvm-readobj -t %t.so | FileCheck %s
+; RUN: llvm-readobj --symbols %t.so | FileCheck %s
 
 ; CHECK:      Name: bar
 ; CHECK-NEXT: Value:

@@ -7,5 +7,5 @@
   .long foo
 
 // CHECK:      Section ({{.*}}) .rela.dyn {
-// CHECK-NEXT:   0x1000 R_PPC_ADDR32 foo 0x0
+// CHECK-NEXT:   0x20000 R_PPC_ADDR32 foo 0x0
 // CHECK-NEXT: }

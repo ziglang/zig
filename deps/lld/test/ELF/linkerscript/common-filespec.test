@@ -4,7 +4,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/common-filespec1.s -o %tfile1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/common-filespec2.s -o %tfile2.o
 # RUN: ld.lld -o %t1 --script %s %tfile0.o %tfile1.o %tfile2.o
-# RUN: llvm-readobj -s -t %t1 | FileCheck %s
+# RUN: llvm-readobj -S --symbols %t1 | FileCheck %s
 
 SECTIONS {
   .common_0 : { *file0.o(COMMON) }

@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple x86_64-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -guard:nolongjmp -out:%t.exe -opt:icf -entry:main
-# RUN: llvm-readobj -file-headers -coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK
+# RUN: llvm-readobj --file-headers --coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK
 
 # This assembly is meant to mimic what CL emits for this kind of C code:
 # int icf1() { return 42; }
@@ -35,6 +35,16 @@
 # CHECK-NEXT:   0x14000{{.*}}
 # CHECK-NEXT: ]
 
+# There should be no .gfids section in the output exectuable when we link with
+# -guard:cf or with no -guard:cf/nolongjmp flag.
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s --check-prefix NOGFIDSEC
+# RUN: lld-link %t.obj -out:%t.exe -opt:icf -entry:main
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s --check-prefix NOGFIDSEC
+
+# NOGFIDSEC: Sections [
+# NOGFIDSEC: Section {
+# NOGFIDSEC: Name: .text
+# NOGFIDSEC-NOT: Name: .gfids
 
 # Indicate that gfids are present.
         .def     @feat.00; .scl    3; .type   0; .endef

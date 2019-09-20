@@ -12,6 +12,10 @@ const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
     else => false,
 };
+const is_msvc = switch (builtin.abi) {
+    .msvc => true,
+    else => false,
+};
 const is_freestanding = switch (builtin.os) {
     .freestanding => true,
     else => false,
@@ -25,10 +29,14 @@ comptime {
         @export("strncmp", strncmp, .Strong);
         @export("strerror", strerror, .Strong);
         @export("strlen", strlen, .Strong);
+    } else if (is_msvc) {
+        @export("_fltused", _fltused, .Strong);
     } else if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
         @export("__aeabi_read_tp", std.os.linux.getThreadPointer, .Strong);
     }
 }
+
+extern var _fltused: c_int = 1;
 
 extern fn main(argc: c_int, argv: [*][*]u8) c_int;
 extern fn wasm_start() void {
@@ -174,7 +182,10 @@ comptime {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
     if (builtin.os == builtin.Os.linux) {
-        @export("clone", clone, builtin.GlobalLinkage.Strong);
+        // TODO implement clone for riscv64
+        if (builtin.arch != .riscv64) {
+            @export("clone", clone, builtin.GlobalLinkage.Strong);
+        }
     }
 }
 extern fn __stack_chk_fail() noreturn {

@@ -6,7 +6,7 @@ set -e
 brew install s3cmd gcc@8
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang-8.0.0-macos-x86_64-gcc8-release"
+CACHE_BASENAME="llvm+clang-9.0.0-macos-x86_64-gcc8-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 TMPDIR="$HOME/tmpz"
 JOBS="-j2"
@@ -42,18 +42,18 @@ else
   rm $PREFIX/lib/libz*dylib
 
   cd $TMPDIR
-  wget https://releases.llvm.org/8.0.0/llvm-8.0.0.src.tar.xz
-  tar xf llvm-8.0.0.src.tar.xz
-  cd llvm-8.0.0.src/
+  wget https://releases.llvm.org/9.0.0/llvm-9.0.0.src.tar.xz
+  tar xf llvm-9.0.0.src.tar.xz
+  cd llvm-9.0.0.src/
   mkdir build
   cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AVR;RISCV" -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_TERMINFO=OFF
+  cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AVR" -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_TERMINFO=OFF
   make $JOBS install
 
   cd $TMPDIR
-  wget https://releases.llvm.org/8.0.0/cfe-8.0.0.src.tar.xz
-  tar xf cfe-8.0.0.src.tar.xz
-  cd cfe-8.0.0.src/
+  wget https://releases.llvm.org/9.0.0/cfe-9.0.0.src.tar.xz
+  tar xf cfe-9.0.0.src.tar.xz
+  cd cfe-9.0.0.src/
   mkdir build
   cd build
   cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release

@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as %s -o %t.o
 ; RUN: ld.lld %t.o -o %t.so -shared
-; RUN: llvm-readobj -t %t.so | FileCheck %s
+; RUN: llvm-readobj --symbols %t.so | FileCheck %s
 target triple = "x86_64-unknown-linux-gnu"
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 

@@ -1,9 +1,8 @@
 //===-- TargetOptionsCommandFlags.cpp ---------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -20,16 +19,17 @@
 #include "llvm/Target/TargetOptions.h"
 
 // Define an externally visible version of
-// InitTargetOptionsFromCodeGenFlags, so that its functionality can be
+// initTargetOptionsFromCodeGenFlags, so that its functionality can be
 // used without having to include llvm/CodeGen/CommandFlags.inc, which
 // would lead to multiple definitions of the command line flags.
-llvm::TargetOptions lld::InitTargetOptionsFromCodeGenFlags() {
+llvm::TargetOptions lld::initTargetOptionsFromCodeGenFlags() {
   return ::InitTargetOptionsFromCodeGenFlags();
 }
 
-llvm::Optional<llvm::CodeModel::Model> lld::GetCodeModelFromCMModel() {
+llvm::Optional<llvm::CodeModel::Model> lld::getCodeModelFromCMModel() {
   return getCodeModel();
 }
 
-std::string lld::GetCPUStr() { return ::getCPUStr(); }
-std::vector<std::string> lld::GetMAttrs() { return ::MAttrs; }
+std::string lld::getCPUStr() { return ::getCPUStr(); }
+
+std::vector<std::string> lld::getMAttrs() { return ::MAttrs; }

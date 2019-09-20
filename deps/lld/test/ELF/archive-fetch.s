@@ -9,7 +9,14 @@
 # RUN: llvm-ar rcs %t.a %tfoo.o %tbar.o
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: ld.lld %t.a %t.o -o /dev/null
+# RUN: ld.lld %t.a %t.o -o %t
+# RUN: llvm-nm %t | FileCheck %s
+
+# RUN: ld.lld -shared %t.o -o %t.so
+# RUN: ld.lld %t.a %t.so -o %t
+# RUN: llvm-nm %t | FileCheck %s
+
+# CHECK: T foo
 
 _start:
 callq foo

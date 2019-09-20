@@ -3,8 +3,8 @@
 // RUN: ld.lld -shared -o %t2.so %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t3.o
 // RUN: ld.lld %t2.so %t3.o -o %t4
-// RUN: llvm-readobj -symbols %t2.so | FileCheck -check-prefix=ABSADDR %s
-// RUN: llvm-readobj -s -r --expand-relocs %t4 | FileCheck %s
+// RUN: llvm-readobj --symbols %t2.so | FileCheck -check-prefix=ABSADDR %s
+// RUN: llvm-readobj -S -r --expand-relocs %t4 | FileCheck %s
 
 // This tests that symbols with absolute addresses are properly
 // handled. Normal DSO symbols are handled as usual.

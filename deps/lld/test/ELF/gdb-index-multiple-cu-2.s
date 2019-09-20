@@ -4,8 +4,8 @@
 # RUN: ld.lld --gdb-index %t.o %t1.o -o %t
 # RUN: llvm-dwarfdump -gdb-index %t | FileCheck %s
 
-# %t.o has 2 CUs while %t1 has 1, thus _start in %t1.o should have CuIndex 2.
-# Attributes << 24 | CuIndex = 48 << 24 | 2 = 0x30000002
+# %t.o has 2 CUs while %t1 has 1, thus _start in %t1.o should have cuIndex 2.
+# attributes << 24 | cuIndex = 48 << 24 | 2 = 0x30000002
 # CHECK:      Constant pool
 # CHECK-NEXT:   0(0x0): 0x30000002
 

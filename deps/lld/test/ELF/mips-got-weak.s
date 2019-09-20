@@ -3,10 +3,10 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t1.so
-# RUN: llvm-readobj -r -dt -dynamic-table -mips-plt-got %t1.so \
+# RUN: llvm-readobj -r --dyn-syms --dynamic-table --mips-plt-got %t1.so \
 # RUN:   | FileCheck -check-prefixes=CHECK,NOSYM %s
 # RUN: ld.lld %t.o -shared -Bsymbolic -o %t2.so
-# RUN: llvm-readobj -r -dt -dynamic-table -mips-plt-got %t2.so \
+# RUN: llvm-readobj -r --dyn-syms --dynamic-table --mips-plt-got %t2.so \
 # RUN:   | FileCheck -check-prefixes=CHECK,SYM %s
 
 # CHECK:      Relocations [

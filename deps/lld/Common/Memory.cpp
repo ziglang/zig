@@ -1,9 +1,8 @@
 //===- Memory.cpp ---------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,12 +11,12 @@
 using namespace llvm;
 using namespace lld;
 
-BumpPtrAllocator lld::BAlloc;
-StringSaver lld::Saver{BAlloc};
-std::vector<SpecificAllocBase *> lld::SpecificAllocBase::Instances;
+BumpPtrAllocator lld::bAlloc;
+StringSaver lld::saver{bAlloc};
+std::vector<SpecificAllocBase *> lld::SpecificAllocBase::instances;
 
 void lld::freeArena() {
-  for (SpecificAllocBase *Alloc : SpecificAllocBase::Instances)
-    Alloc->reset();
-  BAlloc.Reset();
+  for (SpecificAllocBase *alloc : SpecificAllocBase::instances)
+    alloc->reset();
+  bAlloc.Reset();
 }

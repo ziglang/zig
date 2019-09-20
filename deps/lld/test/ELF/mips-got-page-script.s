@@ -7,7 +7,7 @@
 # RUN:          .text : { *(.text) } \
 # RUN:          .data 0x10000 : { *(.data) } }" > %t.script
 # RUN: ld.lld -shared --script %t.script -o %t.so %t.o
-# RUN: llvm-readobj -t -mips-plt-got %t.so | FileCheck %s
+# RUN: llvm-readobj --symbols --mips-plt-got %t.so | FileCheck %s
 
 # CHECK:      Name: foo1
 # CHECK-NEXT: Value: 0x10000

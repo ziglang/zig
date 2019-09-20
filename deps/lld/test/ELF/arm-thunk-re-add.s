@@ -99,10 +99,11 @@ callers:
 // CHECK2-NEXT:  110001c:       ff f6 f8 bf     b.w     #-1048592 <__ThumbV7PILongThunk_imported2>
 
 // CHECK3: Disassembly of section .plt:
+// CHECK3-EMPTY:
 // CHECK3-NEXT: $a:
 // CHECK3-NEXT:  1100020:       04 e0 2d e5     str     lr, [sp, #-4]!
 // CHECK3-NEXT:  1100024:       00 e6 8f e2     add     lr, pc, #0, #12
-// CHECK3-NEXT:  1100028:       00 ea 8e e2     add     lr, lr, #0, #20
+// CHECK3-NEXT:  1100028:       01 ea 8e e2     add     lr, lr, #4096
 // CHECK3-NEXT:  110002c:       dc ff be e5     ldr     pc, [lr, #4060]!
 // CHECK3: $d:
 // CHECK3-NEXT:  1100030:       d4 d4 d4 d4     .word   0xd4d4d4d4
@@ -111,13 +112,13 @@ callers:
 // CHECK3-NEXT:  110003c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // CHECK3: $a:
 // CHECK3-NEXT:  1100040:       00 c6 8f e2     add     r12, pc, #0, #12
-// CHECK3-NEXT:  1100044:       00 ca 8c e2     add     r12, r12, #0, #20
+// CHECK3-NEXT:  1100044:       01 ca 8c e2     add     r12, r12, #4096
 // CHECK3-NEXT:  1100048:       c4 ff bc e5     ldr     pc, [r12, #4036]!
 // CHECK3: $d:
 // CHECK3-NEXT:  110004c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // CHECK3: $a:
 // CHECK3-NEXT:  1100050:       00 c6 8f e2     add     r12, pc, #0, #12
-// CHECK3-NEXT:  1100054:       00 ca 8c e2     add     r12, r12, #0, #20
+// CHECK3-NEXT:  1100054:       01 ca 8c e2     add     r12, r12, #4096
 // CHECK3-NEXT:  1100058:       b8 ff bc e5     ldr     pc, [r12, #4024]!
 // CHECK3: $d:
 // CHECK3-NEXT:  110005c:       d4 d4 d4 d4     .word   0xd4d4d4d4

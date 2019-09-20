@@ -1,9 +1,9 @@
 # RUN: yaml2obj < %p/Inputs/hello32.yaml > %t.obj
-# RUN: lld-link %t.obj %p/Inputs/std32.lib /subsystem:console \
+# RUN: lld-link -safeseh:no %t.obj %p/Inputs/std32.lib /subsystem:console \
 # RUN:   /entry:main@0 /out:%t.exe /appcontainer
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=HEADER %s
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
-# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=HEADER %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
+# RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
 
 HEADER:      Format: COFF-i386
 HEADER-NEXT: Arch: i386
@@ -42,10 +42,9 @@ HEADER-NEXT:   MinorSubsystemVersion: 0
 HEADER-NEXT:   SizeOfImage: 20480
 HEADER-NEXT:   SizeOfHeaders: 1024
 HEADER-NEXT:   Subsystem: IMAGE_SUBSYSTEM_WINDOWS_CUI (0x3)
-HEADER-NEXT:   Characteristics [ (0x9540)
+HEADER-NEXT:   Characteristics [ (0x9140)
 HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_APPCONTAINER (0x1000)
 HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE (0x40)
-HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_NO_SEH (0x400)
 HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_NX_COMPAT (0x100)
 HEADER-NEXT:     IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE (0x8000)
 HEADER-NEXT:   ]

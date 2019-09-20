@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %p/Inputs/relocation-copy.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t.so
 // RUN: ld.lld -e main %t.o %t.so -o %t3
-// RUN: llvm-readobj -s -r --expand-relocs %t3 | FileCheck %s
+// RUN: llvm-readobj -S -r --expand-relocs %t3 | FileCheck %s
 // RUN: llvm-objdump -d %t3 | FileCheck -check-prefix=CODE %s
 
 .text
@@ -57,6 +57,7 @@ movl $9, z
 // 4206608 =  0x403000 + 16
 // 4206612 =  0x403000 + 16 + 4
 // CODE: Disassembly of section .text:
+// CODE-EMPTY:
 // CODE-NEXT: main:
 // CODE-NEXT: 401000: c7 05 00 30 40 00 05 00 00 00 movl $5, 4206592
 // CODE-NEXT: 40100a: c7 05 10 30 40 00 07 00 00 00 movl $7, 4206608

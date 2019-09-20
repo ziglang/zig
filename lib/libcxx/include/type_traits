@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===------------------------ type_traits ---------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -91,6 +90,9 @@ namespace std
     template <class T> struct remove_extent;
     template <class T> struct remove_all_extents;
 
+    template <class T> struct is_bounded_array;                 // C++20
+    template <class T> struct is_unbounded_array;               // C++20
+
     // Member introspection:
     template <class T> struct is_pod;
     template <class T> struct is_trivial;
@@ -141,7 +143,10 @@ namespace std
     // Relationships between types:
     template <class T, class U> struct is_same;
     template <class Base, class Derived> struct is_base_of;
+
     template <class From, class To> struct is_convertible;
+    template <typename From, typename To> struct is_nothrow_convertible;                  // C++20
+    template <typename From, typename To> inline constexpr bool is_nothrow_convertible_v; // C++20
 
     template <class Fn, class... ArgTypes> struct is_invocable;
     template <class R, class Fn, class... ArgTypes> struct is_invocable_r;
@@ -196,6 +201,12 @@ namespace std
       using remove_extent_t      = typename remove_extent<T>::type;  // C++14
     template <class T>
       using remove_all_extents_t = typename remove_all_extents<T>::type;  // C++14
+
+    template <class T>
+      inline constexpr bool is_bounded_array_v
+        = is_bounded_array<T>::value;                                     // C++20
+      inline constexpr bool is_unbounded_array_v
+        = is_unbounded_array<T>::value;                                   // C++20
 
     // pointer modifications:
     template <class T>
@@ -416,6 +427,96 @@ template <class _T1, class _T2> struct _LIBCPP_TEMPLATE_VIS pair;
 template <class _Tp> class _LIBCPP_TEMPLATE_VIS reference_wrapper;
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS hash;
 
+
+template <class _Tp, _Tp __v>
+struct _LIBCPP_TEMPLATE_VIS integral_constant
+{
+  static _LIBCPP_CONSTEXPR const _Tp      value = __v;
+  typedef _Tp               value_type;
+  typedef integral_constant type;
+  _LIBCPP_INLINE_VISIBILITY
+  _LIBCPP_CONSTEXPR operator value_type() const _NOEXCEPT {return value;}
+#if _LIBCPP_STD_VER > 11
+  _LIBCPP_INLINE_VISIBILITY
+  constexpr value_type operator ()() const _NOEXCEPT {return value;}
+#endif
+};
+
+template <class _Tp, _Tp __v>
+_LIBCPP_CONSTEXPR const _Tp integral_constant<_Tp, __v>::value;
+
+#if _LIBCPP_STD_VER > 14
+template <bool __b>
+using bool_constant = integral_constant<bool, __b>;
+#define _LIBCPP_BOOL_CONSTANT(__b) bool_constant<(__b)>
+#else
+#define _LIBCPP_BOOL_CONSTANT(__b) integral_constant<bool,(__b)>
+#endif
+
+typedef _LIBCPP_BOOL_CONSTANT(true)  true_type;
+typedef _LIBCPP_BOOL_CONSTANT(false) false_type;
+
+template <bool _Val>
+using _BoolConstant _LIBCPP_NODEBUG_TYPE = integral_constant<bool, _Val>;
+
+template <bool> struct _MetaBase;
+template <>
+struct _MetaBase<true> {
+  template <class _Tp, class _Up>
+  using _SelectImpl _LIBCPP_NODEBUG_TYPE = _Tp;
+  template <template <class...> class _FirstFn, template <class...> class, class ..._Args>
+  using _SelectApplyImpl _LIBCPP_NODEBUG_TYPE = _FirstFn<_Args...>;
+  template <class _First, class...>
+  using _FirstImpl _LIBCPP_NODEBUG_TYPE = _First;
+  template <class, class _Second, class...>
+  using _SecondImpl _LIBCPP_NODEBUG_TYPE = _Second;
+  template <class _Tp = void>
+  using _EnableIfImpl _LIBCPP_NODEBUG_TYPE = _Tp;
+  template <class _Result, class _First, class ..._Rest>
+  using _OrImpl _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_First::value != true && sizeof...(_Rest) != 0>::template _OrImpl<_First, _Rest...>;
+  template <class _Result, class _First, class ..._Rest>
+  using _AndImpl _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_First::value == true && sizeof...(_Rest) != 0>::template _AndImpl<_First, _Rest...>;
+};
+
+template <>
+struct _MetaBase<false> {
+  template <class _Tp, class _Up>
+  using _SelectImpl _LIBCPP_NODEBUG_TYPE = _Up;
+  template <template <class...> class, template <class...> class _SecondFn, class ..._Args>
+  using _SelectApplyImpl _LIBCPP_NODEBUG_TYPE = _SecondFn<_Args...>;
+  template <class _Result, class ...>
+  using _OrImpl _LIBCPP_NODEBUG_TYPE = _Result;
+  template <class _Result, class ...>
+  using _AndImpl _LIBCPP_NODEBUG_TYPE = _Result;
+};
+template <bool _Cond, class _Ret = void>
+using _EnableIf _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_Cond>::template _EnableIfImpl<_Ret>;
+template <bool _Cond, class _IfRes, class _ElseRes>
+using _If _LIBCPP_NODEBUG_TYPE = typename _MetaBase<_Cond>::template _SelectImpl<_IfRes, _ElseRes>;
+template <class ..._Rest>
+using _Or _LIBCPP_NODEBUG_TYPE = typename _MetaBase< sizeof...(_Rest) != 0 >::template _OrImpl<false_type, _Rest...>;
+template <class ..._Rest>
+using _And _LIBCPP_NODEBUG_TYPE = typename _MetaBase< sizeof...(_Rest) != 0 >::template _AndImpl<true_type, _Rest...>;
+template <class _Pred>
+struct _Not : _BoolConstant<!_Pred::value> {};
+template <class ..._Args>
+using _FirstType _LIBCPP_NODEBUG_TYPE = typename _MetaBase<(sizeof...(_Args) >= 1)>::template _FirstImpl<_Args...>;
+template <class ..._Args>
+using _SecondType _LIBCPP_NODEBUG_TYPE = typename _MetaBase<(sizeof...(_Args) >= 2)>::template _SecondImpl<_Args...>;
+
+template <template <class...> class _Func, class ..._Args>
+struct _Lazy : _Func<_Args...> {};
+
+// Member detector base
+
+template <template <class...> class _Templ, class ..._Args>
+true_type __sfinae_test_impl(_FirstType<int, _Templ<_Args...> >);
+template <template <class...> class, class ...>
+false_type __sfinae_test_impl(...);
+
+template <template <class ...> class _Templ, class ..._Args>
+using _IsValidExpansion _LIBCPP_NODEBUG_TYPE = decltype(std::__sfinae_test_impl<_Templ, _Args...>(0));
+
 template <class>
 struct __void_t { typedef void type; };
 
@@ -434,9 +535,6 @@ template <class _If, class _Then>
 template <bool _Bp, class _If, class _Then> using conditional_t = typename conditional<_Bp, _If, _Then>::type;
 #endif
 
-template <bool, class _Tp> struct _LIBCPP_TEMPLATE_VIS __lazy_enable_if {};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS __lazy_enable_if<true, _Tp> {typedef typename _Tp::type type;};
-
 template <bool, class _Tp = void> struct _LIBCPP_TEMPLATE_VIS enable_if {};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS enable_if<true, _Tp> {typedef _Tp type;};
 
@@ -444,6 +542,34 @@ template <class _Tp> struct _LIBCPP_TEMPLATE_VIS enable_if<true, _Tp> {typedef _
 template <bool _Bp, class _Tp = void> using enable_if_t = typename enable_if<_Bp, _Tp>::type;
 #endif
 
+// is_same
+
+template <class _Tp, class _Up> struct _LIBCPP_TEMPLATE_VIS is_same           : public false_type {};
+template <class _Tp>            struct _LIBCPP_TEMPLATE_VIS is_same<_Tp, _Tp> : public true_type {};
+
+#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
+template <class _Tp, class _Up>
+_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_same_v
+    = is_same<_Tp, _Up>::value;
+#endif
+
+template <class _Tp, class _Up>
+using _IsSame = _BoolConstant<
+#ifdef __clang__
+    __is_same(_Tp, _Up)
+#else
+    _VSTD::is_same<_Tp, _Up>::value
+#endif
+>;
+
+template <class _Tp, class _Up>
+using _IsNotSame = _BoolConstant<
+#ifdef __clang__
+    !__is_same(_Tp, _Up)
+#else
+    !_VSTD::is_same<_Tp, _Up>::value
+#endif
+>;
 // addressof
 #ifndef _LIBCPP_HAS_NO_BUILTIN_ADDRESSOF
 
@@ -516,111 +642,6 @@ template <class _Tp> _Tp* addressof(const _Tp&&) noexcept = delete;
 struct __two {char __lx[2];};
 
 // helper class:
-
-template <class _Tp, _Tp __v>
-struct _LIBCPP_TEMPLATE_VIS integral_constant
-{
-    static _LIBCPP_CONSTEXPR const _Tp      value = __v;
-    typedef _Tp               value_type;
-    typedef integral_constant type;
-    _LIBCPP_INLINE_VISIBILITY
-        _LIBCPP_CONSTEXPR operator value_type() const _NOEXCEPT {return value;}
-#if _LIBCPP_STD_VER > 11
-    _LIBCPP_INLINE_VISIBILITY
-         constexpr value_type operator ()() const _NOEXCEPT {return value;}
-#endif
-};
-
-template <class _Tp, _Tp __v>
-_LIBCPP_CONSTEXPR const _Tp integral_constant<_Tp, __v>::value;
-
-#if _LIBCPP_STD_VER > 14
-template <bool __b>
-using bool_constant = integral_constant<bool, __b>;
-#define _LIBCPP_BOOL_CONSTANT(__b) bool_constant<(__b)>
-#else
-#define _LIBCPP_BOOL_CONSTANT(__b) integral_constant<bool,(__b)>
-#endif
-
-typedef _LIBCPP_BOOL_CONSTANT(true)  true_type;
-typedef _LIBCPP_BOOL_CONSTANT(false) false_type;
-
-#if !defined(_LIBCPP_CXX03_LANG)
-
-// __lazy_and
-
-template <bool _Last, class ..._Preds>
-struct __lazy_and_impl;
-
-template <class ..._Preds>
-struct __lazy_and_impl<false, _Preds...> : false_type {};
-
-template <>
-struct __lazy_and_impl<true> : true_type {};
-
-template <class _Pred>
-struct __lazy_and_impl<true, _Pred> : integral_constant<bool, _Pred::type::value> {};
-
-template <class _Hp, class ..._Tp>
-struct __lazy_and_impl<true, _Hp, _Tp...> : __lazy_and_impl<_Hp::type::value, _Tp...> {};
-
-template <class _P1, class ..._Pr>
-struct __lazy_and : __lazy_and_impl<_P1::type::value, _Pr...> {};
-
-// __lazy_or
-
-template <bool _List, class ..._Preds>
-struct __lazy_or_impl;
-
-template <class ..._Preds>
-struct __lazy_or_impl<true, _Preds...> : true_type {};
-
-template <>
-struct __lazy_or_impl<false> : false_type {};
-
-template <class _Hp, class ..._Tp>
-struct __lazy_or_impl<false, _Hp, _Tp...>
-        : __lazy_or_impl<_Hp::type::value, _Tp...> {};
-
-template <class _P1, class ..._Pr>
-struct __lazy_or : __lazy_or_impl<_P1::type::value, _Pr...> {};
-
-// __lazy_not
-
-template <class _Pred>
-struct __lazy_not : integral_constant<bool, !_Pred::type::value> {};
-
-// __and_
-template<class...> struct __and_;
-template<> struct __and_<> : true_type {};
-
-template<class _B0> struct __and_<_B0> : _B0 {};
-
-template<class _B0, class _B1>
-struct __and_<_B0, _B1> : conditional<_B0::value, _B1, _B0>::type {};
-
-template<class _B0, class _B1, class _B2, class... _Bn>
-struct __and_<_B0, _B1, _B2, _Bn...>
-        : conditional<_B0::value, __and_<_B1, _B2, _Bn...>, _B0>::type {};
-
-// __or_
-template<class...> struct __or_;
-template<> struct __or_<> : false_type {};
-
-template<class _B0> struct __or_<_B0> : _B0 {};
-
-template<class _B0, class _B1>
-struct __or_<_B0, _B1> : conditional<_B0::value, _B0, _B1>::type {};
-
-template<class _B0, class _B1, class _B2, class... _Bn>
-struct __or_<_B0, _B1, _B2, _Bn...>
-        : conditional<_B0::value, _B0, __or_<_B1, _B2, _Bn...> >::type {};
-
-// __not_
-template<class _Tp>
-struct __not_ : conditional<_Tp::value, false_type, true_type>::type {};
-
-#endif // !defined(_LIBCPP_CXX03_LANG)
 
 // is_const
 
@@ -774,8 +795,16 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_array_v
 template <class _Tp> struct __libcpp_is_pointer       : public false_type {};
 template <class _Tp> struct __libcpp_is_pointer<_Tp*> : public true_type {};
 
+template <class _Tp> struct __libcpp_remove_objc_qualifiers { typedef _Tp type; };
+#if defined(_LIBCPP_HAS_OBJC_ARC)
+template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __strong> { typedef _Tp type; };
+template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __weak> { typedef _Tp type; };
+template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __autoreleasing> { typedef _Tp type; };
+template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __unsafe_unretained> { typedef _Tp type; };
+#endif
+
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_pointer
-    : public __libcpp_is_pointer<typename remove_cv<_Tp>::type> {};
+    : public __libcpp_is_pointer<typename __libcpp_remove_objc_qualifiers<typename remove_cv<_Tp>::type>::type> {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
@@ -789,15 +818,11 @@ template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_lvalue_reference       : pub
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_lvalue_reference<_Tp&> : public true_type {};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_rvalue_reference        : public false_type {};
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_rvalue_reference<_Tp&&> : public true_type {};
-#endif
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_reference        : public false_type {};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_reference<_Tp&>  : public true_type {};
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_reference<_Tp&&> : public true_type {};
-#endif
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
@@ -814,7 +839,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_rvalue_reference_v
 #endif
 // is_union
 
-#if __has_feature(is_union) || (_GNUC_VER >= 403)
+#if __has_feature(is_union) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_union
     : public integral_constant<bool, __is_union(_Tp)> {};
@@ -835,7 +860,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_union_v
 
 // is_class
 
-#if __has_feature(is_class) || (_GNUC_VER >= 403)
+#if __has_feature(is_class) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_class
     : public integral_constant<bool, __is_class(_Tp)> {};
@@ -857,17 +882,6 @@ template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_class
 template <class _Tp>
 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_class_v
     = is_class<_Tp>::value;
-#endif
-
-// is_same
-
-template <class _Tp, class _Up> struct _LIBCPP_TEMPLATE_VIS is_same           : public false_type {};
-template <class _Tp>            struct _LIBCPP_TEMPLATE_VIS is_same<_Tp, _Tp> : public true_type {};
-
-#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
-template <class _Tp, class _Up>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_same_v
-    = is_same<_Tp, _Up>::value;
 #endif
 
 // is_function
@@ -957,7 +971,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_member_object_pointer_v
 
 // is_enum
 
-#if __has_feature(is_enum) || (_GNUC_VER >= 403)
+#if __has_feature(is_enum) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_enum
     : public integral_constant<bool, __is_enum(_Tp)> {};
@@ -1061,7 +1075,7 @@ struct __is_referenceable_impl {
 
 template <class _Tp>
 struct __is_referenceable : integral_constant<bool,
-    !is_same<decltype(__is_referenceable_impl::__test<_Tp>(0)), __two>::value> {};
+    _IsNotSame<decltype(__is_referenceable_impl::__test<_Tp>(0)), __two>::value> {};
 
 
 // add_const
@@ -1069,13 +1083,13 @@ struct __is_referenceable : integral_constant<bool,
 template <class _Tp, bool = is_reference<_Tp>::value ||
                             is_function<_Tp>::value  ||
                             is_const<_Tp>::value     >
-struct __add_const             {typedef _Tp type;};
+struct __add_const             {typedef _LIBCPP_NODEBUG_TYPE  _Tp type;};
 
 template <class _Tp>
-struct __add_const<_Tp, false> {typedef const _Tp type;};
+struct __add_const<_Tp, false> {typedef _LIBCPP_NODEBUG_TYPE  const _Tp type;};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_const
-    {typedef typename __add_const<_Tp>::type type;};
+    {typedef _LIBCPP_NODEBUG_TYPE  typename __add_const<_Tp>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_const_t = typename add_const<_Tp>::type;
@@ -1092,7 +1106,7 @@ template <class _Tp>
 struct __add_volatile<_Tp, false> {typedef volatile _Tp type;};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_volatile
-    {typedef typename __add_volatile<_Tp>::type type;};
+    {typedef _LIBCPP_NODEBUG_TYPE typename __add_volatile<_Tp>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_volatile_t = typename add_volatile<_Tp>::type;
@@ -1101,7 +1115,7 @@ template <class _Tp> using add_volatile_t = typename add_volatile<_Tp>::type;
 // add_cv
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_cv
-    {typedef typename add_const<typename add_volatile<_Tp>::type>::type type;};
+    {typedef _LIBCPP_NODEBUG_TYPE typename add_const<typename add_volatile<_Tp>::type>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_cv_t = typename add_cv<_Tp>::type;
@@ -1109,11 +1123,9 @@ template <class _Tp> using add_cv_t = typename add_cv<_Tp>::type;
 
 // remove_reference
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference        {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&>  {typedef _Tp type;};
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&&> {typedef _Tp type;};
-#endif
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference        {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&>  {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_reference<_Tp&&> {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using remove_reference_t = typename remove_reference<_Tp>::type;
@@ -1121,31 +1133,25 @@ template <class _Tp> using remove_reference_t = typename remove_reference<_Tp>::
 
 // add_lvalue_reference
 
-template <class _Tp, bool = __is_referenceable<_Tp>::value> struct __add_lvalue_reference_impl            { typedef _Tp  type; };
-template <class _Tp                                       > struct __add_lvalue_reference_impl<_Tp, true> { typedef _Tp& type; };
+template <class _Tp, bool = __is_referenceable<_Tp>::value> struct __add_lvalue_reference_impl            { typedef _LIBCPP_NODEBUG_TYPE _Tp  type; };
+template <class _Tp                                       > struct __add_lvalue_reference_impl<_Tp, true> { typedef _LIBCPP_NODEBUG_TYPE _Tp& type; };
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_lvalue_reference
-{typedef typename __add_lvalue_reference_impl<_Tp>::type type;};
+{typedef _LIBCPP_NODEBUG_TYPE typename  __add_lvalue_reference_impl<_Tp>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_lvalue_reference_t = typename add_lvalue_reference<_Tp>::type;
 #endif
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-template <class _Tp, bool = __is_referenceable<_Tp>::value> struct __add_rvalue_reference_impl            { typedef _Tp   type; };
-template <class _Tp                                       > struct __add_rvalue_reference_impl<_Tp, true> { typedef _Tp&& type; };
+template <class _Tp, bool = __is_referenceable<_Tp>::value> struct __add_rvalue_reference_impl            { typedef _LIBCPP_NODEBUG_TYPE  _Tp   type; };
+template <class _Tp                                       > struct __add_rvalue_reference_impl<_Tp, true> { typedef _LIBCPP_NODEBUG_TYPE  _Tp&& type; };
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_rvalue_reference
-{typedef typename __add_rvalue_reference_impl<_Tp>::type type;};
+{typedef _LIBCPP_NODEBUG_TYPE  typename __add_rvalue_reference_impl<_Tp>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_rvalue_reference_t = typename add_rvalue_reference<_Tp>::type;
 #endif
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 template <class _Tp> _Tp&& __declval(int);
 template <class _Tp> _Tp   __declval(long);
@@ -1154,35 +1160,27 @@ template <class _Tp>
 decltype(_VSTD::__declval<_Tp>(0))
 declval() _NOEXCEPT;
 
-#else  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-template <class _Tp>
-typename add_lvalue_reference<_Tp>::type
-declval();
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 // __uncvref
 
 template <class _Tp>
 struct __uncvref  {
-    typedef typename remove_cv<typename remove_reference<_Tp>::type>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_cv<typename remove_reference<_Tp>::type>::type type;
 };
 
 template <class _Tp>
 struct __unconstref {
-    typedef typename remove_const<typename remove_reference<_Tp>::type>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_const<typename remove_reference<_Tp>::type>::type type;
 };
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Tp>
-using __uncvref_t = typename __uncvref<_Tp>::type;
+using __uncvref_t _LIBCPP_NODEBUG_TYPE = typename __uncvref<_Tp>::type;
 #endif
 
 // __is_same_uncvref
 
 template <class _Tp, class _Up>
-struct __is_same_uncvref : is_same<typename __uncvref<_Tp>::type,
+struct __is_same_uncvref : _IsSame<typename __uncvref<_Tp>::type,
                                    typename __uncvref<_Up>::type> {};
 
 #if _LIBCPP_STD_VER > 17
@@ -1201,11 +1199,11 @@ struct __any
 
 // remove_pointer
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer                      {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp*>                {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const>          {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* volatile>       {typedef _Tp type;};
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const volatile> {typedef _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer                      {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp*>                {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const>          {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* volatile>       {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const volatile> {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using remove_pointer_t = typename remove_pointer<_Tp>::type;
@@ -1215,14 +1213,14 @@ template <class _Tp> using remove_pointer_t = typename remove_pointer<_Tp>::type
 
 template <class _Tp,
         bool = __is_referenceable<_Tp>::value ||
-                is_same<typename remove_cv<_Tp>::type, void>::value>
+                _IsSame<typename remove_cv<_Tp>::type, void>::value>
 struct __add_pointer_impl
-    {typedef typename remove_reference<_Tp>::type* type;};
+    {typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tp>::type* type;};
 template <class _Tp> struct __add_pointer_impl<_Tp, false>
-    {typedef _Tp type;};
+    {typedef _LIBCPP_NODEBUG_TYPE _Tp type;};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_pointer
-    {typedef typename __add_pointer_impl<_Tp>::type type;};
+    {typedef _LIBCPP_NODEBUG_TYPE typename __add_pointer_impl<_Tp>::type type;};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using add_pointer_t = typename add_pointer<_Tp>::type;
@@ -1336,17 +1334,37 @@ template <class _Tp, size_t _Np> struct _LIBCPP_TEMPLATE_VIS remove_all_extents<
 template <class _Tp> using remove_all_extents_t = typename remove_all_extents<_Tp>::type;
 #endif
 
+#if _LIBCPP_STD_VER > 17
+// is_bounded_array
+
+template <class>                 struct _LIBCPP_TEMPLATE_VIS is_bounded_array           : false_type {};
+template <class _Tp, size_t _Np> struct _LIBCPP_TEMPLATE_VIS is_bounded_array<_Tp[_Np]> : true_type {};
+
+template <class _Tp>
+_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR
+bool is_bounded_array_v  = is_bounded_array<_Tp>::value;
+
+// is_unbounded_array
+
+template <class>     struct _LIBCPP_TEMPLATE_VIS is_unbounded_array        : false_type {};
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_unbounded_array<_Tp[]> : true_type {};
+
+template <class _Tp>
+_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR
+bool is_unbounded_array_v  = is_unbounded_array<_Tp>::value;
+#endif
+
 // decay
 
 template <class _Up, bool>
 struct __decay {
-    typedef typename remove_cv<_Up>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_cv<_Up>::type type;
 };
 
 template <class _Up>
 struct __decay<_Up, true> {
 public:
-    typedef typename conditional
+    typedef _LIBCPP_NODEBUG_TYPE typename conditional
                      <
                          is_array<_Up>::value,
                          typename remove_extent<_Up>::type*,
@@ -1363,9 +1381,9 @@ template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS decay
 {
 private:
-    typedef typename remove_reference<_Tp>::type _Up;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tp>::type _Up;
 public:
-    typedef typename __decay<_Up, __is_referenceable<_Up>::value>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename __decay<_Up, __is_referenceable<_Up>::value>::type type;
 };
 
 #if _LIBCPP_STD_VER > 11
@@ -1385,15 +1403,10 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_abstract_v
 
 // is_final
 
-#if defined(_LIBCPP_HAS_IS_FINAL)
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS
 __libcpp_is_final : public integral_constant<bool, __is_final(_Tp)> {};
-#else
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS
-__libcpp_is_final : public false_type {};
-#endif
 
-#if defined(_LIBCPP_HAS_IS_FINAL) && _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER > 11
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS
 is_final : public integral_constant<bool, __is_final(_Tp)> {};
 #endif
@@ -1420,38 +1433,9 @@ _LIBCPP_INLINE_VAR constexpr bool is_aggregate_v
 
 // is_base_of
 
-#ifdef _LIBCPP_HAS_IS_BASE_OF
-
 template <class _Bp, class _Dp>
 struct _LIBCPP_TEMPLATE_VIS is_base_of
     : public integral_constant<bool, __is_base_of(_Bp, _Dp)> {};
-
-#else  // _LIBCPP_HAS_IS_BASE_OF
-
-namespace __is_base_of_imp
-{
-template <class _Tp>
-struct _Dst
-{
-    _Dst(const volatile _Tp &);
-};
-template <class _Tp>
-struct _Src
-{
-    operator const volatile _Tp &();
-    template <class _Up> operator const _Dst<_Up> &();
-};
-template <size_t> struct __one { typedef char type; };
-template <class _Bp, class _Dp> typename __one<sizeof(_Dst<_Bp>(declval<_Src<_Dp> >()))>::type __test(int);
-template <class _Bp, class _Dp> __two __test(...);
-}
-
-template <class _Bp, class _Dp>
-struct _LIBCPP_TEMPLATE_VIS is_base_of
-    : public integral_constant<bool, is_class<_Bp>::value &&
-                                     sizeof(__is_base_of_imp::__test<_Bp, _Dp>(0)) == 2> {};
-
-#endif  // _LIBCPP_HAS_IS_BASE_OF
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Bp, class _Dp>
@@ -1509,14 +1493,6 @@ template <class _T1, class _T2,
 struct __is_convertible
     : public integral_constant<bool,
         __is_convertible_imp::__is_convertible_test<_T1, _T2>::value
-#if defined(_LIBCPP_HAS_NO_RVALUE_REFERENCES)
-         && !(!is_function<_T1>::value && !is_reference<_T1>::value && is_reference<_T2>::value
-              && (!is_const<typename remove_reference<_T2>::type>::value
-                  || is_volatile<typename remove_reference<_T2>::type>::value)
-                  && (is_same<typename remove_cv<_T1>::type,
-                              typename remove_cv<typename remove_reference<_T2>::type>::type>::value
-                      || is_base_of<typename remove_reference<_T2>::type, _T1>::value))
-#endif
     >
 {};
 
@@ -1550,9 +1526,35 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_convertible_v
     = is_convertible<_From, _To>::value;
 #endif
 
+// is_nothrow_convertible
+
+#if _LIBCPP_STD_VER > 17
+
+template <typename _Tp>
+static void __test_noexcept(_Tp) noexcept;
+
+template<typename _Fm, typename _To>
+static bool_constant<noexcept(__test_noexcept<_To>(declval<_Fm>()))>
+__is_nothrow_convertible_test();
+
+template <typename _Fm, typename _To>
+struct __is_nothrow_convertible_helper: decltype(__is_nothrow_convertible_test<_Fm, _To>())
+{ };
+
+template <typename _Fm, typename _To>
+struct is_nothrow_convertible : _Or<
+    _And<is_void<_To>, is_void<_Fm>>,
+    _Lazy<_And, is_convertible<_Fm, _To>, __is_nothrow_convertible_helper<_Fm, _To>>
+>::type { };
+
+template <typename _Fm, typename _To>
+inline constexpr bool is_nothrow_convertible_v = is_nothrow_convertible<_Fm, _To>::value;
+
+#endif // _LIBCPP_STD_VER > 17
+
 // is_empty
 
-#if __has_feature(is_empty) || (_GNUC_VER >= 407)
+#if __has_feature(is_empty) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_empty
@@ -1615,7 +1617,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_polymorphic_v
 
 // has_virtual_destructor
 
-#if __has_feature(has_virtual_destructor) || (_GNUC_VER >= 403)
+#if __has_feature(has_virtual_destructor) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS has_virtual_destructor
     : public integral_constant<bool, __has_virtual_destructor(_Tp)> {};
@@ -1703,6 +1705,9 @@ typedef
     __nat
     > > > > > > > > > > __all_types;
 
+template <size_t _Align>
+struct _ALIGNAS(_Align) __fallback_overaligned {};
+
 template <class _TL, size_t _Align> struct __find_pod;
 
 template <class _Hp, size_t _Align>
@@ -1711,7 +1716,7 @@ struct __find_pod<__type_list<_Hp, __nat>, _Align>
     typedef typename conditional<
                              _Align == _Hp::value,
                              typename _Hp::type,
-                             void
+                             __fallback_overaligned<_Align>
                          >::type type;
 };
 
@@ -1748,7 +1753,6 @@ template <size_t _Len, size_t _Align = __find_max_align<__all_types, _Len>::valu
 struct _LIBCPP_TEMPLATE_VIS aligned_storage
 {
     typedef typename __find_pod<__all_types, _Align>::type _Aligner;
-    static_assert(!is_void<_Aligner>::value, "");
     union type
     {
         _Aligner __align;
@@ -1792,7 +1796,6 @@ _CREATE_ALIGNED_STORAGE_SPECIALIZATION(0x4000);
 
 #undef _CREATE_ALIGNED_STORAGE_SPECIALIZATION
 
-#ifndef _LIBCPP_HAS_NO_VARIADICS
 
 // aligned_union
 
@@ -1826,8 +1829,6 @@ struct aligned_union
 template <size_t _Len, class ..._Types> using aligned_union_t = typename aligned_union<_Len, _Types...>::type;
 #endif
 
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
 template <class _Tp>
 struct __numeric_type
 {
@@ -1844,7 +1845,7 @@ struct __numeric_type
    static long double __test(long double);
 
    typedef decltype(__test(declval<_Tp>())) type;
-   static const bool value = !is_same<type, void>::value;
+   static const bool value = _IsNotSame<type, void>::value;
 };
 
 template <>
@@ -1936,26 +1937,26 @@ template <class _TypeList, size_t _Size, bool = _Size <= sizeof(typename _TypeLi
 template <class _Hp, class _Tp, size_t _Size>
 struct __find_first<__type_list<_Hp, _Tp>, _Size, true>
 {
-    typedef _Hp type;
+    typedef _LIBCPP_NODEBUG_TYPE _Hp type;
 };
 
 template <class _Hp, class _Tp, size_t _Size>
 struct __find_first<__type_list<_Hp, _Tp>, _Size, false>
 {
-    typedef typename __find_first<_Tp, _Size>::type type;
+    typedef _LIBCPP_NODEBUG_TYPE typename __find_first<_Tp, _Size>::type type;
 };
 
 template <class _Tp, class _Up, bool = is_const<typename remove_reference<_Tp>::type>::value,
                              bool = is_volatile<typename remove_reference<_Tp>::type>::value>
 struct __apply_cv
 {
-    typedef _Up type;
+    typedef _LIBCPP_NODEBUG_TYPE _Up type;
 };
 
 template <class _Tp, class _Up>
 struct __apply_cv<_Tp, _Up, true, false>
 {
-    typedef const _Up type;
+    typedef _LIBCPP_NODEBUG_TYPE const _Up type;
 };
 
 template <class _Tp, class _Up>
@@ -2060,86 +2061,42 @@ struct _LIBCPP_TEMPLATE_VIS make_unsigned
 template <class _Tp> using make_unsigned_t = typename make_unsigned<_Tp>::type;
 #endif
 
-#ifdef _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Tp, class _Up = void, class _Vp = void>
-struct _LIBCPP_TEMPLATE_VIS common_type
-{
-public:
-    typedef typename common_type<typename common_type<_Tp, _Up>::type, _Vp>::type type;
-};
-
-template <>
-struct _LIBCPP_TEMPLATE_VIS common_type<void, void, void>
-{
-public:
-    typedef void type;
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, void, void>
-{
-public:
-    typedef typename common_type<_Tp, _Tp>::type type;
-};
-
-template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, _Up, void>
-{
-    typedef typename decay<decltype(
-        true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
-      )>::type type;
-};
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-// bullet 1 - sizeof...(Tp) == 0
-
-template <class ..._Tp>
-struct _LIBCPP_TEMPLATE_VIS common_type {};
-
-// bullet 2 - sizeof...(Tp) == 1
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS common_type<_Tp>
-    : public common_type<_Tp, _Tp> {};
-
-// bullet 3 - sizeof...(Tp) == 2
-
 template <class _Tp, class _Up, class = void>
 struct __common_type2_imp {};
 
 template <class _Tp, class _Up>
 struct __common_type2_imp<_Tp, _Up,
-    typename __void_t<decltype(
-        true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
-    )>::type>
+                          typename __void_t<decltype(
+                                            true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
+                                            )>::type>
 {
-    typedef typename decay<decltype(
-        true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
-    )>::type type;
+  typedef _LIBCPP_NODEBUG_TYPE typename decay<decltype(
+                         true ? _VSTD::declval<_Tp>() : _VSTD::declval<_Up>()
+                         )>::type type;
 };
-
-template <class _Tp, class _Up,
-          class _DTp = typename decay<_Tp>::type,
-          class _DUp = typename decay<_Up>::type>
-using __common_type2 =
-  typename conditional<
-    is_same<_Tp, _DTp>::value && is_same<_Up, _DUp>::value,
-    __common_type2_imp<_Tp, _Up>,
-    common_type<_DTp, _DUp>
-  >::type;
-
-template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, _Up>
-    : __common_type2<_Tp, _Up> {};
-
-// bullet 4 - sizeof...(Tp) > 2
-
-template <class ...Tp> struct __common_types;
 
 template <class, class = void>
 struct __common_type_impl {};
+
+// Clang provides variadic templates in C++03 as an extension.
+#if !defined(_LIBCPP_CXX03_LANG) || defined(__clang__)
+# define _LIBCPP_OPTIONAL_PACK(...) , __VA_ARGS__
+template <class... Tp>
+struct __common_types;
+template <class... _Tp>
+struct _LIBCPP_TEMPLATE_VIS common_type;
+#else
+# define _LIBCPP_OPTIONAL_PACK(...)
+struct __no_arg;
+template <class _Tp, class _Up, class = __no_arg>
+struct __common_types;
+template <class _Tp = __no_arg, class _Up = __no_arg, class _Vp = __no_arg,
+          class _Unused = __no_arg>
+struct common_type {
+  static_assert(sizeof(_Unused) == 0,
+                "common_type accepts at most 3 arguments in C++03");
+};
+#endif // _LIBCPP_CXX03_LANG
 
 template <class _Tp, class _Up>
 struct __common_type_impl<
@@ -2149,28 +2106,53 @@ struct __common_type_impl<
   typedef typename common_type<_Tp, _Up>::type type;
 };
 
-template <class _Tp, class _Up, class ..._Vp>
-struct __common_type_impl<__common_types<_Tp, _Up, _Vp...>,
+template <class _Tp, class _Up, class _Vp _LIBCPP_OPTIONAL_PACK(class... _Rest)>
+struct __common_type_impl<
+    __common_types<_Tp, _Up, _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)>,
     typename __void_t<typename common_type<_Tp, _Up>::type>::type>
-  : __common_type_impl<
-      __common_types<typename common_type<_Tp, _Up>::type, _Vp...> >
-{
-
+    : __common_type_impl<__common_types<typename common_type<_Tp, _Up>::type,
+                                        _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)> > {
 };
 
-template <class _Tp, class _Up, class ..._Vp>
-struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, _Up, _Vp...>
-    : __common_type_impl<__common_types<_Tp, _Up, _Vp...> > {};
+// bullet 1 - sizeof...(Tp) == 0
+
+template <>
+struct _LIBCPP_TEMPLATE_VIS common_type<> {};
+
+// bullet 2 - sizeof...(Tp) == 1
+
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS common_type<_Tp>
+    : public common_type<_Tp, _Tp> {};
+
+// bullet 3 - sizeof...(Tp) == 2
+
+template <class _Tp, class _Up>
+struct _LIBCPP_TEMPLATE_VIS common_type<_Tp, _Up>
+    : conditional<
+        _IsSame<_Tp, typename decay<_Tp>::type>::value && _IsSame<_Up, typename decay<_Up>::type>::value,
+        __common_type2_imp<_Tp, _Up>,
+        common_type<typename decay<_Tp>::type, typename decay<_Up>::type>
+    >::type
+{};
+
+// bullet 4 - sizeof...(Tp) > 2
+
+template <class _Tp, class _Up, class _Vp _LIBCPP_OPTIONAL_PACK(class... _Rest)>
+struct _LIBCPP_TEMPLATE_VIS
+    common_type<_Tp, _Up, _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)>
+    : __common_type_impl<
+          __common_types<_Tp, _Up, _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)> > {};
+
+#undef _LIBCPP_OPTIONAL_PACK
 
 #if _LIBCPP_STD_VER > 11
 template <class ..._Tp> using common_type_t = typename common_type<_Tp...>::type;
 #endif
 
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
 // is_assignable
 
-template<typename, typename _Tp> struct __select_2nd { typedef _Tp type; };
+template<typename, typename _Tp> struct __select_2nd { typedef _LIBCPP_NODEBUG_TYPE _Tp type; };
 
 template <class _Tp, class _Arg>
 typename __select_2nd<decltype((_VSTD::declval<_Tp>() = _VSTD::declval<_Arg>())), true_type>::type
@@ -2215,12 +2197,8 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_copy_assignable_v
 // is_move_assignable
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_move_assignable
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     : public is_assignable<typename add_lvalue_reference<_Tp>::type,
                            typename add_rvalue_reference<_Tp>::type> {};
-#else
-    : public is_copy_assignable<_Tp> {};
-#endif
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp>
@@ -2294,14 +2272,12 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_destructible_v
 
 // move
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 typename remove_reference<_Tp>::type&&
 move(_Tp&& __t) _NOEXCEPT
 {
-    typedef typename remove_reference<_Tp>::type _Up;
+    typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tp>::type _Up;
     return static_cast<_Up&&>(__t);
 }
 
@@ -2323,49 +2299,6 @@ forward(typename remove_reference<_Tp>::type&& __t) _NOEXCEPT
     return static_cast<_Tp&&>(__t);
 }
 
-#else  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-_Tp&
-move(_Tp& __t)
-{
-    return __t;
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-const _Tp&
-move(const _Tp& __t)
-{
-    return __t;
-}
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-_Tp&
-forward(typename remove_reference<_Tp>::type& __t) _NOEXCEPT
-{
-    return __t;
-}
-
-
-template <class _Tp>
-class __rv
-{
-    typedef typename remove_reference<_Tp>::type _Trr;
-    _Trr& t_;
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    _Trr* operator->() {return &t_;}
-    _LIBCPP_INLINE_VISIBILITY
-    explicit __rv(_Trr& __t) : t_(__t) {}
-};
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY
 typename decay<_Tp>::type
@@ -2373,20 +2306,6 @@ __decay_copy(_Tp&& __t)
 {
     return _VSTD::forward<_Tp>(__t);
 }
-
-#else
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-typename decay<_Tp>::type
-__decay_copy(const _Tp& __t)
-{
-    return _VSTD::forward<_Tp>(__t);
-}
-
-#endif
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
 
 template <class _Rp, class _Class, class ..._Param>
 struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...), true, false>
@@ -2452,8 +2371,7 @@ struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatil
     typedef _Rp (_FnType) (_Param..., ...);
 };
 
-#if __has_feature(cxx_reference_qualified_functions) || \
-    (defined(_GNUC_VER) && _GNUC_VER >= 409)
+#if __has_feature(cxx_reference_qualified_functions) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Rp, class _Class, class ..._Param>
 struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) &, true, false>
@@ -2583,267 +2501,8 @@ struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatil
     typedef _Rp (_FnType) (_Param..., ...);
 };
 
-#endif  // __has_feature(cxx_reference_qualified_functions) || _GNUC_VER >= 409
+#endif  // __has_feature(cxx_reference_qualified_functions) || defined(_LIBCPP_COMPILER_GCC)
 
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) ();
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(...), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (...);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, ...), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, ...), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2, ...), true, false>
-{
-    typedef _Class _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2, ...);
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)() const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) ();
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(...) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (...);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, ...) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, ...) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2, ...) const, true, false>
-{
-    typedef _Class const _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2, ...);
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)() volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) ();
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(...) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (...);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, ...) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, ...) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2, ...) volatile, true, false>
-{
-    typedef _Class volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2, ...);
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)() const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) ();
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(...) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (...);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0);
-};
-
-template <class _Rp, class _Class, class _P0>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, ...) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, ...) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, ...);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2);
-};
-
-template <class _Rp, class _Class, class _P0, class _P1, class _P2>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_P0, _P1, _P2, ...) const volatile, true, false>
-{
-    typedef _Class const volatile _ClassType;
-    typedef _Rp _ReturnType;
-    typedef _Rp (_FnType) (_P0, _P1, _P2, ...);
-};
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
 
 template <class _Rp, class _Class>
 struct __member_pointer_traits_imp<_Rp _Class::*, false, true>
@@ -3042,10 +2701,10 @@ struct __is_invalid_base_to_derived_cast {
   static_assert(is_reference<_To>::value, "Wrong specialization");
   using _RawFrom = __uncvref_t<_From>;
   using _RawTo = __uncvref_t<_To>;
-  static const bool value = __lazy_and<
-        __lazy_not<is_same<_RawFrom, _RawTo>>,
+  static const bool value = _And<
+        _IsNotSame<_RawFrom, _RawTo>,
         is_base_of<_RawFrom, _RawTo>,
-        __lazy_not<__libcpp_is_constructible<_RawTo, _From>>
+        _Not<__libcpp_is_constructible<_RawTo, _From>>
   >::value;
 };
 
@@ -3058,10 +2717,10 @@ template <class _ToRef, class _FromRef>
 struct __is_invalid_lvalue_to_rvalue_cast<_ToRef&&, _FromRef&> {
   using _RawFrom = __uncvref_t<_FromRef>;
   using _RawTo = __uncvref_t<_ToRef>;
-  static const bool value = __lazy_and<
-      __lazy_not<is_function<_RawTo>>,
-      __lazy_or<
-        is_same<_RawFrom, _RawTo>,
+  static const bool value = _And<
+      _Not<is_function<_RawTo>>,
+      _Or<
+        _IsSame<_RawFrom, _RawTo>,
         is_base_of<_RawTo, _RawFrom>>
     >::value;
 };
@@ -3152,241 +2811,13 @@ template <class _Tp, class ..._Args>
 struct _LIBCPP_TEMPLATE_VIS is_constructible
     : public integral_constant<bool, __is_constructible(_Tp, _Args...)>
     {};
-#elif !defined(_LIBCPP_CXX03_LANG)
+#else
 template <class _Tp, class... _Args>
 struct _LIBCPP_TEMPLATE_VIS is_constructible
     : public __libcpp_is_constructible<_Tp, _Args...>::type {};
-#else
-// template <class T> struct is_constructible0;
+#endif
 
-//      main is_constructible0 test
-
-template <class _Tp>
-decltype((_Tp(), true_type()))
-__is_constructible0_test(_Tp&);
-
-false_type
-__is_constructible0_test(__any);
-
-template <class _Tp, class _A0>
-decltype((_Tp(_VSTD::declval<_A0>()), true_type()))
-__is_constructible1_test(_Tp&, _A0&);
-
-template <class _A0>
-false_type
-__is_constructible1_test(__any, _A0&);
-
-template <class _Tp, class _A0, class _A1>
-decltype((_Tp(_VSTD::declval<_A0>(), _VSTD::declval<_A1>()), true_type()))
-__is_constructible2_test(_Tp&, _A0&, _A1&);
-
-template <class _A0, class _A1>
-false_type
-__is_constructible2_test(__any, _A0&, _A1&);
-
-template <class _Tp, class _A0, class _A1, class _A2>
-decltype((_Tp(_VSTD::declval<_A0>(), _VSTD::declval<_A1>(), _VSTD::declval<_A2>()), true_type()))
-__is_constructible3_test(_Tp&, _A0&, _A1&, _A2&);
-
-template <class _A0, class _A1, class _A2>
-false_type
-__is_constructible3_test(__any, _A0&, _A1&, _A2&);
-
-template <bool, class _Tp>
-struct __is_constructible0_imp // false, _Tp is not a scalar
-    : public common_type
-             <
-                 decltype(__is_constructible0_test(declval<_Tp&>()))
-             >::type
-    {};
-
-template <bool, class _Tp, class _A0>
-struct __is_constructible1_imp // false, _Tp is not a scalar
-    : public common_type
-             <
-                 decltype(__is_constructible1_test(declval<_Tp&>(), declval<_A0&>()))
-             >::type
-    {};
-
-template <bool, class _Tp, class _A0, class _A1>
-struct __is_constructible2_imp // false, _Tp is not a scalar
-    : public common_type
-             <
-                 decltype(__is_constructible2_test(declval<_Tp&>(), declval<_A0>(), declval<_A1>()))
-             >::type
-    {};
-
-template <bool, class _Tp, class _A0, class _A1, class _A2>
-struct __is_constructible3_imp // false, _Tp is not a scalar
-    : public common_type
-             <
-                 decltype(__is_constructible3_test(declval<_Tp&>(), declval<_A0>(), declval<_A1>(), declval<_A2>()))
-             >::type
-    {};
-
-//      handle scalars and reference types
-
-//      Scalars are default constructible, references are not
-
-template <class _Tp>
-struct __is_constructible0_imp<true, _Tp>
-    : public is_scalar<_Tp>
-    {};
-
-template <class _Tp, class _A0>
-struct __is_constructible1_imp<true, _Tp, _A0>
-    : public is_convertible<_A0, _Tp>
-    {};
-
-template <class _Tp, class _A0, class _A1>
-struct __is_constructible2_imp<true, _Tp, _A0, _A1>
-    : public false_type
-    {};
-
-template <class _Tp, class _A0, class _A1, class _A2>
-struct __is_constructible3_imp<true, _Tp, _A0, _A1, _A2>
-    : public false_type
-    {};
-
-//      Treat scalars and reference types separately
-
-template <bool, class _Tp>
-struct __is_constructible0_void_check
-    : public __is_constructible0_imp<is_scalar<_Tp>::value || is_reference<_Tp>::value,
-                                _Tp>
-    {};
-
-template <bool, class _Tp, class _A0>
-struct __is_constructible1_void_check
-    : public __is_constructible1_imp<is_scalar<_Tp>::value || is_reference<_Tp>::value,
-                                _Tp, _A0>
-    {};
-
-template <bool, class _Tp, class _A0, class _A1>
-struct __is_constructible2_void_check
-    : public __is_constructible2_imp<is_scalar<_Tp>::value || is_reference<_Tp>::value,
-                                _Tp, _A0, _A1>
-    {};
-
-template <bool, class _Tp, class _A0, class _A1, class _A2>
-struct __is_constructible3_void_check
-    : public __is_constructible3_imp<is_scalar<_Tp>::value || is_reference<_Tp>::value,
-                                _Tp, _A0, _A1, _A2>
-    {};
-
-//      If any of T or Args is void, is_constructible should be false
-
-template <class _Tp>
-struct __is_constructible0_void_check<true, _Tp>
-    : public false_type
-    {};
-
-template <class _Tp, class _A0>
-struct __is_constructible1_void_check<true, _Tp, _A0>
-    : public false_type
-    {};
-
-template <class _Tp, class _A0, class _A1>
-struct __is_constructible2_void_check<true, _Tp, _A0, _A1>
-    : public false_type
-    {};
-
-template <class _Tp, class _A0, class _A1, class _A2>
-struct __is_constructible3_void_check<true, _Tp, _A0, _A1, _A2>
-    : public false_type
-    {};
-
-//      is_constructible entry point
-
-template <class _Tp, class _A0 = __is_construct::__nat,
-                     class _A1 = __is_construct::__nat,
-                     class _A2 = __is_construct::__nat>
-struct _LIBCPP_TEMPLATE_VIS is_constructible
-    : public __is_constructible3_void_check<is_void<_Tp>::value
-                                        || is_abstract<_Tp>::value
-                                        || is_function<_Tp>::value
-                                        || is_void<_A0>::value
-                                        || is_void<_A1>::value
-                                        || is_void<_A2>::value,
-                                           _Tp, _A0, _A1, _A2>
-    {};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_constructible<_Tp, __is_construct::__nat, __is_construct::__nat>
-    : public __is_constructible0_void_check<is_void<_Tp>::value
-                                        || is_abstract<_Tp>::value
-                                        || is_function<_Tp>::value,
-                                           _Tp>
-    {};
-
-template <class _Tp, class _A0>
-struct _LIBCPP_TEMPLATE_VIS is_constructible<_Tp, _A0, __is_construct::__nat>
-    : public __is_constructible1_void_check<is_void<_Tp>::value
-                                        || is_abstract<_Tp>::value
-                                        || is_function<_Tp>::value
-                                        || is_void<_A0>::value,
-                                           _Tp, _A0>
-    {};
-
-template <class _Tp, class _A0, class _A1>
-struct _LIBCPP_TEMPLATE_VIS is_constructible<_Tp, _A0, _A1, __is_construct::__nat>
-    : public __is_constructible2_void_check<is_void<_Tp>::value
-                                        || is_abstract<_Tp>::value
-                                        || is_function<_Tp>::value
-                                        || is_void<_A0>::value
-                                        || is_void<_A1>::value,
-                                           _Tp, _A0, _A1>
-    {};
-
-//      Array types are default constructible if their element type
-//      is default constructible
-
-template <class _Ap, size_t _Np>
-struct __is_constructible0_imp<false, _Ap[_Np]>
-    : public is_constructible<typename remove_all_extents<_Ap>::type>
-    {};
-
-template <class _Ap, size_t _Np, class _A0>
-struct __is_constructible1_imp<false, _Ap[_Np], _A0>
-    : public false_type
-    {};
-
-template <class _Ap, size_t _Np, class _A0, class _A1>
-struct __is_constructible2_imp<false, _Ap[_Np], _A0, _A1>
-    : public false_type
-    {};
-
-template <class _Ap, size_t _Np, class _A0, class _A1, class _A2>
-struct __is_constructible3_imp<false, _Ap[_Np], _A0, _A1, _A2>
-    : public false_type
-    {};
-
-//      Incomplete array types are not constructible
-
-template <class _Ap>
-struct __is_constructible0_imp<false, _Ap[]>
-    : public false_type
-    {};
-
-template <class _Ap, class _A0>
-struct __is_constructible1_imp<false, _Ap[], _A0>
-    : public false_type
-    {};
-
-template <class _Ap, class _A0, class _A1>
-struct __is_constructible2_imp<false, _Ap[], _A0, _A1>
-    : public false_type
-    {};
-
-template <class _Ap, class _A0, class _A1, class _A2>
-struct __is_constructible3_imp<false, _Ap[], _A0, _A1, _A2>
-    : public false_type
-    {};
-
-#endif // __has_feature(is_constructible)
-
-
-#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
+#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class ..._Args>
 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_constructible_v
     = is_constructible<_Tp, _Args...>::value;
@@ -3422,11 +2853,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_copy_constructible_v
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_move_constructible
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     : public is_constructible<_Tp, typename add_rvalue_reference<_Tp>::type>
-#else
-    : public is_copy_constructible<_Tp>
-#endif
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3436,8 +2863,6 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_move_constructible_v
 #endif
 
 // is_trivially_constructible
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
 
 #if __has_feature(is_trivially_constructible) || _GNUC_VER >= 501
 
@@ -3457,7 +2882,7 @@ struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp>
-#if __has_feature(has_trivial_constructor) || (_GNUC_VER >= 403)
+#if __has_feature(has_trivial_constructor) || defined(_LIBCPP_COMPILER_GCC)
     : integral_constant<bool, __has_trivial_constructor(_Tp)>
 #else
     : integral_constant<bool, is_scalar<_Tp>::value>
@@ -3466,11 +2891,7 @@ struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp>
 };
 
 template <class _Tp>
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
 struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp&&>
-#else
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp>
-#endif
     : integral_constant<bool, is_scalar<_Tp>::value>
 {
 };
@@ -3489,80 +2910,8 @@ struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp&>
 
 #endif  // !__has_feature(is_trivially_constructible)
 
-#else  // _LIBCPP_HAS_NO_VARIADICS
 
-template <class _Tp, class _A0 = __is_construct::__nat,
-                     class _A1 = __is_construct::__nat>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible
-    : false_type
-{
-};
-
-#if __has_feature(is_trivially_constructible) || _GNUC_VER >= 501
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, __is_construct::__nat,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, __is_trivially_constructible(_Tp)>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, __is_trivially_constructible(_Tp, _Tp)>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, const _Tp&,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, __is_trivially_constructible(_Tp, const _Tp&)>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp&,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, __is_trivially_constructible(_Tp, _Tp&)>
-{
-};
-
-#else  // !__has_feature(is_trivially_constructible)
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, __is_construct::__nat,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, is_scalar<_Tp>::value>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, is_scalar<_Tp>::value>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, const _Tp&,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, is_scalar<_Tp>::value>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_trivially_constructible<_Tp, _Tp&,
-                                                       __is_construct::__nat>
-    : integral_constant<bool, is_scalar<_Tp>::value>
-{
-};
-
-#endif  // !__has_feature(is_trivially_constructible)
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-
-#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
+#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class... _Args>
 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_constructible_v
     = is_trivially_constructible<_Tp, _Args...>::value;
@@ -3595,11 +2944,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_copy_constructible_v
 // is_trivially_move_constructible
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_move_constructible
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     : public is_trivially_constructible<_Tp, typename add_rvalue_reference<_Tp>::type>
-#else
-    : public is_trivially_copy_constructible<_Tp>
-#endif
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3636,13 +2981,9 @@ template <class _Tp>
 struct is_trivially_assignable<_Tp&, const _Tp&>
     : integral_constant<bool, is_scalar<_Tp>::value> {};
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template <class _Tp>
 struct is_trivially_assignable<_Tp&, _Tp&&>
     : integral_constant<bool, is_scalar<_Tp>::value> {};
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
 
 #endif  // !__has_feature(is_trivially_assignable)
 
@@ -3668,11 +3009,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_copy_assignable_v
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_move_assignable
     : public is_trivially_assignable<typename add_lvalue_reference<_Tp>::type,
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
                                      typename add_rvalue_reference<_Tp>::type>
-#else
-                                     typename add_lvalue_reference<_Tp>::type>
-#endif
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3683,7 +3020,12 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_move_assignable_v
 
 // is_trivially_destructible
 
-#if __has_feature(has_trivial_destructor) || (_GNUC_VER >= 403)
+#if __has_keyword(__is_trivially_destructible)
+
+template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
+    : public integral_constant<bool, __is_trivially_destructible(_Tp)> {};
+
+#elif __has_feature(has_trivial_destructor) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
     : public integral_constant<bool, is_destructible<_Tp>::value && __has_trivial_destructor(_Tp)> {};
@@ -3710,18 +3052,13 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_destructible_v
 
 // is_nothrow_constructible
 
-#if 0
+#if __has_keyword(__is_nothrow_constructible)
+
 template <class _Tp, class... _Args>
 struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible
-    : public integral_constant<bool, __is_nothrow_constructible(_Tp(_Args...))>
-{
-};
+    : public integral_constant<bool, __is_nothrow_constructible(_Tp, _Args...)> {};
 
 #else
-
-#ifndef _LIBCPP_HAS_NO_VARIADICS
-
-#if __has_feature(cxx_noexcept) || (_GNUC_VER >= 407 && __cplusplus >= 201103L)
 
 template <bool, bool, class _Tp, class... _Args> struct __libcpp_is_nothrow_constructible;
 
@@ -3758,117 +3095,10 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp[_Ns]>
 {
 };
 
-#else  // __has_feature(cxx_noexcept)
+#endif  // _LIBCPP_HAS_NO_NOEXCEPT
 
-template <class _Tp, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible
-    : false_type
-{
-};
 
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp>
-#if __has_feature(has_nothrow_constructor) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_constructor(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, _Tp&&>
-#else
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, _Tp>
-#endif
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, const _Tp&>
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, _Tp&>
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-#endif  // __has_feature(cxx_noexcept)
-
-#else  // _LIBCPP_HAS_NO_VARIADICS
-
-template <class _Tp, class _A0 = __is_construct::__nat,
-                     class _A1 = __is_construct::__nat>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible
-    : false_type
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, __is_construct::__nat,
-                                                       __is_construct::__nat>
-#if __has_feature(has_nothrow_constructor) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_constructor(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, _Tp,
-                                                       __is_construct::__nat>
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, const _Tp&,
-                                                       __is_construct::__nat>
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible<_Tp, _Tp&,
-                                                       __is_construct::__nat>
-#if __has_feature(has_nothrow_copy) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_copy(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value>
-#endif
-{
-};
-
-#endif  // _LIBCPP_HAS_NO_VARIADICS
-#endif  // __has_feature(is_nothrow_constructible)
-
-#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES) && !defined(_LIBCPP_HAS_NO_VARIADICS)
+#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class ..._Args>
 _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_constructible_v
     = is_nothrow_constructible<_Tp, _Args...>::value;
@@ -3901,11 +3131,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_copy_constructible_v
 // is_nothrow_move_constructible
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_move_constructible
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
     : public is_nothrow_constructible<_Tp, typename add_rvalue_reference<_Tp>::type>
-#else
-    : public is_nothrow_copy_constructible<_Tp>
-#endif
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -3916,7 +3142,13 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_move_constructible_v
 
 // is_nothrow_assignable
 
-#if __has_feature(cxx_noexcept) || (_GNUC_VER >= 407 && __cplusplus >= 201103L)
+#if __has_keyword(__is_nothrow_assignable)
+
+template <class _Tp, class _Arg>
+struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable
+    : public integral_constant<bool, __is_nothrow_assignable(_Tp, _Arg)> {};
+
+#else
 
 template <bool, class _Tp, class _Arg> struct __libcpp_is_nothrow_assignable;
 
@@ -3938,49 +3170,7 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable
 {
 };
 
-#else  // __has_feature(cxx_noexcept)
-
-template <class _Tp, class _Arg>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable
-    : public false_type {};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable<_Tp&, _Tp>
-#if __has_feature(has_nothrow_assign) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_assign(_Tp)> {};
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value> {};
-#endif
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable<_Tp&, _Tp&>
-#if __has_feature(has_nothrow_assign) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_assign(_Tp)> {};
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value> {};
-#endif
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_assignable<_Tp&, const _Tp&>
-#if __has_feature(has_nothrow_assign) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_assign(_Tp)> {};
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value> {};
-#endif
-
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-template <class _Tp>
-struct is_nothrow_assignable<_Tp&, _Tp&&>
-#if __has_feature(has_nothrow_assign) || (_GNUC_VER >= 403)
-    : integral_constant<bool, __has_nothrow_assign(_Tp)> {};
-#else
-    : integral_constant<bool, is_scalar<_Tp>::value> {};
-#endif
-
-#endif  // _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
-#endif  // __has_feature(cxx_noexcept)
+#endif  // _LIBCPP_HAS_NO_NOEXCEPT
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
 template <class _Tp, class _Arg>
@@ -4004,11 +3194,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_copy_assignable_v
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_move_assignable
     : public is_nothrow_assignable<typename add_lvalue_reference<_Tp>::type,
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
                                      typename add_rvalue_reference<_Tp>::type>
-#else
-                                     typename add_lvalue_reference<_Tp>::type>
-#endif
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -4019,7 +3205,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_move_assignable_v
 
 // is_nothrow_destructible
 
-#if __has_feature(cxx_noexcept) || (_GNUC_VER >= 407 && __cplusplus >= 201103L)
+#if !defined(_LIBCPP_CXX03_LANG)
 
 template <bool, class _Tp> struct __libcpp_is_nothrow_destructible;
 
@@ -4053,15 +3239,11 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp&>
 {
 };
 
-#ifndef _LIBCPP_HAS_NO_RVALUE_REFERENCES
-
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp&&>
     : public true_type
 {
 };
-
-#endif
 
 #else
 
@@ -4086,7 +3268,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_nothrow_destructible_v
 
 // is_pod
 
-#if __has_feature(is_pod) || (_GNUC_VER >= 403)
+#if __has_feature(is_pod) || defined(_LIBCPP_COMPILER_GCC)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_pod
     : public integral_constant<bool, __is_pod(_Tp)> {};
@@ -4110,12 +3292,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_pod_v
 // is_literal_type;
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_literal_type
-#ifdef _LIBCPP_IS_LITERAL
-    : public integral_constant<bool, _LIBCPP_IS_LITERAL(_Tp)>
-#else
-    : integral_constant<bool, is_scalar<typename remove_all_extents<_Tp>::type>::value ||
-                              is_reference<typename remove_all_extents<_Tp>::type>::value>
-#endif
+    : public integral_constant<bool, __is_literal_type(_Tp)>
     {};
 
 #if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
@@ -4127,7 +3304,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_literal_type_v
 // is_standard_layout;
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_standard_layout
-#if __has_feature(is_standard_layout) || (_GNUC_VER >= 407)
+#if __has_feature(is_standard_layout) || defined(_LIBCPP_COMPILER_GCC)
     : public integral_constant<bool, __is_standard_layout(_Tp)>
 #else
     : integral_constant<bool, is_scalar<typename remove_all_extents<_Tp>::type>::value>
@@ -4161,7 +3338,7 @@ _LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool is_trivially_copyable_v
 // is_trivial;
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivial
-#if __has_feature(is_trivial) || _GNUC_VER >= 407
+#if __has_feature(is_trivial) || defined(_LIBCPP_COMPILER_GCC)
     : public integral_constant<bool, __is_trivial(_Tp)>
 #else
     : integral_constant<bool, is_trivially_copyable<_Tp>::value &&
@@ -4361,28 +3538,31 @@ _LIBCPP_INVOKE_RETURN(_VSTD::forward<_Fp>(__f)(_VSTD::forward<_Args>(__args)...)
 #undef _LIBCPP_INVOKE_RETURN
 
 // __invokable
-
 template <class _Ret, class _Fp, class ..._Args>
 struct __invokable_r
 {
-    // FIXME: Check that _Ret, _Fp, and _Args... are all complete types, cv void,
-    // or incomplete array types as required by the standard.
-    using _Result = decltype(
-        _VSTD::__invoke(_VSTD::declval<_Fp>(), _VSTD::declval<_Args>()...));
+  template <class _XFp, class ..._XArgs>
+  static auto __try_call(int) -> decltype(
+    _VSTD::__invoke(_VSTD::declval<_XFp>(), _VSTD::declval<_XArgs>()...));
+  template <class _XFp, class ..._XArgs>
+  static __nat __try_call(...);
 
-    using type =
-        typename conditional<
-            !is_same<_Result, __nat>::value,
-            typename conditional<
-                is_void<_Ret>::value,
-                true_type,
-                is_convertible<_Result, _Ret>
-            >::type,
-            false_type
-        >::type;
-    static const bool value = type::value;
+  // FIXME: Check that _Ret, _Fp, and _Args... are all complete types, cv void,
+  // or incomplete array types as required by the standard.
+  using _Result = decltype(__try_call<_Fp, _Args...>(0));
+
+  using type =
+  typename conditional<
+      _IsNotSame<_Result, __nat>::value,
+      typename conditional<
+          is_void<_Ret>::value,
+          true_type,
+          is_convertible<_Result, _Ret>
+      >::type,
+      false_type
+  >::type;
+  static const bool value = type::value;
 };
-
 template <class _Fp, class ..._Args>
 using __invokable = __invokable_r<void, _Fp, _Args...>;
 
@@ -4512,6 +3692,7 @@ typename enable_if
 #else
 void
 #endif
+_LIBCPP_CONSTEXPR_AFTER_CXX17
 swap(_Tp& __x, _Tp& __y) _NOEXCEPT_(is_nothrow_move_constructible<_Tp>::value &&
                                     is_nothrow_move_assignable<_Tp>::value)
 {
@@ -4521,14 +3702,14 @@ swap(_Tp& __x, _Tp& __y) _NOEXCEPT_(is_nothrow_move_constructible<_Tp>::value &&
 }
 
 template<class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 typename enable_if<
     __is_swappable<_Tp>::value
 >::type
 swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value);
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
 iter_swap(_ForwardIterator1 __a, _ForwardIterator2 __b)
     //                                  _NOEXCEPT_(_NOEXCEPT_(swap(*__a, *__b)))
@@ -4558,8 +3739,8 @@ struct __swappable_with
     typedef decltype((__test_swap<_Tp, _Up>(0))) __swap1;
     typedef decltype((__test_swap<_Up, _Tp>(0))) __swap2;
 
-    static const bool value = !is_same<__swap1, __nat>::value
-                           && !is_same<__swap2, __nat>::value;
+    static const bool value = _IsNotSame<__swap1, __nat>::value
+                           && _IsNotSame<__swap2, __nat>::value;
 };
 
 template <class _Tp, class _Up>
@@ -4649,29 +3830,23 @@ _LIBCPP_INLINE_VAR constexpr bool is_nothrow_swappable_v
 
 #endif // _LIBCPP_STD_VER > 14
 
-#ifdef _LIBCPP_UNDERLYING_TYPE
+template <class _Tp, bool = is_enum<_Tp>::value> struct __underlying_type_impl;
 
 template <class _Tp>
-struct underlying_type
+struct __underlying_type_impl<_Tp, false> {};
+
+template <class _Tp>
+struct __underlying_type_impl<_Tp, true>
 {
-    typedef _LIBCPP_UNDERLYING_TYPE(_Tp) type;
+    typedef __underlying_type(_Tp) type;
 };
+
+template <class _Tp>
+struct underlying_type : __underlying_type_impl<_Tp, is_enum<_Tp>::value> {};
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using underlying_type_t = typename underlying_type<_Tp>::type;
 #endif
-
-#else  // _LIBCPP_UNDERLYING_TYPE
-
-template <class _Tp, bool _Support = false>
-struct underlying_type
-{
-    static_assert(_Support, "The underyling_type trait requires compiler "
-                            "support. Either no such support exists or "
-                            "libc++ does not know how to use it.");
-};
-
-#endif // _LIBCPP_UNDERLYING_TYPE
 
 
 template <class _Tp, bool = is_enum<_Tp>::value>
@@ -4758,25 +3933,23 @@ struct __has_operator_addressof
 
 template <class...> using void_t = void;
 
-# ifndef _LIBCPP_HAS_NO_VARIADICS
 template <class... _Args>
-struct conjunction : __and_<_Args...> {};
+struct conjunction : _And<_Args...> {};
 template<class... _Args>
 _LIBCPP_INLINE_VAR constexpr bool conjunction_v
     = conjunction<_Args...>::value;
 
 template <class... _Args>
-struct disjunction : __or_<_Args...> {};
+struct disjunction : _Or<_Args...> {};
 template<class... _Args>
 _LIBCPP_INLINE_VAR constexpr bool disjunction_v
     = disjunction<_Args...>::value;
 
 template <class _Tp>
-struct negation : __not_<_Tp> {};
+struct negation : _Not<_Tp> {};
 template<class _Tp>
 _LIBCPP_INLINE_VAR constexpr bool negation_v
     = negation<_Tp>::value;
-# endif // _LIBCPP_HAS_NO_VARIADICS
 #endif  // _LIBCPP_STD_VER > 14
 
 // These traits are used in __tree and __hash_table
@@ -4788,12 +3961,12 @@ struct __extract_key_first_tag {};
 template <class _ValTy, class _Key,
           class _RawValTy = typename __unconstref<_ValTy>::type>
 struct __can_extract_key
-    : conditional<is_same<_RawValTy, _Key>::value, __extract_key_self_tag,
+    : conditional<_IsSame<_RawValTy, _Key>::value, __extract_key_self_tag,
                   __extract_key_fail_tag>::type {};
 
 template <class _Pair, class _Key, class _First, class _Second>
 struct __can_extract_key<_Pair, _Key, pair<_First, _Second>>
-    : conditional<is_same<typename remove_const<_First>::type, _Key>::value,
+    : conditional<_IsSame<typename remove_const<_First>::type, _Key>::value,
                   __extract_key_first_tag, __extract_key_fail_tag>::type {};
 
 // __can_extract_map_key uses true_type/false_type instead of the tags.
@@ -4802,7 +3975,7 @@ struct __can_extract_key<_Pair, _Key, pair<_First, _Second>>
 template <class _ValTy, class _Key, class _ContainerValueTy,
           class _RawValTy = typename __unconstref<_ValTy>::type>
 struct __can_extract_map_key
-    : integral_constant<bool, is_same<_RawValTy, _Key>::value> {};
+    : integral_constant<bool, _IsSame<_RawValTy, _Key>::value> {};
 
 // This specialization returns __extract_key_fail_tag for non-map containers
 // because _Key == _ContainerValueTy
@@ -4826,6 +3999,24 @@ enum class endian
 #endif
 };
 #endif
+
+#ifndef _LIBCPP_HAS_NO_BUILTIN_IS_CONSTANT_EVALUATED
+#if _LIBCPP_STD_VER > 17
+_LIBCPP_INLINE_VISIBILITY
+inline constexpr bool is_constant_evaluated() noexcept {
+  return __builtin_is_constant_evaluated();
+}
+#endif
+
+inline _LIBCPP_CONSTEXPR
+bool __libcpp_is_constant_evaluated() _NOEXCEPT { return __builtin_is_constant_evaluated(); }
+#else
+inline _LIBCPP_CONSTEXPR
+bool __libcpp_is_constant_evaluated() _NOEXCEPT { return false; }
+#endif
+
+template <class _CharT>
+using _IsCharLikeType = _And<is_standard_layout<_CharT>, is_trivial<_CharT> >;
 
 _LIBCPP_END_NAMESPACE_STD
 

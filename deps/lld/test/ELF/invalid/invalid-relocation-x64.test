@@ -3,8 +3,8 @@
 # RUN: echo ".global foo; foo:" > %t2.s
 # RUN: llvm-mc %t2.s -o %t2.o -filetype=obj -triple x86_64-pc-linux
 # RUN: not ld.lld %t1.o %t2.o -o /dev/null 2>&1 | FileCheck %s
-# CHECK: error: unrecognized reloc 152
-# CHECK: error: unrecognized reloc 153
+# CHECK: error: unknown relocation (152) against symbol foo
+# CHECK: error: unknown relocation (153) against symbol foo
 
 !ELF
 FileHeader:
@@ -29,5 +29,5 @@ Sections:
         Symbol:          foo
         Type:            0x99
 Symbols:
-  Global:
-      - Name:            foo
+  - Name:            foo
+    Binding:         STB_GLOBAL

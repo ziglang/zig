@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "SECTIONS { foo = bar; .bar : { *(.bar*) } }" > %t.script
 # RUN: ld.lld %t.o --script %t.script -o %t.so -shared
-# RUN: llvm-readobj -t %t.so | FileCheck %s
+# RUN: llvm-readobj --symbols %t.so | FileCheck %s
 
 # CHECK:     Symbol {
 # CHECK:      Name: bar

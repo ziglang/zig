@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===------------------------------ vector --------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -665,27 +664,27 @@ public:
     void reserve(size_type __n);
     void shrink_to_fit() _NOEXCEPT;
 
-    _LIBCPP_INLINE_VISIBILITY reference       operator[](size_type __n);
-    _LIBCPP_INLINE_VISIBILITY const_reference operator[](size_type __n) const;
+    _LIBCPP_INLINE_VISIBILITY reference       operator[](size_type __n) _NOEXCEPT;
+    _LIBCPP_INLINE_VISIBILITY const_reference operator[](size_type __n) const _NOEXCEPT;
     reference       at(size_type __n);
     const_reference at(size_type __n) const;
 
-    _LIBCPP_INLINE_VISIBILITY reference       front()
+    _LIBCPP_INLINE_VISIBILITY reference       front() _NOEXCEPT
     {
         _LIBCPP_ASSERT(!empty(), "front() called for empty vector");
         return *this->__begin_;
     }
-    _LIBCPP_INLINE_VISIBILITY const_reference front() const
+    _LIBCPP_INLINE_VISIBILITY const_reference front() const _NOEXCEPT
     {
         _LIBCPP_ASSERT(!empty(), "front() called for empty vector");
         return *this->__begin_;
     }
-    _LIBCPP_INLINE_VISIBILITY reference       back()
+    _LIBCPP_INLINE_VISIBILITY reference       back() _NOEXCEPT
     {
         _LIBCPP_ASSERT(!empty(), "back() called for empty vector");
         return *(this->__end_ - 1);
     }
-    _LIBCPP_INLINE_VISIBILITY const_reference back()  const
+    _LIBCPP_INLINE_VISIBILITY const_reference back()  const _NOEXCEPT
     {
         _LIBCPP_ASSERT(!empty(), "back() called for empty vector");
         return *(this->__end_ - 1);
@@ -780,9 +779,9 @@ public:
 
     void swap(vector&)
 #if _LIBCPP_STD_VER >= 14
-        _NOEXCEPT_DEBUG;
+        _NOEXCEPT;
 #else
-        _NOEXCEPT_DEBUG_(!__alloc_traits::propagate_on_container_swap::value ||
+        _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value ||
                     __is_nothrow_swappable<allocator_type>::value);
 #endif
 
@@ -836,12 +835,17 @@ private:
     }
 
 #ifndef _LIBCPP_CXX03_LANG
-    template <class _Up> void __push_back_slow_path(_Up&& __x);
+    template <class _Up>
+    _LIBCPP_INLINE_VISIBILITY
+    inline void __push_back_slow_path(_Up&& __x);
 
     template <class... _Args>
-    void __emplace_back_slow_path(_Args&&... __args);
+    _LIBCPP_INLINE_VISIBILITY
+    inline void __emplace_back_slow_path(_Args&&... __args);
 #else
-    template <class _Up> void __push_back_slow_path(_Up& __x);
+    template <class _Up>
+    _LIBCPP_INLINE_VISIBILITY
+    inline void __push_back_slow_path(_Up& __x);
 #endif
 
     // The following functions are no-ops outside of AddressSanitizer mode.
@@ -1538,7 +1542,7 @@ vector<_Tp, _Allocator>::end() const _NOEXCEPT
 template <class _Tp, class _Allocator>
 inline _LIBCPP_INLINE_VISIBILITY
 typename vector<_Tp, _Allocator>::reference
-vector<_Tp, _Allocator>::operator[](size_type __n)
+vector<_Tp, _Allocator>::operator[](size_type __n) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__n < size(), "vector[] index out of bounds");
     return this->__begin_[__n];
@@ -1547,7 +1551,7 @@ vector<_Tp, _Allocator>::operator[](size_type __n)
 template <class _Tp, class _Allocator>
 inline _LIBCPP_INLINE_VISIBILITY
 typename vector<_Tp, _Allocator>::const_reference
-vector<_Tp, _Allocator>::operator[](size_type __n) const
+vector<_Tp, _Allocator>::operator[](size_type __n) const _NOEXCEPT
 {
     _LIBCPP_ASSERT(__n < size(), "vector[] index out of bounds");
     return this->__begin_[__n];
@@ -2065,9 +2069,9 @@ template <class _Tp, class _Allocator>
 void
 vector<_Tp, _Allocator>::swap(vector& __x)
 #if _LIBCPP_STD_VER >= 14
-    _NOEXCEPT_DEBUG
+    _NOEXCEPT
 #else
-    _NOEXCEPT_DEBUG_(!__alloc_traits::propagate_on_container_swap::value ||
+    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value ||
                 __is_nothrow_swappable<allocator_type>::value)
 #endif
 {

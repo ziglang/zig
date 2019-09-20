@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld -shared --no-rosegment -z rodynamic -o %t %t.o
-# RUN: llvm-readobj -dynamic-table -s %t | FileCheck %s
+# RUN: llvm-readobj --dynamic-table -S %t | FileCheck %s
 
 # CHECK:      DynamicSection [ (7 entries)
 # CHECK-NEXT:   Tag                Type                 Name/Value

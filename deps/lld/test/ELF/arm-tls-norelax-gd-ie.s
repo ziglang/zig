@@ -3,7 +3,7 @@
 // RUN: ld.lld %t1 --shared -o %t1.so
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: ld.lld --hash-style=sysv %t1.so %t.o -o %t
-// RUN: llvm-readobj -s -dyn-relocations %t | FileCheck %s
+// RUN: llvm-readobj -S --dyn-relocations %t | FileCheck %s
 
 // This tls global-dynamic sequence is with respect to a preemptible symbol but
 // is in an application so a relaxation to Initial Exec would normally be
@@ -25,6 +25,6 @@ func:
  .Lt0: .word   y(TLSGD) + (. - .L0 - 8)
 
 // CHECK: Dynamic Relocations {
-// CHECK-NEXT:   0x13078 R_ARM_TLS_DTPMOD32 y
-// CHECK-NEXT:   0x1307C R_ARM_TLS_DTPOFF32 y
-// CHECK-NEXT:   0x1200C R_ARM_JUMP_SLOT __tls_get_addr
+// CHECK-NEXT:   0x12078 R_ARM_TLS_DTPMOD32 y
+// CHECK-NEXT:   0x1207C R_ARM_TLS_DTPOFF32 y
+// CHECK-NEXT:   0x1300C R_ARM_JUMP_SLOT __tls_get_addr

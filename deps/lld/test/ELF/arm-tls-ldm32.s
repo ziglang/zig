@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
-// RUN: llvm-readobj -s -dyn-relocations %t.so | FileCheck --check-prefix=SEC %s
+// RUN: llvm-readobj -S --dyn-relocations %t.so | FileCheck --check-prefix=SEC %s
 // RUN: llvm-objdump -d -triple=armv7a-linux-gnueabi %t.so | FileCheck %s
 
 // Test the handling of the local-dynamic TLS model. Dynamic loader finds
@@ -56,6 +56,7 @@ x:
 // SEC-NEXT:  0x204C R_ARM_TLS_DTPMOD32 - 0x0
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT: 1000:       00 f0 20 e3     nop
 
@@ -65,6 +66,7 @@ x:
 // CHECK-NEXT: 100c:       04 00 00 00
 
 // CHECK-EXE: Disassembly of section .text:
+// CHECK-EXE-EMPTY:
 // CHECK-NEXT-EXE: _start:
 // CHECK-NEXT-EXE:   11000:       00 f0 20 e3     nop
 

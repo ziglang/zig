@@ -1,6 +1,6 @@
 # RUN: yaml2obj %s > %t.obj
 # RUN: lld-link /out:%t.dll /entry:__ImageBase /dll %t.obj
-# RUN: llvm-readobj -sections -section-data %t.dll | FileCheck %s
+# RUN: llvm-readobj --sections --section-data %t.dll | FileCheck %s
 
 # CHECK: Name: .CRT
 # CHECK: Characteristics [

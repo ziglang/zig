@@ -17,5 +17,5 @@ Sections:
         Symbol:          foo
         Type:            R_X86_64_64
 Symbols:
-  Global:
-    - Name:            foo
+  - Name:            foo
+    Binding:         STB_GLOBAL

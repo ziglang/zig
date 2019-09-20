@@ -3,7 +3,7 @@
 # RUN: echo '.section .data,"aw"; .quad 0' >> %t.s
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t.s -o %t
 # RUN: ld.lld %t --script %s -o %t2
-# RUN: llvm-readobj -program-headers %t2 | FileCheck %s
+# RUN: llvm-readobj -l %t2 | FileCheck %s
 
 MEMORY {
   FLASH (rx) : ORIGIN = 0x1000, LENGTH = 0x100

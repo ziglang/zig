@@ -1,9 +1,8 @@
 //===- DWARF.cpp ----------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -26,34 +25,53 @@ using namespace llvm::object;
 using namespace lld;
 using namespace lld::elf;
 
-template <class ELFT> LLDDwarfObj<ELFT>::LLDDwarfObj(ObjFile<ELFT> *Obj) {
-  for (InputSectionBase *Sec : Obj->getSections()) {
-    if (!Sec)
+template <class ELFT> LLDDwarfObj<ELFT>::LLDDwarfObj(ObjFile<ELFT> *obj) {
+  for (InputSectionBase *sec : obj->getSections()) {
+    if (!sec)
       continue;
 
-    if (LLDDWARFSection *M =
-            StringSwitch<LLDDWARFSection *>(Sec->Name)
-                .Case(".debug_addr", &AddrSection)
-                .Case(".debug_gnu_pubnames", &GnuPubNamesSection)
-                .Case(".debug_gnu_pubtypes", &GnuPubTypesSection)
-                .Case(".debug_info", &InfoSection)
-                .Case(".debug_ranges", &RangeSection)
-                .Case(".debug_rnglists", &RngListsSection)
-                .Case(".debug_line", &LineSection)
+    if (LLDDWARFSection *m =
+            StringSwitch<LLDDWARFSection *>(sec->name)
+                .Case(".debug_addr", &addrSection)
+                .Case(".debug_gnu_pubnames", &gnuPubNamesSection)
+                .Case(".debug_gnu_pubtypes", &gnuPubTypesSection)
+                .Case(".debug_info", &infoSection)
+                .Case(".debug_ranges", &rangeSection)
+                .Case(".debug_rnglists", &rngListsSection)
+                .Case(".debug_line", &lineSection)
                 .Default(nullptr)) {
-      M->Data = toStringRef(Sec->data());
-      M->Sec = Sec;
+      m->Data = toStringRef(sec->data());
+      m->sec = sec;
       continue;
     }
 
-    if (Sec->Name == ".debug_abbrev")
-      AbbrevSection = toStringRef(Sec->data());
-    else if (Sec->Name == ".debug_str")
-      StrSection = toStringRef(Sec->data());
-    else if (Sec->Name == ".debug_line_str")
-      LineStringSection = toStringRef(Sec->data());
+    if (sec->name == ".debug_abbrev")
+      abbrevSection = toStringRef(sec->data());
+    else if (sec->name == ".debug_str")
+      strSection = toStringRef(sec->data());
+    else if (sec->name == ".debug_line_str")
+      lineStringSection = toStringRef(sec->data());
   }
 }
+
+namespace {
+template <class RelTy> struct LLDRelocationResolver {
+  // In the ELF ABIs, S sepresents the value of the symbol in the relocation
+  // entry. For Rela, the addend is stored as part of the relocation entry.
+  static uint64_t resolve(object::RelocationRef ref, uint64_t s,
+                          uint64_t /* A */) {
+    return s + ref.getRawDataRefImpl().p;
+  }
+};
+
+template <class ELFT> struct LLDRelocationResolver<Elf_Rel_Impl<ELFT, false>> {
+  // For Rel, the addend A is supplied by the caller.
+  static uint64_t resolve(object::RelocationRef /*Ref*/, uint64_t s,
+                          uint64_t a) {
+    return s + a;
+  }
+};
+} // namespace
 
 // Find if there is a relocation at Pos in Sec.  The code is a bit
 // more complicated than usual because we need to pass a section index
@@ -61,46 +79,48 @@ template <class ELFT> LLDDwarfObj<ELFT>::LLDDwarfObj(ObjFile<ELFT> *Obj) {
 template <class ELFT>
 template <class RelTy>
 Optional<RelocAddrEntry>
-LLDDwarfObj<ELFT>::findAux(const InputSectionBase &Sec, uint64_t Pos,
-                           ArrayRef<RelTy> Rels) const {
-  auto It = std::lower_bound(
-      Rels.begin(), Rels.end(), Pos,
-      [](const RelTy &A, uint64_t B) { return A.r_offset < B; });
-  if (It == Rels.end() || It->r_offset != Pos)
+LLDDwarfObj<ELFT>::findAux(const InputSectionBase &sec, uint64_t pos,
+                           ArrayRef<RelTy> rels) const {
+  auto it =
+      partition_point(rels, [=](const RelTy &a) { return a.r_offset < pos; });
+  if (it == rels.end() || it->r_offset != pos)
     return None;
-  const RelTy &Rel = *It;
+  const RelTy &rel = *it;
 
-  const ObjFile<ELFT> *File = Sec.getFile<ELFT>();
-  uint32_t SymIndex = Rel.getSymbol(Config->IsMips64EL);
-  const typename ELFT::Sym &Sym = File->getELFSyms()[SymIndex];
-  uint32_t SecIndex = File->getSectionIndex(Sym);
+  const ObjFile<ELFT> *file = sec.getFile<ELFT>();
+  uint32_t symIndex = rel.getSymbol(config->isMips64EL);
+  const typename ELFT::Sym &sym = file->template getELFSyms<ELFT>()[symIndex];
+  uint32_t secIndex = file->getSectionIndex(sym);
 
-  // Broken debug info can point to a non-Defined symbol.
-  auto *DR = dyn_cast<Defined>(&File->getRelocTargetSym(Rel));
-  if (!DR) {
-    RelType Type = Rel.getType(Config->IsMips64EL);
-    if (Type != Target->NoneRel)
-      error(toString(File) + ": relocation " + lld::toString(Type) + " at 0x" +
-            llvm::utohexstr(Rel.r_offset) + " has unsupported target");
-    return None;
+  // An undefined symbol may be a symbol defined in a discarded section. We
+  // shall still resolve it. This is important for --gdb-index: the end address
+  // offset of an entry in .debug_ranges is relocated. If it is not resolved,
+  // its zero value will terminate the decoding of .debug_ranges prematurely.
+  Symbol &s = file->getRelocTargetSym(rel);
+  uint64_t val = 0;
+  if (auto *dr = dyn_cast<Defined>(&s)) {
+    val = dr->value;
+
+    // FIXME: We should be consistent about always adding the file
+    // offset or not.
+    if (dr->section->flags & ELF::SHF_ALLOC)
+      val += cast<InputSection>(dr->section)->getOffsetInFile();
   }
-  uint64_t Val = DR->Value + getAddend<ELFT>(Rel);
 
-  // FIXME: We should be consistent about always adding the file
-  // offset or not.
-  if (DR->Section->Flags & ELF::SHF_ALLOC)
-    Val += cast<InputSection>(DR->Section)->getOffsetInFile();
-
-  return RelocAddrEntry{SecIndex, Val};
+  DataRefImpl d;
+  d.p = getAddend<ELFT>(rel);
+  return RelocAddrEntry{secIndex, RelocationRef(d, nullptr),
+                        val,      Optional<object::RelocationRef>(),
+                        0,        LLDRelocationResolver<RelTy>::resolve};
 }
 
 template <class ELFT>
-Optional<RelocAddrEntry> LLDDwarfObj<ELFT>::find(const llvm::DWARFSection &S,
-                                                 uint64_t Pos) const {
-  auto &Sec = static_cast<const LLDDWARFSection &>(S);
-  if (Sec.Sec->AreRelocsRela)
-    return findAux(*Sec.Sec, Pos, Sec.Sec->template relas<ELFT>());
-  return findAux(*Sec.Sec, Pos, Sec.Sec->template rels<ELFT>());
+Optional<RelocAddrEntry> LLDDwarfObj<ELFT>::find(const llvm::DWARFSection &s,
+                                                 uint64_t pos) const {
+  auto &sec = static_cast<const LLDDWARFSection &>(s);
+  if (sec.sec->areRelocsRela)
+    return findAux(*sec.sec, pos, sec.sec->template relas<ELFT>());
+  return findAux(*sec.sec, pos, sec.sec->template rels<ELFT>());
 }
 
 template class elf::LLDDwarfObj<ELF32LE>;

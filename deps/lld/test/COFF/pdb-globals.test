@@ -2,6 +2,11 @@ RUN: yaml2obj %S/Inputs/pdb-globals.yaml > %t.obj
 RUN: lld-link /debug /nodefaultlib /entry:main /out:%t.exe /pdb:%t.pdb %t.obj
 RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
 
+RUN: lld-link /debug /nodefaultlib /entry:main /out:%t.exe /pdb:%t.pdb %t.obj /threads
+RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
+RUN: lld-link /debug /nodefaultlib /entry:main /out:%t.exe /pdb:%t.pdb %t.obj /threads:no
+RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
+
 # Test that we correctly distribute symbols between the globals and module
 # symbol streams.  Specifically:
 #  * S_UDT, S_GDATA32, and S_CONSTANT end up in the globals stream, and are

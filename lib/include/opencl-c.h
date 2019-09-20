@@ -1,20 +1,21 @@
 //===--- opencl-c.h - OpenCL C language builtin function header -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef _OPENCL_H_
 #define _OPENCL_H_
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#include "opencl-c-base.h"
+
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifndef cl_khr_depth_images
 #define cl_khr_depth_images
 #endif //cl_khr_depth_images
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 #if __OPENCL_C_VERSION__ < CL_VERSION_2_0
 #ifdef cl_khr_3d_image_writes
@@ -22,13 +23,10 @@
 #endif //cl_khr_3d_image_writes
 #endif //__OPENCL_C_VERSION__ < CL_VERSION_2_0
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
-#ifndef cl_intel_planar_yuv
-#define cl_intel_planar_yuv
-#endif // cl_intel_planar_yuv
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 #pragma OPENCL EXTENSION cl_intel_planar_yuv : begin
 #pragma OPENCL EXTENSION cl_intel_planar_yuv : end
-#endif // __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 
 #define __ovld __attribute__((overloadable))
 #define __conv __attribute__((convergent))
@@ -37,255 +35,6 @@
 #define __purefn __attribute__((pure))
 #define __cnfn __attribute__((const))
 
-// built-in scalar data types:
-
-/**
- * An unsigned 8-bit integer.
- */
-typedef unsigned char uchar;
-
-/**
- * An unsigned 16-bit integer.
- */
-typedef unsigned short ushort;
-
-/**
- * An unsigned 32-bit integer.
- */
-typedef unsigned int uint;
-
-/**
- * An unsigned 64-bit integer.
- */
-typedef unsigned long ulong;
-
-/**
- * The unsigned integer type of the result of the sizeof operator. This
- * is a 32-bit unsigned integer if CL_DEVICE_ADDRESS_BITS
- * defined in table 4.3 is 32-bits and is a 64-bit unsigned integer if
- * CL_DEVICE_ADDRESS_BITS is 64-bits.
- */
-typedef __SIZE_TYPE__ size_t;
-
-/**
- * A signed integer type that is the result of subtracting two pointers.
- * This is a 32-bit signed integer if CL_DEVICE_ADDRESS_BITS
- * defined in table 4.3 is 32-bits and is a 64-bit signed integer if
- * CL_DEVICE_ADDRESS_BITS is 64-bits.
- */
-typedef __PTRDIFF_TYPE__ ptrdiff_t;
-
-/**
-* A signed integer type with the property that any valid pointer to
-* void can be converted to this type, then converted back to pointer
-* to void, and the result will compare equal to the original pointer.
-*/
-typedef __INTPTR_TYPE__ intptr_t;
-
-/**
-* An unsigned integer type with the property that any valid pointer to
-* void can be converted to this type, then converted back to pointer
-* to void, and the result will compare equal to the original pointer.
-*/
-typedef __UINTPTR_TYPE__ uintptr_t;
-
-// built-in vector data types:
-typedef char char2 __attribute__((ext_vector_type(2)));
-typedef char char3 __attribute__((ext_vector_type(3)));
-typedef char char4 __attribute__((ext_vector_type(4)));
-typedef char char8 __attribute__((ext_vector_type(8)));
-typedef char char16 __attribute__((ext_vector_type(16)));
-typedef uchar uchar2 __attribute__((ext_vector_type(2)));
-typedef uchar uchar3 __attribute__((ext_vector_type(3)));
-typedef uchar uchar4 __attribute__((ext_vector_type(4)));
-typedef uchar uchar8 __attribute__((ext_vector_type(8)));
-typedef uchar uchar16 __attribute__((ext_vector_type(16)));
-typedef short short2 __attribute__((ext_vector_type(2)));
-typedef short short3 __attribute__((ext_vector_type(3)));
-typedef short short4 __attribute__((ext_vector_type(4)));
-typedef short short8 __attribute__((ext_vector_type(8)));
-typedef short short16 __attribute__((ext_vector_type(16)));
-typedef ushort ushort2 __attribute__((ext_vector_type(2)));
-typedef ushort ushort3 __attribute__((ext_vector_type(3)));
-typedef ushort ushort4 __attribute__((ext_vector_type(4)));
-typedef ushort ushort8 __attribute__((ext_vector_type(8)));
-typedef ushort ushort16 __attribute__((ext_vector_type(16)));
-typedef int int2 __attribute__((ext_vector_type(2)));
-typedef int int3 __attribute__((ext_vector_type(3)));
-typedef int int4 __attribute__((ext_vector_type(4)));
-typedef int int8 __attribute__((ext_vector_type(8)));
-typedef int int16 __attribute__((ext_vector_type(16)));
-typedef uint uint2 __attribute__((ext_vector_type(2)));
-typedef uint uint3 __attribute__((ext_vector_type(3)));
-typedef uint uint4 __attribute__((ext_vector_type(4)));
-typedef uint uint8 __attribute__((ext_vector_type(8)));
-typedef uint uint16 __attribute__((ext_vector_type(16)));
-typedef long long2 __attribute__((ext_vector_type(2)));
-typedef long long3 __attribute__((ext_vector_type(3)));
-typedef long long4 __attribute__((ext_vector_type(4)));
-typedef long long8 __attribute__((ext_vector_type(8)));
-typedef long long16 __attribute__((ext_vector_type(16)));
-typedef ulong ulong2 __attribute__((ext_vector_type(2)));
-typedef ulong ulong3 __attribute__((ext_vector_type(3)));
-typedef ulong ulong4 __attribute__((ext_vector_type(4)));
-typedef ulong ulong8 __attribute__((ext_vector_type(8)));
-typedef ulong ulong16 __attribute__((ext_vector_type(16)));
-typedef float float2 __attribute__((ext_vector_type(2)));
-typedef float float3 __attribute__((ext_vector_type(3)));
-typedef float float4 __attribute__((ext_vector_type(4)));
-typedef float float8 __attribute__((ext_vector_type(8)));
-typedef float float16 __attribute__((ext_vector_type(16)));
-#ifdef cl_khr_fp16
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-typedef half half2 __attribute__((ext_vector_type(2)));
-typedef half half3 __attribute__((ext_vector_type(3)));
-typedef half half4 __attribute__((ext_vector_type(4)));
-typedef half half8 __attribute__((ext_vector_type(8)));
-typedef half half16 __attribute__((ext_vector_type(16)));
-#endif
-#ifdef cl_khr_fp64
-#if __OPENCL_C_VERSION__ < CL_VERSION_1_2
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#endif
-typedef double double2 __attribute__((ext_vector_type(2)));
-typedef double double3 __attribute__((ext_vector_type(3)));
-typedef double double4 __attribute__((ext_vector_type(4)));
-typedef double double8 __attribute__((ext_vector_type(8)));
-typedef double double16 __attribute__((ext_vector_type(16)));
-#endif
-
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-#define NULL ((void*)0)
-#endif
-
-/**
- * Value of maximum non-infinite single-precision floating-point
- * number.
- */
-#define MAXFLOAT 0x1.fffffep127f
-
-/**
- * A positive float constant expression. HUGE_VALF evaluates
- * to +infinity. Used as an error value returned by the built-in
- * math functions.
- */
-#define HUGE_VALF (__builtin_huge_valf())
-
-/**
- * A positive double constant expression. HUGE_VAL evaluates
- * to +infinity. Used as an error value returned by the built-in
- * math functions.
- */
-#define HUGE_VAL (__builtin_huge_val())
-
-/**
- * A constant expression of type float representing positive or
- * unsigned infinity.
- */
-#define INFINITY (__builtin_inff())
-
-/**
- * A constant expression of type float representing a quiet NaN.
- */
-#define NAN as_float(INT_MAX)
-
-#define FP_ILOGB0    INT_MIN
-#define FP_ILOGBNAN    INT_MAX
-
-#define FLT_DIG 6
-#define FLT_MANT_DIG 24
-#define FLT_MAX_10_EXP +38
-#define FLT_MAX_EXP +128
-#define FLT_MIN_10_EXP -37
-#define FLT_MIN_EXP -125
-#define FLT_RADIX 2
-#define FLT_MAX 0x1.fffffep127f
-#define FLT_MIN 0x1.0p-126f
-#define FLT_EPSILON 0x1.0p-23f
-
-#define M_E_F         2.71828182845904523536028747135266250f
-#define M_LOG2E_F     1.44269504088896340735992468100189214f
-#define M_LOG10E_F    0.434294481903251827651128918916605082f
-#define M_LN2_F       0.693147180559945309417232121458176568f
-#define M_LN10_F      2.30258509299404568401799145468436421f
-#define M_PI_F        3.14159265358979323846264338327950288f
-#define M_PI_2_F      1.57079632679489661923132169163975144f
-#define M_PI_4_F      0.785398163397448309615660845819875721f
-#define M_1_PI_F      0.318309886183790671537767526745028724f
-#define M_2_PI_F      0.636619772367581343075535053490057448f
-#define M_2_SQRTPI_F  1.12837916709551257389615890312154517f
-#define M_SQRT2_F     1.41421356237309504880168872420969808f
-#define M_SQRT1_2_F   0.707106781186547524400844362104849039f
-
-#define DBL_DIG 15
-#define DBL_MANT_DIG 53
-#define DBL_MAX_10_EXP +308
-#define DBL_MAX_EXP +1024
-#define DBL_MIN_10_EXP -307
-#define DBL_MIN_EXP -1021
-#define DBL_RADIX 2
-#define DBL_MAX 0x1.fffffffffffffp1023
-#define DBL_MIN 0x1.0p-1022
-#define DBL_EPSILON 0x1.0p-52
-
-#define M_E           0x1.5bf0a8b145769p+1
-#define M_LOG2E       0x1.71547652b82fep+0
-#define M_LOG10E      0x1.bcb7b1526e50ep-2
-#define M_LN2         0x1.62e42fefa39efp-1
-#define M_LN10        0x1.26bb1bbb55516p+1
-#define M_PI          0x1.921fb54442d18p+1
-#define M_PI_2        0x1.921fb54442d18p+0
-#define M_PI_4        0x1.921fb54442d18p-1
-#define M_1_PI        0x1.45f306dc9c883p-2
-#define M_2_PI        0x1.45f306dc9c883p-1
-#define M_2_SQRTPI    0x1.20dd750429b6dp+0
-#define M_SQRT2       0x1.6a09e667f3bcdp+0
-#define M_SQRT1_2     0x1.6a09e667f3bcdp-1
-
-#ifdef cl_khr_fp16
-
-#define HALF_DIG 3
-#define HALF_MANT_DIG 11
-#define HALF_MAX_10_EXP +4
-#define HALF_MAX_EXP +16
-#define HALF_MIN_10_EXP -4
-#define HALF_MIN_EXP -13
-#define HALF_RADIX 2
-#define HALF_MAX ((0x1.ffcp15h))
-#define HALF_MIN ((0x1.0p-14h))
-#define HALF_EPSILON ((0x1.0p-10h))
-
-#define M_E_H         2.71828182845904523536028747135266250h
-#define M_LOG2E_H     1.44269504088896340735992468100189214h
-#define M_LOG10E_H    0.434294481903251827651128918916605082h
-#define M_LN2_H       0.693147180559945309417232121458176568h
-#define M_LN10_H      2.30258509299404568401799145468436421h
-#define M_PI_H        3.14159265358979323846264338327950288h
-#define M_PI_2_H      1.57079632679489661923132169163975144h
-#define M_PI_4_H      0.785398163397448309615660845819875721h
-#define M_1_PI_H      0.318309886183790671537767526745028724h
-#define M_2_PI_H      0.636619772367581343075535053490057448h
-#define M_2_SQRTPI_H  1.12837916709551257389615890312154517h
-#define M_SQRT2_H     1.41421356237309504880168872420969808h
-#define M_SQRT1_2_H   0.707106781186547524400844362104849039h
-
-#endif //cl_khr_fp16
-
-#define CHAR_BIT    8
-#define SCHAR_MAX  127
-#define SCHAR_MIN  (-128)
-#define UCHAR_MAX  255
-#define CHAR_MAX  SCHAR_MAX
-#define CHAR_MIN  SCHAR_MIN
-#define USHRT_MAX  65535
-#define SHRT_MAX  32767
-#define SHRT_MIN  (-32768)
-#define UINT_MAX  0xffffffff
-#define INT_MAX    2147483647
-#define INT_MIN    (-2147483647-1)
-#define ULONG_MAX  0xffffffffffffffffUL
-#define LONG_MAX  0x7fffffffffffffffL
-#define LONG_MIN  (-0x7fffffffffffffffL-1)
 
 // OpenCL v1.1/1.2/2.0 s6.2.3 - Explicit conversions
 
@@ -6768,11 +6517,11 @@ size_t __ovld __cnfn get_group_id(uint dimindx);
  */
 size_t __ovld __cnfn get_global_offset(uint dimindx);
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 size_t __ovld get_enqueued_local_size(uint dimindx);
 size_t __ovld get_global_linear_id(void);
 size_t __ovld get_local_linear_id(void);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.2, v1.2 s6.12.2, v2.0 s6.13.2 - Math functions
 
@@ -7603,7 +7352,7 @@ half16 __ovld __cnfn fmod(half16 x, half16 y);
  * Returns fmin(x - floor (x), 0x1.fffffep-1f ).
  * floor(x) is returned in iptr.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld fract(float x, float *iptr);
 float2 __ovld fract(float2 x, float2 *iptr);
 float3 __ovld fract(float3 x, float3 *iptr);
@@ -7685,7 +7434,7 @@ half4 __ovld fract(half4 x, __private half4 *iptr);
 half8 __ovld fract(half8 x, __private half8 *iptr);
 half16 __ovld fract(half16 x, __private half16 *iptr);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Extract mantissa and exponent from x. For each
@@ -7693,7 +7442,7 @@ half16 __ovld fract(half16 x, __private half16 *iptr);
  * magnitude in the interval [1/2, 1) or 0. Each
  * component of x equals mantissa returned * 2^exp.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld frexp(float x, int *exp);
 float2 __ovld frexp(float2 x, int2 *exp);
 float3 __ovld frexp(float3 x, int3 *exp);
@@ -7775,7 +7524,7 @@ half4 __ovld frexp(half4 x, __private int4 *exp);
 half8 __ovld frexp(half8 x, __private int8 *exp);
 half16 __ovld frexp(half16 x, __private int16 *exp);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Compute the value of the square root of x^2 + y^2
@@ -7900,7 +7649,7 @@ half8 __ovld __cnfn lgamma(half8 x);
 half16 __ovld __cnfn lgamma(half16 x);
 #endif //cl_khr_fp16
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld lgamma_r(float x, int *signp);
 float2 __ovld lgamma_r(float2 x, int2 *signp);
 float3 __ovld lgamma_r(float3 x, int3 *signp);
@@ -7982,7 +7731,7 @@ half4 __ovld lgamma_r(half4 x, __private int4 *signp);
 half8 __ovld lgamma_r(half8 x, __private int8 *signp);
 half16 __ovld lgamma_r(half16 x, __private int16 *signp);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Compute natural logarithm.
@@ -8206,7 +7955,7 @@ half16 __ovld __cnfn minmag(half16 x, half16 y);
  * the argument. It stores the integral part in the object
  * pointed to by iptr.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld modf(float x, float *iptr);
 float2 __ovld modf(float2 x, float2 *iptr);
 float3 __ovld modf(float3 x, float3 *iptr);
@@ -8288,7 +8037,7 @@ half4 __ovld modf(half4 x, __private half4 *iptr);
 half8 __ovld modf(half8 x, __private half8 *iptr);
 half16 __ovld modf(half16 x, __private half16 *iptr);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Returns a quiet NaN. The nancode may be placed
@@ -8466,7 +8215,7 @@ half16 __ovld __cnfn remainder(half16 x, half16 y);
  * sign as x/y. It stores this signed value in the object
  * pointed to by quo.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld remquo(float x, float y, int *quo);
 float2 __ovld remquo(float2 x, float2 y, int2 *quo);
 float3 __ovld remquo(float3 x, float3 y, int3 *quo);
@@ -8549,7 +8298,7 @@ half4 __ovld remquo(half4 x, half4 y, __private int4 *quo);
 half8 __ovld remquo(half8 x, half8 y, __private int8 *quo);
 half16 __ovld remquo(half16 x, half16 y, __private int16 *quo);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 /**
  * Round to integral value (using round to nearest
  * even rounding mode) in floating-point format.
@@ -8690,7 +8439,7 @@ half16 __ovld __cnfn sin(half16);
  * is the return value and computed cosine is returned
  * in cosval.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld sincos(float x, float *cosval);
 float2 __ovld sincos(float2 x, float2 *cosval);
 float3 __ovld sincos(float3 x, float3 *cosval);
@@ -8772,7 +8521,7 @@ half4 __ovld sincos(half4 x, __private half4 *cosval);
 half8 __ovld sincos(half8 x, __private half8 *cosval);
 half16 __ovld sincos(half16 x, __private half16 *cosval);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Compute hyperbolic sine.
@@ -9598,8 +9347,6 @@ long8 __ovld __cnfn clamp(long8 x, long8 minval, long8 maxval);
 ulong8 __ovld __cnfn clamp(ulong8 x, ulong8 minval, ulong8 maxval);
 long16 __ovld __cnfn clamp(long16 x, long16 minval, long16 maxval);
 ulong16 __ovld __cnfn clamp(ulong16 x, ulong16 minval, ulong16 maxval);
-char __ovld __cnfn clamp(char x, char minval, char maxval);
-uchar __ovld __cnfn clamp(uchar x, uchar minval, uchar maxval);
 char2 __ovld __cnfn clamp(char2 x, char minval, char maxval);
 uchar2 __ovld __cnfn clamp(uchar2 x, uchar minval, uchar maxval);
 char3 __ovld __cnfn clamp(char3 x, char minval, char maxval);
@@ -9610,8 +9357,6 @@ char8 __ovld __cnfn clamp(char8 x, char minval, char maxval);
 uchar8 __ovld __cnfn clamp(uchar8 x, uchar minval, uchar maxval);
 char16 __ovld __cnfn clamp(char16 x, char minval, char maxval);
 uchar16 __ovld __cnfn clamp(uchar16 x, uchar minval, uchar maxval);
-short __ovld __cnfn clamp(short x, short minval, short maxval);
-ushort __ovld __cnfn clamp(ushort x, ushort minval, ushort maxval);
 short2 __ovld __cnfn clamp(short2 x, short minval, short maxval);
 ushort2 __ovld __cnfn clamp(ushort2 x, ushort minval, ushort maxval);
 short3 __ovld __cnfn clamp(short3 x, short minval, short maxval);
@@ -9622,8 +9367,6 @@ short8 __ovld __cnfn clamp(short8 x, short minval, short maxval);
 ushort8 __ovld __cnfn clamp(ushort8 x, ushort minval, ushort maxval);
 short16 __ovld __cnfn clamp(short16 x, short minval, short maxval);
 ushort16 __ovld __cnfn clamp(ushort16 x, ushort minval, ushort maxval);
-int __ovld __cnfn clamp(int x, int minval, int maxval);
-uint __ovld __cnfn clamp(uint x, uint minval, uint maxval);
 int2 __ovld __cnfn clamp(int2 x, int minval, int maxval);
 uint2 __ovld __cnfn clamp(uint2 x, uint minval, uint maxval);
 int3 __ovld __cnfn clamp(int3 x, int minval, int maxval);
@@ -9634,8 +9377,6 @@ int8 __ovld __cnfn clamp(int8 x, int minval, int maxval);
 uint8 __ovld __cnfn clamp(uint8 x, uint minval, uint maxval);
 int16 __ovld __cnfn clamp(int16 x, int minval, int maxval);
 uint16 __ovld __cnfn clamp(uint16 x, uint minval, uint maxval);
-long __ovld __cnfn clamp(long x, long minval, long maxval);
-ulong __ovld __cnfn clamp(ulong x, ulong minval, ulong maxval);
 long2 __ovld __cnfn clamp(long2 x, long minval, long maxval);
 ulong2 __ovld __cnfn clamp(ulong2 x, ulong minval, ulong maxval);
 long3 __ovld __cnfn clamp(long3 x, long minval, long maxval);
@@ -9705,7 +9446,7 @@ ulong16 __ovld __cnfn clz(ulong16 x);
  * returns the size in bits of the type of x or
  * component type of x, if x is a vector.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 char __ovld ctz(char x);
 uchar __ovld ctz(uchar x);
 char2 __ovld ctz(char2 x);
@@ -9754,7 +9495,7 @@ long8 __ovld ctz(long8 x);
 ulong8 __ovld ctz(ulong8 x);
 long16 __ovld ctz(long16 x);
 ulong16 __ovld ctz(ulong16 x);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Returns mul_hi(a, b) + c.
@@ -9911,8 +9652,6 @@ long8 __ovld __cnfn max(long8 x, long8 y);
 ulong8 __ovld __cnfn max(ulong8 x, ulong8 y);
 long16 __ovld __cnfn max(long16 x, long16 y);
 ulong16 __ovld __cnfn max(ulong16 x, ulong16 y);
-char __ovld __cnfn max(char x, char y);
-uchar __ovld __cnfn max(uchar x, uchar y);
 char2 __ovld __cnfn max(char2 x, char y);
 uchar2 __ovld __cnfn max(uchar2 x, uchar y);
 char3 __ovld __cnfn max(char3 x, char y);
@@ -9923,8 +9662,6 @@ char8 __ovld __cnfn max(char8 x, char y);
 uchar8 __ovld __cnfn max(uchar8 x, uchar y);
 char16 __ovld __cnfn max(char16 x, char y);
 uchar16 __ovld __cnfn max(uchar16 x, uchar y);
-short __ovld __cnfn max(short x, short y);
-ushort __ovld __cnfn max(ushort x, ushort y);
 short2 __ovld __cnfn max(short2 x, short y);
 ushort2 __ovld __cnfn max(ushort2 x, ushort y);
 short3 __ovld __cnfn max(short3 x, short y);
@@ -9935,8 +9672,6 @@ short8 __ovld __cnfn max(short8 x, short y);
 ushort8 __ovld __cnfn max(ushort8 x, ushort y);
 short16 __ovld __cnfn max(short16 x, short y);
 ushort16 __ovld __cnfn max(ushort16 x, ushort y);
-int __ovld __cnfn max(int x, int y);
-uint __ovld __cnfn max(uint x, uint y);
 int2 __ovld __cnfn max(int2 x, int y);
 uint2 __ovld __cnfn max(uint2 x, uint y);
 int3 __ovld __cnfn max(int3 x, int y);
@@ -9947,8 +9682,6 @@ int8 __ovld __cnfn max(int8 x, int y);
 uint8 __ovld __cnfn max(uint8 x, uint y);
 int16 __ovld __cnfn max(int16 x, int y);
 uint16 __ovld __cnfn max(uint16 x, uint y);
-long __ovld __cnfn max(long x, long y);
-ulong __ovld __cnfn max(ulong x, ulong y);
 long2 __ovld __cnfn max(long2 x, long y);
 ulong2 __ovld __cnfn max(ulong2 x, ulong y);
 long3 __ovld __cnfn max(long3 x, long y);
@@ -10011,8 +9744,6 @@ long8 __ovld __cnfn min(long8 x, long8 y);
 ulong8 __ovld __cnfn min(ulong8 x, ulong8 y);
 long16 __ovld __cnfn min(long16 x, long16 y);
 ulong16 __ovld __cnfn min(ulong16 x, ulong16 y);
-char __ovld __cnfn min(char x, char y);
-uchar __ovld __cnfn min(uchar x, uchar y);
 char2 __ovld __cnfn min(char2 x, char y);
 uchar2 __ovld __cnfn min(uchar2 x, uchar y);
 char3 __ovld __cnfn min(char3 x, char y);
@@ -10023,8 +9754,6 @@ char8 __ovld __cnfn min(char8 x, char y);
 uchar8 __ovld __cnfn min(uchar8 x, uchar y);
 char16 __ovld __cnfn min(char16 x, char y);
 uchar16 __ovld __cnfn min(uchar16 x, uchar y);
-short __ovld __cnfn min(short x, short y);
-ushort __ovld __cnfn min(ushort x, ushort y);
 short2 __ovld __cnfn min(short2 x, short y);
 ushort2 __ovld __cnfn min(ushort2 x, ushort y);
 short3 __ovld __cnfn min(short3 x, short y);
@@ -10035,8 +9764,6 @@ short8 __ovld __cnfn min(short8 x, short y);
 ushort8 __ovld __cnfn min(ushort8 x, ushort y);
 short16 __ovld __cnfn min(short16 x, short y);
 ushort16 __ovld __cnfn min(ushort16 x, ushort y);
-int __ovld __cnfn min(int x, int y);
-uint __ovld __cnfn min(uint x, uint y);
 int2 __ovld __cnfn min(int2 x, int y);
 uint2 __ovld __cnfn min(uint2 x, uint y);
 int3 __ovld __cnfn min(int3 x, int y);
@@ -10047,8 +9774,6 @@ int8 __ovld __cnfn min(int8 x, int y);
 uint8 __ovld __cnfn min(uint8 x, uint y);
 int16 __ovld __cnfn min(int16 x, int y);
 uint16 __ovld __cnfn min(uint16 x, uint y);
-long __ovld __cnfn min(long x, long y);
-ulong __ovld __cnfn min(ulong x, ulong y);
 long2 __ovld __cnfn min(long2 x, long y);
 ulong2 __ovld __cnfn min(ulong2 x, ulong y);
 long3 __ovld __cnfn min(long3 x, long y);
@@ -10627,7 +10352,6 @@ half3 __ovld __cnfn step(half3 edge, half3 x);
 half4 __ovld __cnfn step(half4 edge, half4 x);
 half8 __ovld __cnfn step(half8 edge, half8 x);
 half16 __ovld __cnfn step(half16 edge, half16 x);
-half __ovld __cnfn step(half edge, half x);
 half2 __ovld __cnfn step(half edge, half2 x);
 half3 __ovld __cnfn step(half edge, half3 x);
 half4 __ovld __cnfn step(half edge, half4 x);
@@ -10679,7 +10403,6 @@ half3 __ovld __cnfn smoothstep(half3 edge0, half3 edge1, half3 x);
 half4 __ovld __cnfn smoothstep(half4 edge0, half4 edge1, half4 x);
 half8 __ovld __cnfn smoothstep(half8 edge0, half8 edge1, half8 x);
 half16 __ovld __cnfn smoothstep(half16 edge0, half16 edge1, half16 x);
-half __ovld __cnfn smoothstep(half edge0, half edge1, half x);
 half2 __ovld __cnfn smoothstep(half edge0, half edge1, half2 x);
 half3 __ovld __cnfn smoothstep(half edge0, half edge1, half3 x);
 half4 __ovld __cnfn smoothstep(half edge0, half edge1, half4 x);
@@ -11617,7 +11340,7 @@ half8 __ovld vload8(size_t offset, const __constant half *p);
 half16 __ovld vload16(size_t offset, const __constant half *p);
 #endif //cl_khr_fp16
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 char2 __ovld vload2(size_t offset, const char *p);
 uchar2 __ovld vload2(size_t offset, const uchar *p);
 short2 __ovld vload2(size_t offset, const short *p);
@@ -11855,9 +11578,9 @@ half4 __ovld vload4(size_t offset, const __private half *p);
 half8 __ovld vload8(size_t offset, const __private half *p);
 half16 __ovld vload16(size_t offset, const __private half *p);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld vstore2(char2 data, size_t offset, char *p);
 void __ovld vstore2(uchar2 data, size_t offset, uchar *p);
 void __ovld vstore2(short2 data, size_t offset, short *p);
@@ -12091,7 +11814,7 @@ void __ovld vstore4(half4 data, size_t offset, __private half *p);
 void __ovld vstore8(half8 data, size_t offset, __private half *p);
 void __ovld vstore16(half16 data, size_t offset, __private half *p);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Read sizeof (half) bytes of data from address
@@ -12102,13 +11825,13 @@ void __ovld vstore16(half16 data, size_t offset, __private half *p);
  * must be 16-bit aligned.
  */
 float __ovld vload_half(size_t offset, const __constant half *p);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld vload_half(size_t offset, const half *p);
 #else
 float __ovld vload_half(size_t offset, const __global half *p);
 float __ovld vload_half(size_t offset, const __local half *p);
 float __ovld vload_half(size_t offset, const __private half *p);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Read sizeof (halfn) bytes of data from address
@@ -12123,7 +11846,7 @@ float3 __ovld vload_half3(size_t offset, const __constant half *p);
 float4 __ovld vload_half4(size_t offset, const __constant half *p);
 float8 __ovld vload_half8(size_t offset, const __constant half *p);
 float16 __ovld vload_half16(size_t offset, const __constant half *p);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float2 __ovld vload_half2(size_t offset, const half *p);
 float3 __ovld vload_half3(size_t offset, const half *p);
 float4 __ovld vload_half4(size_t offset, const half *p);
@@ -12145,7 +11868,7 @@ float3 __ovld vload_half3(size_t offset, const __private half *p);
 float4 __ovld vload_half4(size_t offset, const __private half *p);
 float8 __ovld vload_half8(size_t offset, const __private half *p);
 float16 __ovld vload_half16(size_t offset, const __private half *p);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * The float value given by data is first
@@ -12158,7 +11881,7 @@ float16 __ovld vload_half16(size_t offset, const __private half *p);
  * The default current rounding mode is round to
  * nearest even.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld vstore_half(float data, size_t offset, half *p);
 void __ovld vstore_half_rte(float data, size_t offset, half *p);
 void __ovld vstore_half_rtz(float data, size_t offset, half *p);
@@ -12204,7 +11927,7 @@ void __ovld vstore_half_rtz(double data, size_t offset, __private half *p);
 void __ovld vstore_half_rtp(double data, size_t offset, __private half *p);
 void __ovld vstore_half_rtn(double data, size_t offset, __private half *p);
 #endif //cl_khr_fp64
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * The floatn value given by data is converted to
@@ -12217,7 +11940,7 @@ void __ovld vstore_half_rtn(double data, size_t offset, __private half *p);
  * The default current rounding mode is round to
  * nearest even.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld vstore_half2(float2 data, size_t offset, half *p);
 void __ovld vstore_half3(float3 data, size_t offset, half *p);
 void __ovld vstore_half4(float4 data, size_t offset, half *p);
@@ -12423,7 +12146,7 @@ void __ovld vstore_half4_rtn(double4 data, size_t offset, __private half *p);
 void __ovld vstore_half8_rtn(double8 data, size_t offset, __private half *p);
 void __ovld vstore_half16_rtn(double16 data, size_t offset, __private half *p);
 #endif //cl_khr_fp64
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * For n = 1, 2, 4, 8 and 16 read sizeof (halfn)
@@ -12444,7 +12167,7 @@ float3 __ovld vloada_half3(size_t offset, const __constant half *p);
 float4 __ovld vloada_half4(size_t offset, const __constant half *p);
 float8 __ovld vloada_half8(size_t offset, const __constant half *p);
 float16 __ovld vloada_half16(size_t offset, const __constant half *p);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float __ovld vloada_half(size_t offset, const half *p);
 float2 __ovld vloada_half2(size_t offset, const half *p);
 float3 __ovld vloada_half3(size_t offset, const half *p);
@@ -12470,7 +12193,7 @@ float3 __ovld vloada_half3(size_t offset, const __private half *p);
 float4 __ovld vloada_half4(size_t offset, const __private half *p);
 float8 __ovld vloada_half8(size_t offset, const __private half *p);
 float16 __ovld vloada_half16(size_t offset, const __private half *p);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * The floatn value given by data is converted to
@@ -12488,7 +12211,7 @@ float16 __ovld vloada_half16(size_t offset, const __private half *p);
  * mode. The default current rounding mode is
  * round to nearest even.
  */
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld vstorea_half(float data, size_t offset, half *p);
 void __ovld vstorea_half2(float2 data, size_t offset, half *p);
 void __ovld vstorea_half3(float3 data, size_t offset, half *p);
@@ -12773,33 +12496,9 @@ void __ovld vstorea_half4_rtn(double4 data,size_t offset, __private half *p);
 void __ovld vstorea_half8_rtn(double8 data,size_t offset, __private half *p);
 void __ovld vstorea_half16_rtn(double16 data,size_t offset, __private half *p);
 #endif //cl_khr_fp64
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.8, v1.2 s6.12.8, v2.0 s6.13.8 - Synchronization Functions
-
-// Flag type and values for barrier, mem_fence, read_mem_fence, write_mem_fence
-typedef uint cl_mem_fence_flags;
-
-/**
- * Queue a memory fence to ensure correct
- * ordering of memory operations to local memory
- */
-#define CLK_LOCAL_MEM_FENCE    0x01
-
-/**
- * Queue a memory fence to ensure correct
- * ordering of memory operations to global memory
- */
-#define CLK_GLOBAL_MEM_FENCE   0x02
-
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-/**
- * Queue a memory fence to ensure correct ordering of memory
- * operations between work-items of a work-group to
- * image memory.
- */
-#define CLK_IMAGE_MEM_FENCE  0x04
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
 
 /**
  * All work-items in a work-group executing the kernel
@@ -12833,21 +12532,10 @@ typedef uint cl_mem_fence_flags;
 
 void __ovld __conv barrier(cl_mem_fence_flags flags);
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-
-typedef enum memory_scope {
-  memory_scope_work_item = __OPENCL_MEMORY_SCOPE_WORK_ITEM,
-  memory_scope_work_group = __OPENCL_MEMORY_SCOPE_WORK_GROUP,
-  memory_scope_device = __OPENCL_MEMORY_SCOPE_DEVICE,
-  memory_scope_all_svm_devices = __OPENCL_MEMORY_SCOPE_ALL_SVM_DEVICES,
-#if defined(cl_intel_subgroups) || defined(cl_khr_subgroups)
-  memory_scope_sub_group = __OPENCL_MEMORY_SCOPE_SUB_GROUP
-#endif
-} memory_scope;
-
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld __conv work_group_barrier(cl_mem_fence_flags flags, memory_scope scope);
 void __ovld __conv work_group_barrier(cl_mem_fence_flags flags);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.9, v1.2 s6.12.9 - Explicit Memory Fence Functions
 
@@ -12892,7 +12580,7 @@ void __ovld write_mem_fence(cl_mem_fence_flags flags);
 
 // OpenCL v2.0 s6.13.9 - Address Space Qualifier Functions
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 cl_mem_fence_flags __ovld get_fence(const void *ptr);
 cl_mem_fence_flags __ovld get_fence(void *ptr);
 
@@ -12903,7 +12591,7 @@ cl_mem_fence_flags __ovld get_fence(void *ptr);
  * where gentype is builtin type or user defined type.
  */
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.10, v1.2 s6.12.10, v2.0 s6.13.10 - Async Copies from Global to Local Memory, Local to Global Memory, and Prefetch
 
@@ -13341,6 +13029,10 @@ int __ovld atomic_add(volatile __global int *p, int val);
 unsigned int __ovld atomic_add(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_add(volatile __local int *p, int val);
 unsigned int __ovld atomic_add(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_add(volatile int *p, int val);
+unsigned int __ovld atomic_add(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_add(volatile __global int *p, int val);
@@ -13367,6 +13059,10 @@ int __ovld atomic_sub(volatile __global int *p, int val);
 unsigned int __ovld atomic_sub(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_sub(volatile __local int *p, int val);
 unsigned int __ovld atomic_sub(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_sub(volatile int *p, int val);
+unsigned int __ovld atomic_sub(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_sub(volatile __global int *p, int val);
@@ -13395,6 +13091,11 @@ int __ovld atomic_xchg(volatile __local int *p, int val);
 unsigned int __ovld atomic_xchg(volatile __local unsigned int *p, unsigned int val);
 float __ovld atomic_xchg(volatile __global float *p, float val);
 float __ovld atomic_xchg(volatile __local float *p, float val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_xchg(volatile int *p, int val);
+unsigned int __ovld atomic_xchg(volatile unsigned int *p, unsigned int val);
+float __ovld atomic_xchg(volatile float *p, float val);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_xchg(volatile __global int *p, int val);
@@ -13422,6 +13123,10 @@ int __ovld atomic_inc(volatile __global int *p);
 unsigned int __ovld atomic_inc(volatile __global unsigned int *p);
 int __ovld atomic_inc(volatile __local int *p);
 unsigned int __ovld atomic_inc(volatile __local unsigned int *p);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_inc(volatile int *p);
+unsigned int __ovld atomic_inc(volatile unsigned int *p);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_inc(volatile __global int *p);
@@ -13449,6 +13154,10 @@ int __ovld atomic_dec(volatile __global int *p);
 unsigned int __ovld atomic_dec(volatile __global unsigned int *p);
 int __ovld atomic_dec(volatile __local int *p);
 unsigned int __ovld atomic_dec(volatile __local unsigned int *p);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_dec(volatile int *p);
+unsigned int __ovld atomic_dec(volatile unsigned int *p);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_dec(volatile __global int *p);
@@ -13477,6 +13186,10 @@ int __ovld atomic_cmpxchg(volatile __global int *p, int cmp, int val);
 unsigned int __ovld atomic_cmpxchg(volatile __global unsigned int *p, unsigned int cmp, unsigned int val);
 int __ovld atomic_cmpxchg(volatile __local int *p, int cmp, int val);
 unsigned int __ovld atomic_cmpxchg(volatile __local unsigned int *p, unsigned int cmp, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_cmpxchg(volatile int *p, int cmp, int val);
+unsigned int __ovld atomic_cmpxchg(volatile unsigned int *p, unsigned int cmp, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_base_atomics)
 int __ovld atom_cmpxchg(volatile __global int *p, int cmp, int val);
@@ -13505,6 +13218,10 @@ int __ovld atomic_min(volatile __global int *p, int val);
 unsigned int __ovld atomic_min(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_min(volatile __local int *p, int val);
 unsigned int __ovld atomic_min(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_min(volatile int *p, int val);
+unsigned int __ovld atomic_min(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
 int __ovld atom_min(volatile __global int *p, int val);
@@ -13533,6 +13250,10 @@ int __ovld atomic_max(volatile __global int *p, int val);
 unsigned int __ovld atomic_max(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_max(volatile __local int *p, int val);
 unsigned int __ovld atomic_max(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_max(volatile int *p, int val);
+unsigned int __ovld atomic_max(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
 int __ovld atom_max(volatile __global int *p, int val);
@@ -13560,6 +13281,10 @@ int __ovld atomic_and(volatile __global int *p, int val);
 unsigned int __ovld atomic_and(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_and(volatile __local int *p, int val);
 unsigned int __ovld atomic_and(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_and(volatile int *p, int val);
+unsigned int __ovld atomic_and(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
 int __ovld atom_and(volatile __global int *p, int val);
@@ -13587,6 +13312,10 @@ int __ovld atomic_or(volatile __global int *p, int val);
 unsigned int __ovld atomic_or(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_or(volatile __local int *p, int val);
 unsigned int __ovld atomic_or(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_or(volatile int *p, int val);
+unsigned int __ovld atomic_or(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
 int __ovld atom_or(volatile __global int *p, int val);
@@ -13614,6 +13343,10 @@ int __ovld atomic_xor(volatile __global int *p, int val);
 unsigned int __ovld atomic_xor(volatile __global unsigned int *p, unsigned int val);
 int __ovld atomic_xor(volatile __local int *p, int val);
 unsigned int __ovld atomic_xor(volatile __local unsigned int *p, unsigned int val);
+#ifdef __OPENCL_CPP_VERSION__
+int __ovld atomic_xor(volatile int *p, int val);
+unsigned int __ovld atomic_xor(volatile unsigned int *p, unsigned int val);
+#endif
 
 #if defined(cl_khr_global_int32_extended_atomics)
 int __ovld atom_xor(volatile __global int *p, int val);
@@ -13638,21 +13371,7 @@ unsigned long __ovld atom_xor(volatile __local unsigned long *p, unsigned long v
 
 // OpenCL v2.0 s6.13.11 - Atomics Functions
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-#ifndef ATOMIC_VAR_INIT
-#define ATOMIC_VAR_INIT(x) (x)
-#endif //ATOMIC_VAR_INIT
-#define ATOMIC_FLAG_INIT 0
-
-// enum values aligned with what clang uses in EmitAtomicExpr()
-typedef enum memory_order
-{
-  memory_order_relaxed = __ATOMIC_RELAXED,
-  memory_order_acquire = __ATOMIC_ACQUIRE,
-  memory_order_release = __ATOMIC_RELEASE,
-  memory_order_acq_rel = __ATOMIC_ACQ_REL,
-  memory_order_seq_cst = __ATOMIC_SEQ_CST
-} memory_order;
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // double atomics support requires extensions cl_khr_int64_base_atomics and cl_khr_int64_extended_atomics
 #if defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
@@ -13973,7 +13692,7 @@ void __ovld atomic_flag_clear(volatile atomic_flag *object);
 void __ovld atomic_flag_clear_explicit(volatile atomic_flag *object, memory_order order);
 void __ovld atomic_flag_clear_explicit(volatile atomic_flag *object, memory_order order, memory_scope scope);
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v1.1 s6.11.12, v1.2 s6.12.12, v2.0 s6.13.12 - Miscellaneous Vector Functions
 
@@ -14467,35 +14186,13 @@ half16 __ovld __cnfn shuffle2(half8 x, half8 y, ushort16 mask);
 half16 __ovld __cnfn shuffle2(half16 x, half16 y, ushort16 mask);
 #endif //cl_khr_fp16
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 // OpenCL v1.2 s6.12.13, v2.0 s6.13.13 - printf
 
-int printf(__constant const char* st, ...);
+int printf(__constant const char* st, ...) __attribute__((format(printf, 1, 2)));
 #endif
 
 // OpenCL v1.1 s6.11.3, v1.2 s6.12.14, v2.0 s6.13.14 - Image Read and Write Functions
-
-// These values need to match the runtime equivalent
-//
-// Addressing Mode.
-//
-#define CLK_ADDRESS_NONE                0
-#define CLK_ADDRESS_CLAMP_TO_EDGE       2
-#define CLK_ADDRESS_CLAMP               4
-#define CLK_ADDRESS_REPEAT              6
-#define CLK_ADDRESS_MIRRORED_REPEAT     8
-
-//
-// Coordination Normalization
-//
-#define CLK_NORMALIZED_COORDS_FALSE     0
-#define CLK_NORMALIZED_COORDS_TRUE      1
-
-//
-// Filtering Mode.
-//
-#define CLK_FILTER_NEAREST              0x10
-#define CLK_FILTER_LINEAR               0x20
 
 #ifdef cl_khr_gl_msaa_sharing
 #pragma OPENCL EXTENSION cl_khr_gl_msaa_sharing : enable
@@ -14610,7 +14307,7 @@ int4 __purefn __ovld read_imagei(read_only image3d_t image, sampler_t sampler, f
 uint4 __purefn __ovld read_imageui(read_only image3d_t image, sampler_t sampler, int4 coord);
 uint4 __purefn __ovld read_imageui(read_only image3d_t image, sampler_t sampler, float4 coord);
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 float4 __purefn __ovld read_imagef(read_only image2d_array_t image_array, sampler_t sampler, int4 coord);
 float4 __purefn __ovld read_imagef(read_only image2d_array_t image_array, sampler_t sampler, float4 coord);
 
@@ -14618,7 +14315,7 @@ int4 __purefn __ovld read_imagei(read_only image2d_array_t image_array, sampler_
 int4 __purefn __ovld read_imagei(read_only image2d_array_t image_array, sampler_t sampler, float4 coord);
 uint4 __purefn __ovld read_imageui(read_only image2d_array_t image_array, sampler_t sampler, int4 coord);
 uint4 __purefn __ovld read_imageui(read_only image2d_array_t image_array, sampler_t sampler, float4 coord);
-#endif // __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 
 float4 __purefn __ovld read_imagef(read_only image1d_t image, sampler_t sampler, int coord);
 float4 __purefn __ovld read_imagef(read_only image1d_t image, sampler_t sampler, float coord);
@@ -14628,7 +14325,7 @@ int4 __purefn __ovld read_imagei(read_only image1d_t image, sampler_t sampler, f
 uint4 __purefn __ovld read_imageui(read_only image1d_t image, sampler_t sampler, int coord);
 uint4 __purefn __ovld read_imageui(read_only image1d_t image, sampler_t sampler, float coord);
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 float4 __purefn __ovld read_imagef(read_only image1d_array_t image_array, sampler_t sampler, int2 coord);
 float4 __purefn __ovld read_imagef(read_only image1d_array_t image_array, sampler_t sampler, float2 coord);
 
@@ -14636,7 +14333,7 @@ int4 __purefn __ovld read_imagei(read_only image1d_array_t image_array, sampler_
 int4 __purefn __ovld read_imagei(read_only image1d_array_t image_array, sampler_t sampler, float2 coord);
 uint4 __purefn __ovld read_imageui(read_only image1d_array_t image_array, sampler_t sampler, int2 coord);
 uint4 __purefn __ovld read_imageui(read_only image1d_array_t image_array, sampler_t sampler, float2 coord);
-#endif // __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 
 #ifdef cl_khr_depth_images
 float __purefn __ovld read_imagef(read_only image2d_depth_t image, sampler_t sampler, float2 coord);
@@ -14661,7 +14358,7 @@ float __purefn __ovld read_imagef(read_only image2d_array_msaa_depth_t image, in
 #endif //cl_khr_gl_msaa_sharing
 
 // OpenCL Extension v2.0 s9.18 - Mipmaps
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifdef cl_khr_mipmap_image
 
 float4 __purefn __ovld read_imagef(read_only image1d_t image, sampler_t sampler, float coord, float lod);
@@ -14712,34 +14409,10 @@ float4 __purefn __ovld read_imagef(read_only image3d_t image, sampler_t sampler,
 int4 __purefn __ovld read_imagei(read_only image3d_t image, sampler_t sampler, float4 coord, float4 gradientX, float4 gradientY);
 uint4 __purefn __ovld read_imageui(read_only image3d_t image, sampler_t sampler, float4 coord, float4 gradientX, float4 gradientY);
 
-float4 __purefn __ovld read_imagef(read_only image1d_t image, sampler_t sampler, float coord, float lod);
-int4 __purefn __ovld read_imagei(read_only image1d_t image, sampler_t sampler, float coord, float lod);
-uint4 __purefn __ovld read_imageui(read_only image1d_t image, sampler_t sampler, float coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_only image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-int4 __purefn __ovld read_imagei(read_only image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_only image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_only image2d_t image, sampler_t sampler, float2 coord, float lod);
-int4 __purefn __ovld read_imagei(read_only image2d_t image, sampler_t sampler, float2 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_only image2d_t image, sampler_t sampler, float2 coord, float lod);
-
-float __purefn __ovld read_imagef(read_only image2d_depth_t image, sampler_t sampler, float2 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_only image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-int4 __purefn __ovld read_imagei(read_only image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_only image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-
-float __purefn __ovld read_imagef(read_only image2d_array_depth_t image, sampler_t sampler, float4 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_only image3d_t image, sampler_t sampler, float4 coord, float lod);
-int4 __purefn __ovld read_imagei(read_only image3d_t image, sampler_t sampler, float4 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_only image3d_t image, sampler_t sampler, float4 coord, float lod);
-
 #endif //cl_khr_mipmap_image
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 
 /**
 * Sampler-less Image Access
@@ -14774,7 +14447,7 @@ float4 __purefn __ovld read_imagef(read_only image3d_t image, int4 coord);
 int4 __purefn __ovld read_imagei(read_only image3d_t image, int4 coord);
 uint4 __purefn __ovld read_imageui(read_only image3d_t image, int4 coord);
 
-#endif // __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 
 // Image read functions returning half4 type
 #ifdef cl_khr_fp16
@@ -14784,7 +14457,7 @@ half4 __purefn __ovld read_imageh(read_only image2d_t image, sampler_t sampler, 
 half4 __purefn __ovld read_imageh(read_only image2d_t image, sampler_t sampler, float2 coord);
 half4 __purefn __ovld read_imageh(read_only image3d_t image, sampler_t sampler, int4 coord);
 half4 __purefn __ovld read_imageh(read_only image3d_t image, sampler_t sampler, float4 coord);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 half4 __purefn __ovld read_imageh(read_only image1d_array_t image, sampler_t sampler, int2 coord);
 half4 __purefn __ovld read_imageh(read_only image1d_array_t image, sampler_t sampler, float2 coord);
 half4 __purefn __ovld read_imageh(read_only image2d_array_t image, sampler_t sampler, int4 coord);
@@ -14798,11 +14471,11 @@ half4 __purefn __ovld read_imageh(read_only image3d_t image, int4 coord);
 half4 __purefn __ovld read_imageh(read_only image1d_array_t image, int2 coord);
 half4 __purefn __ovld read_imageh(read_only image2d_array_t image, int4 coord);
 half4 __purefn __ovld read_imageh(read_only image1d_buffer_t image, int coord);
-#endif // __OPENCL_C_VERSION__ >= CL_VERSION_1_2
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_1_2)
 #endif //cl_khr_fp16
 
 // Image read functions for read_write images
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 float4 __purefn __ovld read_imagef(read_write image1d_t image, int coord);
 int4 __purefn __ovld read_imagei(read_write image1d_t image, int coord);
 uint4 __purefn __ovld read_imageui(read_write image1d_t image, int coord);
@@ -14845,7 +14518,7 @@ float __purefn __ovld read_imagef(read_write image2d_msaa_depth_t image, int2 co
 float __purefn __ovld read_imagef(read_write image2d_array_msaa_depth_t image, int4 coord, int sample);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifdef cl_khr_mipmap_image
 float4 __purefn __ovld read_imagef(read_write image1d_t image, sampler_t sampler, float coord, float lod);
 int4 __purefn __ovld read_imagei(read_write image1d_t image, sampler_t sampler, float coord, float lod);
@@ -14895,31 +14568,8 @@ float4 __purefn __ovld read_imagef(read_write image3d_t image, sampler_t sampler
 int4 __purefn __ovld read_imagei(read_write image3d_t image, sampler_t sampler, float4 coord, float4 gradientX, float4 gradientY);
 uint4 __purefn __ovld read_imageui(read_write image3d_t image, sampler_t sampler, float4 coord, float4 gradientX, float4 gradientY);
 
-float4 __purefn __ovld read_imagef(read_write image1d_t image, sampler_t sampler, float coord, float lod);
-int4 __purefn __ovld read_imagei(read_write image1d_t image, sampler_t sampler, float coord, float lod);
-uint4 __purefn __ovld read_imageui(read_write image1d_t image, sampler_t sampler, float coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_write image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-int4 __purefn __ovld read_imagei(read_write image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_write image1d_array_t image_array, sampler_t sampler, float2 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_write image2d_t image, sampler_t sampler, float2 coord, float lod);
-int4 __purefn __ovld read_imagei(read_write image2d_t image, sampler_t sampler, float2 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_write image2d_t image, sampler_t sampler, float2 coord, float lod);
-
-float __purefn __ovld read_imagef(read_write image2d_depth_t image, sampler_t sampler, float2 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_write image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-int4 __purefn __ovld read_imagei(read_write image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_write image2d_array_t image_array, sampler_t sampler, float4 coord, float lod);
-
-float __purefn __ovld read_imagef(read_write image2d_array_depth_t image, sampler_t sampler, float4 coord, float lod);
-
-float4 __purefn __ovld read_imagef(read_write image3d_t image, sampler_t sampler, float4 coord, float lod);
-int4 __purefn __ovld read_imagei(read_write image3d_t image, sampler_t sampler, float4 coord, float lod);
-uint4 __purefn __ovld read_imageui(read_write image3d_t image, sampler_t sampler, float4 coord, float lod);
 #endif //cl_khr_mipmap_image
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Image read functions returning half4 type
 #ifdef cl_khr_fp16
@@ -14930,7 +14580,7 @@ half4 __purefn __ovld read_imageh(read_write image1d_array_t image, int2 coord);
 half4 __purefn __ovld read_imageh(read_write image2d_array_t image, int4 coord);
 half4 __purefn __ovld read_imageh(read_write image1d_buffer_t image, int coord);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Write color value to location specified by coordinate
@@ -15031,7 +14681,7 @@ void __ovld write_imagef(write_only image2d_array_depth_t image, int4 coord, flo
 #endif //cl_khr_depth_images
 
 // OpenCL Extension v2.0 s9.18 - Mipmaps
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifdef cl_khr_mipmap_image
 void __ovld write_imagef(write_only image1d_t image, int coord, int lod, float4 color);
 void __ovld write_imagei(write_only image1d_t image, int coord, int lod, int4 color);
@@ -15058,7 +14708,7 @@ void __ovld write_imagei(write_only image3d_t image, int4 coord, int lod, int4 c
 void __ovld write_imageui(write_only image3d_t image, int4 coord, int lod, uint4 color);
 #endif
 #endif //cl_khr_mipmap_image
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Image write functions for half4 type
 #ifdef cl_khr_fp16
@@ -15073,7 +14723,7 @@ void __ovld write_imageh(write_only image1d_buffer_t image, int coord, half4 col
 #endif //cl_khr_fp16
 
 // Image write functions for read_write images
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void __ovld write_imagef(read_write image2d_t image, int2 coord, float4 color);
 void __ovld write_imagei(read_write image2d_t image, int2 coord, int4 color);
 void __ovld write_imageui(read_write image2d_t image, int2 coord, uint4 color);
@@ -15105,7 +14755,7 @@ void __ovld write_imagef(read_write image2d_depth_t image, int2 coord, float col
 void __ovld write_imagef(read_write image2d_array_depth_t image, int4 coord, float color);
 #endif //cl_khr_depth_images
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifdef cl_khr_mipmap_image
 void __ovld write_imagef(read_write image1d_t image, int coord, int lod, float4 color);
 void __ovld write_imagei(read_write image1d_t image, int coord, int lod, int4 color);
@@ -15132,7 +14782,7 @@ void __ovld write_imagei(read_write image3d_t image, int4 coord, int lod, int4 c
 void __ovld write_imageui(read_write image3d_t image, int4 coord, int lod, uint4 color);
 #endif
 #endif //cl_khr_mipmap_image
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Image write functions for half4 type
 #ifdef cl_khr_fp16
@@ -15145,7 +14795,7 @@ void __ovld write_imageh(read_write image1d_array_t image, int2 coord, half4 col
 void __ovld write_imageh(read_write image2d_array_t image, int4 coord, half4 color);
 void __ovld write_imageh(read_write image1d_buffer_t image, int coord, half4 color);
 #endif //cl_khr_fp16
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // Note: In OpenCL v1.0/1.1/1.2, image argument of image query builtin functions does not have
 // access qualifier, which by default assume read_only access qualifier. Image query builtin
@@ -15193,7 +14843,7 @@ int __ovld __cnfn get_image_width(write_only image2d_array_msaa_t image);
 int __ovld __cnfn get_image_width(write_only image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __cnfn get_image_width(read_write image1d_t image);
 int __ovld __cnfn get_image_width(read_write image1d_buffer_t image);
 int __ovld __cnfn get_image_width(read_write image2d_t image);
@@ -15210,7 +14860,7 @@ int __ovld __cnfn get_image_width(read_write image2d_msaa_depth_t image);
 int __ovld __cnfn get_image_width(read_write image2d_array_msaa_t image);
 int __ovld __cnfn get_image_width(read_write image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the image height in pixels.
@@ -15245,7 +14895,7 @@ int __ovld __cnfn get_image_height(write_only image2d_array_msaa_t image);
 int __ovld __cnfn get_image_height(write_only image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __cnfn get_image_height(read_write image2d_t image);
 int __ovld __cnfn get_image_height(read_write image3d_t image);
 int __ovld __cnfn get_image_height(read_write image2d_array_t image);
@@ -15259,7 +14909,7 @@ int __ovld __cnfn get_image_height(read_write image2d_msaa_depth_t image);
 int __ovld __cnfn get_image_height(read_write image2d_array_msaa_t image);
 int __ovld __cnfn get_image_height(read_write image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the image depth in pixels.
@@ -15270,12 +14920,12 @@ int __ovld __cnfn get_image_depth(read_only image3d_t image);
 int __ovld __cnfn get_image_depth(write_only image3d_t image);
 #endif
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __cnfn get_image_depth(read_write image3d_t image);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL Extension v2.0 s9.18 - Mipmaps
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #ifdef cl_khr_mipmap_image
 /**
  * Return the image miplevels.
@@ -15311,7 +14961,7 @@ int __ovld get_image_num_mip_levels(read_write image2d_array_depth_t image);
 int __ovld get_image_num_mip_levels(read_write image2d_depth_t image);
 
 #endif //cl_khr_mipmap_image
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the channel data type. Valid values are:
@@ -15331,26 +14981,6 @@ int __ovld get_image_num_mip_levels(read_write image2d_depth_t image);
  * CLK_HALF_FLOAT
  * CLK_FLOAT
  */
-
-//
-// Channel Datatype.
-//
-#define CLK_SNORM_INT8        0x10D0
-#define CLK_SNORM_INT16       0x10D1
-#define CLK_UNORM_INT8        0x10D2
-#define CLK_UNORM_INT16       0x10D3
-#define CLK_UNORM_SHORT_565   0x10D4
-#define CLK_UNORM_SHORT_555   0x10D5
-#define CLK_UNORM_INT_101010  0x10D6
-#define CLK_SIGNED_INT8       0x10D7
-#define CLK_SIGNED_INT16      0x10D8
-#define CLK_SIGNED_INT32      0x10D9
-#define CLK_UNSIGNED_INT8     0x10DA
-#define CLK_UNSIGNED_INT16    0x10DB
-#define CLK_UNSIGNED_INT32    0x10DC
-#define CLK_HALF_FLOAT        0x10DD
-#define CLK_FLOAT             0x10DE
-#define CLK_UNORM_INT24       0x10DF
 
 int __ovld __cnfn get_image_channel_data_type(read_only image1d_t image);
 int __ovld __cnfn get_image_channel_data_type(read_only image1d_buffer_t image);
@@ -15388,7 +15018,7 @@ int __ovld __cnfn get_image_channel_data_type(write_only image2d_array_msaa_t im
 int __ovld __cnfn get_image_channel_data_type(write_only image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __cnfn get_image_channel_data_type(read_write image1d_t image);
 int __ovld __cnfn get_image_channel_data_type(read_write image1d_buffer_t image);
 int __ovld __cnfn get_image_channel_data_type(read_write image2d_t image);
@@ -15405,7 +15035,7 @@ int __ovld __cnfn get_image_channel_data_type(read_write image2d_msaa_depth_t im
 int __ovld __cnfn get_image_channel_data_type(read_write image2d_array_msaa_t image);
 int __ovld __cnfn get_image_channel_data_type(read_write image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the image channel order. Valid values are:
@@ -15423,30 +15053,6 @@ int __ovld __cnfn get_image_channel_data_type(read_write image2d_array_msaa_dept
  * CLK_INTENSITY
  * CLK_LUMINANCE
  */
-// Channel order, numbering must be aligned with cl_channel_order in cl.h
-//
-#define CLK_R         0x10B0
-#define CLK_A         0x10B1
-#define CLK_RG        0x10B2
-#define CLK_RA        0x10B3
-#define CLK_RGB       0x10B4
-#define CLK_RGBA      0x10B5
-#define CLK_BGRA      0x10B6
-#define CLK_ARGB      0x10B7
-#define CLK_INTENSITY 0x10B8
-#define CLK_LUMINANCE 0x10B9
-#define CLK_Rx                0x10BA
-#define CLK_RGx               0x10BB
-#define CLK_RGBx              0x10BC
-#define CLK_DEPTH             0x10BD
-#define CLK_DEPTH_STENCIL     0x10BE
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-#define CLK_sRGB              0x10BF
-#define CLK_sRGBx             0x10C0
-#define CLK_sRGBA             0x10C1
-#define CLK_sBGRA             0x10C2
-#define CLK_ABGR              0x10C3
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
 
 int __ovld __cnfn get_image_channel_order(read_only image1d_t image);
 int __ovld __cnfn get_image_channel_order(read_only image1d_buffer_t image);
@@ -15484,7 +15090,7 @@ int __ovld __cnfn get_image_channel_order(write_only image2d_array_msaa_t image)
 int __ovld __cnfn get_image_channel_order(write_only image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __cnfn get_image_channel_order(read_write image1d_t image);
 int __ovld __cnfn get_image_channel_order(read_write image1d_buffer_t image);
 int __ovld __cnfn get_image_channel_order(read_write image2d_t image);
@@ -15501,7 +15107,7 @@ int __ovld __cnfn get_image_channel_order(read_write image2d_msaa_depth_t image)
 int __ovld __cnfn get_image_channel_order(read_write image2d_array_msaa_t image);
 int __ovld __cnfn get_image_channel_order(read_write image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the 2D image width and height as an int2
@@ -15534,7 +15140,7 @@ int2 __ovld __cnfn get_image_dim(write_only image2d_array_msaa_t image);
 int2 __ovld __cnfn get_image_dim(write_only image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int2 __ovld __cnfn get_image_dim(read_write image2d_t image);
 int2 __ovld __cnfn get_image_dim(read_write image2d_array_t image);
 #ifdef cl_khr_depth_images
@@ -15547,7 +15153,7 @@ int2 __ovld __cnfn get_image_dim(read_write image2d_msaa_depth_t image);
 int2 __ovld __cnfn get_image_dim(read_write image2d_array_msaa_t image);
 int2 __ovld __cnfn get_image_dim(read_write image2d_array_msaa_depth_t image);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the 3D image width, height, and depth as an
@@ -15559,9 +15165,9 @@ int4 __ovld __cnfn get_image_dim(read_only image3d_t image);
 #ifdef cl_khr_3d_image_writes
 int4 __ovld __cnfn get_image_dim(write_only image3d_t image);
 #endif
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int4 __ovld __cnfn get_image_dim(read_write image3d_t image);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
  * Return the image array size.
@@ -15587,7 +15193,7 @@ size_t __ovld __cnfn get_image_array_size(write_only image2d_array_msaa_t image_
 size_t __ovld __cnfn get_image_array_size(write_only image2d_array_msaa_depth_t image_array);
 #endif //cl_khr_gl_msaa_sharing
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 size_t __ovld __cnfn get_image_array_size(read_write image1d_array_t image_array);
 size_t __ovld __cnfn get_image_array_size(read_write image2d_array_t image_array);
 #ifdef cl_khr_depth_images
@@ -15597,7 +15203,7 @@ size_t __ovld __cnfn get_image_array_size(read_write image2d_array_depth_t image
 size_t __ovld __cnfn get_image_array_size(read_write image2d_array_msaa_t image_array);
 size_t __ovld __cnfn get_image_array_size(read_write image2d_array_msaa_depth_t image_array);
 #endif //cl_khr_gl_msaa_sharing
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 /**
 * Return the number of samples associated with image
@@ -15605,28 +15211,25 @@ size_t __ovld __cnfn get_image_array_size(read_write image2d_array_msaa_depth_t 
 #if defined(cl_khr_gl_msaa_sharing)
 int __ovld get_image_num_samples(read_only image2d_msaa_t image);
 int __ovld get_image_num_samples(read_only image2d_msaa_depth_t image);
-int __ovld get_image_num_samples(read_only image2d_array_msaa_depth_t image);
 int __ovld get_image_num_samples(read_only image2d_array_msaa_t image);
 int __ovld get_image_num_samples(read_only image2d_array_msaa_depth_t image);
 
 int __ovld get_image_num_samples(write_only image2d_msaa_t image);
 int __ovld get_image_num_samples(write_only image2d_msaa_depth_t image);
-int __ovld get_image_num_samples(write_only image2d_array_msaa_depth_t image);
 int __ovld get_image_num_samples(write_only image2d_array_msaa_t image);
 int __ovld get_image_num_samples(write_only image2d_array_msaa_depth_t image);
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld get_image_num_samples(read_write image2d_msaa_t image);
 int __ovld get_image_num_samples(read_write image2d_msaa_depth_t image);
-int __ovld get_image_num_samples(read_write image2d_array_msaa_depth_t image);
 int __ovld get_image_num_samples(read_write image2d_array_msaa_t image);
 int __ovld get_image_num_samples(read_write image2d_array_msaa_depth_t image);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 #endif
 
 // OpenCL v2.0 s6.13.15 - Work-group Functions
 
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 int __ovld __conv work_group_all(int predicate);
 int __ovld __conv work_group_any(int predicate);
 
@@ -15724,55 +15327,16 @@ double __ovld __conv work_group_scan_inclusive_min(double x);
 double __ovld __conv work_group_scan_inclusive_max(double x);
 #endif //cl_khr_fp64
 
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL v2.0 s6.13.16 - Pipe Functions
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-#define CLK_NULL_RESERVE_ID (__builtin_astype(((void*)(__SIZE_MAX__)), reserve_id_t))
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 bool __ovld is_valid_reserve_id(reserve_id_t reserve_id);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 
 // OpenCL v2.0 s6.13.17 - Enqueue Kernels
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-
-#define CL_COMPLETE                                 0x0
-#define CL_RUNNING                                  0x1
-#define CL_SUBMITTED                                0x2
-#define CL_QUEUED                                   0x3
-
-#define CLK_SUCCESS                                 0
-#define CLK_ENQUEUE_FAILURE                         -101
-#define CLK_INVALID_QUEUE                           -102
-#define CLK_INVALID_NDRANGE                         -160
-#define CLK_INVALID_EVENT_WAIT_LIST                 -57
-#define CLK_DEVICE_QUEUE_FULL                       -161
-#define CLK_INVALID_ARG_SIZE                        -51
-#define CLK_EVENT_ALLOCATION_FAILURE                -100
-#define CLK_OUT_OF_RESOURCES                        -5
-
-#define CLK_NULL_QUEUE                              0
-#define CLK_NULL_EVENT (__builtin_astype(((void*)(__SIZE_MAX__)), clk_event_t))
-
-// execution model related definitions
-#define CLK_ENQUEUE_FLAGS_NO_WAIT                   0x0
-#define CLK_ENQUEUE_FLAGS_WAIT_KERNEL               0x1
-#define CLK_ENQUEUE_FLAGS_WAIT_WORK_GROUP           0x2
-
-typedef int kernel_enqueue_flags_t;
-typedef int clk_profiling_info;
-
-// Profiling info name (see capture_event_profiling_info)
-#define CLK_PROFILING_COMMAND_EXEC_TIME 0x1
-
-#define MAX_WORK_DIM        3
-
-typedef struct {
-    unsigned int workDimension;
-    size_t globalWorkOffset[MAX_WORK_DIM];
-    size_t globalWorkSize[MAX_WORK_DIM];
-    size_t localWorkSize[MAX_WORK_DIM];
-} ndrange_t;
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 ndrange_t __ovld ndrange_1D(size_t);
 ndrange_t __ovld ndrange_1D(size_t, size_t);
@@ -15786,7 +15350,7 @@ ndrange_t __ovld ndrange_3D(const size_t[3]);
 ndrange_t __ovld ndrange_3D(const size_t[3], const size_t[3]);
 ndrange_t __ovld ndrange_3D(const size_t[3], const size_t[3], const size_t[3]);
 
-int __ovld enqueue_marker(queue_t, uint, const __private clk_event_t*, __private clk_event_t*);
+int __ovld enqueue_marker(queue_t, uint, const clk_event_t*, clk_event_t*);
 
 void __ovld retain_event(clk_event_t);
 
@@ -15801,7 +15365,7 @@ bool __ovld is_valid_event (clk_event_t event);
 void __ovld capture_event_profiling_info(clk_event_t, clk_profiling_info, __global void* value);
 
 queue_t __ovld get_default_queue(void);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 // OpenCL Extension v2.0 s9.17 - Sub-groups
 
@@ -15810,16 +15374,16 @@ queue_t __ovld get_default_queue(void);
 uint    __ovld get_sub_group_size(void);
 uint    __ovld get_max_sub_group_size(void);
 uint    __ovld get_num_sub_groups(void);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 uint    __ovld get_enqueued_num_sub_groups(void);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 uint    __ovld get_sub_group_id(void);
 uint    __ovld get_sub_group_local_id(void);
 
 void    __ovld __conv sub_group_barrier(cl_mem_fence_flags flags);
-#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void    __ovld __conv sub_group_barrier(cl_mem_fence_flags flags, memory_scope scope);
-#endif //__OPENCL_C_VERSION__ >= CL_VERSION_2_0
+#endif //defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 int     __ovld __conv sub_group_all(int predicate);
 int     __ovld __conv sub_group_any(int predicate);
@@ -16009,12 +15573,12 @@ uint2   __ovld __conv intel_sub_group_block_read2( read_only image2d_t image, in
 uint4   __ovld __conv intel_sub_group_block_read4( read_only image2d_t image, int2 coord );
 uint8   __ovld __conv intel_sub_group_block_read8( read_only image2d_t image, int2 coord );
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 uint    __ovld __conv intel_sub_group_block_read(read_write image2d_t image, int2 coord);
 uint2   __ovld __conv intel_sub_group_block_read2(read_write image2d_t image, int2 coord);
 uint4   __ovld __conv intel_sub_group_block_read4(read_write image2d_t image, int2 coord);
 uint8   __ovld __conv intel_sub_group_block_read8(read_write image2d_t image, int2 coord);
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 uint    __ovld __conv intel_sub_group_block_read( const __global uint* p );
 uint2   __ovld __conv intel_sub_group_block_read2( const __global uint* p );
@@ -16026,12 +15590,12 @@ void    __ovld __conv intel_sub_group_block_write2(write_only image2d_t image, i
 void    __ovld __conv intel_sub_group_block_write4(write_only image2d_t image, int2 coord, uint4 data);
 void    __ovld __conv intel_sub_group_block_write8(write_only image2d_t image, int2 coord, uint8 data);
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void    __ovld __conv intel_sub_group_block_write(read_write image2d_t image, int2 coord, uint data);
 void    __ovld __conv intel_sub_group_block_write2(read_write image2d_t image, int2 coord, uint2 data);
 void    __ovld __conv intel_sub_group_block_write4(read_write image2d_t image, int2 coord, uint4 data);
 void    __ovld __conv intel_sub_group_block_write8(read_write image2d_t image, int2 coord, uint8 data);
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 void    __ovld __conv intel_sub_group_block_write( __global uint* p, uint data );
 void    __ovld __conv intel_sub_group_block_write2( __global uint* p, uint2 data );
@@ -16149,12 +15713,12 @@ uint2      __ovld __conv intel_sub_group_block_read_ui2( read_only image2d_t ima
 uint4      __ovld __conv intel_sub_group_block_read_ui4( read_only image2d_t image, int2 byte_coord );
 uint8      __ovld __conv intel_sub_group_block_read_ui8( read_only image2d_t image, int2 byte_coord );
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 uint       __ovld __conv intel_sub_group_block_read_ui( read_write image2d_t image, int2 byte_coord );
 uint2      __ovld __conv intel_sub_group_block_read_ui2( read_write image2d_t image, int2 byte_coord );
 uint4      __ovld __conv intel_sub_group_block_read_ui4( read_write image2d_t image, int2 byte_coord );
 uint8      __ovld __conv intel_sub_group_block_read_ui8( read_write image2d_t image, int2 byte_coord );
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 uint       __ovld __conv intel_sub_group_block_read_ui( const __global uint* p );
 uint2      __ovld __conv intel_sub_group_block_read_ui2( const __global uint* p );
@@ -16166,12 +15730,12 @@ void       __ovld __conv intel_sub_group_block_write_ui2( read_only image2d_t im
 void       __ovld __conv intel_sub_group_block_write_ui4( read_only image2d_t image, int2 byte_coord, uint4 data );
 void       __ovld __conv intel_sub_group_block_write_ui8( read_only image2d_t image, int2 byte_coord, uint8 data );
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void       __ovld __conv intel_sub_group_block_write_ui( read_write image2d_t image, int2 byte_coord, uint data );
 void       __ovld __conv intel_sub_group_block_write_ui2( read_write image2d_t image, int2 byte_coord, uint2 data );
 void       __ovld __conv intel_sub_group_block_write_ui4( read_write image2d_t image, int2 byte_coord, uint4 data );
 void       __ovld __conv intel_sub_group_block_write_ui8( read_write image2d_t image, int2 byte_coord, uint8 data );
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 void       __ovld __conv intel_sub_group_block_write_ui( __global uint* p, uint data );
 void       __ovld __conv intel_sub_group_block_write_ui2( __global uint* p, uint2 data );
@@ -16183,12 +15747,12 @@ ushort2     __ovld __conv intel_sub_group_block_read_us2( read_only image2d_t im
 ushort4     __ovld __conv intel_sub_group_block_read_us4( read_only image2d_t image, int2 coord );
 ushort8     __ovld __conv intel_sub_group_block_read_us8( read_only image2d_t image, int2 coord );
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 ushort      __ovld __conv intel_sub_group_block_read_us(read_write image2d_t image, int2 coord);
 ushort2     __ovld __conv intel_sub_group_block_read_us2(read_write image2d_t image, int2 coord);
 ushort4     __ovld __conv intel_sub_group_block_read_us4(read_write image2d_t image, int2 coord);
 ushort8     __ovld __conv intel_sub_group_block_read_us8(read_write image2d_t image, int2 coord);
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 ushort      __ovld __conv intel_sub_group_block_read_us(  const __global ushort* p );
 ushort2     __ovld __conv intel_sub_group_block_read_us2( const __global ushort* p );
@@ -16200,12 +15764,12 @@ void        __ovld __conv intel_sub_group_block_write_us2(write_only image2d_t i
 void        __ovld __conv intel_sub_group_block_write_us4(write_only image2d_t image, int2 coord, ushort4 data);
 void        __ovld __conv intel_sub_group_block_write_us8(write_only image2d_t image, int2 coord, ushort8 data);
 
-#if (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#if defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 void        __ovld __conv intel_sub_group_block_write_us(read_write image2d_t image, int2 coord, ushort  data);
 void        __ovld __conv intel_sub_group_block_write_us2(read_write image2d_t image, int2 coord, ushort2 data);
 void        __ovld __conv intel_sub_group_block_write_us4(read_write image2d_t image, int2 coord, ushort4 data);
 void        __ovld __conv intel_sub_group_block_write_us8(read_write image2d_t image, int2 coord, ushort8 data);
-#endif // (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
+#endif // defined(__OPENCL_CPP_VERSION__) || (__OPENCL_C_VERSION__ >= CL_VERSION_2_0)
 
 void        __ovld __conv intel_sub_group_block_write_us(  __global ushort* p, ushort  data );
 void        __ovld __conv intel_sub_group_block_write_us2( __global ushort* p, ushort2 data );
@@ -16215,138 +15779,6 @@ void        __ovld __conv intel_sub_group_block_write_us8( __global ushort* p, u
 
 #ifdef cl_intel_device_side_avc_motion_estimation
 #pragma OPENCL EXTENSION cl_intel_device_side_avc_motion_estimation : begin
-
-#define CLK_AVC_ME_MAJOR_16x16_INTEL 0x0
-#define CLK_AVC_ME_MAJOR_16x8_INTEL 0x1
-#define CLK_AVC_ME_MAJOR_8x16_INTEL 0x2
-#define CLK_AVC_ME_MAJOR_8x8_INTEL 0x3
-
-#define CLK_AVC_ME_MINOR_8x8_INTEL 0x0
-#define CLK_AVC_ME_MINOR_8x4_INTEL 0x1
-#define CLK_AVC_ME_MINOR_4x8_INTEL 0x2
-#define CLK_AVC_ME_MINOR_4x4_INTEL 0x3
-
-#define CLK_AVC_ME_MAJOR_FORWARD_INTEL 0x0
-#define CLK_AVC_ME_MAJOR_BACKWARD_INTEL 0x1
-#define CLK_AVC_ME_MAJOR_BIDIRECTIONAL_INTEL 0x2
-
-#define CLK_AVC_ME_PARTITION_MASK_ALL_INTEL 0x0
-#define CLK_AVC_ME_PARTITION_MASK_16x16_INTEL 0x7E
-#define CLK_AVC_ME_PARTITION_MASK_16x8_INTEL 0x7D
-#define CLK_AVC_ME_PARTITION_MASK_8x16_INTEL 0x7B
-#define CLK_AVC_ME_PARTITION_MASK_8x8_INTEL 0x77
-#define CLK_AVC_ME_PARTITION_MASK_8x4_INTEL 0x6F
-#define CLK_AVC_ME_PARTITION_MASK_4x8_INTEL 0x5F
-#define CLK_AVC_ME_PARTITION_MASK_4x4_INTEL 0x3F
-
-#define CLK_AVC_ME_SLICE_TYPE_PRED_INTEL 0x0
-#define CLK_AVC_ME_SLICE_TYPE_BPRED_INTEL 0x1
-#define CLK_AVC_ME_SLICE_TYPE_INTRA_INTEL 0x2
-
-#define CLK_AVC_ME_SEARCH_WINDOW_EXHAUSTIVE_INTEL 0x0
-#define CLK_AVC_ME_SEARCH_WINDOW_SMALL_INTEL 0x1
-#define CLK_AVC_ME_SEARCH_WINDOW_TINY_INTEL 0x2
-#define CLK_AVC_ME_SEARCH_WINDOW_EXTRA_TINY_INTEL 0x3
-#define CLK_AVC_ME_SEARCH_WINDOW_DIAMOND_INTEL 0x4
-#define CLK_AVC_ME_SEARCH_WINDOW_LARGE_DIAMOND_INTEL 0x5
-#define CLK_AVC_ME_SEARCH_WINDOW_RESERVED0_INTEL 0x6
-#define CLK_AVC_ME_SEARCH_WINDOW_RESERVED1_INTEL 0x7
-#define CLK_AVC_ME_SEARCH_WINDOW_CUSTOM_INTEL 0x8
-
-#define CLK_AVC_ME_SAD_ADJUST_MODE_NONE_INTEL 0x0
-#define CLK_AVC_ME_SAD_ADJUST_MODE_HAAR_INTEL 0x2
-
-#define CLK_AVC_ME_SUBPIXEL_MODE_INTEGER_INTEL 0x0
-#define CLK_AVC_ME_SUBPIXEL_MODE_HPEL_INTEL 0x1
-#define CLK_AVC_ME_SUBPIXEL_MODE_QPEL_INTEL 0x3
-
-#define CLK_AVC_ME_COST_PRECISION_QPEL_INTEL 0x0
-#define CLK_AVC_ME_COST_PRECISION_HPEL_INTEL 0x1
-#define CLK_AVC_ME_COST_PRECISION_PEL_INTEL 0x2
-#define CLK_AVC_ME_COST_PRECISION_DPEL_INTEL 0x3
-
-#define CLK_AVC_ME_BIDIR_WEIGHT_QUARTER_INTEL 0x10
-#define CLK_AVC_ME_BIDIR_WEIGHT_THIRD_INTEL 0x15
-#define CLK_AVC_ME_BIDIR_WEIGHT_HALF_INTEL 0x20
-#define CLK_AVC_ME_BIDIR_WEIGHT_TWO_THIRD_INTEL 0x2B
-#define CLK_AVC_ME_BIDIR_WEIGHT_THREE_QUARTER_INTEL 0x30
-
-#define CLK_AVC_ME_BORDER_REACHED_LEFT_INTEL 0x0
-#define CLK_AVC_ME_BORDER_REACHED_RIGHT_INTEL 0x2
-#define CLK_AVC_ME_BORDER_REACHED_TOP_INTEL 0x4
-#define CLK_AVC_ME_BORDER_REACHED_BOTTOM_INTEL 0x8
-
-#define CLK_AVC_ME_INTRA_16x16_INTEL 0x0
-#define CLK_AVC_ME_INTRA_8x8_INTEL 0x1
-#define CLK_AVC_ME_INTRA_4x4_INTEL 0x2
-
-#define CLK_AVC_ME_SKIP_BLOCK_PARTITION_16x16_INTEL 0x0
-#define CLK_AVC_ME_SKIP_BLOCK_PARTITION_8x8_INTEL 0x4000
-
-#define CLK_AVC_ME_SKIP_BLOCK_16x16_FORWARD_ENABLE_INTEL (0x1 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_16x16_BACKWARD_ENABLE_INTEL (0x2 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_16x16_DUAL_ENABLE_INTEL (0x3 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_FORWARD_ENABLE_INTEL (0x55 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_BACKWARD_ENABLE_INTEL (0xAA << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_DUAL_ENABLE_INTEL (0xFF << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_0_FORWARD_ENABLE_INTEL (0x1 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_0_BACKWARD_ENABLE_INTEL (0x2 << 24)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_1_FORWARD_ENABLE_INTEL (0x1 << 26)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_1_BACKWARD_ENABLE_INTEL (0x2 << 26)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_2_FORWARD_ENABLE_INTEL (0x1 << 28)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_2_BACKWARD_ENABLE_INTEL (0x2 << 28)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_3_FORWARD_ENABLE_INTEL (0x1 << 30)
-#define CLK_AVC_ME_SKIP_BLOCK_8x8_3_BACKWARD_ENABLE_INTEL (0x2 << 30)
-
-#define CLK_AVC_ME_BLOCK_BASED_SKIP_4x4_INTEL 0x00
-#define CLK_AVC_ME_BLOCK_BASED_SKIP_8x8_INTEL 0x80
-
-#define CLK_AVC_ME_INTRA_LUMA_PARTITION_MASK_ALL_INTEL 0x0
-#define CLK_AVC_ME_INTRA_LUMA_PARTITION_MASK_16x16_INTEL 0x6
-#define CLK_AVC_ME_INTRA_LUMA_PARTITION_MASK_8x8_INTEL 0x5
-#define CLK_AVC_ME_INTRA_LUMA_PARTITION_MASK_4x4_INTEL 0x3
-
-#define CLK_AVC_ME_INTRA_NEIGHBOR_LEFT_MASK_ENABLE_INTEL 0x60
-#define CLK_AVC_ME_INTRA_NEIGHBOR_UPPER_MASK_ENABLE_INTEL 0x10
-#define CLK_AVC_ME_INTRA_NEIGHBOR_UPPER_RIGHT_MASK_ENABLE_INTEL 0x8
-#define CLK_AVC_ME_INTRA_NEIGHBOR_UPPER_LEFT_MASK_ENABLE_INTEL 0x4
-
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_VERTICAL_INTEL 0x0
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_HORIZONTAL_INTEL 0x1
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_DC_INTEL 0x2
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_DIAGONAL_DOWN_LEFT_INTEL 0x3
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_DIAGONAL_DOWN_RIGHT_INTEL 0x4
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_PLANE_INTEL 0x4
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_VERTICAL_RIGHT_INTEL 0x5
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_HORIZONTAL_DOWN_INTEL 0x6
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_VERTICAL_LEFT_INTEL 0x7
-#define CLK_AVC_ME_LUMA_PREDICTOR_MODE_HORIZONTAL_UP_INTEL 0x8
-#define CLK_AVC_ME_CHROMA_PREDICTOR_MODE_DC_INTEL 0x0
-#define CLK_AVC_ME_CHROMA_PREDICTOR_MODE_HORIZONTAL_INTEL 0x1
-#define CLK_AVC_ME_CHROMA_PREDICTOR_MODE_VERTICAL_INTEL 0x2
-#define CLK_AVC_ME_CHROMA_PREDICTOR_MODE_PLANE_INTEL 0x3
-
-#define CLK_AVC_ME_FRAME_FORWARD_INTEL 0x1
-#define CLK_AVC_ME_FRAME_BACKWARD_INTEL 0x2
-#define CLK_AVC_ME_FRAME_DUAL_INTEL 0x3
-
-#define CLK_AVC_ME_INTERLACED_SCAN_TOP_FIELD_INTEL 0x0
-#define CLK_AVC_ME_INTERLACED_SCAN_BOTTOM_FIELD_INTEL 0x1
-
-#define CLK_AVC_ME_INITIALIZE_INTEL 0x0
-
-#define CLK_AVC_IME_PAYLOAD_INITIALIZE_INTEL 0x0
-#define CLK_AVC_REF_PAYLOAD_INITIALIZE_INTEL 0x0
-#define CLK_AVC_SIC_PAYLOAD_INITIALIZE_INTEL 0x0
-
-#define CLK_AVC_IME_RESULT_INITIALIZE_INTEL 0x0
-#define CLK_AVC_REF_RESULT_INITIALIZE_INTEL 0x0
-#define CLK_AVC_SIC_RESULT_INITIALIZE_INTEL 0x0
-
-#define CLK_AVC_IME_RESULT_SINGLE_REFERENCE_STREAMOUT_INITIALIZE_INTEL 0x0
-#define CLK_AVC_IME_RESULT_SINGLE_REFERENCE_STREAMIN_INITIALIZE_INTEL 0x0
-#define CLK_AVC_IME_RESULT_DUAL_REFERENCE_STREAMOUT_INITIALIZE_INTEL 0x0
-#define CLK_AVC_IME_RESULT_DUAL_REFERENCE_STREAMIN_INITIALIZE_INTEL 0x0
 
 // MCE built-in functions
 uchar __ovld
@@ -17033,6 +16465,34 @@ uint4 __ovld amd_sadw(uint4 src0, uint4 src1, uint4 src2);
 uint8 __ovld amd_sadw(uint8 src0, uint8 src1, uint8 src2);
 uint16 __ovld amd_sadw(uint16 src0, uint16 src1, uint16 src2);
 #endif // cl_amd_media_ops2
+
+#if defined(cl_arm_integer_dot_product_int8)
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_int8 : begin
+uint __ovld arm_dot(uchar4 a, uchar4 b);
+int __ovld arm_dot(char4 a, char4 b);
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_int8 : end
+#endif // defined(cl_arm_integer_dot_product_int8)
+
+#if defined(cl_arm_integer_dot_product_accumulate_int8)
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_int8 : begin
+uint __ovld arm_dot_acc(uchar4 a, uchar4 b, uint c);
+int __ovld arm_dot_acc(char4 a, char4 b, int c);
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_int8 : end
+#endif // defined(cl_arm_integer_dot_product_accumulate_int8)
+
+#if defined(cl_arm_integer_dot_product_accumulate_int16)
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_int16 : begin
+uint __ovld arm_dot_acc(ushort2 a, ushort2 b, uint c);
+int __ovld arm_dot_acc(short2 a, short2 b, int c);
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_int16 : end
+#endif // defined(cl_arm_integer_dot_product_accumulate_int16)
+
+#if defined(cl_arm_integer_dot_product_accumulate_saturate_int8)
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_saturate_int8 : begin
+uint __ovld arm_dot_acc_sat(uchar4 a, uchar4 b, uint c);
+int __ovld arm_dot_acc_sat(char4 a, char4 b, int c);
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_accumulate_saturate_int8 : end
+#endif // defined(cl_arm_integer_dot_product_accumulate_saturate_int8)
 
 // Disable any extensions we may have enabled previously.
 #pragma OPENCL EXTENSION all : disable

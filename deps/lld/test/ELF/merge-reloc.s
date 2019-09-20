@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -r -o %t-rel
-# RUN: llvm-readobj -s -section-data %t-rel | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t-rel | FileCheck %s
 
 # When linker generates a relocatable object it does string merging in the same
 # way as for regular link. It should keep SHF_MERGE flag and set proper sh_entsize

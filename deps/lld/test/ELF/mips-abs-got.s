@@ -4,9 +4,9 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-linux -o %t.o %s
 # RUN: echo "SECTIONS { \
-# RUN:          zero = 0; foo = 0x11004; bar = 0x22000; }" > %t.script
+# RUN:          zero1 = 0; zero2 = 0; foo = 0x11004; bar = 0x22000; }" > %t.script
 # RUN: ld.lld --script %t.script -o %t.exe %t.o
-# RUN: llvm-readobj -mips-plt-got %t.exe | FileCheck %s
+# RUN: llvm-readobj --mips-plt-got %t.exe | FileCheck %s
 
 # CHECK:      Static GOT {
 # CHECK:        Local entries [
@@ -30,7 +30,7 @@
 
   .text
   nop
-  .reloc 0, R_MIPS_GOT_PAGE, 0
-  ld      $v0, %got_page(zero)($gp)
+  ld      $v0, %got_page(zero1)($gp)
+  ld      $v0, %got_page(zero2)($gp)
   ld      $v0, %got_page(foo)($gp)
   ld      $v0, %got_page(bar+0x10008)($gp)

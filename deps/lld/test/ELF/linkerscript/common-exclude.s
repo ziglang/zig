@@ -4,7 +4,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/common-filespec2.s -o %tfile2.o
 # RUN: echo "SECTIONS { .common.incl : { *(EXCLUDE_FILE (*file2.o) COMMON) } .common.excl : { *(COMMON) } }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %tfile0.o %tfile1.o %tfile2.o
-# RUN: llvm-readobj -s -t %t1 | FileCheck %s
+# RUN: llvm-readobj -S --symbols %t1 | FileCheck %s
 
 # Commons from file0 and file1 are not excluded, so they must be in .common.incl
 # Commons from file2 are excluded from the first rule and should be caught by

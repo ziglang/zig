@@ -7,6 +7,7 @@
 # RUN: llvm-objdump -d -s -t %t.exe | FileCheck %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:    20000:       3c 02 00 00     lui     $2, 0
 # CHECK-NEXT:    20004:       8c 42 80 24     lw      $2, -32732($2)

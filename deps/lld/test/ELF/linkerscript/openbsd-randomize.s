@@ -5,7 +5,7 @@
 # RUN:         .text : { *(.text) } \
 # RUN:         .openbsd.randomdata : { *(.openbsd.randomdata) } : rand }" > %t.script
 # RUN: ld.lld --script %t.script %t.o -o %t
-# RUN: llvm-readobj --program-headers -s %t | FileCheck %s
+# RUN: llvm-readobj --program-headers -S %t | FileCheck %s
 
 # CHECK:      ProgramHeader {
 # CHECK:        Type: PT_OPENBSD_RANDOMIZE (0x65A3DBE6)

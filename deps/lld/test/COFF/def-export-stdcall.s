@@ -1,9 +1,9 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=i686-windows-msvc %s -o %t.obj
 # RUN: echo -e "LIBRARY foo\nEXPORTS\n  stdcall\n  fastcall\n  vectorcall\n  _underscored" > %t.def
-# RUN: lld-link -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
+# RUN: lld-link -safeseh:no -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix UNDECORATED-IMPLIB %s
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix UNDECORATED-EXPORTS %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix UNDECORATED-EXPORTS %s
 
 # UNDECORATED-IMPLIB: Name type: noprefix
 # UNDECORATED-IMPLIB-NEXT: __imp___underscored
@@ -25,9 +25,9 @@
 
 
 # RUN: echo -e "LIBRARY foo\nEXPORTS\n  _stdcall@8\n  @fastcall@8\n  vectorcall@@8" > %t.def
-# RUN: lld-link -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
+# RUN: lld-link -safeseh:no -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix DECORATED-IMPLIB %s
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix DECORATED-EXPORTS %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix DECORATED-EXPORTS %s
 
 # DECORATED-IMPLIB: Name type: name
 # DECORATED-IMPLIB-NEXT: __imp_@fastcall@8
@@ -48,7 +48,7 @@
 # RUN: echo -e "LIBRARY foo\nEXPORTS\n  stdcall@8\n  @fastcall@8\n  vectorcall@@8" > %t.def
 # RUN: lld-link -lldmingw -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix DECORATED-MINGW-IMPLIB %s
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix DECORATED-MINGW-EXPORTS %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix DECORATED-MINGW-EXPORTS %s
 
 # DECORATED-MINGW-IMPLIB: Name type: name
 # DECORATED-MINGW-IMPLIB-NEXT: __imp_@fastcall@8
@@ -68,11 +68,11 @@
 
 # RUN: lld-link -lldmingw -kill-at -entry:dllmain -dll -def:%t.def %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix MINGW-KILL-AT-IMPLIB %s
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
 
 # RUN: lld-link -lldmingw -kill-at -entry:dllmain -dll %t.obj -out:%t.dll -implib:%t.lib
 # RUN: llvm-readobj %t.lib | FileCheck -check-prefix MINGW-KILL-AT-IMPLIB %s
-# RUN: llvm-readobj -coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
+# RUN: llvm-readobj --coff-exports %t.dll | FileCheck -check-prefix MINGW-KILL-AT-EXPORTS %s
 
 # MINGW-KILL-AT-IMPLIB: Name type: noprefix
 # MINGW-KILL-AT-IMPLIB: __imp__fastcall

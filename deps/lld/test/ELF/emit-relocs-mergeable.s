@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1
 # RUN: ld.lld --emit-relocs %t1 -o %t2
-# RUN: llvm-readobj -sections -section-data -r %t2 | FileCheck %s
+# RUN: llvm-readobj --sections --section-data -r %t2 | FileCheck %s
 
 ## Check if we produce proper relocations when doing merging of SHF_MERGE sections.
 

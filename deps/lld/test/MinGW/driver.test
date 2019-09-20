@@ -4,6 +4,9 @@ X86-SAME: -machine:x86
 X86-SAME: -alternatename:__image_base__=___ImageBase
 X86-SAME: foo.o
 
+RUN: echo "-### foo.o -m i386pe" > %t.rsp
+RUN: ld.lld @%t.rsp | FileCheck -check-prefix=X86 %s
+
 RUN: ld.lld -### foo.o -m i386pep | FileCheck -check-prefix=X64 %s
 X64:      -out:a.exe
 X64-SAME: -machine:x64
@@ -54,7 +57,23 @@ MLLVM: -mllvm:bar -mllvm:baz
 
 RUN: ld.lld -### foo.o -m i386pep -subsystem console | FileCheck -check-prefix=SUBSYSTEM %s
 RUN: ld.lld -### foo.o -m i386pep --subsystem console | FileCheck -check-prefix=SUBSYSTEM %s
+RUN: ld.lld -### foo.o -m i386pep -subsystem=console | FileCheck -check-prefix=SUBSYSTEM %s
+RUN: ld.lld -### foo.o -m i386pep --subsystem=console | FileCheck -check-prefix=SUBSYSTEM %s
 SUBSYSTEM: -subsystem:console
+
+RUN: ld.lld -### foo.o -m i386pep --major-os-version 7 --minor-os-version 8 | FileCheck -check-prefix=SUBSYSTEM_VERSION %s
+RUN: ld.lld -### foo.o -m i386pep --major-subsystem-version 7 --minor-subsystem-version 8 | FileCheck -check-prefix=SUBSYSTEM_VERSION %s
+RUN: ld.lld -### foo.o -m i386pep --major-os-version=7 --minor-os-version=8 --major-subsystem-version=7 --minor-subsystem-version=8 | FileCheck -check-prefix=SUBSYSTEM_VERSION %s
+SUBSYSTEM_VERSION: -subsystem:default,7.8
+
+RUN: ld.lld -### foo.o -m i386pep --minor-subsystem-version 8 | FileCheck -check-prefix=SUBSYSTEM_DEFAULT_MAJOR %s
+SUBSYSTEM_DEFAULT_MAJOR: -subsystem:default,6.8
+
+RUN: ld.lld -### foo.o -m i386pep --major-subsystem-version 7 | FileCheck -check-prefix=SUBSYSTEM_DEFAULT_MINOR %s
+SUBSYSTEM_DEFAULT_MINOR: -subsystem:default,7
+
+RUN: ld.lld -### foo.o -m i386pep --subsystem windows --major-os-version 7 --minor-os-version 8 | FileCheck -check-prefix=SUBSYSTEM_WINDOWS %s
+SUBSYSTEM_WINDOWS: -subsystem:windows,7.8
 
 RUN: ld.lld -### foo.o -m i386pep -stack 4194304,8192 | FileCheck -check-prefix=STACK %s
 RUN: ld.lld -### foo.o -m i386pep --stack 4194304,8192 | FileCheck -check-prefix=STACK %s
@@ -73,6 +92,9 @@ WHOLE-ARCHIVE: foo.o -wholearchive:bar.a baz.a
 
 RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix MINGW-FLAG %s
 MINGW-FLAG: -lldmingw
+
+RUN: ld.lld -### -m i386pep foo.o --exclude-all-symbols | FileCheck -check-prefix EXCLUDE-ALL %s
+EXCLUDE-ALL: -exclude-all-symbols
 
 RUN: ld.lld -### -m i386pep foo.o --export-all-symbols | FileCheck -check-prefix EXPORT-ALL %s
 EXPORT-ALL: -export-all-symbols
@@ -96,8 +118,13 @@ STRIP-DEBUG: -debug:symtab
 STRIP-DEBUG-NOT: -debug:dwarf
 
 RUN: ld.lld -### -m i386pep foo.o -pdb out.pdb | FileCheck -check-prefix PDB %s
+RUN: ld.lld -### -m i386pep foo.o -pdb=out.pdb | FileCheck -check-prefix PDB %s
 PDB: -debug -pdb:out.pdb
 PDB-NOT: -debug:dwarf
+
+RUN: ld.lld -### -m i386pep foo.o -pdb= | FileCheck -check-prefix PDB-DEFAULT %s
+PDB-DEFAULT: -debug
+PDB-DEFAULT-NOT: -pdb:{{.*}}
 
 RUN: ld.lld -### -m i386pep foo.o --large-address-aware | FileCheck -check-prefix LARGE-ADDRESS-AWARE %s
 LARGE-ADDRESS-AWARE: -largeaddressaware
@@ -149,5 +176,31 @@ MAP: -lldmap:bar.map
 RUN: ld.lld -### foo.o -m i386pe -require-defined _foo --require-defined _bar -require-defined=_baz --require-defined=_foo2 | FileCheck -check-prefix=REQUIRE-DEFINED %s
 REQUIRE-DEFINED: -include:_foo -include:_bar -include:_baz -include:_foo2
 
+RUN: ld.lld -### foo.o -m i386pe -u _foo --undefined _bar -undefined=_baz --undefined=_foo2 | FileCheck -check-prefix=UNDEFINED %s
+UNDEFINED: -includeoptional:_foo -includeoptional:_bar -includeoptional:_baz -includeoptional:_foo2
+
 RUN: ld.lld -### -m i386pep foo.o -Llibpath | FileCheck -check-prefix LIBPATH %s
 LIBPATH: -libpath:libpath
+
+RUN: ld.lld -### -m i386pep foo.o --no-insert-timestamp | FileCheck -check-prefix NOTIMESTAMP %s
+RUN: ld.lld -### -m i386pep foo.o --insert-timestamp --no-insert-timestamp | FileCheck -check-prefix NOTIMESTAMP %s
+NOTIMESTAMP: -timestamp:0
+RUN: ld.lld -### -m i386pep foo.o --no-insert-timestamp --insert-timestamp | FileCheck -check-prefix TIMESTAMP %s
+TIMESTAMP-NOT: -timestamp:0
+
+RUN: ld.lld -### -m i386pep foo.o -appcontainer | FileCheck -check-prefix APPCONTAINER %s
+RUN: ld.lld -### -m i386pep foo.o --appcontainer | FileCheck -check-prefix APPCONTAINER %s
+APPCONTAINER: -appcontainer
+
+# RUN: ld.lld -m i386pep --version 2>&1 | FileCheck -check-prefix=VERSION %s
+# RUN: ld.lld -m i386pep -v 2>&1 | FileCheck -check-prefix=VERSION %s
+# RUN: not ld.lld -m i386pep -v xyz 2>&1 | FileCheck -check-prefix=VERSION %s
+# VERSION: LLD {{.*}} (compatible with GNU linkers)
+
+# RUN: ld.lld -m i386pep --help 2>&1 | FileCheck -check-prefix=HELP %s
+# HELP: USAGE:
+# HELP: --enable-auto-import
+
+RUN: ld.lld -### -m i386pep foo.o -delayload user32.dll --delayload shell32.dll | FileCheck -check-prefix DELAYLOAD %s
+RUN: ld.lld -### -m i386pep foo.o -delayload=user32.dll --delayload=shell32.dll | FileCheck -check-prefix DELAYLOAD %s
+DELAYLOAD: -delayload:user32.dll -delayload:shell32.dll

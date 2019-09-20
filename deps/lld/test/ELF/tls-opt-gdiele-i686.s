@@ -14,11 +14,12 @@
 // NORELOC-NEXT: ]
 
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 // DISASM-NEXT: 401000: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 401006: 03 83 f8 ff ff ff addl -8(%ebx), %eax
+// DISASM-NEXT: 401006: 03 83 58 f0 ff ff addl -4008(%ebx), %eax
 // DISASM-NEXT: 40100c: 65 a1 00 00 00 00 movl %gs:0, %eax
-// DISASM-NEXT: 401012: 03 83 fc ff ff ff addl -4(%ebx), %eax
+// DISASM-NEXT: 401012: 03 83 5c f0 ff ff addl -4004(%ebx), %eax
 // DISASM-NEXT: 401018: 65 a1 00 00 00 00 movl %gs:0, %eax
 // DISASM-NEXT: 40101e: 81 e8 08 00 00 00 subl $8, %eax
 // DISASM-NEXT: 401024: 65 a1 00 00 00 00 movl %gs:0, %eax
@@ -53,7 +54,7 @@ leal tlsshared0@tlsgd(,%ebx,1),%eax
 call ___tls_get_addr@plt
 leal tlsshared1@tlsgd(,%ebx,1),%eax
 call ___tls_get_addr@plt
-//GD->IE
+//GD->LE
 leal tlsexe1@tlsgd(,%ebx,1),%eax
 call ___tls_get_addr@plt
 leal tlsexe2@tlsgd(,%ebx,1),%eax

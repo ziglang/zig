@@ -1,10 +1,10 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t1
-# RUN: llvm-readobj -file-headers %t1 | FileCheck %s
+# RUN: llvm-readobj --file-headers %t1 | FileCheck %s
 
 # RUN: ld.lld %t.o -no-rosegment -o %t2
-# RUN: llvm-readobj -file-headers %t2 | FileCheck %s
+# RUN: llvm-readobj --file-headers %t2 | FileCheck %s
 
 # CHECK:      ElfHeader {
 # CHECK-NEXT:   Ident {

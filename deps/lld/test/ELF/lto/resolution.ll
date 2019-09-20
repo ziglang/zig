@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t1.o
 ; RUN: llvm-mc -triple=x86_64-pc-linux %p/Inputs/resolution.s -o %t2.o -filetype=obj
 ; RUN: ld.lld %t1.o %t2.o -o %t.so -shared
-; RUN: llvm-readobj -s --section-data %t.so | FileCheck %s
+; RUN: llvm-readobj -S --section-data %t.so | FileCheck %s
 
 ; CHECK:      Name: .data
 ; CHECK-NEXT: Type: SHT_PROGBITS

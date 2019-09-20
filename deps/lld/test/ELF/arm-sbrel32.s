@@ -31,6 +31,7 @@ foo3:   .space 4
 foo4:   .space 4
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:    11000:        1e ff 2f e1     bx      lr
 // CHECK:         11004:        00 00 00 00     .word   0x00000000

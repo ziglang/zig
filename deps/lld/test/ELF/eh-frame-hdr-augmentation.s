@@ -11,7 +11,7 @@
 // CHECK-NEXT:   Code alignment factor: 1
 // CHECK-NEXT:   Data alignment factor: -8
 // CHECK-NEXT:   Return address column: 16
-// CHECK-NEXT:   Personality Address: 00000dad
+// CHECK-NEXT:   Personality Address: 0000000000000dad
 // CHECK-NEXT:   Augmentation data:
 
 // CHECK:      DW_CFA_def_cfa:  reg7 +8
@@ -20,7 +20,7 @@
 // CHECK-NEXT: DW_CFA_nop:
 
 // CHECK:      00000020 00000014 00000024 FDE cie=00000024 pc=00000d98...00000d98
-// CHECK-NEXT:   LSDA Address: 00000d8f
+// CHECK-NEXT:   LSDA Address: 0000000000000d8f
 // CHECK-NEXT:   DW_CFA_nop:
 // CHECK-NEXT:   DW_CFA_nop:
 // CHECK-NEXT:   DW_CFA_nop:

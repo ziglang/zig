@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- __debug ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,6 +11,7 @@
 #define _LIBCPP_DEBUG_H
 
 #include <__config>
+#include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -25,7 +25,6 @@
 #   include <cstdlib>
 #   include <cstdio>
 #   include <cstddef>
-#   include <exception>
 #endif
 
 #if _LIBCPP_DEBUG_LEVEL >= 1 && !defined(_LIBCPP_ASSERT)
@@ -50,10 +49,6 @@
 #define _LIBCPP_DEBUG_MODE(...) ((void)0)
 #endif
 
-#if _LIBCPP_DEBUG_LEVEL < 1
-class _LIBCPP_EXCEPTION_ABI __libcpp_debug_exception;
-#endif
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 struct _LIBCPP_TEMPLATE_VIS __libcpp_debug_info {
@@ -63,6 +58,9 @@ struct _LIBCPP_TEMPLATE_VIS __libcpp_debug_info {
   _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
   __libcpp_debug_info(const char* __f, int __l, const char* __p, const char* __m)
     : __file_(__f), __line_(__l), __pred_(__p), __msg_(__m) {}
+
+  _LIBCPP_FUNC_VIS std::string what() const;
+
   const char* __file_;
   int __line_;
   const char* __pred_;
@@ -80,37 +78,10 @@ extern _LIBCPP_EXPORTED_FROM_ABI __libcpp_debug_function_type __libcpp_debug_fun
 _LIBCPP_NORETURN _LIBCPP_FUNC_VIS
 void __libcpp_abort_debug_function(__libcpp_debug_info const&);
 
-/// __libcpp_throw_debug_function - A debug handler that throws
-///   an instance of __libcpp_debug_exception when called.
- _LIBCPP_NORETURN _LIBCPP_FUNC_VIS
-void __libcpp_throw_debug_function(__libcpp_debug_info const&);
-
 /// __libcpp_set_debug_function - Set the debug handler to the specified
 ///    function.
 _LIBCPP_FUNC_VIS
 bool __libcpp_set_debug_function(__libcpp_debug_function_type __func);
-
-// Setup the throwing debug handler during dynamic initialization.
-#if _LIBCPP_DEBUG_LEVEL >= 1 && defined(_LIBCPP_DEBUG_USE_EXCEPTIONS)
-# if defined(_LIBCPP_NO_EXCEPTIONS)
-#   error _LIBCPP_DEBUG_USE_EXCEPTIONS cannot be used when exceptions are disabled.
-# endif
-static bool __init_dummy = __libcpp_set_debug_function(__libcpp_throw_debug_function);
-#endif
-
-#if _LIBCPP_DEBUG_LEVEL >= 1 || defined(_LIBCPP_BUILDING_LIBRARY)
-class _LIBCPP_EXCEPTION_ABI __libcpp_debug_exception : public exception {
-public:
-  __libcpp_debug_exception() _NOEXCEPT;
-  explicit __libcpp_debug_exception(__libcpp_debug_info const& __i);
-  __libcpp_debug_exception(__libcpp_debug_exception const&);
-  ~__libcpp_debug_exception() _NOEXCEPT;
-  const char* what() const _NOEXCEPT;
-private:
-  struct __libcpp_debug_exception_imp;
-  __libcpp_debug_exception_imp *__imp_;
-};
-#endif
 
 #if _LIBCPP_DEBUG_LEVEL >= 2 || defined(_LIBCPP_BUILDING_LIBRARY)
 
@@ -251,16 +222,22 @@ public:
     __db_c_const_iterator __c_end() const;
     __db_i_const_iterator __i_end() const;
 
+    typedef __c_node*(_InsertConstruct)(void*, void*, __c_node*);
+
+    template <class _Cont>
+    _LIBCPP_INLINE_VISIBILITY static __c_node* __create_C_node(void *__mem, void *__c, __c_node *__next) {
+        return ::new(__mem) _C_node<_Cont>(__c, __next);
+    }
+
     template <class _Cont>
     _LIBCPP_INLINE_VISIBILITY
     void __insert_c(_Cont* __c)
     {
-        __c_node* __n = __insert_c(static_cast<void*>(__c));
-        ::new(__n) _C_node<_Cont>(__n->__c_, __n->__next_);
+        __insert_c(static_cast<void*>(__c), &__create_C_node<_Cont>);
     }
 
     void __insert_i(void* __i);
-    __c_node* __insert_c(void* __c);
+    void __insert_c(void* __c, _InsertConstruct* __fn);
     void __erase_c(void* __c);
 
     void __insert_ic(void* __i, const void* __c);

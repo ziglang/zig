@@ -38,10 +38,10 @@ entry:
 ; CHECK:        - Type:            TYPE
 ; CHECK-NEXT:     Signatures:
 ; CHECK-NEXT:       - Index:           0
-; CHECK-NEXT:         ReturnType:      NORESULT
+; CHECK-NEXT:         ReturnType:      I32
 ; CHECK-NEXT:         ParamTypes:
 ; CHECK-NEXT:       - Index:           1
-; CHECK-NEXT:         ReturnType:      I32
+; CHECK-NEXT:         ReturnType:      NORESULT
 ; CHECK-NEXT:         ParamTypes:
 ; CHECK-NEXT:       - Index:           2
 ; CHECK-NEXT:         ReturnType:      I64
@@ -66,8 +66,8 @@ entry:
 ; CHECK:        - Type:            DATA
 ; CHECK-NEXT:     Segments:        
 ; CHECK-NEXT:       - SectionOffset:   7
-; CHECK-NEXT:         MemoryIndex:     0
-; CHECK-NEXT:         Offset:          
+; CHECK-NEXT:         InitFlags:       0
+; CHECK-NEXT:         Offset:
 ; CHECK-NEXT:           Opcode:          I32_CONST
 ; CHECK-NEXT:           Value:           1024
 ; CHECK-NEXT:         Content:         '02000000'
@@ -75,12 +75,10 @@ entry:
 ; CHECK-NEXT:     Name:            name
 ; CHECK-NEXT:     FunctionNames:
 ; CHECK-NEXT:       - Index:           0
-; CHECK-NEXT:         Name:            __wasm_call_ctors
-; CHECK-NEXT:       - Index:           1
 ; CHECK-NEXT:         Name:            used_function
-; CHECK-NEXT:       - Index:           2
+; CHECK-NEXT:       - Index:           1
 ; CHECK-NEXT:         Name:            _start
-; CHECK-NEXT:       - Index:           3
+; CHECK-NEXT:       - Index:           2
 ; CHECK-NEXT:         Name:            use_global
 ; CHECK-NEXT: ...
 
@@ -129,8 +127,8 @@ entry:
 ; NO-GC:        - Type:            DATA
 ; NO-GC-NEXT:     Segments:        
 ; NO-GC-NEXT:       - SectionOffset:   7
-; NO-GC-NEXT:         MemoryIndex:     0
-; NO-GC-NEXT:         Offset:          
+; NO-GC-NEXT:         InitFlags:       0
+; NO-GC-NEXT:         Offset:
 ; NO-GC-NEXT:           Opcode:          I32_CONST
 ; NO-GC-NEXT:           Value:           1024
 ; NO-GC-NEXT:         Content:         '010000000000000002000000'

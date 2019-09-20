@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t --export-dynamic
-# RUN: llvm-readobj -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 # CHECK:      Name: .text
 # CHECK-NEXT: Type: SHT_PROGBITS

@@ -3,7 +3,7 @@
 
 # RUN: echo "{ global: foo; local: bar; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols -t %t.so | FileCheck %s
+# RUN: llvm-readobj --dyn-syms --symbols %t.so | FileCheck %s
 
 # CHECK:      Symbols [
 # CHECK:          Name: bar

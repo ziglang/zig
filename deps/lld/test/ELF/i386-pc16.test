@@ -32,9 +32,9 @@ Sections:
         Symbol:          _start
         Type:            R_386_PC16
 Symbols:
-  Global:
-    - Name:     _start
-      Type:     STT_FUNC
-      Section:  .text
-      Value:    0x1234
-      Size:     4
+  - Name:     _start
+    Type:     STT_FUNC
+    Section:  .text
+    Value:    0x1234
+    Size:     4
+    Binding:  STB_GLOBAL

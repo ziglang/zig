@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- iterator ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -70,7 +69,7 @@ typename iterator_traits<InputIterator>::difference_type n = 1);
 
 template <class BidirectionalIterator>  // constexpr in C++17
   constexpr BidirectionalIterator prev(BidirectionalIterator x,
-    typename iterator_traits<BidirectionalIterator>::difference_type n = 1);    
+    typename iterator_traits<BidirectionalIterator>::difference_type n = 1);
 
 template <class Iterator>
 class reverse_iterator
@@ -137,7 +136,7 @@ operator-(const reverse_iterator<Iterator1>& x, const reverse_iterator<Iterator2
 
 template <class Iterator>
 constexpr reverse_iterator<Iterator>
-operator+(typename reverse_iterator<Iterator>::difference_type n, 
+operator+(typename reverse_iterator<Iterator>::difference_type n,
           const reverse_iterator<Iterator>& x);   // constexpr in C++17
 
 template <class Iterator>
@@ -217,7 +216,7 @@ public:
     typedef typename iterator_traits<Iterator>::value_type        value_type;
     typedef typename iterator_traits<Iterator>::iterator_category iterator_category;
     typedef value_type&&                                          reference;
- 
+
     constexpr move_iterator();  // all the constexprs are in C++17
     constexpr explicit move_iterator(Iterator i);
     template <class U>
@@ -231,10 +230,10 @@ public:
     constexpr move_iterator operator++(int);
     constexpr move_iterator& operator--();
     constexpr move_iterator operator--(int);
-    constexpr move_iterator operator+(difference_type n) const; 
-    constexpr move_iterator& operator+=(difference_type n); 
-    constexpr move_iterator operator-(difference_type n) const; 
-    constexpr move_iterator& operator-=(difference_type n); 
+    constexpr move_iterator operator+(difference_type n) const;
+    constexpr move_iterator& operator+=(difference_type n);
+    constexpr move_iterator operator-(difference_type n) const;
+    constexpr move_iterator& operator-=(difference_type n);
     constexpr unspecified operator[](difference_type n) const;
 private:
     Iterator current; // exposition only
@@ -271,7 +270,7 @@ operator-(const move_iterator<Iterator1>& x,
 
 template <class Iterator>
 constexpr move_iterator<Iterator> operator+(   // constexpr in C++17
-            typename move_iterator<Iterator>::difference_type n, 
+            typename move_iterator<Iterator>::difference_type n,
             const move_iterator<Iterator>& x);
 
 template <class Iterator>   // constexpr in C++17
@@ -400,6 +399,11 @@ template <class C> constexpr auto crend(const C& c) -> decltype(std::rend(c));  
 // 24.8, container access:
 template <class C> constexpr auto size(const C& c) -> decltype(c.size());         // C++17
 template <class T, size_t N> constexpr size_t size(const T (&array)[N]) noexcept; // C++17
+
+template <class C> constexpr auto ssize(const C& c)
+    -> common_type_t<ptrdiff_t, make_signed_t<decltype(c.size())>>;				       // C++20
+template <class T, ptrdiff_t> constexpr ptrdiff_t ssize(const T (&array)[N]) noexcept; // C++20
+
 template <class C> constexpr auto empty(const C& c) -> decltype(c.empty());       // C++17
 template <class T, size_t N> constexpr bool empty(const T (&array)[N]) noexcept;  // C++17
 template <class E> constexpr bool empty(initializer_list<E> il) noexcept;         // C++17
@@ -530,9 +534,25 @@ struct __is_random_access_iterator : public __has_iterator_category_convertible_
 
 template <class _Tp>
 struct __is_exactly_input_iterator
-    : public integral_constant<bool, 
-         __has_iterator_category_convertible_to<_Tp, input_iterator_tag>::value && 
+    : public integral_constant<bool,
+         __has_iterator_category_convertible_to<_Tp, input_iterator_tag>::value &&
         !__has_iterator_category_convertible_to<_Tp, forward_iterator_tag>::value> {};
+
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _InputIterator>
+using __iter_value_type = typename iterator_traits<_InputIterator>::value_type;
+
+template<class _InputIterator>
+using __iter_key_type = remove_const_t<typename iterator_traits<_InputIterator>::value_type::first_type>;
+
+template<class _InputIterator>
+using __iter_mapped_type = typename iterator_traits<_InputIterator>::value_type::second_type;
+
+template<class _InputIterator>
+using __iter_to_alloc_type = pair<
+    add_const_t<typename iterator_traits<_InputIterator>::value_type::first_type>,
+    typename iterator_traits<_InputIterator>::value_type::second_type>;
+#endif
 
 template<class _Category, class _Tp, class _Distance = ptrdiff_t,
          class _Pointer = _Tp*, class _Reference = _Tp&>
@@ -580,6 +600,8 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 void advance(_InputIter& __i,
              typename iterator_traits<_InputIter>::difference_type __n)
 {
+    _LIBCPP_ASSERT(__n >= 0 || __is_bidirectional_iterator<_InputIter>::value,
+                       "Attempt to advance(it, -n) on a non-bidi iterator");
     __advance(__i, __n, typename iterator_traits<_InputIter>::iterator_category());
 }
 
@@ -614,26 +636,31 @@ template <class _InputIter>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename enable_if
 <
-    __is_input_iterator<_InputIter>::value, 
+    __is_input_iterator<_InputIter>::value,
     _InputIter
 >::type
 next(_InputIter __x,
      typename iterator_traits<_InputIter>::difference_type __n = 1)
 {
+    _LIBCPP_ASSERT(__n >= 0 || __is_bidirectional_iterator<_InputIter>::value,
+                       "Attempt to next(it, -n) on a non-bidi iterator");
+
     _VSTD::advance(__x, __n);
     return __x;
 }
 
-template <class _BidirectionalIter>
+template <class _InputIter>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename enable_if
 <
-    __is_bidirectional_iterator<_BidirectionalIter>::value, 
-    _BidirectionalIter
+    __is_input_iterator<_InputIter>::value,
+    _InputIter
 >::type
-prev(_BidirectionalIter __x,
-     typename iterator_traits<_BidirectionalIter>::difference_type __n = 1)
+prev(_InputIter __x,
+     typename iterator_traits<_InputIter>::difference_type __n = 1)
 {
+    _LIBCPP_ASSERT(__n <= 0 || __is_bidirectional_iterator<_InputIter>::value,
+                       "Attempt to prev(it, +n) on a non-bidi iterator");
     _VSTD::advance(__x, -__n);
     return __x;
 }
@@ -1079,10 +1106,6 @@ public:
     _LIBCPP_INLINE_VISIBILITY ostreambuf_iterator& operator++(int) {return *this;}
     _LIBCPP_INLINE_VISIBILITY bool failed() const _NOEXCEPT {return __sbuf_ == 0;}
 
-#if !defined(__APPLE__) || \
-    (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED > __MAC_10_8) || \
-    (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_6_0)
-
     template <class _Ch, class _Tr>
     friend
     _LIBCPP_HIDDEN
@@ -1090,7 +1113,6 @@ public:
     __pad_and_output(ostreambuf_iterator<_Ch, _Tr> __s,
                      const _Ch* __ob, const _Ch* __op, const _Ch* __oe,
                      ios_base& __iob, _Ch __fl);
-#endif
 };
 
 template <class _Iter>
@@ -1123,7 +1145,7 @@ public:
       _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
       move_iterator(const move_iterator<_Up>& __u) : __i(__u.base()) {}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 _Iter base() const {return __i;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reference operator*() const { return static_cast<reference>(*__i); }
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     pointer  operator->() const { return __i;}
@@ -1237,50 +1259,50 @@ template <class _Iter> class __wrap_iter;
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator==(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator==(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator<(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator<(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator!=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator!=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator>(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator>=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator<=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator<=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 auto
-operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 -> decltype(__x.base() - __y.base());
 #else
 template <class _Iter1, class _Iter2>
 _LIBCPP_INLINE_VISIBILITY
 typename __wrap_iter<_Iter1>::difference_type
-operator-(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+operator-(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 #endif
 
 template <class _Iter>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 __wrap_iter<_Iter>
-operator+(typename __wrap_iter<_Iter>::difference_type, __wrap_iter<_Iter>) _NOEXCEPT_DEBUG;
+operator+(typename __wrap_iter<_Iter>::difference_type, __wrap_iter<_Iter>) _NOEXCEPT;
 
 template <class _Ip, class _Op> _Op _LIBCPP_INLINE_VISIBILITY copy(_Ip, _Ip, _Op);
 template <class _B1, class _B2> _B2 _LIBCPP_INLINE_VISIBILITY copy_backward(_B1, _B1, _B2);
@@ -1324,7 +1346,7 @@ public:
 private:
     iterator_type __i;
 public:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter() _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter() _NOEXCEPT
 #if _LIBCPP_STD_VER > 11
                 : __i{}
 #endif
@@ -1335,7 +1357,7 @@ public:
     }
     template <class _Up> _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
         __wrap_iter(const __wrap_iter<_Up>& __u,
-            typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = 0) _NOEXCEPT_DEBUG
+            typename enable_if<is_convertible<_Up, iterator_type>::value>::type* = 0) _NOEXCEPT
             : __i(__u.base())
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
@@ -1365,7 +1387,7 @@ public:
         __get_db()->__erase_i(this);
     }
 #endif
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference operator*() const _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference operator*() const _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
@@ -1373,7 +1395,7 @@ public:
 #endif
         return *__i;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG pointer  operator->() const _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG pointer  operator->() const _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
@@ -1381,7 +1403,7 @@ public:
 #endif
         return (pointer)_VSTD::addressof(*__i);
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator++() _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator++() _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__dereferenceable(this),
@@ -1390,10 +1412,10 @@ public:
         ++__i;
         return *this;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator++(int) _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator++(int) _NOEXCEPT
         {__wrap_iter __tmp(*this); ++(*this); return __tmp;}
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator--() _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator--() _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__decrementable(this),
@@ -1402,11 +1424,11 @@ public:
         --__i;
         return *this;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator--(int) _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator--(int) _NOEXCEPT
         {__wrap_iter __tmp(*this); --(*this); return __tmp;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator+ (difference_type __n) const _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator+ (difference_type __n) const _NOEXCEPT
         {__wrap_iter __w(*this); __w += __n; return __w;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator+=(difference_type __n) _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator+=(difference_type __n) _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__addable(this, __n),
@@ -1415,11 +1437,11 @@ public:
         __i += __n;
         return *this;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator- (difference_type __n) const _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter  operator- (difference_type __n) const _NOEXCEPT
         {return *this + (-__n);}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator-=(difference_type __n) _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter& operator-=(difference_type __n) _NOEXCEPT
         {*this += -__n; return *this;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference    operator[](difference_type __n) const _NOEXCEPT_DEBUG
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG reference    operator[](difference_type __n) const _NOEXCEPT
     {
 #if _LIBCPP_DEBUG_LEVEL >= 2
         _LIBCPP_ASSERT(__get_const_db()->__subscriptable(this, __n),
@@ -1428,7 +1450,7 @@ public:
         return __i[__n];
     }
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG iterator_type base() const _NOEXCEPT_DEBUG {return __i;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG iterator_type base() const _NOEXCEPT {return __i;}
 
 private:
 #if _LIBCPP_DEBUG_LEVEL >= 2
@@ -1437,61 +1459,61 @@ private:
         __get_db()->__insert_ic(this, __p);
     }
 #else
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter(iterator_type __x) _NOEXCEPT_DEBUG : __i(__x) {}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG __wrap_iter(iterator_type __x) _NOEXCEPT : __i(__x) {}
 #endif
 
     template <class _Up> friend class __wrap_iter;
     template <class _CharT, class _Traits, class _Alloc> friend class basic_string;
     template <class _Tp, class _Alloc> friend class _LIBCPP_TEMPLATE_VIS vector;
-    template <class _Tp, ptrdiff_t> friend class _LIBCPP_TEMPLATE_VIS span;
+    template <class _Tp, size_t> friend class _LIBCPP_TEMPLATE_VIS span;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator==(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator==(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator<(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator<(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator!=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator!=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator>(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator>(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator>=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator>=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     bool
-    operator<=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator<=(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 
 #ifndef _LIBCPP_CXX03_LANG
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     auto
-    operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+    operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
     -> decltype(__x.base() - __y.base());
 #else
     template <class _Iter1, class _Iter2>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     typename __wrap_iter<_Iter1>::difference_type
-    operator-(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT_DEBUG;
+    operator-(const __wrap_iter<_Iter1>&, const __wrap_iter<_Iter2>&) _NOEXCEPT;
 #endif
 
     template <class _Iter1>
     _LIBCPP_CONSTEXPR_IF_NODEBUG friend
     __wrap_iter<_Iter1>
-    operator+(typename __wrap_iter<_Iter1>::difference_type, __wrap_iter<_Iter1>) _NOEXCEPT_DEBUG;
+    operator+(typename __wrap_iter<_Iter1>::difference_type, __wrap_iter<_Iter1>) _NOEXCEPT;
 
     template <class _Ip, class _Op> friend _Op copy(_Ip, _Ip, _Op);
     template <class _B1, class _B2> friend _B2 copy_backward(_B1, _B1, _B2);
@@ -1522,7 +1544,7 @@ private:
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator==(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator==(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
     return __x.base() == __y.base();
 }
@@ -1530,7 +1552,7 @@ operator==(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEX
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
     _LIBCPP_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
@@ -1542,7 +1564,7 @@ operator<(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXC
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
     return !(__x == __y);
 }
@@ -1550,7 +1572,7 @@ operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEX
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
     return __y < __x;
 }
@@ -1558,7 +1580,7 @@ operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXC
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
     return !(__x < __y);
 }
@@ -1566,7 +1588,7 @@ operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEX
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
     return !(__y < __x);
 }
@@ -1574,7 +1596,7 @@ operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEX
 template <class _Iter1>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT_DEBUG
+operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT
 {
     return !(__x == __y);
 }
@@ -1582,7 +1604,7 @@ operator!=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEX
 template <class _Iter1>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT_DEBUG
+operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT
 {
     return __y < __x;
 }
@@ -1590,7 +1612,7 @@ operator>(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXC
 template <class _Iter1>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT_DEBUG
+operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT
 {
     return !(__x < __y);
 }
@@ -1598,7 +1620,7 @@ operator>=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEX
 template <class _Iter1>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 bool
-operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT_DEBUG
+operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEXCEPT
 {
     return !(__y < __x);
 }
@@ -1607,7 +1629,7 @@ operator<=(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter1>& __y) _NOEX
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 auto
-operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 -> decltype(__x.base() - __y.base())
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
@@ -1620,7 +1642,7 @@ operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXC
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 typename __wrap_iter<_Iter1>::difference_type
-operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT_DEBUG
+operator-(const __wrap_iter<_Iter1>& __x, const __wrap_iter<_Iter2>& __y) _NOEXCEPT
 {
 #if _LIBCPP_DEBUG_LEVEL >= 2
     _LIBCPP_ASSERT(__get_const_db()->__less_than_comparable(&__x, &__y),
@@ -1634,7 +1656,7 @@ template <class _Iter>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_IF_NODEBUG
 __wrap_iter<_Iter>
 operator+(typename __wrap_iter<_Iter>::difference_type __n,
-          __wrap_iter<_Iter> __x) _NOEXCEPT_DEBUG
+          __wrap_iter<_Iter> __x) _NOEXCEPT
 {
     __x += __n;
     return __x;
@@ -1643,7 +1665,7 @@ operator+(typename __wrap_iter<_Iter>::difference_type __n,
 template <class _Iter>
 struct __libcpp_is_trivial_iterator
     : public _LIBCPP_BOOL_CONSTANT(is_pointer<_Iter>::value) {};
-    
+
 template <class _Iter>
 struct __libcpp_is_trivial_iterator<move_iterator<_Iter> >
     : public _LIBCPP_BOOL_CONSTANT(__libcpp_is_trivial_iterator<_Iter>::value) {};
@@ -1658,7 +1680,7 @@ struct __libcpp_is_trivial_iterator<__wrap_iter<_Iter> >
 
 
 template <class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 _Tp*
 begin(_Tp (&__array)[_Np])
 {
@@ -1666,7 +1688,7 @@ begin(_Tp (&__array)[_Np])
 }
 
 template <class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 _Tp*
 end(_Tp (&__array)[_Np])
 {
@@ -1676,7 +1698,7 @@ end(_Tp (&__array)[_Np])
 #if !defined(_LIBCPP_CXX03_LANG)
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto
 begin(_Cp& __c) -> decltype(__c.begin())
 {
@@ -1684,7 +1706,7 @@ begin(_Cp& __c) -> decltype(__c.begin())
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto
 begin(const _Cp& __c) -> decltype(__c.begin())
 {
@@ -1692,7 +1714,7 @@ begin(const _Cp& __c) -> decltype(__c.begin())
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto
 end(_Cp& __c) -> decltype(__c.end())
 {
@@ -1700,7 +1722,7 @@ end(_Cp& __c) -> decltype(__c.end())
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto
 end(const _Cp& __c) -> decltype(__c.end())
 {
@@ -1710,84 +1732,84 @@ end(const _Cp& __c) -> decltype(__c.end())
 #if _LIBCPP_STD_VER > 11
 
 template <class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 reverse_iterator<_Tp*> rbegin(_Tp (&__array)[_Np])
 {
     return reverse_iterator<_Tp*>(__array + _Np);
 }
 
 template <class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 reverse_iterator<_Tp*> rend(_Tp (&__array)[_Np])
 {
     return reverse_iterator<_Tp*>(__array);
 }
 
 template <class _Ep>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 reverse_iterator<const _Ep*> rbegin(initializer_list<_Ep> __il)
 {
     return reverse_iterator<const _Ep*>(__il.end());
 }
 
 template <class _Ep>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 reverse_iterator<const _Ep*> rend(initializer_list<_Ep> __il)
 {
     return reverse_iterator<const _Ep*>(__il.begin());
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 auto cbegin(const _Cp& __c) -> decltype(_VSTD::begin(__c))
 {
     return _VSTD::begin(__c);
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 auto cend(const _Cp& __c) -> decltype(_VSTD::end(__c))
 {
     return _VSTD::end(__c);
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto rbegin(_Cp& __c) -> decltype(__c.rbegin())
 {
     return __c.rbegin();
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto rbegin(const _Cp& __c) -> decltype(__c.rbegin())
 {
     return __c.rbegin();
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto rend(_Cp& __c) -> decltype(__c.rend())
 {
     return __c.rend();
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto rend(const _Cp& __c) -> decltype(__c.rend())
 {
     return __c.rend();
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto crbegin(const _Cp& __c) -> decltype(_VSTD::rbegin(__c))
 {
     return _VSTD::rbegin(__c);
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 auto crend(const _Cp& __c) -> decltype(_VSTD::rend(__c))
 {
     return _VSTD::rend(__c);
@@ -1799,7 +1821,7 @@ auto crend(const _Cp& __c) -> decltype(_VSTD::rend(__c))
 #else  // defined(_LIBCPP_CXX03_LANG)
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 typename _Cp::iterator
 begin(_Cp& __c)
 {
@@ -1807,7 +1829,7 @@ begin(_Cp& __c)
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 typename _Cp::const_iterator
 begin(const _Cp& __c)
 {
@@ -1815,7 +1837,7 @@ begin(const _Cp& __c)
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 typename _Cp::iterator
 end(_Cp& __c)
 {
@@ -1823,7 +1845,7 @@ end(_Cp& __c)
 }
 
 template <class _Cp>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 typename _Cp::const_iterator
 end(const _Cp& __c)
 {
@@ -1849,51 +1871,64 @@ end(const _Cp& __c)
 // #endif
 
 template <class _Cont>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 constexpr auto size(const _Cont& __c)
 _NOEXCEPT_(noexcept(__c.size()))
 -> decltype        (__c.size())
 { return            __c.size(); }
 
 template <class _Tp, size_t _Sz>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 constexpr size_t size(const _Tp (&)[_Sz]) noexcept { return _Sz; }
 
+#if _LIBCPP_STD_VER > 17
 template <class _Cont>
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
+constexpr auto ssize(const _Cont& __c)
+_NOEXCEPT_(noexcept(static_cast<common_type_t<ptrdiff_t, make_signed_t<decltype(__c.size())>>>(__c.size())))
+->                              common_type_t<ptrdiff_t, make_signed_t<decltype(__c.size())>>
+{ return            static_cast<common_type_t<ptrdiff_t, make_signed_t<decltype(__c.size())>>>(__c.size()); }
+
+template <class _Tp, ptrdiff_t _Sz>
+_LIBCPP_INLINE_VISIBILITY
+constexpr ptrdiff_t ssize(const _Tp (&)[_Sz]) noexcept { return _Sz; }
+#endif
+
+template <class _Cont>
+_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
 constexpr auto empty(const _Cont& __c)
 _NOEXCEPT_(noexcept(__c.empty()))
 -> decltype        (__c.empty())
 { return            __c.empty(); }
 
 template <class _Tp, size_t _Sz>
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
 constexpr bool empty(const _Tp (&)[_Sz]) noexcept { return false; }
 
 template <class _Ep>
-_LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
 constexpr bool empty(initializer_list<_Ep> __il) noexcept { return __il.size() == 0; }
 
 template <class _Cont> constexpr
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 auto data(_Cont& __c)
 _NOEXCEPT_(noexcept(__c.data()))
 -> decltype        (__c.data())
 { return            __c.data(); }
 
 template <class _Cont> constexpr
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 auto data(const _Cont& __c)
 _NOEXCEPT_(noexcept(__c.data()))
--> decltype        (__c.data()) 
+-> decltype        (__c.data())
 { return            __c.data(); }
 
 template <class _Tp, size_t _Sz>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 constexpr _Tp* data(_Tp (&__array)[_Sz]) noexcept { return __array; }
 
 template <class _Ep>
-inline _LIBCPP_INLINE_VISIBILITY
+_LIBCPP_INLINE_VISIBILITY
 constexpr const _Ep* data(initializer_list<_Ep> __il) noexcept { return __il.begin(); }
 #endif
 

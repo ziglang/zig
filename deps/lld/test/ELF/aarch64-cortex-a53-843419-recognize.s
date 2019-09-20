@@ -28,7 +28,7 @@
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 211FF8 in unpatched output.
 // CHECK: t3_ff8_ldr:
-// CHECK-NEXT:    211ff8:        e0 01 00 f0     adrp    x0, #258048
+// CHECK-NEXT:    211ff8:        60 02 00 f0     adrp    x0, #323584
 // CHECK-NEXT:    211ffc:        21 00 40 f9     ldr             x1, [x1]
 // CHECK-FIX:     212000:        03 c8 00 14     b       #204812
 // CHECK-NOFIX:   212000:        00 00 40 f9     ldr             x0, [x0]
@@ -46,7 +46,7 @@ t3_ff8_ldr:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 213FF8 in unpatched output.
 // CHECK: t3_ff8_ldrsimd:
-// CHECK-NEXT:    213ff8:        e0 01 00 b0     adrp    x0, #249856
+// CHECK-NEXT:    213ff8:        60 02 00 b0     adrp    x0, #315392
 // CHECK-NEXT:    213ffc:        21 00 40 bd     ldr             s1, [x1]
 // CHECK-FIX:     214000:        05 c0 00 14     b       #196628
 // CHECK-NOFIX:   214000:        02 04 40 f9     ldr     x2, [x0, #8]
@@ -64,7 +64,7 @@ t3_ff8_ldrsimd:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 215FFC in unpatched output.
 // CHECK: t3_ffc_ldrpost:
-// CHECK-NEXT:    215ffc:        c0 01 00 f0     adrp    x0, #241664
+// CHECK-NEXT:    215ffc:        40 02 00 f0     adrp    x0, #307200
 // CHECK-NEXT:    216000:        21 84 40 bc     ldr     s1, [x1], #8
 // CHECK-FIX:     216004:        06 b8 00 14     b       #188440
 // CHECK-NOFIX:   216004:        03 08 40 f9     ldr     x3, [x0, #16]
@@ -82,7 +82,7 @@ t3_ffc_ldrpost:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 217FF8 in unpatched output.
 // CHECK: t3_ff8_strpre:
-// CHECK-NEXT:    217ff8:        c0 01 00 b0     adrp    x0, #233472
+// CHECK-NEXT:    217ff8:        40 02 00 b0     adrp    x0, #299008
 // CHECK-NEXT:    217ffc:        21 8c 00 bc     str     s1, [x1, #8]!
 // CHECK-FIX:     218000:        09 b0 00 14     b       #180260
 // CHECK-NOFIX:   218000:        02 00 40 f9     ldr             x2, [x0]
@@ -100,7 +100,7 @@ t3_ff8_strpre:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 219FFC in unpatched output.
 // CHECK: t3_ffc_str:
-// CHECK-NEXT:    219ffc:        bc 01 00 f0     adrp    x28, #225280
+// CHECK-NEXT:    219ffc:        3c 02 00 f0     adrp    x28, #290816
 // CHECK-NEXT:    21a000:        42 00 00 f9     str             x2, [x2]
 // CHECK-FIX:     21a004:        0a a8 00 14     b       #172072
 // CHECK-NOFIX:   21a004:        9c 07 00 f9     str     x28, [x28, #8]
@@ -118,7 +118,7 @@ t3_ffc_str:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 21BFFC in unpatched output.
 // CHECK: t3_ffc_strsimd:
-// CHECK-NEXT:    21bffc:        bc 01 00 b0     adrp    x28, #217088
+// CHECK-NEXT:    21bffc:        3c 02 00 b0     adrp    x28, #282624
 // CHECK-NEXT:    21c000:        44 00 00 b9     str             w4, [x2]
 // CHECK-FIX:     21c004:        0c a0 00 14     b       #163888
 // CHECK-NOFIX:   21c004:        84 0b 00 f9     str     x4, [x28, #16]
@@ -136,7 +136,7 @@ t3_ffc_strsimd:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 21DFF8 in unpatched output.
 // CHECK: t3_ff8_ldrunpriv:
-// CHECK-NEXT:    21dff8:        9d 01 00 f0     adrp    x29, #208896
+// CHECK-NEXT:    21dff8:        1d 02 00 f0     adrp    x29, #274432
 // CHECK-NEXT:    21dffc:        41 08 40 38     ldtrb           w1, [x2]
 // CHECK-FIX:     21e000:        0f 98 00 14     b       #155708
 // CHECK-NOFIX:   21e000:        bd 03 40 f9     ldr             x29, [x29]
@@ -154,7 +154,7 @@ t3_ff8_ldrunpriv:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 21FFFC in unpatched output.
 // CHECK: t3_ffc_ldur:
-// CHECK-NEXT:    21fffc:        9d 01 00 b0     adrp    x29, #200704
+// CHECK-NEXT:    21fffc:        1d 02 00 b0     adrp    x29, #266240
 // CHECK-NEXT:    220000:        42 40 40 b8     ldur    w2, [x2, #4]
 // CHECK-FIX:     220004:        10 90 00 14     b       #147520
 // CHECK-NOFIX:   220004:        bd 07 40 f9     ldr     x29, [x29, #8]
@@ -171,7 +171,7 @@ t3_ffc_ldur:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 221FFC in unpatched output.
 // CHECK: t3_ffc_sturh:
-// CHECK-NEXT:    221ffc:        72 01 00 f0     adrp    x18, #192512
+// CHECK-NEXT:    221ffc:        f2 01 00 f0     adrp    x18, #258048
 // CHECK-NEXT:    222000:        43 40 00 78     sturh   w3, [x2, #4]
 // CHECK-FIX:     222004:        12 88 00 14     b       #139336
 // CHECK-NOFIX:   222004:        41 0a 40 f9     ldr     x1, [x18, #16]
@@ -189,7 +189,7 @@ t3_ffc_sturh:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 223FF8 in unpatched output.
 // CHECK: t3_ff8_literal:
-// CHECK-NEXT:    223ff8:        72 01 00 b0     adrp    x18, #184320
+// CHECK-NEXT:    223ff8:        f2 01 00 b0     adrp    x18, #249856
 // CHECK-NEXT:    223ffc:        e3 ff ff 58     ldr     x3, #-4
 // CHECK-FIX:     224000:        15 80 00 14     b       #131156
 // CHECK-NOFIX:   224000:        52 02 40 f9     ldr             x18, [x18]
@@ -207,7 +207,7 @@ t3_ff8_literal:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 225FFC in unpatched output.
 // CHECK: t3_ffc_register:
-// CHECK-NEXT:    225ffc:        4f 01 00 f0     adrp    x15, #176128
+// CHECK-NEXT:    225ffc:        cf 01 00 f0     adrp    x15, #241664
 // CHECK-NEXT:    226000:        43 68 61 f8     ldr             x3, [x2, x1]
 // CHECK-FIX:     226004:        16 78 00 14     b       #122968
 // CHECK-NOFIX:   226004:        ea 05 40 f9     ldr     x10, [x15, #8]
@@ -225,7 +225,7 @@ t3_ffc_register:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 227FF8 in unpatched output.
 // CHECK: t3_ff8_stp:
-// CHECK-NEXT:    227ff8:        50 01 00 b0     adrp    x16, #167936
+// CHECK-NEXT:    227ff8:        d0 01 00 b0     adrp    x16, #233472
 // CHECK-NEXT:    227ffc:        61 08 00 a9     stp             x1, x2, [x3]
 // CHECK-FIX:     228000:        19 70 00 14     b       #114788
 // CHECK-NOFIX:   228000:        0d 0a 40 f9     ldr     x13, [x16, #16]
@@ -243,7 +243,7 @@ t3_ff8_stp:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 229FFC in unpatched output.
 // CHECK: t3_ffc_stnp:
-// CHECK-NEXT:    229ffc:        27 01 00 f0     adrp    x7, #159744
+// CHECK-NEXT:    229ffc:        a7 01 00 f0     adrp    x7, #225280
 // CHECK-NEXT:    22a000:        61 08 00 a8     stnp            x1, x2, [x3]
 // CHECK-FIX:     22a004:        1a 68 00 14     b       #106600
 // CHECK-NOFIX:   22a004:        e9 00 40 f9     ldr             x9, [x7]
@@ -261,7 +261,7 @@ t3_ffc_stnp:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 22BFFC in unpatched output.
 // CHECK: t3_ffc_st1singlepost:
-// CHECK-NEXT:    22bffc:        37 01 00 b0     adrp    x23, #151552
+// CHECK-NEXT:    22bffc:        b7 01 00 b0     adrp    x23, #217088
 // CHECK-NEXT:    22c000:        20 04 82 0d     st1 { v0.b }[1], [x1], x2
 // CHECK-FIX:     22c004:        1c 60 00 14     b       #98416
 // CHECK-NOFIX:   22c004:        f6 06 40 f9     ldr     x22, [x23, #8]
@@ -279,7 +279,7 @@ t3_ffc_st1singlepost:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 22DFF8 in unpatched output.
 // CHECK: t3_ff8_st1multiple:
-// CHECK-NEXT:    22dff8:        17 01 00 f0     adrp    x23, #143360
+// CHECK-NEXT:    22dff8:        97 01 00 f0     adrp    x23, #208896
 // CHECK-NEXT:    22dffc:        20 a0 00 4c     st1     { v0.16b, v1.16b }, [x1]
 // CHECK-FIX:     22e000:        1f 58 00 14     b       #90236
 // CHECK-NOFIX:   22e000:        f8 0a 40 f9     ldr     x24, [x23, #16]
@@ -297,7 +297,7 @@ t3_ff8_st1multiple:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 22FFF8 in unpatched output.
 // CHECK: t4_ff8_ldr:
-// CHECK-NEXT:    22fff8:        00 01 00 b0     adrp    x0, #135168
+// CHECK-NEXT:    22fff8:        80 01 00 b0     adrp    x0, #200704
 // CHECK-NEXT:    22fffc:        21 00 40 f9     ldr             x1, [x1]
 // CHECK-NEXT:    230000:        42 00 00 8b     add             x2, x2, x0
 // CHECK-FIX:     230004:        20 50 00 14     b       #82048
@@ -317,7 +317,7 @@ t4_ff8_ldr:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 231FFC in unpatched output.
 // CHECK: t4_ffc_str:
-// CHECK-NEXT:    231ffc:        fc 00 00 f0     adrp    x28, #126976
+// CHECK-NEXT:    231ffc:        7c 01 00 f0     adrp    x28, #192512
 // CHECK-NEXT:    232000:        42 00 00 f9     str             x2, [x2]
 // CHECK-NEXT:    232004:        20 00 02 cb     sub             x0, x1, x2
 // CHECK-FIX:     232008:        21 48 00 14     b       #73860
@@ -337,7 +337,7 @@ t4_ffc_str:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 233FF8 in unpatched output.
 // CHECK: t4_ff8_stp:
-// CHECK-NEXT:    233ff8:        f0 00 00 b0     adrp    x16, #118784
+// CHECK-NEXT:    233ff8:        70 01 00 b0     adrp    x16, #184320
 // CHECK-NEXT:    233ffc:        61 08 00 a9     stp             x1, x2, [x3]
 // CHECK-NEXT:    234000:        03 7e 10 9b     mul             x3, x16, x16
 // CHECK-FIX:     234004:        24 40 00 14     b       #65680
@@ -357,7 +357,7 @@ t4_ff8_stp:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 235FF8 in unpatched output.
 // CHECK: t4_ff8_stppre:
-// CHECK-NEXT:    235ff8:        d0 00 00 f0     adrp    x16, #110592
+// CHECK-NEXT:    235ff8:        50 01 00 f0     adrp    x16, #176128
 // CHECK-NEXT:    235ffc:        61 08 81 a9     stp     x1, x2, [x3, #16]!
 // CHECK-NEXT:    236000:        03 7e 10 9b     mul             x3, x16, x16
 // CHECK-FIX:     236004:        26 38 00 14     b       #57496
@@ -377,7 +377,7 @@ t4_ff8_stppre:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 237FF8 in unpatched output.
 // CHECK: t4_ff8_stppost:
-// CHECK-NEXT:    237ff8:        d0 00 00 b0     adrp    x16, #102400
+// CHECK-NEXT:    237ff8:        50 01 00 b0     adrp    x16, #167936
 // CHECK-NEXT:    237ffc:        61 08 81 a8     stp     x1, x2, [x3], #16
 // CHECK-NEXT:    238000:        03 7e 10 9b     mul             x3, x16, x16
 // CHECK-FIX:     238004:        28 30 00 14     b       #49312
@@ -397,7 +397,7 @@ t4_ff8_stppost:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 239FFC in unpatched output.
 // CHECK: t4_ffc_stpsimd:
-// CHECK-NEXT:    239ffc:        b0 00 00 f0     adrp    x16, #94208
+// CHECK-NEXT:    239ffc:        30 01 00 f0     adrp    x16, #159744
 // CHECK-NEXT:    23a000:        61 08 00 ad     stp             q1, q2, [x3]
 // CHECK-NEXT:    23a004:        03 7e 10 9b     mul             x3, x16, x16
 // CHECK-FIX:     23a008:        29 28 00 14     b       #41124
@@ -417,7 +417,7 @@ t4_ffc_stpsimd:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 23BFFC in unpatched output.
 // CHECK: t4_ffc_stnp:
-// CHECK-NEXT:    23bffc:        a7 00 00 b0     adrp    x7, #86016
+// CHECK-NEXT:    23bffc:        27 01 00 b0     adrp    x7, #151552
 // CHECK-NEXT:    23c000:        61 08 00 a8     stnp            x1, x2, [x3]
 // CHECK-NEXT:    23c004:        1f 20 03 d5     nop
 // CHECK-FIX:     23c008:        2b 20 00 14     b       #32940
@@ -437,7 +437,7 @@ t4_ffc_stnp:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 23DFFC in unpatched output.
 // CHECK: t4_ffc_st1:
-// CHECK-NEXT:    23dffc:        98 00 00 f0     adrp    x24, #77824
+// CHECK-NEXT:    23dffc:        18 01 00 f0     adrp    x24, #143360
 // CHECK-NEXT:    23e000:        20 80 00 4d     st1 { v0.s }[2], [x1]
 // CHECK-NEXT:    23e004:        f6 06 40 f9     ldr     x22, [x23, #8]
 // CHECK-FIX:     23e008:        2d 18 00 14     b       #24756
@@ -457,7 +457,7 @@ t4_ffc_st1:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 23FFF8 in unpatched output.
 // CHECK: t3_ff8_ldr_once:
-// CHECK-NEXT:    23fff8:        80 00 00 b0     adrp    x0, #69632
+// CHECK-NEXT:    23fff8:        00 01 00 b0     adrp    x0, #135168
 // CHECK-NEXT:    23fffc:        20 70 82 4c     st1     { v0.16b }, [x1], x2
 // CHECK-FIX:     240000:        31 10 00 14     b       #16580
 // CHECK-NOFIX:   240000:        01 08 40 f9     ldr     x1, [x0, #16]
@@ -477,7 +477,7 @@ t3_ff8_ldr_once:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 241FF8 in unpatched output.
 // CHECK: t3_ff8_ldxr:
-// CHECK-NEXT:    241ff8:        60 00 00 f0     adrp    x0, #61440
+// CHECK-NEXT:    241ff8:        e0 00 00 f0     adrp    x0, #126976
 // CHECK-NEXT:    241ffc:        03 7c 5f c8     ldxr    x3, [x0]
 // CHECK-FIX:     242000:        33 08 00 14     b       #8396
 // CHECK-NOFIX:   242000:        01 08 40 f9     ldr     x1, [x0, #16]
@@ -497,7 +497,7 @@ t3_ff8_ldxr:
 
 // CHECK-PRINT: detected cortex-a53-843419 erratum sequence starting at 243FF8 in unpatched output.
 // CHECK: t3_ff8_stxr:
-// CHECK-NEXT:    243ff8:        60 00 00 b0     adrp    x0, #53248
+// CHECK-NEXT:    243ff8:        e0 00 00 b0     adrp    x0, #118784
 // CHECK-NEXT:    243ffc:        03 7c 04 c8     stxr    w4, x3, [x0]
 // CHECK-FIX:     244000:        35 00 00 14     b       #212
 // CHECK-NOFIX:   244000:        01 08 40 f9     ldr     x1, [x0, #16]

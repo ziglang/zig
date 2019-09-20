@@ -9,7 +9,7 @@
 ; but keeps `protected` visibility.
 
 ; RUN: ld.lld %t1.o %t2.o -o %t.so -shared
-; RUN: llvm-readobj -t %t.so | FileCheck %s
+; RUN: llvm-readobj --symbols %t.so | FileCheck %s
 ; RUN: llvm-objdump -d %t.so | FileCheck %s --check-prefix=FIRST
 ; CHECK:       Symbol {
 ; CHECK:        Name: foo
@@ -27,7 +27,7 @@
 
 ; Now swap the files order.
 ; RUN: ld.lld %t2.o %t1.o -o %t.so -shared
-; RUN: llvm-readobj -t %t.so | FileCheck %s
+; RUN: llvm-readobj --symbols %t.so | FileCheck %s
 ; RUN: llvm-objdump -d %t.so | FileCheck %s --check-prefix=SECOND
 ; SECOND:      foo:
 ; SECOND-NEXT:   movl    $42, %eax

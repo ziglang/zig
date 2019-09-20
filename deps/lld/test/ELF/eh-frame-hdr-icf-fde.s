@@ -6,7 +6,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2 --icf=all --eh-frame-hdr
 # RUN: llvm-readobj -r %t | FileCheck %s --check-prefix=OBJ
-# RUN: llvm-readobj -s -section-data %t2 | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t2 | FileCheck %s
 
 # OBJ:      Relocations [
 # OBJ-NEXT:   Section {{.*}} .rela.eh_frame {

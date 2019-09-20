@@ -1,0 +1,36 @@
+## .dynamic section has invalid sh_entsize, check we report it.
+# RUN: yaml2obj -docnum=1 %s -o %t.so
+# RUN: not ld.lld %t.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR1
+# ERR1: error: {{.*}}.so: section [index 1] has an invalid sh_entsize: 291
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_DYN
+  Machine:         EM_X86_64
+Sections:
+  - Name:          .dynamic
+    Type:          SHT_DYNAMIC
+    Flags:         [ SHF_ALLOC ]
+    Link:          .strtab
+    EntSize:       0x123
+
+## The  .dynamic section has invalid sh_size, which is too short and
+## even less than entry size. Check we report it.
+# RUN: yaml2obj -docnum=2 %s -o %t.so
+# RUN: not ld.lld %t.so -o /dev/null 2>&1 | FileCheck %s --check-prefix=ERR2
+# ERR2: error: {{.*}}.so: section [index 1] has an invalid sh_size (1) which is not a multiple of its sh_entsize (16)
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_DYN
+  Machine:         EM_X86_64
+Sections:
+  - Name:          .dynamic
+    Type:          SHT_DYNAMIC
+    Flags:         [ SHF_ALLOC ]
+    Link:          .strtab
+    Content:       "00"

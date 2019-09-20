@@ -26,9 +26,9 @@ _start:
 // CHECK: _start:
 // CHECK-NEXT:   210ff8:        41 d0 3b d5     mrs     x1, TPIDR_EL0
 // CHECK-NEXT:   210ffc:        00 00 a0 d2     movz    x0, #0, lsl #16
-// CHECK-NEXT:   211000:        01 08 80 f2     movk    x1, #64
+// CHECK-NEXT:   211000:        01 02 80 f2     movk    x1, #16
 // CHECK-NEXT:   211004:        00 00 a0 d2     movz    x0, #0, lsl #16
-// CHECK-NEXT:   211008:        01 08 80 f2     movk    x1, #64
+// CHECK-NEXT:   211008:        01 02 80 f2     movk    x1, #16
 // CHECK-NEXT:   21100c:        c0 03 5f d6     ret
 
  .type  v,@object

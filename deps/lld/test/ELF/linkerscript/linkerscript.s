@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux \
 # RUN:   %p/Inputs/libsearch-st.s -o %t2.o
 
-# RUN: echo "EXTERN( undef undef2 )" > %t.script
+# RUN: echo "EXTERN( undef undef2 \"undef3\" \"undef4@@other\")" > %t.script
 # RUN: ld.lld %t -o %t2 %t.script
 # RUN: llvm-readobj %t2 > /dev/null
 

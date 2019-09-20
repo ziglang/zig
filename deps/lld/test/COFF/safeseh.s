@@ -1,11 +1,11 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple i686-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:noref -entry:main
-# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
+# RUN: llvm-readobj --coff-basereloc --coff-load-config --file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:noref -entry:main -debug:dwarf
-# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
+# RUN: llvm-readobj --coff-basereloc --coff-load-config --file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:ref -entry:main
-# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-GC
+# RUN: llvm-readobj --coff-basereloc --coff-load-config --file-headers %t.exe | FileCheck %s --check-prefix=CHECK-GC
 
 # __safe_se_handler_table needs to be relocated against ImageBase.
 # check that the relocation is present.

@@ -1,7 +1,7 @@
 ; REQUIRES: x86
 ; RUN: llvm-as -o %t.obj %s
 ; RUN: lld-link /out:%t.exe %t.obj /entry:main /subsystem:console
-; RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
+; RUN: llvm-readobj --file-headers %t.exe | FileCheck %s
 
 ; CHECK: LoadConfigTableRVA: 0x2000
 ; CHECK: LoadConfigTableSize: 0x70

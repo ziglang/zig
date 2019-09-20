@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld --eh-frame-hdr --section-start .text=0x1000 %t.o -o %t
-# RUN: llvm-readobj -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 ## Check we are able to handle DW_EH_PE_absptr encoding.
 

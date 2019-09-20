@@ -1,19 +1,19 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /section:.foo,r %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=R %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=R %s
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /section:.foo,w %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=W %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=W %s
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /section:.foo,e %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=E %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=E %s
 
 # RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
 # RUN:   /section:.foo,s %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=S %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=S %s
 
 # R:      Characteristics [
 # R-NEXT:   IMAGE_SCN_CNT_INITIALIZED_DATA

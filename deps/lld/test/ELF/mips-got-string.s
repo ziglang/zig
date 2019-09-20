@@ -3,20 +3,12 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux -o %t.o %s
 # RUN: ld.lld -shared -o %t.so %t.o
-# RUN: llvm-readobj -t -mips-plt-got %t.so | FileCheck %s
+# RUN: llvm-readelf --mips-plt-got %t.so | FileCheck %s
 
-# CHECK:      Symbol {
-# CHECK:        Name: $.str
-# CHECK-NEXT:   Value: 0x1B1
-# CHECK:      }
-
-# CHECK:      Local entries [
-# CHECK-NEXT:   Entry {
-# CHECK-NEXT:     Address:
-# CHECK-NEXT:     Access: -32744
-# CHECK-NEXT:     Initial: 0x0
-# CHECK:        }
-# CHECK:      ]
+# CHECK:       Local entries:
+# CHECK-NEXT:         Address     Access  Initial
+# CHECK-NEXT:   {{[0-9a-f]+}} -32744(gp) 00000000
+# CHECK-NEXT:   {{[0-9a-f]+}} -32740(gp) 00010000
 
   .text
   lw     $t9, %got($.str)($gp)

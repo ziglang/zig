@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: echo "SECTIONS { .foo : { *(.foo) } .bar : { *(.got.plt) BYTE(0x11) }}" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 
 ## We have ".got.plt" synthetic section with SHF_ALLOC|SHF_WRITE flags.
 ## It is empty, so linker removes it, but it has to keep ".got.plt" output
@@ -21,7 +21,7 @@
 ## Check flags are not the same if we omit empty synthetic section in script.
 # RUN: echo "SECTIONS { .foo : { *(.foo) } .bar : { BYTE(0x11) }}" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readobj -s %t | FileCheck --check-prefix=EMPTY %s
+# RUN: llvm-readobj -S %t | FileCheck --check-prefix=EMPTY %s
 
 # EMPTY:     Section {
 # EMPTY:       Index: 2

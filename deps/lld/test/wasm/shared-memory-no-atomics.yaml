@@ -1,0 +1,60 @@
+# RUN: yaml2obj %s -o %t1.o
+
+# RUN: wasm-ld --no-entry %t1.o -o - | obj2yaml | FileCheck %s --check-prefix NO-SHARED
+
+# RUN: not wasm-ld --no-entry --shared-memory --max-memory=131072 %t1.o -o - 2>&1 | FileCheck %s --check-prefix SHARED
+
+--- !WASM
+FileHeader:
+  Version:         0x00000001
+Sections:
+  - Type:            IMPORT
+    Imports:
+      - Module:          env
+        Field:           __linear_memory
+        Kind:            MEMORY
+        Memory:
+          Initial:         0x00000001
+      - Module:          env
+        Field:           __indirect_function_table
+        Kind:            TABLE
+        Table:
+          ElemType:        FUNCREF
+          Limits:
+            Initial:         0x00000000
+  - Type:            DATA
+    Segments:
+      - SectionOffset:   6
+        InitFlags:       0
+        Offset:
+          Opcode:          I32_CONST
+          Value:           0
+        Content:         68656C6C6F0A00
+  - Type:            CUSTOM
+    Name:            linking
+    Version:         2
+    SymbolTable:
+      - Index:           0
+        Kind:            DATA
+        Name:            hello_str
+        Flags:           [  ]
+        Segment:         0
+        Size:            7
+    SegmentInfo:
+      - Index:           0
+        Name:            .rodata.hello_str
+        Alignment:       0
+        Flags:           [  ]
+  - Type:            CUSTOM
+    Name:            target_features
+    Features:
+      - Prefix:        DISALLOWED
+        Name:          "atomics"
+...
+
+# NO-SHARED:      - Type:            MEMORY
+# NO-SHARED-NEXT:   Memories:
+# NO-SHARED-NEXT:     - Initial:         0x00000002
+# NO-SHARED-NOT:        Maximum:
+
+# SHARED: 'atomics' feature is disallowed by {{.*}}shared-memory-no-atomics.yaml.tmp1.o, so --shared-memory must not be used{{$}}

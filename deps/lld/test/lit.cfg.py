@@ -87,15 +87,18 @@ config.environment['LLD_IN_TEST'] = '1'
 # Indirectly check if the mt.exe Microsoft utility exists by searching for
 # cvtres, which always accompanies it.  Alternatively, check if we can use
 # libxml2 to merge manifests.
-if (lit.util.which('cvtres', config.environment['PATH'])) or \
-        (config.llvm_libxml2_enabled == '1'):
+if (lit.util.which('cvtres', config.environment['PATH']) or 
+        config.llvm_libxml2_enabled):
     config.available_features.add('manifest_tool')
 
-if (config.llvm_libxml2_enabled == '1'):
+if config.llvm_libxml2_enabled:
     config.available_features.add('libxml2')
 
 if config.have_dia_sdk:
     config.available_features.add("diasdk")
+
+if config.sizeof_void_p == 8:
+    config.available_features.add("llvm-64-bits")
 
 tar_executable = lit.util.which('tar', config.environment['PATH'])
 if tar_executable:

@@ -1,9 +1,9 @@
 # RUN: sed -e s/ENTRYNAME/_mainCRTStartup/ %s | yaml2obj > %t.obj
-# RUN: lld-link /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
+# RUN: lld-link -safeseh:no /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
 
 # RUN: sed -e s/ENTRYNAME/?mainCRTStartup@@YAHXZ/ %s | yaml2obj > %t.obj
-# RUN: lld-link /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
+# RUN: lld-link -safeseh:no /subsystem:console /out:%t.exe %t.obj /verbose /nodefaultlib > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
 
 # CHECK: Entry name inferred: _mainCRTStartup

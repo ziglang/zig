@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------- coroutine -----------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -82,7 +81,7 @@ struct __coroutine_traits_sfinae<
 };
 
 template <typename _Ret, typename... _Args>
-struct _LIBCPP_TEMPLATE_VIS coroutine_traits
+struct coroutine_traits
     : public __coroutine_traits_sfinae<_Ret>
 {
 };
@@ -299,7 +298,7 @@ noop_coroutine_handle noop_coroutine() _NOEXCEPT {
 }
 #endif // __has_builtin(__builtin_coro_noop)
 
-struct _LIBCPP_TYPE_VIS suspend_never {
+struct suspend_never {
   _LIBCPP_INLINE_VISIBILITY
   bool await_ready() const _NOEXCEPT { return true; }
   _LIBCPP_INLINE_VISIBILITY
@@ -308,7 +307,7 @@ struct _LIBCPP_TYPE_VIS suspend_never {
   void await_resume() const _NOEXCEPT {}
 };
 
-struct _LIBCPP_TYPE_VIS suspend_always {
+struct suspend_always {
   _LIBCPP_INLINE_VISIBILITY
   bool await_ready() const _NOEXCEPT { return false; }
   _LIBCPP_INLINE_VISIBILITY

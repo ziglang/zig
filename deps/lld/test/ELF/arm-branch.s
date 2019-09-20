@@ -38,6 +38,7 @@ callee_high:
  bx lr
 
 // CHECK: Disassembly of section .caller:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // S(callee_low) = 0xb4 P = 0x10000 A = -8 = -0xff54 = -65364
 // CHECK-NEXT:   10000:       2b c0 ff eb          bl      #-65364 <callee_low>

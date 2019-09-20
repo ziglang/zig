@@ -11,7 +11,7 @@ SECTIONS {
 }
 
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT: Idx Name          Size     VMA              Type
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .aaa          00000008 0000000000010000 DATA
 # CHECK-NEXT:   2 .bbb          00000008 0000000000011000 DATA

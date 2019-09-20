@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=aarch64-pc-freebsd %p/Inputs/relocation-copy.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -soname fixed-length-string.so -o %t2.so
 // RUN: ld.lld %t.o %t2.so -o %t3
-// RUN: llvm-readobj -s -r --expand-relocs -symbols %t3 | FileCheck %s
+// RUN: llvm-readobj -S -r --expand-relocs --symbols %t3 | FileCheck %s
 // RUN: llvm-objdump -d %t3 | FileCheck -check-prefix=CODE %s
 // RUN: llvm-objdump -s -section=.rodata %t3 | FileCheck -check-prefix=RODATA %s
 
@@ -77,6 +77,7 @@ _start:
 // CHECK: ]
 
 // CODE: Disassembly of section .text:
+// CODE-EMPTY:
 // CODE-NEXT: _start:
 // S(x) = 0x230000, A = 0, P = 0x210000
 // S + A - P = 0x20000 = 131072
@@ -90,4 +91,4 @@ _start:
 
 // RODATA: Contents of section .rodata:
 // S(z) = 0x230014
-// RODATA-NEXT:  2002e0 14002300
+// RODATA-NEXT:  200318 14002300

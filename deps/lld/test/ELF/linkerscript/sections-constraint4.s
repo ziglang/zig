@@ -4,7 +4,7 @@
 # RUN:  .foo : ONLY_IF_RO { *(.foo) } \
 # RUN:  .bar : {bar1 = .; *(.bar) } }" > %t1.script
 # RUN: ld.lld -o %t1 --script %t1.script %t
-# RUN: llvm-readobj -t %t1 | FileCheck %s
+# RUN: llvm-readobj --symbols %t1 | FileCheck %s
 
 # CHECK: Name: bar1
 

@@ -3,7 +3,7 @@
 // RUN: %s -o %t.o
 // RUN: llvm-readobj -r %t.o | FileCheck --check-prefix=RELS %s
 // RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
-// RUN: llvm-readobj -s -r %t.so | FileCheck %s
+// RUN: llvm-readobj -S -r %t.so | FileCheck %s
 
 movq foo@GOTPCREL(%rip), %rax
 movq bar@GOTPCREL(%rip), %rax

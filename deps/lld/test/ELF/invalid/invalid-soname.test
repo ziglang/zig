@@ -14,5 +14,8 @@ Sections:
   - Name:          .test
     Type:          SHT_DYNAMIC
     Flags:         [ SHF_ALLOC ]
-    Content:         "0e000000000000000000000000000001"
     Link:          .strtab
+    EntSize:       0x0000000000000010
+    Entries:       
+      - Tag:         DT_SONAME
+        Value:       0x0100000000000000

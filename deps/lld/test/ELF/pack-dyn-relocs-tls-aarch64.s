@@ -2,7 +2,7 @@
 
 // RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-linux %s -o %t.o
 // RUN: ld.lld -shared --pack-dyn-relocs=android %t.o -o %t.so
-// RUN: llvm-readobj -relocations %t.so | FileCheck %s
+// RUN: llvm-readobj -r %t.so | FileCheck %s
 
 // Bug 37841: Symbol::getVA must work on TLS symbols during the layout loop in
 // finalizeSections.

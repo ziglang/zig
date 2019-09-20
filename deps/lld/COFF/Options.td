@@ -3,11 +3,11 @@ include "llvm/Option/OptParser.td"
 // link.exe accepts options starting with either a dash or a slash.
 
 // Flag that takes no arguments.
-class F<string name> : Flag<["/", "-", "-?"], name>;
+class F<string name> : Flag<["/", "-", "/?", "-?"], name>;
 
 // Flag that takes one argument after ":".
 class P<string name, string help> :
-      Joined<["/", "-", "-?"], name#":">, HelpText<help>;
+      Joined<["/", "-", "/?", "-?"], name#":">, HelpText<help>;
 
 // Boolean flag which can be suffixed by ":no". Using it unsuffixed turns the
 // flag on and using it suffixed by ":no" turns it off.
@@ -32,6 +32,9 @@ def errorlimit : P<"errorlimit",
 def export  : P<"export", "Export a function">;
 // No help text because /failifmismatch is not intended to be used by the user.
 def failifmismatch : P<"failifmismatch", "">;
+def filealign : P<"filealign", "Section alignment in the output file">;
+def functionpadmin : F<"functionpadmin">;
+def functionpadmin_opt : P<"functionpadmin", "Prepares an image for hotpatching">;
 def guard   : P<"guard", "Control flow guard">;
 def heap    : P<"heap", "Size of the heap">;
 def ignore : P<"ignore", "Specify warning codes to ignore">;
@@ -64,7 +67,8 @@ def timestamp : P<"timestamp", "Specify the PE header timestamp">;
 def version : P<"version", "Specify a version number in the PE header">;
 def wholearchive_file : P<"wholearchive", "Include all object files from this archive">;
 
-def disallowlib : Joined<["/", "-", "-?"], "disallowlib:">, Alias<nodefaultlib>;
+def disallowlib : Joined<["/", "-", "/?", "-?"], "disallowlib:">,
+    Alias<nodefaultlib>;
 
 def manifest : F<"manifest">, HelpText<"Create .manifest file">;
 def manifest_colon : P<
@@ -82,11 +86,11 @@ def manifestinput : P<
 // We cannot use multiclass P because class name "incl" is different
 // from its command line option name. We do this because "include" is
 // a reserved keyword in tablegen.
-def incl : Joined<["/", "-"], "include:">,
+def incl : Joined<["/", "-", "/?", "-?"], "include:">,
     HelpText<"Force symbol to be added to symbol table as undefined one">;
 
 // "def" is also a keyword.
-def deffile : Joined<["/", "-"], "def:">,
+def deffile : Joined<["/", "-", "/?", "-?"], "def:">,
     HelpText<"Use module-definition file">;
 
 def debug : F<"debug">, HelpText<"Embed a symbol table in the image">;
@@ -101,8 +105,12 @@ def noentry : F<"noentry">,
 def profile : F<"profile">;
 def repro : F<"Brepro">,
     HelpText<"Use a hash of the executable as the PE header timestamp">;
-def swaprun_cd : F<"swaprun:cd">;
-def swaprun_net : F<"swaprun:net">;
+def swaprun : P<"swaprun",
+  "Comma-separated list of 'cd' or 'net'">;
+def swaprun_cd : F<"swaprun:cd">, Alias<swaprun>, AliasArgs<["cd"]>,
+  HelpText<"Make loader run output binary from swap instead of from CD">;
+def swaprun_net : F<"swaprun:net">, Alias<swaprun>, AliasArgs<["net"]>,
+  HelpText<"Make loader run output binary from swap instead of from network">;
 def verbose : F<"verbose">;
 def wholearchive_flag : F<"wholearchive">;
 
@@ -112,6 +120,8 @@ def force_unresolved : F<"force:unresolved">,
     HelpText<"Allow undefined symbols when creating executables">;
 def force_multiple : F<"force:multiple">,
     HelpText<"Allow multiply defined symbols when creating executables">;
+def force_multipleres : F<"force:multipleres">,
+    HelpText<"Allow multiply defined resources when creating executables">;
 defm WX : B<"WX", "Treat warnings as errors", "Don't treat warnings as errors">;
 
 defm allowbind : B<"allowbind", "Enable DLL binding (default)",
@@ -147,37 +157,58 @@ defm tsaware  : B<"tsaware",
                   "Create non-Terminal Server aware executable">;
 
 def help : F<"help">;
-def help_q : Flag<["/?", "-?"], "">, Alias<help>;
+
+// /?? and -?? must be before /? and -? to not confuse lib/Options.
+def help_q : Flag<["/??", "-??", "/?", "-?"], "">, Alias<help>;
 
 // LLD extensions
+def exclude_all_symbols : F<"exclude-all-symbols">;
 def export_all_symbols : F<"export-all-symbols">;
+defm demangle : B<"demangle",
+    "Demangle symbols in output (default)",
+    "Do not demangle symbols in output">;
+def include_optional : Joined<["/", "-", "/?", "-?"], "includeoptional:">,
+    HelpText<"Add symbol as undefined, but allow it to remain undefined">;
 def kill_at : F<"kill-at">;
 def lldmingw : F<"lldmingw">;
-def output_def : Joined<["/", "-"], "output-def:">;
+def output_def : Joined<["/", "-", "/?", "-?"], "output-def:">;
 def pdb_source_path : P<"pdbsourcepath",
                         "Base path used to make relative source file path absolute in PDB">;
 def rsp_quoting : Joined<["--"], "rsp-quoting=">,
   HelpText<"Quoting style for response files, 'windows' (default) or 'posix'">;
+def thinlto_emit_imports_files :
+    F<"thinlto-emit-imports-files">,
+    HelpText<"Emit .imports files with -thinlto-index-only">;
+def thinlto_index_only :
+    F<"thinlto-index-only">,
+    HelpText<"Instead of linking, emit ThinLTO index files">;
+def thinlto_index_only_arg : P<
+    "thinlto-index-only",
+    "-thinlto-index-only and also write native module names to file">;
+def thinlto_object_suffix_replace : P<
+    "thinlto-object-suffix-replace",
+    "'old;new' replace old suffix with new suffix in ThinLTO index">;
+def thinlto_prefix_replace: P<
+    "thinlto-prefix-replace",
+    "'old;new' replace old prefix with new prefix in ThinLTO outputs">;
 def dash_dash_version : Flag<["--"], "version">,
   HelpText<"Print version information">;
+defm threads: B<"threads",
+    "Run the linker multi-threaded (default)",
+    "Do not run the linker multi-threaded">;
 
 // Flags for debugging
 def lldmap : F<"lldmap">;
-def lldmap_file : Joined<["/", "-"], "lldmap:">;
+def lldmap_file : Joined<["/", "-", "/?", "-?"], "lldmap:">;
 def show_timing : F<"time">;
+def summary : F<"summary">;
 
 //==============================================================================
 // The flags below do nothing. They are defined only for link.exe compatibility.
 //==============================================================================
 
-class QF<string name> : Joined<["/", "-", "-?"], name#":">;
+class QF<string name> : Joined<["/", "-", "/?", "-?"], name#":">;
 
-multiclass QB<string name> {
-  def "" : F<name>;
-  def _no : F<name#":no">;
-}
-
-def functionpadmin : F<"functionpadmin">;
 def ignoreidl : F<"ignoreidl">;
 def nologo : F<"nologo">;
 def throwingnew : F<"throwingnew">;

@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld --eh-frame-hdr %t.o -o %t.so -shared
-// RUN: llvm-readobj -t -s %t.so | FileCheck %s
+// RUN: llvm-readobj --symbols -S %t.so | FileCheck %s
 // We used to crash on this.
 
 // CHECK:      Name: .eh_frame_hdr

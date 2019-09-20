@@ -10,7 +10,7 @@
 
 # CHECK:      Relocations [
 # CHECK-NEXT:   Section ({{.*}}) .rela.plt {
-# CHECK-NEXT:     0x2018 R_X86_64_JUMP_SLOT foo
+# CHECK-NEXT:     0x3018 R_X86_64_JUMP_SLOT foo
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 

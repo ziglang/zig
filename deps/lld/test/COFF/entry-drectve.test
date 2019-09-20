@@ -1,5 +1,5 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /subsystem:console /out:%t.exe %t.obj
+# RUN: lld-link -safeseh:no /subsystem:console /out:%t.exe %t.obj
 
 --- !COFF
 header:

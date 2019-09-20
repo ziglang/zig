@@ -4,7 +4,7 @@
 # RUN: ld.lld %t2.o -o %t2.so -shared
 # RUN: echo "SECTIONS { . = . + SIZEOF_HEADERS; foo = bar; }" > %t.script
 # RUN: ld.lld %t.o %t2.so --script %t.script -o %t
-# RUN: llvm-readobj -t %t | FileCheck %s
+# RUN: llvm-readobj --symbols %t | FileCheck %s
 
 # CHECK:      Name: bar
 # CHECK-NEXT: Value: 0x[[VAL:.*]]

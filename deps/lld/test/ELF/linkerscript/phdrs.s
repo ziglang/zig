@@ -7,7 +7,7 @@
 # RUN:           .foo : {*(.foo.*)} :all \
 # RUN:           .data : {*(.data.*)} :all}" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s
 
 ## Check that program headers are not written, unless we explicitly tell
 ## lld to do this.
@@ -18,7 +18,7 @@
 # RUN:           .foo : {*(.foo.*)} :all \
 # RUN:       }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck --check-prefix=NOPHDR %s
+# RUN: llvm-readobj -l %t1 | FileCheck --check-prefix=NOPHDR %s
 
 ## Check the AT(expr)
 # RUN: echo "PHDRS {all PT_LOAD FILEHDR PHDRS AT(0x500 + 0x500) ;} \
@@ -28,7 +28,7 @@
 # RUN:           .foo : {*(.foo.*)} :all \
 # RUN:           .data : {*(.data.*)} :all}" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck --check-prefix=AT %s
+# RUN: llvm-readobj -l %t1 | FileCheck --check-prefix=AT %s
 
 # RUN: echo "PHDRS {all PT_LOAD FILEHDR PHDRS ;} \
 # RUN:       SECTIONS { \
@@ -37,7 +37,7 @@
 # RUN:           .foo : {*(.foo.*)}  \
 # RUN:           .data : {*(.data.*)} }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck --check-prefix=DEFHDR %s
+# RUN: llvm-readobj -l %t1 | FileCheck --check-prefix=DEFHDR %s
 
 ## Check that error is reported when trying to use phdr which is not listed
 ## inside PHDRS {} block
@@ -95,7 +95,7 @@
 # RUN: echo "PHDRS {text PT_LOAD FILEHDR PHDRS; foo 0x11223344; } \
 # RUN:       SECTIONS { . = SIZEOF_HEADERS; .foo : { *(.foo* .text*) } : text : foo}" > %t1.script
 # RUN: ld.lld -o %t2 --script %t1.script %t
-# RUN: llvm-readobj -program-headers %t2 | FileCheck --check-prefix=INT-PHDRS %s
+# RUN: llvm-readobj -l %t2 | FileCheck --check-prefix=INT-PHDRS %s
 
 # INT-PHDRS:      ProgramHeaders [
 # INT-PHDRS:        ProgramHeader {

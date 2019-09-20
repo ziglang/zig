@@ -8,6 +8,7 @@ pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     else => struct {},
 };
 

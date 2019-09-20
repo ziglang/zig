@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
-// RUN: llvm-readobj -file-headers %tout | FileCheck %s
+// RUN: llvm-readobj --file-headers %tout | FileCheck %s
  .syntax unified
  .text
  .globl _start

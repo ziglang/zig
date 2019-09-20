@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-linux-gnueabihf %s -o %t
 // RUN: ld.lld --hash-style=sysv -shared %t -o %t2
-// RUN: llvm-readobj -t %t2 | FileCheck %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck %s
 
 // The ARM _GLOBAL_OFFSET_TABLE_ should be defined at the start of the .got
 .globl  a
@@ -25,7 +25,7 @@ _start:
 .data
 
 // CHECK:     Name: _GLOBAL_OFFSET_TABLE_
-// CHECK-NEXT:     Value: 0x3068
+// CHECK-NEXT:     Value: 0x2068
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local
 // CHECK-NEXT:     Type: None

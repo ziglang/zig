@@ -4,9 +4,9 @@
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld -shared %t.o %t2.so -o %t
 // RUN: ld.lld %t.o %t2.so -o %t3
-// RUN: llvm-readobj -s -r %t | FileCheck %s
+// RUN: llvm-readobj -S -r %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
-// RUN: llvm-readobj -s -r %t3 | FileCheck --check-prefix=CHECK2 %s
+// RUN: llvm-readobj -S -r %t3 | FileCheck --check-prefix=CHECK2 %s
 // RUN: llvm-objdump -d %t3 | FileCheck --check-prefix=DISASM2 %s
 
 // CHECK:      Name: .plt
@@ -24,9 +24,9 @@
 
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section ({{.*}}) .rela.plt {
-// CHECK-NEXT:     0x2018 R_X86_64_JUMP_SLOT bar 0x0
-// CHECK-NEXT:     0x2020 R_X86_64_JUMP_SLOT zed 0x0
-// CHECK-NEXT:     0x2028 R_X86_64_JUMP_SLOT _start 0x0
+// CHECK-NEXT:     0x3018 R_X86_64_JUMP_SLOT bar 0x0
+// CHECK-NEXT:     0x3020 R_X86_64_JUMP_SLOT zed 0x0
+// CHECK-NEXT:     0x3028 R_X86_64_JUMP_SLOT _start 0x0
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 
@@ -45,8 +45,8 @@
 
 // CHECK2:      Relocations [
 // CHECK2-NEXT:   Section ({{.*}}) .rela.plt {
-// CHECK2-NEXT:     0x202018 R_X86_64_JUMP_SLOT bar 0x0
-// CHECK2-NEXT:     0x202020 R_X86_64_JUMP_SLOT zed 0x0
+// CHECK2-NEXT:     0x203018 R_X86_64_JUMP_SLOT bar 0x0
+// CHECK2-NEXT:     0x203020 R_X86_64_JUMP_SLOT zed 0x0
 // CHECK2-NEXT:   }
 // CHECK2-NEXT: ]
 
@@ -64,28 +64,29 @@
 // DISASM-NEXT:   100a:  e9 {{.*}}       jmp  49
 // DISASM-NEXT:   100f:  e9 {{.*}}       jmp  60
 
-// 0x2018 - 0x1036  = 4066
-// 0x2020 - 0x1046  = 4058
-// 0x2028 - 0x1056  = 4050
+// 0x3018 - 0x1036  = 8162
+// 0x3020 - 0x1046  = 8154
+// 0x3028 - 0x1056  = 8146
 
 // DISASM:      Disassembly of section .plt:
+// DISASM-EMPTY:
 // DISASM-NEXT: .plt:
-// DISASM-NEXT:   1020:  ff 35 e2 0f 00 00  pushq 4066(%rip)
-// DISASM-NEXT:   1026:  ff 25 e4 0f 00 00  jmpq *4068(%rip)
+// DISASM-NEXT:   1020:  ff 35 e2 1f 00 00  pushq 8162(%rip)
+// DISASM-NEXT:   1026:  ff 25 e4 1f 00 00  jmpq *8164(%rip)
 // DISASM-NEXT:   102c:  0f 1f 40 00        nopl (%rax)
 // DISASM-EMPTY:
 // DISASM-NEXT:   bar@plt:
-// DISASM-NEXT:   1030:  ff 25 e2 0f 00 00  jmpq *4066(%rip)
+// DISASM-NEXT:   1030:  ff 25 e2 1f 00 00  jmpq *8162(%rip)
 // DISASM-NEXT:   1036:  68 00 00 00 00     pushq $0
 // DISASM-NEXT:   103b:  e9 e0 ff ff ff     jmp -32 <.plt>
 // DISASM-EMPTY:
 // DISASM-NEXT:   zed@plt:
-// DISASM-NEXT:   1040:  ff 25 da 0f 00 00  jmpq *4058(%rip)
+// DISASM-NEXT:   1040:  ff 25 da 1f 00 00  jmpq *8154(%rip)
 // DISASM-NEXT:   1046:  68 01 00 00 00     pushq $1
 // DISASM-NEXT:   104b:  e9 d0 ff ff ff     jmp -48 <.plt>
 // DISASM-EMPTY:
 // DISASM-NEXT:   _start@plt:
-// DISASM-NEXT:   1050:  ff 25 d2 0f 00 00  jmpq *4050(%rip)
+// DISASM-NEXT:   1050:  ff 25 d2 1f 00 00  jmpq *8146(%rip)
 // DISASM-NEXT:   1056:  68 02 00 00 00     pushq $2
 // DISASM-NEXT:   105b:  e9 c0 ff ff ff     jmp -64 <.plt>
 
@@ -104,18 +105,19 @@
 // 0x202020 - 0x201046  = 4058
 
 // DISASM2:      Disassembly of section .plt:
+// DISASM2-EMPTY:
 // DISASM2-NEXT: .plt:
-// DISASM2-NEXT:  201020:  ff 35 e2 0f 00 00   pushq 4066(%rip)
-// DISASM2-NEXT:  201026:  ff 25 e4 0f 00 00   jmpq *4068(%rip)
+// DISASM2-NEXT:  201020:  ff 35 e2 1f 00 00   pushq 8162(%rip)
+// DISASM2-NEXT:  201026:  ff 25 e4 1f 00 00   jmpq *8164(%rip)
 // DISASM2-NEXT:  20102c:  0f 1f 40 00         nopl  (%rax)
 // DISASM2-EMPTY:
 // DISASM2-NEXT:   bar@plt:
-// DISASM2-NEXT:  201030:  ff 25 e2 0f 00 00   jmpq *4066(%rip)
+// DISASM2-NEXT:  201030:  ff 25 e2 1f 00 00   jmpq *8162(%rip)
 // DISASM2-NEXT:  201036:  68 00 00 00 00      pushq $0
 // DISASM2-NEXT:  20103b:  e9 e0 ff ff ff      jmp -32 <.plt>
 // DISASM2-EMPTY:
 // DISASM2-NEXT:   zed@plt:
-// DISASM2-NEXT:  201040:  ff 25 da 0f 00 00   jmpq *4058(%rip)
+// DISASM2-NEXT:  201040:  ff 25 da 1f 00 00   jmpq *8154(%rip)
 // DISASM2-NEXT:  201046:  68 01 00 00 00      pushq $1
 // DISASM2-NEXT:  20104b:  e9 d0 ff ff ff      jmp -48 <.plt>
 // DISASM2-NOT:   2010C0

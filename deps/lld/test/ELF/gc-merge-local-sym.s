@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=x86_64-pc-linux
 // RUN: ld.lld %t.o -o %t.so -shared -O3 --gc-sections
-// RUN: llvm-readobj -s -section-data -t %t.so | FileCheck %s
+// RUN: llvm-readobj -S --section-data --symbols %t.so | FileCheck %s
 
 // CHECK:      Name: .rodata
 // CHECK-NEXT: Type: SHT_PROGBITS

@@ -1,0 +1,67 @@
+# REQUIRES: zlib, x86
+
+# RUN: yaml2obj -docnum=1 %s -o %t.o
+# RUN: ld.lld %t.o %t.o -o %t2
+# RUN: llvm-readobj --sections --section-data %t2 | FileCheck %s
+
+# RUN: yaml2obj -docnum=2 %s -o %t.o
+# RUN: ld.lld %t.o %t.o -o %t2
+# RUN: llvm-readobj --sections --section-data %t2 | FileCheck %s
+
+# CHECK:        Name: .debug_info
+# CHECK-NEXT:   Type: SHT_PROGBITS
+# CHECK-NEXT:   Flags [
+# CHECK-NEXT:   ]
+# CHECK-NEXT:   Address: 0x0
+# CHECK-NEXT:   Offset: 0xE8
+# CHECK-NEXT:   Size: 108
+# CHECK-NEXT:   Link: 0
+# CHECK-NEXT:   Info: 0
+# CHECK-NEXT:   AddressAlignment: 1
+# CHECK-NEXT:   EntrySize: 0
+# CHECK-NEXT:   SectionData (
+# CHECK-NEXT:     0000: {{.*}} |ABCDEFGHIJKLMNOP|
+# CHECK-NEXT:     0010: {{.*}} |QRSTUVWXYZ.ABCDE|
+# CHECK-NEXT:     0020: {{.*}} |FGHIJKLMNOPQRSTU|
+# CHECK-NEXT:     0030: {{.*}} |VWXYZ.ABCDEFGHIJ|
+# CHECK-NEXT:     0040: {{.*}} |KLMNOPQRSTUVWXYZ|
+# CHECK-NEXT:     0050: {{.*}} |.ABCDEFGHIJKLMNO|
+# CHECK-NEXT:     0060: {{.*}} |PQRSTUVWXYZ.|
+# CHECK-NEXT:   )
+# CHECK-NEXT: }
+
+## YAML below is produced from the following code. AddressAlign of .debug_info is 8,
+## while compressed header has ch_addralign = 1. LLD had a bug and did not use the
+## value of ch_addralign at all. We produced broken section content.
+##
+## .section .debug_info,"",@progbits
+##  .string "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+##  .string "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+--- !ELF
+FileHeader:      
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .debug_info
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_COMPRESSED ]
+    AddressAlign:    0x0000000000000008
+    Content:         010000000000000036000000000000000100000000000000789C73747276717573F7F0F4F2F6F1F5F30F080C0A0E090D0B8F888C6270C42D0500ADA00FBF
+
+## YAML below is the same as above, with a single change: ch_addralign field of the compressed
+## header was set to 0. This is allowed by the standard, we have to support it.
+--- !ELF
+FileHeader:      
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .debug_info
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_COMPRESSED ]
+    AddressAlign:    0x0000000000000008
+    Content:         010000000000000036000000000000000000000000000000789C73747276717573F7F0F4F2F6F1F5F30F080C0A0E090D0B8F888C6270C42D0500ADA00FBF

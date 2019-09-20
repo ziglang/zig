@@ -1,0 +1,20 @@
+# REQUIRES: x86
+
+# RUN: echo ".section .aaa, \"a\"; .quad 0; .section .bbb, \"a\"; .quad 0;" \
+# RUN:   | llvm-mc -filetype=obj -triple=x86_64-pc-linux - -o %t
+# RUN: ld.lld %t --script %s -o %t2
+
+# RUN: llvm-objdump -section-headers %t2 | FileCheck %s
+# CHECK: .aaa 00000008 0000000000001008 DATA
+# CHECK: .bbb 00000008 0000000000001000 DATA
+
+MEMORY {
+  REGION (rwx) : ORIGIN = 0x1000, LENGTH = 0x100
+}
+
+SECTIONS {
+  .aaa ORIGIN(REGION) + 0x8 : { *(.aaa) } > REGION
+  _stext = .;
+  .bbb ORIGIN(REGION) : { *(.bbb) } > REGION
+  . = _stext;
+}

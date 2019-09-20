@@ -11,6 +11,7 @@
 // NORELOC-NEXT: ]
 
 // DISASM:      Disassembly of section test:
+// DISASM-EMPTY:
 // DISASM-NEXT: _data:
 // DISASM-NEXT: 201000: 19 00
 // DISASM-NEXT: 201002: 00 00
@@ -56,6 +57,7 @@
 // RELOCSHARED-NEXT: ]
 
 // DISASMSHARED:      Disassembly of section test:
+// DISASMSHARED-EMPTY:
 // DISASMSHARED-NEXT: _data:
 // DISASMSHARED-NEXT: ...
 // DISASMSHARED-NEXT: 1018: 19 00

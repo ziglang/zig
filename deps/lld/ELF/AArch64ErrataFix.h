@@ -1,9 +1,8 @@
 //===- AArch64ErrataFix.h ---------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -30,19 +29,19 @@ public:
 
 private:
   std::vector<Patch843419Section *>
-  patchInputSectionDescription(InputSectionDescription &ISD);
+  patchInputSectionDescription(InputSectionDescription &isd);
 
-  void insertPatches(InputSectionDescription &ISD,
-                     std::vector<Patch843419Section *> &Patches);
+  void insertPatches(InputSectionDescription &isd,
+                     std::vector<Patch843419Section *> &patches);
 
   void init();
 
-  // A cache of the mapping symbols defined by the InputSecion sorted in order
+  // A cache of the mapping symbols defined by the InputSection sorted in order
   // of ascending value with redundant symbols removed. These describe
   // the ranges of code and data in an executable InputSection.
-  std::map<InputSection *, std::vector<const Defined *>> SectionMap;
+  std::map<InputSection *, std::vector<const Defined *>> sectionMap;
 
-  bool Initialized = false;
+  bool initialized = false;
 };
 
 } // namespace elf

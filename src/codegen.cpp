@@ -1876,7 +1876,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
             assert(handle_is_ptr(ty));
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
-                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "byval");
+                    ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
                     // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
@@ -8665,6 +8665,10 @@ static void init(CodeGen *g) {
             target_specific_cpu_args = ZigLLVMGetHostCPUName();
             target_specific_features = ZigLLVMGetNativeFeatures();
         }
+    } else if (target_is_riscv(g->zig_target)) {
+        // TODO https://github.com/ziglang/zig/issues/2883
+        target_specific_cpu_args = "";
+        target_specific_features = "+a";
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";
@@ -8925,9 +8929,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append(g->framework_dirs.at(i));
     }
 
-    //note(dimenus): appending libc headers before c_headers breaks intrinsics
-    //and other compiler specific items
     // According to Rich Felker libc headers are supposed to go before C language headers.
+    // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
+    // and other compiler specific items.
     args.append("-isystem");
     args.append(buf_ptr(g->zig_c_headers_dir));
 
@@ -8937,12 +8941,21 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append(buf_ptr(include_dir));
     }
 
-
     if (g->zig_target->is_native) {
         args.append("-march=native");
     } else {
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
+
+        if (target_is_musl(g->zig_target) && target_is_riscv(g->zig_target)) {
+            // Musl depends on atomic instructions, which are disabled by default in Clang/LLVM's
+            // cross compilation CPU info for RISCV.
+            // TODO: https://github.com/ziglang/zig/issues/2883
+            args.append("-Xclang");
+            args.append("-target-feature");
+            args.append("-Xclang");
+            args.append("+a");
+        }
     }
     if (g->zig_target->os == OsFreestanding) {
         args.append("-ffreestanding");
@@ -9014,6 +9027,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         args.append(g->clang_argv[arg_i]);
     }
+
 }
 
 void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {

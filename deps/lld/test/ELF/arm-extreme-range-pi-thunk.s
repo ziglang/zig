@@ -32,6 +32,7 @@ high:
 // ARMv7a instructions and relocations.
 
 // CHECK: Disassembly of section .text_low:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:      130:        00 00 00 eb     bl      #0 <__ARMV7PILongThunk_high>
 // CHECK-NEXT:      134:        1e ff 2f e1     bx      lr
@@ -44,6 +45,7 @@ high:
 // CHECK-NEXT:      144:        1c ff 2f e1     bx      r12
 
 // CHECK: Disassembly of section .text_high:
+// CHECK-EMPTY:
 // CHECK-NEXT: high:
 // CHECK-NEXT: f0000000:        00 00 00 eb     bl      #0 <__ARMV7PILongThunk__start>
 // CHECK-NEXT: f0000004:        1e ff 2f e1     bx      lr
@@ -57,6 +59,7 @@ high:
 
 // Thumbv7a instructions and relocations
 // CHECK-THUMB: Disassembly of section .text_low:
+// CHECK-THUMB-EMPTY:
 // CHECK-THUMB-NEXT: _start:
 // CHECK-THUMB-NEXT:      130:  00 f0 02 f8     bl      #4
 // CHECK-THUMB-NEXT:      134:  70 47   bx      lr
@@ -70,6 +73,7 @@ high:
 // CHECK-THUMB-NEXT:      142:  60 47   bx      r12
 
 // CHECK-THUMB: Disassembly of section .text_high:
+// CHECK-THUMB-EMPTY:
 // CHECK-THUMB-NEXT: high:
 // CHECK-THUMB-NEXT: f0000000:  00 f0 02 f8     bl      #4
 // CHECK-THUMB-NEXT: f0000004:  70 47   bx      lr

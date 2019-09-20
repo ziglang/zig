@@ -10,11 +10,11 @@
 // RUN: llvm-readobj --dynamic-table %t2 | FileCheck --check-prefix=ENABLE %s
 
 // DISABLE: DynamicSection [
-// DISABLE:   0x000000000000000F RPATH                /somepath
+// DISABLE:   0x000000000000000F RPATH    Library rpath: [/somepath]
 // DISABLE-NOT: RUNPATH
 // DISABLE: ]
 
 // ENABLE: DynamicSection [
-// ENABLE:   0x000000000000001D RUNPATH              /somepath
+// ENABLE:   0x000000000000001D RUNPATH   Library runpath: [/somepath]
 // ENABLE-NOT: RPATH
 // ENABLE: ]

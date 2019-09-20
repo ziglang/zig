@@ -1,6 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple x86_64-pc-linux-gnu %s -o %t
-// RUN: llvm-readobj -t %t | FileCheck  %s
+// RUN: llvm-readobj --symbols %t | FileCheck  %s
 
 // Verify that the symbol _start is in a section with an index >= SHN_LORESERVE.
 // CHECK:      Name: _start
@@ -12,12 +12,12 @@
 // CHECK-NEXT: Section: dm (0xFF00)
 
 // RUN: ld.lld %t -o %t2
-// RUN: llvm-readobj -t %t2 | FileCheck --check-prefix=LINKED %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck --check-prefix=LINKED %s
 
 // Test also with a linker script.
 // RUN: echo "SECTIONS { . = SIZEOF_HEADERS; .text : { *(.text) } }" > %t.script
 // RUN: ld.lld -T %t.script %t -o %t2
-// RUN: llvm-readobj -t %t2 | FileCheck --check-prefix=LINKED %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck --check-prefix=LINKED %s
 
 // Test that _start is in the correct section.
 // LINKED:      Name: _start

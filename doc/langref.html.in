@@ -5846,7 +5846,7 @@ volatile (
 // Next is the output constraint string. This feature is still
 // considered unstable in Zig, and so LLVM/GCC documentation
 // must be used to understand the semantics.
-// http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string
+// http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string
 // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
 // In this example, the constraint string means "the result value of
 // this inline assembly instruction is whatever is in $rax".
@@ -5887,7 +5887,7 @@ volatile (
       <p>
       Output constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -5902,7 +5902,7 @@ volatile (
       <p>
       Input constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -9333,8 +9333,7 @@ pub fn assert(ok: bool) void {
       This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
       is not sufficient to check the result of a computation:
       </p>
-      {#code_begin|test|assert#}
-      {#code_release_fast#}
+      {#code_begin|syntax#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -9342,9 +9341,11 @@ test "assert in release fast mode" {
     assert(false);
 }
       {#code_end#}
-      <p>Note that although the above example shows the test passing, this is invoking
-      unchecked {#link|Undefined Behavior#}. This documentation is showing only one possible
-      outcome of this test.</p>
+      <p>
+      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
+      {#link|Undefined Behavior#}. Since that could do anything, this documentation
+      cannot show you the output.
+      </p>
       <p>
       Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
       </p>

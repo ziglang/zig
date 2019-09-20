@@ -1,7 +1,7 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main %t.obj 2>&1 | FileCheck -check-prefix=WARN %s
 # RUN: llvm-objdump -s %t.exe | FileCheck %s
-# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+# RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
 
 # WARN: warning: [[INPUT:.+]]: locally defined symbol imported: main (defined in [[INPUT]])
 

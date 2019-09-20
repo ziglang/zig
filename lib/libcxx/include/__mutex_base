@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,28 +36,24 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #  endif
 #endif  // _LIBCPP_THREAD_SAFETY_ANNOTATION
 
+
 class _LIBCPP_TYPE_VIS _LIBCPP_THREAD_SAFETY_ANNOTATION(capability("mutex")) mutex
 {
-#ifndef _LIBCPP_CXX03_LANG
     __libcpp_mutex_t __m_ = _LIBCPP_MUTEX_INITIALIZER;
-#else
-    __libcpp_mutex_t __m_;
-#endif
 
 public:
     _LIBCPP_INLINE_VISIBILITY
-#ifndef _LIBCPP_CXX03_LANG
-    constexpr mutex() = default;
+    _LIBCPP_CONSTEXPR mutex() = default;
+
+    mutex(const mutex&) = delete;
+    mutex& operator=(const mutex&) = delete;
+
+#if defined(_LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION)
+    ~mutex() = default;
 #else
-    mutex() _NOEXCEPT {__m_ = (__libcpp_mutex_t)_LIBCPP_MUTEX_INITIALIZER;}
+    ~mutex() _NOEXCEPT;
 #endif
-    ~mutex();
 
-private:
-    mutex(const mutex&);// = delete;
-    mutex& operator=(const mutex&);// = delete;
-
-public:
     void lock() _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability());
     bool try_lock() _NOEXCEPT _LIBCPP_THREAD_SAFETY_ANNOTATION(try_acquire_capability(true));
     void unlock() _NOEXCEPT _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability());
@@ -287,26 +282,20 @@ _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(cv_status)
 
 class _LIBCPP_TYPE_VIS condition_variable
 {
-#ifndef _LIBCPP_CXX03_LANG
     __libcpp_condvar_t __cv_ = _LIBCPP_CONDVAR_INITIALIZER;
-#else
-    __libcpp_condvar_t __cv_;
-#endif
-
 public:
     _LIBCPP_INLINE_VISIBILITY
-#ifndef _LIBCPP_CXX03_LANG
-    constexpr condition_variable() _NOEXCEPT = default;
+    _LIBCPP_CONSTEXPR condition_variable() _NOEXCEPT = default;
+
+#ifdef _LIBCPP_HAS_TRIVIAL_CONDVAR_DESTRUCTION
+    ~condition_variable() = default;
 #else
-    condition_variable() _NOEXCEPT {__cv_ = (__libcpp_condvar_t)_LIBCPP_CONDVAR_INITIALIZER;}
-#endif
     ~condition_variable();
+#endif
 
-private:
-    condition_variable(const condition_variable&); // = delete;
-    condition_variable& operator=(const condition_variable&); // = delete;
+    condition_variable(const condition_variable&) = delete;
+    condition_variable& operator=(const condition_variable&) = delete;
 
-public:
     void notify_one() _NOEXCEPT;
     void notify_all() _NOEXCEPT;
 

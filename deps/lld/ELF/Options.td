@@ -63,9 +63,17 @@ defm allow_multiple_definition: B<"allow-multiple-definition",
     "Allow multiple definitions",
     "Do not allow multiple definitions (default)">;
 
+defm allow_shlib_undefined: B<"allow-shlib-undefined",
+    "Allow unresolved references in shared libraries (default when linking a shared library)",
+    "Do not allow unresolved references in shared libraries (default when linking an executable)">;
+
 defm apply_dynamic_relocs: B<"apply-dynamic-relocs",
     "Apply link-time values for dynamic relocations",
     "Do not apply link-time values for dynamic relocations (default)">;
+
+defm dependent_libraries: B<"dependent-libraries",
+    "Process dependent library specifiers from input files (default)",
+    "Ignore dependent library specifiers from input files">;
 
 defm as_needed: B<"as-needed",
     "Only set DT_NEEDED for shared libraries if used",
@@ -163,6 +171,13 @@ defm fini: Eq<"fini", "Specify a finalizer function">, MetaVarName<"<symbol>">;
 def fix_cortex_a53_843419: F<"fix-cortex-a53-843419">,
   HelpText<"Apply fixes for AArch64 Cortex-A53 erratum 843419">;
 
+// This option is intentionally hidden from the user as the implementation
+// is not complete.
+def require_cet: F<"require-cet">;
+
+def force_bti: F<"force-bti">,
+  HelpText<"Force enable AArch64 BTI in PLT, warn if Input ELF file does not have GNU_PROPERTY_AARCH64_FEATURE_1_BTI property">;
+
 defm format: Eq<"format", "Change the input format of the inputs following this option">,
   MetaVarName<"[default,elf,binary]">;
 
@@ -214,6 +229,9 @@ defm merge_exidx_entries: B<"merge-exidx-entries",
     "Enable merging .ARM.exidx entries (default)",
     "Disable merging .ARM.exidx entries">;
 
+def nmagic: F<"nmagic">, MetaVarName<"<magic>">,
+  HelpText<"Do not page align sections, link against static libraries.">;
+
 def nostdlib: F<"nostdlib">,
   HelpText<"Only search directories specified on the command line">;
 
@@ -226,8 +244,11 @@ def no_dynamic_linker: F<"no-dynamic-linker">,
 def noinhibit_exec: F<"noinhibit-exec">,
   HelpText<"Retain the executable output file whenever it is still usable">;
 
+def no_nmagic: F<"no-nmagic">, MetaVarName<"<magic>">,
+  HelpText<"Page align sections (default)">;
+
 def no_omagic: F<"no-omagic">, MetaVarName<"<magic>">,
-  HelpText<"Do not set the text data sections to be writable">;
+  HelpText<"Do not set the text data sections to be writable, page align sections (default)">;
 
 def no_rosegment: F<"no-rosegment">,
   HelpText<"Do not put read-only non-executable sections in their own segment">;
@@ -242,7 +263,7 @@ def oformat: Separate<["--"], "oformat">, MetaVarName<"<format>">,
   HelpText<"Specify the binary format for the output object file">;
 
 def omagic: Flag<["--"], "omagic">, MetaVarName<"<magic>">,
-  HelpText<"Set the text and data sections to be readable and writable">;
+  HelpText<"Set the text and data sections to be readable and writable, do not page align sections, link against static libraries">;
 
 defm orphan_handling:
   Eq<"orphan-handling", "Control how orphan sections are handled when linker script used">;
@@ -250,6 +271,9 @@ defm orphan_handling:
 defm pack_dyn_relocs:
   Eq<"pack-dyn-relocs", "Pack dynamic relocations in the given format">,
   MetaVarName<"[none,android,relr,android+relr]">;
+
+def pac_plt: F<"pac-plt">,
+  HelpText<"AArch64 only, use pointer authentication in PLT">;
 
 defm use_android_relr_tags: B<"use-android-relr-tags",
     "Use SHT_ANDROID_RELR / DT_ANDROID_RELR* tags instead of SHT_RELR / DT_RELR*",
@@ -269,6 +293,9 @@ defm print_gc_sections: B<"print-gc-sections",
 defm print_icf_sections: B<"print-icf-sections",
     "List identical folded sections",
     "Do not list identical folded sections (default)">;
+
+defm print_symbol_order: Eq<"print-symbol-order",
+  "Print a symbol order specified by --call-graph-ordering-file into the speficied file">;
 
 def pop_state: F<"pop-state">,
   HelpText<"Undo the effect of -push-state">;
@@ -339,6 +366,9 @@ defm trace_symbol: Eq<"trace-symbol", "Trace references to symbols">;
 defm undefined: Eq<"undefined", "Force undefined symbol during linking">,
   MetaVarName<"<symbol>">;
 
+defm undefined_glob: Eq<"undefined-glob", "Force undefined symbol during linking">,
+  MetaVarName<"<pattern>">;
+
 defm unresolved_symbols:
   Eq<"unresolved-symbols", "Determine how to handle unresolved symbols">;
 
@@ -386,6 +416,9 @@ defm wrap: Eq<"wrap", "Use wrapper functions for symbol">,
 def z: JoinedOrSeparate<["-"], "z">, MetaVarName<"<option>">,
   HelpText<"Linker option extensions">;
 
+def visual_studio_diagnostics_format : F<"vs-diagnostics">,
+HelpText<"Format diagnostics for Visual Studio compatiblity">;
+
 // Aliases
 def: Separate<["-"], "f">, Alias<auxiliary>, HelpText<"Alias for --auxiliary">;
 def: F<"call_shared">, Alias<Bdynamic>, HelpText<"Alias for --Bdynamic">;
@@ -407,6 +440,7 @@ def: Separate<["-"], "b">, Alias<format>, HelpText<"Alias for --format">;
 def: JoinedOrSeparate<["-"], "l">, Alias<library>, HelpText<"Alias for --library">;
 def: JoinedOrSeparate<["-"], "L">, Alias<library_path>, HelpText<"Alias for --library-path">;
 def: F<"no-pic-executable">, Alias<no_pie>, HelpText<"Alias for --no-pie">;
+def: Flag<["-"], "n">, Alias<nmagic>, HelpText<"Alias for --nmagic">;
 def: Flag<["-"], "N">, Alias<omagic>, HelpText<"Alias for --omagic">;
 def: Joined<["--"], "output=">, Alias<o>, HelpText<"Alias for -o">;
 def: Separate<["--"], "output">, Alias<o>, HelpText<"Alias for -o">;
@@ -440,14 +474,22 @@ def lto_O: J<"lto-O">, MetaVarName<"<opt-level>">,
   HelpText<"Optimization level for LTO">;
 def lto_partitions: J<"lto-partitions=">,
   HelpText<"Number of LTO codegen partitions">;
+def lto_cs_profile_generate: F<"lto-cs-profile-generate">,
+  HelpText<"Perform context senstive PGO instrumentation">;
+def lto_cs_profile_file: J<"lto-cs-profile-file=">,
+  HelpText<"Context sensitive profile file path">;
 def lto_sample_profile: J<"lto-sample-profile=">,
   HelpText<"Sample profile file path">;
 def disable_verify: F<"disable-verify">;
 defm mllvm: Eq<"mllvm", "Additional arguments to forward to LLVM's option processing">;
 def opt_remarks_filename: Separate<["--"], "opt-remarks-filename">,
   HelpText<"YAML output file for optimization remarks">;
+def opt_remarks_passes: Separate<["--"], "opt-remarks-passes">,
+  HelpText<"Regex for the passes that need to be serialized to the output file">;
 def opt_remarks_with_hotness: Flag<["--"], "opt-remarks-with-hotness">,
   HelpText<"Include hotness information in the optimization remarks file">;
+def opt_remarks_format: Separate<["--"], "opt-remarks-format">,
+  HelpText<"The format used for serializing remarks (default: YAML)">;
 defm plugin_opt: Eq<"plugin-opt", "specifies LTO options for compatibility with GNU linkers">;
 def save_temps: F<"save-temps">;
 def thinlto_cache_dir: J<"thinlto-cache-dir=">,
@@ -468,6 +510,10 @@ def plugin_opt_mcpu_eq: J<"plugin-opt=mcpu=">;
 def: F<"plugin-opt=new-pass-manager">,
   Alias<lto_new_pass_manager>, HelpText<"Alias for -lto-new-pass-manager">;
 def plugin_opt_obj_path_eq: J<"plugin-opt=obj-path=">;
+def: F<"plugin-opt=cs-profile-generate">,
+  Alias<lto_cs_profile_generate>, HelpText<"Alias for -lto-cs-profile-generate">;
+def: J<"plugin-opt=cs-profile-path=">,
+  Alias<lto_cs_profile_file>, HelpText<"Alias for -lto-cs-profile-file">;
 def: J<"plugin-opt=sample-profile=">,
   Alias<lto_sample_profile>, HelpText<"Alias for -lto-sample-profile">;
 def: F<"plugin-opt=save-temps">, Alias<save_temps>, HelpText<"Alias for -save-temps">;
@@ -492,19 +538,20 @@ def plugin_opt_thinlto: J<"plugin-opt=thinlto">;
 def plugin_opt_slash: J<"plugin-opt=/">;
 
 // Options listed below are silently ignored for now for compatibility.
-def: F<"allow-shlib-undefined">;
 def: F<"detect-odr-violations">;
 def: Flag<["-"], "g">;
 def: F<"long-plt">;
 def: F<"no-add-needed">;
-def: F<"no-allow-shlib-undefined">;
 def: F<"no-copy-dt-needed-entries">;
 def: F<"no-ctors-in-init-array">;
 def: F<"no-keep-memory">;
 def: F<"no-mmap-output-file">;
+def: F<"no-pipeline-knowledge">;
 def: F<"no-warn-mismatch">;
+def: Flag<["-"], "p">;
 def: Separate<["--", "-"], "rpath-link">;
 def: J<"rpath-link=">;
+def: F<"secure-plt">;
 def: F<"sort-common">;
 def: F<"stats">;
 def: F<"warn-execstack">;

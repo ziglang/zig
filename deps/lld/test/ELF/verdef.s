@@ -4,7 +4,7 @@
 # RUN: echo "LIBSAMPLE_2.0 { global: b; local: *; };" >> %t.script
 # RUN: echo "LIBSAMPLE_3.0 { global: c; local: *; };" >> %t.script
 # RUN: ld.lld --hash-style=sysv --version-script %t.script -shared -soname shared %t.o -o %t.so
-# RUN: llvm-readobj -V -dyn-symbols %t.so | FileCheck --check-prefix=DSO %s
+# RUN: llvm-readobj -V --dyn-syms %t.so | FileCheck --check-prefix=DSO %s
 
 # DSO:        Version symbols {
 # DSO-NEXT:   Section Name: .gnu.version
@@ -70,8 +70,8 @@
 
 # MAIN:      Version symbols {
 # MAIN-NEXT:   Section Name: .gnu.version
-# MAIN-NEXT:   Address: 0x200228
-# MAIN-NEXT:   Offset: 0x228
+# MAIN-NEXT:   Address: 0x200260
+# MAIN-NEXT:   Offset: 0x260
 # MAIN-NEXT:   Link: 1
 # MAIN-NEXT:   Symbols [
 # MAIN-NEXT:     Symbol {
@@ -101,7 +101,7 @@
 # RUN: echo "LIBSAMPLE_3.0 { global: c; local: *; };" >> %t.script
 # RUN: echo "}" >> %t.script
 # RUN: ld.lld --hash-style=sysv --script %t.script -shared -soname shared %t.o -o %t2.so
-# RUN: llvm-readobj -V -dyn-symbols %t2.so | FileCheck --check-prefix=DSO %s
+# RUN: llvm-readobj -V --dyn-syms %t2.so | FileCheck --check-prefix=DSO %s
 
 .globl a
 .type  a,@function

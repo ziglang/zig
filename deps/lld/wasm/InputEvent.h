@@ -1,9 +1,8 @@
 //===- InputEvent.h ---------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -29,33 +28,33 @@ namespace wasm {
 // form the final EVENTS section.
 class InputEvent {
 public:
-  InputEvent(const WasmSignature &S, const WasmEvent &E, ObjFile *F)
-      : File(F), Event(E), Signature(S), Live(!Config->GcSections) {}
+  InputEvent(const WasmSignature &s, const WasmEvent &e, ObjFile *f)
+      : file(f), event(e), signature(s), live(!config->gcSections) {}
 
-  StringRef getName() const { return Event.SymbolName; }
-  const WasmEventType &getType() const { return Event.Type; }
+  StringRef getName() const { return event.SymbolName; }
+  const WasmEventType &getType() const { return event.Type; }
 
-  uint32_t getEventIndex() const { return EventIndex.getValue(); }
-  bool hasEventIndex() const { return EventIndex.hasValue(); }
-  void setEventIndex(uint32_t Index) {
+  uint32_t getEventIndex() const { return eventIndex.getValue(); }
+  bool hasEventIndex() const { return eventIndex.hasValue(); }
+  void setEventIndex(uint32_t index) {
     assert(!hasEventIndex());
-    EventIndex = Index;
+    eventIndex = index;
   }
 
-  ObjFile *File;
-  WasmEvent Event;
-  const WasmSignature &Signature;
+  ObjFile *file;
+  WasmEvent event;
+  const WasmSignature &signature;
 
-  bool Live = false;
+  bool live = false;
 
 protected:
-  llvm::Optional<uint32_t> EventIndex;
+  llvm::Optional<uint32_t> eventIndex;
 };
 
 } // namespace wasm
 
-inline std::string toString(const wasm::InputEvent *E) {
-  return (toString(E->File) + ":(" + E->getName() + ")").str();
+inline std::string toString(const wasm::InputEvent *e) {
+  return (toString(e->file) + ":(" + e->getName() + ")").str();
 }
 
 } // namespace lld

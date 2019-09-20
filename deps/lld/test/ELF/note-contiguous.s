@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
 // RUN: ld.lld %t.o -o %t1
-// RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+// RUN: llvm-readobj -l %t1 | FileCheck %s
 
 // CHECK:      Type: PT_NOTE
 // CHECK-NEXT: Offset:
@@ -18,7 +18,7 @@
 
 // RUN: echo "SECTIONS { .note : { *(.note.a) *(.note.b) } }" > %t.script
 // RUN: ld.lld %t.o --script %t.script -o %t2
-// RUN: llvm-readobj -program-headers %t2 | FileCheck -check-prefix=SCRIPT %s
+// RUN: llvm-readobj -l %t2 | FileCheck -check-prefix=SCRIPT %s
 
 // SCRIPT:      Type: PT_NOTE
 // SCRIPT-NEXT: Offset:

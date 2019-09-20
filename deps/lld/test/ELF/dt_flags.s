@@ -5,13 +5,13 @@
 
 # RUN: ld.lld -z global -z initfirst -z interpose -z now -z nodefaultlib \
 # RUN:   -z nodelete -z nodlopen -z origin -Bsymbolic %t %t.so -o %t1
-# RUN: llvm-readobj -dynamic-table %t1 | FileCheck -check-prefix=FLAGS %s
+# RUN: llvm-readobj --dynamic-table %t1 | FileCheck -check-prefix=FLAGS %s
 
 # RUN: ld.lld %t %t.so -o %t2
-# RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
+# RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
 
 # RUN: ld.lld -z lazy %t %t.so -o %t2
-# RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
+# RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
 
 # FLAGS: DynamicSection [
 # FLAGS:   0x000000000000001E FLAGS ORIGIN SYMBOLIC BIND_NOW

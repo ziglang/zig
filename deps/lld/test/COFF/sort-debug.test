@@ -1,12 +1,12 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /debug /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s
 # RUN: lld-link /debug:dwarf /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck %s
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=NODEBUG %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=NODEBUG %s
 # RUN: lld-link /debug:symtab /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=NODEBUG %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=NODEBUG %s
 
 # CHECK: Name: .text
 # CHECK: Name: .reloc
@@ -45,6 +45,7 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
     Alignment:       4
     SectionData:     ''
+    SizeOfRawData:   4
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       1

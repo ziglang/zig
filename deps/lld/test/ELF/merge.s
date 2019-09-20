@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/merge.s -o %t2.o
 // RUN: ld.lld %t.o %t2.o -o %t
-// RUN: llvm-readobj -s -section-data -t %t | FileCheck %s
+// RUN: llvm-readobj -S --section-data --symbols %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
         .section        .mysec,"aM",@progbits,4
@@ -72,6 +72,7 @@ zed:
         .globl  _start
 _start:
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 
         movl .mysec, %eax

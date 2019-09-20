@@ -3,7 +3,7 @@
 
 # RUN: echo "VERSION_1.0 { local: foo1; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck --check-prefix=EXACT %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck --check-prefix=EXACT %s
 # EXACT:  DynamicSymbols [
 # EXACT:      _start
 # EXACT-NOT:  foo1
@@ -12,7 +12,7 @@
 
 # RUN: echo "VERSION_1.0 { local: foo*; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck --check-prefix=WC %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck --check-prefix=WC %s
 # WC:  DynamicSymbols [
 # WC:      _start
 # WC-NOT:  foo1
@@ -21,7 +21,7 @@
 
 # RUN: echo "VERSION_1.0 { global: *; local: foo*; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck --check-prefix=MIX %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck --check-prefix=MIX %s
 # MIX:  DynamicSymbols [
 # MIX:      _start@@VERSION_1.0
 # MIX-NOT:  foo1

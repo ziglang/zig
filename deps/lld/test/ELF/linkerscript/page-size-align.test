@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux /dev/null -o %t.o
 # RUN: ld.lld -T %s -z max-page-size=0x4000 %t.o -o %t.so -shared
-# RUN: llvm-readobj -s %t.so | FileCheck %s
+# RUN: llvm-readobj -S %t.so | FileCheck %s
 
 SECTIONS {
   . = SIZEOF_HEADERS;

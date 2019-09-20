@@ -7,7 +7,7 @@
 # RUN: llvm-mc -triple=armv7-windows-gnu %s -filetype=obj -o %t.obj
 # RUN: lld-link -lldmingw -out:%t.exe -entry:main %t.obj %t-lib.lib -verbose
 
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=CONTENTS %s
 
 # IMPORTS: Import {

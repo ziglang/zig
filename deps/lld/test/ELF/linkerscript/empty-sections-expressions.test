@@ -1,0 +1,24 @@
+# REQUIRES: x86
+# RUN: echo ".text; nop; .data; .byte 0" \
+# RUN:   | llvm-mc -filetype=obj -triple=x86_64-pc-linux - -o %t.o
+# RUN: ld.lld -o %t --script %s %t.o
+# RUN: llvm-readelf -program-headers %t | FileCheck %s
+
+## Check we do not remove the empty output sections used in LOADADDR/ADDR
+## expressions and hence can evaluate the correct addresses.
+
+# CHECK:      Program Headers:
+# CHECK-NEXT:  Type Offset   VirtAddr           PhysAddr
+# CHECK-NEXT:  LOAD 0x001000 0x0000000000080000 0x0000000000080000
+# CHECK-NEXT:  LOAD 0x001001 0x0000000000080001 0x0000000000082000
+
+# CHECK:      Section to Segment mapping:
+# CHECK:       00 .empty .text
+# CHECK-NEXT:  01 .data
+
+SECTIONS {
+ . = 0x00080000;
+ .empty  : { *(.empty ) }
+ .text   : AT(LOADADDR(.empty) + SIZEOF(.empty)) { *(.text) }
+ .data   : AT(ADDR(.empty) + 0x2000) { *(.data) }
+}

@@ -5,7 +5,7 @@
 # RUN:   /manifest:embed \
 # RUN:   /manifestuac:"level='requireAdministrator'" \
 # RUN:   /manifestinput:%p/Inputs/manifestinput.test %t.obj
-# RUN: llvm-readobj -coff-resources -file-headers %t.exe | FileCheck %s \
+# RUN: llvm-readobj --coff-resources --file-headers %t.exe | FileCheck %s \
 # RUN:   -check-prefix TEST_EMBED
 
 TEST_EMBED:          ResourceTableRVA: 0x2000
@@ -14,7 +14,7 @@ TEST_EMBED-DAG:      Resources [
 TEST_EMBED-NEXT:       Total Number of Resources: 1
 TEST_EMBED-DAG:        Number of String Entries: 0
 TEST_EMBED-NEXT:       Number of ID Entries: 1
-TEST_EMBED-NEXT:       Type: kRT_MANIFEST (ID 24) [
+TEST_EMBED-NEXT:       Type: MANIFEST (ID 24) [
 TEST_EMBED-NEXT:         Table Offset: 0x18
 TEST_EMBED-NEXT:         Number of String Entries: 0
 TEST_EMBED-NEXT:         Number of ID Entries: 1

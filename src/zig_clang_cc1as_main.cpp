@@ -1,9 +1,8 @@
 //===-- cc1as_main.cpp - Clang Assembler  ---------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -99,7 +98,7 @@ struct AssemblerInvocation {
   llvm::DebugCompressionType CompressDebugSections =
       llvm::DebugCompressionType::None;
   std::string MainFileName;
-  std::string SplitDwarfFile;
+  std::string SplitDwarfOutput;
 
   /// @}
   /// @name Frontend Options
@@ -137,6 +136,10 @@ struct AssemblerInvocation {
 
   /// The name of the relocation model to use.
   std::string RelocationModel;
+
+  /// The ABI targeted by the backend. Specified using -target-abi. Empty
+  /// otherwise.
+  std::string TargetABI;
 
   /// @}
 
@@ -255,7 +258,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   }
   Opts.LLVMArgs = Args.getAllArgValues(OPT_mllvm);
   Opts.OutputPath = Args.getLastArgValue(OPT_o);
-  Opts.SplitDwarfFile = Args.getLastArgValue(OPT_split_dwarf_file);
+  Opts.SplitDwarfOutput = Args.getLastArgValue(OPT_split_dwarf_output);
   if (Arg *A = Args.getLastArg(OPT_filetype)) {
     StringRef Name = A->getValue();
     unsigned OutputType = StringSwitch<unsigned>(Name)
@@ -283,6 +286,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.NoExecStack = Args.hasArg(OPT_mno_exec_stack);
   Opts.FatalWarnings = Args.hasArg(OPT_massembler_fatal_warnings);
   Opts.RelocationModel = Args.getLastArgValue(OPT_mrelocation_model, "pic");
+  Opts.TargetABI = Args.getLastArgValue(OPT_target_abi);
   Opts.IncrementalLinkerCompatible =
       Args.hasArg(OPT_mincremental_linker_compatible);
   Opts.SymbolDefs = Args.getAllArgValues(OPT_defsym);
@@ -337,7 +341,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   SourceMgr SrcMgr;
 
   // Tell SrcMgr about this buffer, which is what the parser will pick up.
-  SrcMgr.AddNewSourceBuffer(std::move(*Buffer), SMLoc());
+  unsigned BufferIndex = SrcMgr.AddNewSourceBuffer(std::move(*Buffer), SMLoc());
 
   // Record the location of the include directories so that the lexer can find
   // it later.
@@ -363,8 +367,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   if (!FDOS)
     return true;
   std::unique_ptr<raw_fd_ostream> DwoOS;
-  if (!Opts.SplitDwarfFile.empty())
-    DwoOS = getOutputStream(Opts.SplitDwarfFile, Diags, IsBinary);
+  if (!Opts.SplitDwarfOutput.empty())
+    DwoOS = getOutputStream(Opts.SplitDwarfOutput, Diags, IsBinary);
 
   // FIXME: This is not pretty. MCContext has a ptr to MCObjectFileInfo and
   // MCObjectFileInfo needs a MCContext reference in order to initialize itself.
@@ -394,12 +398,21 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     Ctx.setDwarfDebugProducer(StringRef(Opts.DwarfDebugProducer));
   if (!Opts.DebugCompilationDir.empty())
     Ctx.setCompilationDir(Opts.DebugCompilationDir);
+  else {
+    // If no compilation dir is set, try to use the current directory.
+    SmallString<128> CWD;
+    if (!sys::fs::current_path(CWD))
+      Ctx.setCompilationDir(CWD);
+  }
   if (!Opts.DebugPrefixMap.empty())
     for (const auto &KV : Opts.DebugPrefixMap)
       Ctx.addDebugPrefixMapEntry(KV.first, KV.second);
   if (!Opts.MainFileName.empty())
     Ctx.setMainFileName(StringRef(Opts.MainFileName));
   Ctx.setDwarfVersion(Opts.DwarfVersion);
+  if (Opts.GenDwarfForAssembly)
+    Ctx.setGenDwarfRootFile(Opts.InputFile,
+                            SrcMgr.getMemoryBuffer(BufferIndex)->getBuffer());
 
   // Build up the feature string from the target feature list.
   std::string FS;
@@ -418,6 +431,9 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   raw_pwrite_stream *Out = FDOS.get();
   std::unique_ptr<buffer_ostream> BOS;
 
+  MCTargetOptions MCOptions;
+  MCOptions.ABIName = Opts.TargetABI;
+
   // FIXME: There is a bit of code duplication with addPassesToEmitFile.
   if (Opts.OutputType == AssemblerInvocation::FT_Asm) {
     MCInstPrinter *IP = TheTarget->createMCInstPrinter(
@@ -426,7 +442,6 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     std::unique_ptr<MCCodeEmitter> CE;
     if (Opts.ShowEncoding)
       CE.reset(TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx));
-    MCTargetOptions MCOptions;
     std::unique_ptr<MCAsmBackend> MAB(
         TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions));
 
@@ -447,7 +462,6 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
 
     std::unique_ptr<MCCodeEmitter> CE(
         TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx));
-    MCTargetOptions MCOptions;
     std::unique_ptr<MCAsmBackend> MAB(
         TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions));
     std::unique_ptr<MCObjectWriter> OW =
@@ -481,9 +495,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
       createMCAsmParser(SrcMgr, Ctx, *Str.get(), *MAI));
 
   // FIXME: init MCTargetOptions from sanitizer flags here.
-  MCTargetOptions Options;
   std::unique_ptr<MCTargetAsmParser> TAP(
-      TheTarget->createMCAsmParser(*STI, *Parser, *MCII, Options));
+      TheTarget->createMCAsmParser(*STI, *Parser, *MCII, MCOptions));
   if (!TAP)
     Failed = Diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
 
@@ -514,8 +527,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   if (Failed) {
     if (Opts.OutputPath != "-")
       sys::fs::remove(Opts.OutputPath);
-    if (!Opts.SplitDwarfFile.empty() && Opts.SplitDwarfFile != "-")
-      sys::fs::remove(Opts.SplitDwarfFile);
+    if (!Opts.SplitDwarfOutput.empty() && Opts.SplitDwarfOutput != "-")
+      sys::fs::remove(Opts.SplitDwarfOutput);
   }
 
   return Failed;
@@ -594,4 +607,3 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   return !!Failed;
 }
-

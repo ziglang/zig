@@ -1,9 +1,8 @@
 //===---------------------------- libunwind.h -----------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //
 // Compatible with libunwind API documented at:
@@ -76,7 +75,7 @@ typedef struct unw_addr_space *unw_addr_space_t;
 
 typedef int unw_regnum_t;
 typedef uintptr_t unw_word_t;
-#if defined(__arm__)
+#if defined(__arm__) && !defined(__ARM_DWARF_EH__)
 typedef uint64_t unw_fpreg_t;
 #else
 typedef double unw_fpreg_t;
@@ -124,32 +123,6 @@ extern int unw_get_proc_name(unw_cursor_t *, char *, size_t, unw_word_t *) LIBUN
 //extern int       unw_get_save_loc(unw_cursor_t*, int, unw_save_loc_t*);
 
 extern unw_addr_space_t unw_local_addr_space;
-
-#ifdef UNW_REMOTE
-/*
- * Mac OS X "remote" API for unwinding other processes on same machine
- *
- */
-extern unw_addr_space_t unw_create_addr_space_for_task(task_t);
-extern void unw_destroy_addr_space(unw_addr_space_t);
-extern int unw_init_remote_thread(unw_cursor_t *, unw_addr_space_t, thread_t *);
-#endif /* UNW_REMOTE */
-
-/*
- * traditional libunwind "remote" API
- *   NOT IMPLEMENTED on Mac OS X
- *
- * extern int               unw_init_remote(unw_cursor_t*, unw_addr_space_t,
- *                                          thread_t*);
- * extern unw_accessors_t   unw_get_accessors(unw_addr_space_t);
- * extern unw_addr_space_t  unw_create_addr_space(unw_accessors_t, int);
- * extern void              unw_flush_cache(unw_addr_space_t, unw_word_t,
- *                                          unw_word_t);
- * extern int               unw_set_caching_policy(unw_addr_space_t,
- *                                                 unw_caching_policy_t);
- * extern void              _U_dyn_register(unw_dyn_info_t*);
- * extern void              _U_dyn_cancel(unw_dyn_info_t*);
- */
 
 #ifdef __cplusplus
 }

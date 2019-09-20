@@ -18,5 +18,5 @@ Sections:
       - SectionOrType: GRP_COMDAT
       - SectionOrType: 12345
 Symbols:
-  Global:
-    - Name:            foo
+  - Name:            foo
+    Binding:         STB_GLOBAL

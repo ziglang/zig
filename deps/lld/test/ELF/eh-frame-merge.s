@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld --hash-style=sysv %t.o %t.o -o %t -shared
-// RUN: llvm-readobj -s -section-data %t | FileCheck %s
+// RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
         .section	foo,"ax",@progbits
 	.cfi_startproc

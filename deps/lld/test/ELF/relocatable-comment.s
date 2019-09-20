@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t1.o
 # RUN: ld.lld -r %t1.o -o %t
-# RUN: llvm-readobj -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 # CHECK:      Name: .comment
 # CHECK-NEXT: Type: SHT_PROGBITS

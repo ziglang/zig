@@ -1,11 +1,11 @@
 # RUN: yaml2obj < %s > %t.obj
 #
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=HEADER %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=HEADER %s
 # RUN: llvm-objdump -unwind-info %t.exe | FileCheck -check-prefix=UNWIND %s
 #
 # RUN: lld-link /merge:.pdata=.rdata /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers -sections %t.exe | FileCheck -check-prefix=HEADER-MERGE %s
+# RUN: llvm-readobj --file-headers --sections %t.exe | FileCheck -check-prefix=HEADER-MERGE %s
 #
 # HEADER: ExceptionTableRVA: 0x3000
 #

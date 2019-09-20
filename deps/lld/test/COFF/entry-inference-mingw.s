@@ -5,9 +5,9 @@
 # RUN: lld-link -lldmingw %t.o -out:%t-cui.exe -subsystem:console 2>&1 | FileCheck -allow-empty -check-prefix=LINK %s
 # RUN: lld-link -lldmingw %t.o -out:%t-gui.exe -subsystem:windows 2>&1 | FileCheck -allow-empty -check-prefix=LINK %s
 
-# RUN: llvm-readobj -file-headers %t-default.exe | FileCheck -check-prefix=CUI %s
-# RUN: llvm-readobj -file-headers %t-cui.exe | FileCheck -check-prefix=CUI %s
-# RUN: llvm-readobj -file-headers %t-gui.exe | FileCheck -check-prefix=GUI %s
+# RUN: llvm-readobj --file-headers %t-default.exe | FileCheck -check-prefix=CUI %s
+# RUN: llvm-readobj --file-headers %t-cui.exe | FileCheck -check-prefix=CUI %s
+# RUN: llvm-readobj --file-headers %t-gui.exe | FileCheck -check-prefix=GUI %s
 
 # Check that this doesn't print any warnings.
 # LINK-NOT: found both wmain and main

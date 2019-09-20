@@ -19,6 +19,7 @@ _start:
  beq too_far3
 
 // SHORT: Disassembly of section .text:
+// SHORT-EMPTY:
 // SHORT-NEXT: _start:
 // SHORT-NEXT:    20000:       01 00 00 eb     bl      #4 <__ARMv7ABSLongThunk_too_far1>
 // SHORT-NEXT:    20004:       01 00 00 ea     b       #4 <__ARMv7ABSLongThunk_too_far2>
@@ -31,6 +32,7 @@ _start:
 // SHORT-NEXT:    20014:       fd ff 7f ea     b       #33554420 <__ARMv7ABSLongThunk_too_far3+0x1fffffc>
 
 // LONG: Disassembly of section .text:
+// LONG-EMPTY:
 // LONG-NEXT: _start:
 // LONG-NEXT:    20000:       01 00 00 eb     bl      #4 <__ARMv7ABSLongThunk_too_far1>
 // LONG-NEXT:    20004:       03 00 00 ea     b       #12 <__ARMv7ABSLongThunk_too_far2>

@@ -7,10 +7,11 @@
 // RUN: llvm-objdump -d -s %t.exe | FileCheck %s
 
 // CHECK:      Disassembly of section .plt:
+// CHECK-EMPTY:
 // CHECK-NEXT: .plt:
-// CHECK-NEXT: 401010:       ff 35 04 20 40 00       pushl   4202500
+// CHECK-NEXT: 401010:       ff 35 04 30 40 00       pushl   4206596
 // CHECK-NEXT: 401016:       50      pushl   %eax
-// CHECK-NEXT: 401017:       a1 08 20 40 00  movl    4202504, %eax
+// CHECK-NEXT: 401017:       a1 08 30 40 00  movl    4206600, %eax
 // CHECK-NEXT: 40101c:       e8 0f 00 00 00  calll   15 <.plt+0x20>
 // CHECK-NEXT: 401021:       f3 90   pause
 // CHECK-NEXT: 401023:       0f ae e8        lfence
@@ -31,7 +32,7 @@
 // CHECK-NEXT: 40103e:       c3      retl
 // CHECK-NEXT: 40103f:       cc      int3
 // CHECK-NEXT: 401040:       50      pushl   %eax
-// CHECK-NEXT: 401041:       a1 0c 20 40 00  movl    4202508, %eax
+// CHECK-NEXT: 401041:       a1 0c 30 40 00  movl    4206604, %eax
 // CHECK-NEXT: 401046:       e8 e5 ff ff ff  calll   -27 <.plt+0x20>
 // CHECK-NEXT: 40104b:       e9 d1 ff ff ff  jmp     -47 <.plt+0x11>
 // CHECK-NEXT: 401050:       68 00 00 00 00  pushl   $0
@@ -43,7 +44,7 @@
 // CHECK-NEXT: 40105e:       cc      int3
 // CHECK-NEXT: 40105f:       cc      int3
 // CHECK-NEXT: 401060:       50      pushl   %eax
-// CHECK-NEXT: 401061:       a1 10 20 40 00  movl    4202512, %eax
+// CHECK-NEXT: 401061:       a1 10 30 40 00  movl    4206608, %eax
 // CHECK-NEXT: 401066:       e8 c5 ff ff ff  calll   -59 <.plt+0x20>
 // CHECK-NEXT: 40106b:       e9 b1 ff ff ff  jmp     -79 <.plt+0x11>
 // CHECK-NEXT: 401070:       68 08 00 00 00  pushl   $8
@@ -56,7 +57,7 @@
 // CHECK-NEXT: 40107f:       cc      int3
 
 // CHECK:      Contents of section .got.plt:
-// CHECK-NEXT: 00304000 00000000 00000000 50104000
+// CHECK-NEXT: 00204000 00000000 00000000 50104000
 // CHECK-NEXT: 70104000
 
 .global _start

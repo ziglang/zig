@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %p/../Inputs/shared.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t2.so
 # RUN: ld.lld -dynamic-linker foo -rpath bar -rpath baz --script %s --export-dynamic %t.o %t2.so -o %t
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 
 # CHECK-NOT:        Name: .interp
 

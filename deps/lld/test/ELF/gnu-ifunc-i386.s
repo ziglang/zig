@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
 // RUN: llvm-objdump -d %tout | FileCheck %s --check-prefix=DISASM
-// RUN: llvm-readobj -r -symbols -sections %tout | FileCheck %s
+// RUN: llvm-readobj -r --symbols --sections %tout | FileCheck %s
 
 // CHECK:      Sections [
 // CHECK:       Section {
@@ -70,39 +70,61 @@
 // CHECK-NEXT: }
 // CHECK-NEXT: Symbol {
 // CHECK-NEXT:   Name: bar
+// CHECK-NEXT:   Value: 0x401030
+// CHECK-NEXT:   Size: 0
+// CHECK-NEXT:   Binding: Global
+// CHECK-NEXT:   Type: Function
+// CHECK-NEXT:   Other: 0
+// CHECK-NEXT:   Section: .plt
+// CHECK-NEXT: }
+// CHECK-NEXT: Symbol {
+// CHECK-NEXT:   Name: bar_resolver
 // CHECK-NEXT:   Value: 0x401001
 // CHECK-NEXT:   Size: 0
 // CHECK-NEXT:   Binding: Global
-// CHECK-NEXT:   Type: GNU_IFunc
+// CHECK-NEXT:   Type: Function
 // CHECK-NEXT:   Other: 0
 // CHECK-NEXT:   Section: .text
 // CHECK-NEXT: }
 // CHECK-NEXT: Symbol {
 // CHECK-NEXT:   Name: foo
+// CHECK-NEXT:   Value: 0x401020
+// CHECK-NEXT:   Size: 0
+// CHECK-NEXT:   Binding: Global
+// CHECK-NEXT:   Type: Function
+// CHECK-NEXT:   Other: 0
+// CHECK-NEXT:   Section: .plt
+// CHECK-NEXT: }
+// CHECK-NEXT: Symbol {
+// CHECK-NEXT:   Name: foo_resolver
 // CHECK-NEXT:   Value: 0x401000
 // CHECK-NEXT:   Size: 0
 // CHECK-NEXT:   Binding: Global
-// CHECK-NEXT:   Type: GNU_IFunc
+// CHECK-NEXT:   Type: Function
 // CHECK-NEXT:   Other: 0
 // CHECK-NEXT:   Section: .text
 // CHECK-NEXT: }
 // CHECK-NEXT:]
 
 // DISASM: Disassembly of section .text:
-// DISASM-NEXT: foo:
+// DISASM-EMPTY:
+// DISASM-NEXT: foo_resolver:
 // DISASM-NEXT:    401000: c3 retl
-// DISASM: bar:
+// DISASM: bar_resolver:
 // DISASM-NEXT:    401001: c3 retl
 // DISASM:      _start:
 // DISASM-NEXT:    401002: e8 19 00 00 00 calll 25
 // DISASM-NEXT:    401007: e8 24 00 00 00 calll 36
 // DISASM-NEXT:    40100c: ba d4 00 40 00 movl $4194516, %edx
 // DISASM-NEXT:    401011: ba e4 00 40 00 movl $4194532, %edx
+// DISASM-EMPTY:
 // DISASM-NEXT: Disassembly of section .plt:
-// DISASM-NEXT: .plt:
+// DISASM-EMPTY:
+// DISASM-NEXT: foo:
 // DISASM-NEXT:    401020: ff 25 00 20 40 00 jmpl *4202496
 // DISASM-NEXT:    401026: 68 10 00 00 00 pushl $16
 // DISASM-NEXT:    40102b: e9 e0 ff ff ff jmp -32 <_start+0xe>
+// DISASM:      bar:
 // DISASM-NEXT:    401030: ff 25 04 20 40 00 jmpl *4202500
 // DISASM-NEXT:    401036: 68 18 00 00 00 pushl $24
 // DISASM-NEXT:    40103b: e9 d0 ff ff ff jmp -48 <_start+0xe>
@@ -111,11 +133,17 @@
 .type foo STT_GNU_IFUNC
 .globl foo
 foo:
+.type foo_resolver STT_FUNC
+.globl foo_resolver
+foo_resolver:
  ret
 
 .type bar STT_GNU_IFUNC
 .globl bar
 bar:
+.type bar_resolver STT_FUNC
+.globl bar_resolver
+bar_resolver:
  ret
 
 .globl _start

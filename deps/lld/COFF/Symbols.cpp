@@ -1,9 +1,8 @@
 //===- Symbols.cpp --------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,14 +18,25 @@
 using namespace llvm;
 using namespace llvm::object;
 
-// Returns a symbol name for an error message.
-std::string lld::toString(coff::Symbol &B) {
-  if (Optional<std::string> S = lld::demangleMSVC(B.getName()))
-    return ("\"" + *S + "\" (" + B.getName() + ")").str();
-  return B.getName();
-}
+using namespace lld::coff;
 
 namespace lld {
+
+static_assert(sizeof(SymbolUnion) <= 48,
+              "symbols should be optimized for memory usage");
+
+// Returns a symbol name for an error message.
+static std::string demangle(StringRef symName) {
+  if (config->demangle)
+    if (Optional<std::string> s = demangleMSVC(symName))
+      return *s;
+  return symName;
+}
+std::string toString(coff::Symbol &b) { return demangle(b.getName()); }
+std::string toCOFFString(const Archive::Symbol &b) {
+  return demangle(b.getName());
+}
+
 namespace coff {
 
 StringRef Symbol::getName() {
@@ -37,71 +47,85 @@ StringRef Symbol::getName() {
   // name. Object files contain lots of non-external symbols, and creating
   // StringRefs for them (which involves lots of strlen() on the string table)
   // is a waste of time.
-  if (Name.empty()) {
-    auto *D = cast<DefinedCOFF>(this);
-    cast<ObjFile>(D->File)->getCOFFObj()->getSymbolName(D->Sym, Name);
+  if (nameData == nullptr) {
+    auto *d = cast<DefinedCOFF>(this);
+    StringRef nameStr;
+    cast<ObjFile>(d->file)->getCOFFObj()->getSymbolName(d->sym, nameStr);
+    nameData = nameStr.data();
+    nameSize = nameStr.size();
+    assert(nameSize == nameStr.size() && "name length truncated");
   }
-  return Name;
+  return StringRef(nameData, nameSize);
 }
 
 InputFile *Symbol::getFile() {
-  if (auto *Sym = dyn_cast<DefinedCOFF>(this))
-    return Sym->File;
-  if (auto *Sym = dyn_cast<Lazy>(this))
-    return Sym->File;
+  if (auto *sym = dyn_cast<DefinedCOFF>(this))
+    return sym->file;
+  if (auto *sym = dyn_cast<Lazy>(this))
+    return sym->file;
   return nullptr;
 }
 
 bool Symbol::isLive() const {
-  if (auto *R = dyn_cast<DefinedRegular>(this))
-    return R->getChunk()->Live;
-  if (auto *Imp = dyn_cast<DefinedImportData>(this))
-    return Imp->File->Live;
-  if (auto *Imp = dyn_cast<DefinedImportThunk>(this))
-    return Imp->WrappedSym->File->ThunkLive;
+  if (auto *r = dyn_cast<DefinedRegular>(this))
+    return r->getChunk()->live;
+  if (auto *imp = dyn_cast<DefinedImportData>(this))
+    return imp->file->live;
+  if (auto *imp = dyn_cast<DefinedImportThunk>(this))
+    return imp->wrappedSym->file->thunkLive;
   // Assume any other kind of symbol is live.
   return true;
 }
 
 // MinGW specific.
-void Symbol::replaceKeepingName(Symbol *Other, size_t Size) {
-  StringRef OrigName = Name;
-  memcpy(this, Other, Size);
-  Name = OrigName;
+void Symbol::replaceKeepingName(Symbol *other, size_t size) {
+  StringRef origName = getName();
+  memcpy(this, other, size);
+  nameData = origName.data();
+  nameSize = origName.size();
 }
 
 COFFSymbolRef DefinedCOFF::getCOFFSymbol() {
-  size_t SymSize = cast<ObjFile>(File)->getCOFFObj()->getSymbolTableEntrySize();
-  if (SymSize == sizeof(coff_symbol16))
-    return COFFSymbolRef(reinterpret_cast<const coff_symbol16 *>(Sym));
-  assert(SymSize == sizeof(coff_symbol32));
-  return COFFSymbolRef(reinterpret_cast<const coff_symbol32 *>(Sym));
+  size_t symSize = cast<ObjFile>(file)->getCOFFObj()->getSymbolTableEntrySize();
+  if (symSize == sizeof(coff_symbol16))
+    return COFFSymbolRef(reinterpret_cast<const coff_symbol16 *>(sym));
+  assert(symSize == sizeof(coff_symbol32));
+  return COFFSymbolRef(reinterpret_cast<const coff_symbol32 *>(sym));
 }
 
-uint16_t DefinedAbsolute::NumOutputSections;
+uint16_t DefinedAbsolute::numOutputSections;
 
-static Chunk *makeImportThunk(DefinedImportData *S, uint16_t Machine) {
-  if (Machine == AMD64)
-    return make<ImportThunkChunkX64>(S);
-  if (Machine == I386)
-    return make<ImportThunkChunkX86>(S);
-  if (Machine == ARM64)
-    return make<ImportThunkChunkARM64>(S);
-  assert(Machine == ARMNT);
-  return make<ImportThunkChunkARM>(S);
+static Chunk *makeImportThunk(DefinedImportData *s, uint16_t machine) {
+  if (machine == AMD64)
+    return make<ImportThunkChunkX64>(s);
+  if (machine == I386)
+    return make<ImportThunkChunkX86>(s);
+  if (machine == ARM64)
+    return make<ImportThunkChunkARM64>(s);
+  assert(machine == ARMNT);
+  return make<ImportThunkChunkARM>(s);
 }
 
-DefinedImportThunk::DefinedImportThunk(StringRef Name, DefinedImportData *S,
-                                       uint16_t Machine)
-    : Defined(DefinedImportThunkKind, Name), WrappedSym(S),
-      Data(makeImportThunk(S, Machine)) {}
+DefinedImportThunk::DefinedImportThunk(StringRef name, DefinedImportData *s,
+                                       uint16_t machine)
+    : Defined(DefinedImportThunkKind, name), wrappedSym(s),
+      data(makeImportThunk(s, machine)) {}
 
 Defined *Undefined::getWeakAlias() {
   // A weak alias may be a weak alias to another symbol, so check recursively.
-  for (Symbol *A = WeakAlias; A; A = cast<Undefined>(A)->WeakAlias)
-    if (auto *D = dyn_cast<Defined>(A))
-      return D;
+  for (Symbol *a = weakAlias; a; a = cast<Undefined>(a)->weakAlias)
+    if (auto *d = dyn_cast<Defined>(a))
+      return d;
   return nullptr;
+}
+
+MemoryBufferRef Lazy::getMemberBuffer() {
+  Archive::Child c =
+    CHECK(sym.getMember(),
+          "could not get the member for symbol " + toCOFFString(sym));
+  return CHECK(c.getMemoryBufferRef(),
+      "could not get the buffer for the member defining symbol " +
+      toCOFFString(sym));
 }
 } // namespace coff
 } // namespace lld

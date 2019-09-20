@@ -24,12 +24,11 @@ Sections:
     Info:            .text
     Relocations:
 Symbols:
-  Local:
-    - Type:            STT_SECTION
-      Section:         .rela.text
-    - Type:            STT_SECTION
-      Section:         .shstrtab
-    - Type:            STT_SECTION
-      Section:         .symtab
-    - Type:            STT_SECTION
-      Section:         .strtab
+  - Type:            STT_SECTION
+    Section:         .rela.text
+  - Type:            STT_SECTION
+    Section:         .shstrtab
+  - Type:            STT_SECTION
+    Section:         .symtab
+  - Type:            STT_SECTION
+    Section:         .strtab

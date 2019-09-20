@@ -4,7 +4,7 @@
 # RUN: llvm-ar rcs %tar %t1
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux /dev/null -o %t2
 # RUN: ld.lld %t2 %tar --script %s -o %tout
-# RUN: llvm-readobj -symbols %tout | FileCheck %s
+# RUN: llvm-readobj --symbols %tout | FileCheck %s
 
 foo = 1;
 

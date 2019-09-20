@@ -1,0 +1,13 @@
+--- !WASM
+FileHeader:
+  Version:         0x00000001
+Sections:
+  - Type:            CUSTOM
+    Name:            linking
+    Version:         2
+  - Type:            CUSTOM
+    Name:            target_features
+    Features:
+      - Prefix:        REQUIRED
+        Name:          "foo"
+...

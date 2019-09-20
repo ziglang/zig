@@ -4,7 +4,7 @@
 # RUN: ld.lld --version-script %t.script -shared %t1.o -o %t.so
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t2.o
 # RUN: ld.lld %t2.o %t.so -o %tout
-# RUN: llvm-readobj -dyn-symbols %tout | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %tout | FileCheck %s
 
 # CHECK:      DynamicSymbols [
 # CHECK:        Symbol {

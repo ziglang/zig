@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -126,7 +125,7 @@ struct __weak_result_type_imp // bool is true
     : public __maybe_derive_from_unary_function<_Tp>,
       public __maybe_derive_from_binary_function<_Tp>
 {
-    typedef typename _Tp::result_type result_type;
+    typedef _LIBCPP_NODEBUG_TYPE typename _Tp::result_type result_type;
 };
 
 template <class _Tp>
@@ -147,19 +146,19 @@ struct __weak_result_type
 template <class _Rp>
 struct __weak_result_type<_Rp ()>
 {
-    typedef _Rp result_type;
+    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
 };
 
 template <class _Rp>
 struct __weak_result_type<_Rp (&)()>
 {
-    typedef _Rp result_type;
+    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
 };
 
 template <class _Rp>
 struct __weak_result_type<_Rp (*)()>
 {
-    typedef _Rp result_type;
+    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
 };
 
 // 1 argument case
@@ -611,7 +610,7 @@ _LIBCPP_INLINE_VAR constexpr size_t uses_allocator_v = uses_allocator<_Tp, _Allo
 template <class _Tp, class _Alloc, class ..._Args>
 struct __uses_alloc_ctor_imp
 {
-    typedef typename __uncvref<_Alloc>::type _RawAlloc;
+    typedef _LIBCPP_NODEBUG_TYPE typename __uncvref<_Alloc>::type _RawAlloc;
     static const bool __ua = uses_allocator<_Tp, _RawAlloc>::value;
     static const bool __ic =
         is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>::value;

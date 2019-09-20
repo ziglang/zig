@@ -16,6 +16,7 @@ _label:
 # WARN: can't find matching R_MIPS_LO16 relocation for R_MIPS_HI16
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:  20000:   3c 08 00 03   lui    $8, 3
 #                                                ^-- %hi(__start) w/o addend

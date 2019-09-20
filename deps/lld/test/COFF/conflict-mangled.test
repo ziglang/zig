@@ -1,10 +1,13 @@
-# REQUIRES: system-windows
 # RUN: yaml2obj < %s > %t1.obj
 # RUN: yaml2obj < %s > %t2.obj
 # RUN: not lld-link /out:%t.exe %t1.obj %t2.obj >& %t.log
 # RUN: FileCheck %s < %t.log
+# RUN: not lld-link /out:%t.exe /demangle %t1.obj %t2.obj 2>&1 | FileCheck %s
+# RUN: not lld-link /out:%t.exe /demangle:no %t1.obj %t2.obj 2>&1 | FileCheck --check-prefix=NODEMANGLE %s
 
-# CHECK: duplicate symbol: "int __cdecl mangled(void)" (?mangled@@YAHXZ) in {{.+}}1.obj and in {{.+}}2.obj
+# NODEMANGLE: duplicate symbol: ?mangled@@YAHXZ in {{.+}}1.obj and in {{.+}}2.obj
+
+# CHECK: duplicate symbol: int __cdecl mangled(void) in {{.+}}1.obj and in {{.+}}2.obj
 
 --- !COFF
 header:

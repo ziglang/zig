@@ -18,6 +18,7 @@ pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
+    .riscv64 => @import("linux/riscv64.zig"),
     else => struct {},
 };
 pub usingnamespace @import("bits.zig");
@@ -228,7 +229,7 @@ pub fn preadv2(fd: i32, iov: [*]const iovec, count: usize, offset: u64, flags: k
         count,
         @truncate(usize, offset),
         @truncate(usize, offset >> 32),
-        flags
+        flags,
     );
 }
 
@@ -259,7 +260,7 @@ pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, f
         count,
         @truncate(usize, offset),
         @truncate(usize, offset >> 32),
-        flags
+        flags,
     );
 }
 

@@ -9,7 +9,7 @@ SECTIONS {
 }
 
 # CHECK:       Sections:
-# CHECK-NEXT:  Idx Name          Size      Address
+# CHECK-NEXT:  Idx Name          Size     VMA
 # CHECK-NEXT:    0               00000000 0000000000000000
 # CHECK-NEXT:    1 .dynsym       00000030 0000000000001000
 # CHECK:         5 .text         00000000 000000000000106c

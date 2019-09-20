@@ -7,7 +7,7 @@
 # ZLIBCONTENT:     Contents of section .debug_str:
 # ZLIBCONTENT-NOT: AAAAAAAAA
 
-# RUN: llvm-readobj -s %t1 | FileCheck %s --check-prefix=ZLIBFLAGS
+# RUN: llvm-readobj -S %t1 | FileCheck %s --check-prefix=ZLIBFLAGS
 # ZLIBFLAGS:       Section {
 # ZLIBFLAGS:         Index:
 # ZLIBFLAGS:         Name: .debug_str
@@ -24,7 +24,7 @@
 ## Test alias.
 # RUN: ld.lld %t.o -o %t2 --compress-debug-sections zlib
 # RUN: llvm-objdump -s %t2 | FileCheck %s --check-prefix=ZLIBCONTENT
-# RUN: llvm-readobj -s %t2 | FileCheck %s --check-prefix=ZLIBFLAGS
+# RUN: llvm-readobj -S %t2 | FileCheck %s --check-prefix=ZLIBFLAGS
 
 # RUN: not ld.lld %t.o -o %t1 --compress-debug-sections=zlib-gabi 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR %s

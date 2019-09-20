@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- queue ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -71,8 +70,8 @@ public:
 
 template<class Container>
   queue(Container) -> queue<typename Container::value_type, Container>; // C++17
-  
-template<class Container, class Allocator> 
+
+template<class Container, class Allocator>
   queue(Container, Allocator) -> queue<typename Container::value_type, Container>; // C++17
 
 template <class T, class Container>
@@ -166,13 +165,13 @@ public:
 template <class Compare, class Container>
 priority_queue(Compare, Container)
     -> priority_queue<typename Container::value_type, Container, Compare>; // C++17
-  
-template<class InputIterator, 
+
+template<class InputIterator,
          class Compare = less<typename iterator_traits<InputIterator>::value_type>,
          class Container = vector<typename iterator_traits<InputIterator>::value_type>>
 priority_queue(InputIterator, InputIterator, Compare = Compare(), Container = Container())
     -> priority_queue<typename iterator_traits<InputIterator>::value_type, Container, Compare>; // C++17
-  
+
 template<class Compare, class Container, class Allocator>
 priority_queue(Compare, Container, Allocator)
     -> priority_queue<typename Container::value_type, Container, Compare>; // C++17
@@ -347,7 +346,7 @@ template<class _Container,
 >
 queue(_Container)
     -> queue<typename _Container::value_type, _Container>;
-  
+
 template<class _Container,
          class _Alloc,
          class = typename enable_if<!__is_allocator<_Container>::value, nullptr_t>::type,
@@ -559,8 +558,8 @@ template <class _Compare,
 >
 priority_queue(_Compare, _Container)
     -> priority_queue<typename _Container::value_type, _Container, _Compare>;
-  
-template<class _InputIterator, 
+
+template<class _InputIterator,
          class _Compare   = less<typename iterator_traits<_InputIterator>::value_type>,
          class _Container = vector<typename iterator_traits<_InputIterator>::value_type>,
          class = typename enable_if< __is_input_iterator<_InputIterator>::value, nullptr_t>::type,
@@ -569,8 +568,8 @@ template<class _InputIterator,
 >
 priority_queue(_InputIterator, _InputIterator, _Compare = _Compare(), _Container = _Container())
     -> priority_queue<typename iterator_traits<_InputIterator>::value_type, _Container, _Compare>;
-  
-template<class _Compare, 
+
+template<class _Compare,
          class _Container,
          class _Alloc,
          class = typename enable_if<!__is_allocator<_Compare>::value, nullptr_t>::type,

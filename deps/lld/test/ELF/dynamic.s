@@ -4,7 +4,7 @@
 ## Check that _DYNAMIC symbol is created when creating dynamic output,
 ## and has hidden visibility and address equal to .dynamic section.
 # RUN: ld.lld -shared %t.o -o %t.so
-# RUN: llvm-readobj -sections -symbols %t.so | FileCheck %s
+# RUN: llvm-readobj --sections --symbols %t.so | FileCheck %s
 # CHECK:      Section {
 # CHECK:        Index: 5
 # CHECK:        Name: .dynamic
@@ -35,7 +35,7 @@
 # CHECK-NEXT:   }
 
 # RUN: ld.lld %t.o -o %t2
-# RUN: llvm-readobj -sections -symbols %t2 | FileCheck -check-prefix=NODYN %s
+# RUN: llvm-readobj --sections --symbols %t2 | FileCheck -check-prefix=NODYN %s
 # NODYN:    Symbols [
 # NODYN-NOT: Name: _DYNAMIC
 # NODYN:    ]

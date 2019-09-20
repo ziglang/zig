@@ -1,7 +1,7 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc -filetype=obj -triple=aarch64-linux-gnu %s -o %t
 // RUN: ld.lld --hash-style=sysv -shared %t -o %t2
-// RUN: llvm-readobj -t %t2 | FileCheck %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck %s
 .globl  a
 .type   a,@object
 .comm   a,4,4
@@ -20,7 +20,7 @@ _start:
 .long _GLOBAL_OFFSET_TABLE_ - .
 
 // CHECK: Name: _GLOBAL_OFFSET_TABLE_ (11)
-// CHECK-NEXT:     Value: 0x20008
+// CHECK-NEXT:     Value: 0x30008
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local (0x0)
 // CHECK-NEXT:     Type: None (0x0)

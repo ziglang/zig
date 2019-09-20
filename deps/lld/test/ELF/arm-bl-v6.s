@@ -26,6 +26,7 @@ _start:
   bx lr
 
 // CHECK-ARM1: Disassembly of section .text:
+// CHECK-ARM1-EMPTY:
 // CHECK-ARM1-NEXT: _start:
 // CHECK-ARM1-NEXT:    11000:   00 00 00 fa     blx     #0 <thumbfunc>
 // CHECK-ARM1-NEXT:    11004:   1e ff 2f e1     bx      lr

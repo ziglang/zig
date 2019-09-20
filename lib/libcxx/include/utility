@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- utility -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -104,7 +103,7 @@ struct piecewise_construct_t { };
 inline constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();
 
 template <class T> struct tuple_size;
-template <size_t I, class T> class tuple_element;
+template <size_t I, class T> struct tuple_element;
 
 template <class T1, class T2> struct tuple_size<pair<T1, T2> >;
 template <class T1, class T2> struct tuple_element<0, pair<T1, T2> >;
@@ -253,7 +252,7 @@ operator>=(const _Tp& __x, const _Tp& __y)
 
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 _ForwardIterator2
 swap_ranges(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2)
 {
@@ -264,7 +263,7 @@ swap_ranges(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardItera
 
 // forward declared in <type_traits>
 template<class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 typename enable_if<
     __is_swappable<_Tp>::value
 >::type
@@ -350,7 +349,7 @@ struct _LIBCPP_TEMPLATE_VIS pair
     }
 #else
     template <bool _Val>
-    using _EnableB = typename enable_if<_Val, bool>::type;
+    using _EnableB _LIBCPP_NODEBUG_TYPE = typename enable_if<_Val, bool>::type;
 
     struct _CheckArgs {
       template <class _U1, class _U2>
@@ -377,7 +376,7 @@ struct _LIBCPP_TEMPLATE_VIS pair
     };
 
     template <bool _MaybeEnable>
-    using _CheckArgsDep = typename conditional<
+    using _CheckArgsDep _LIBCPP_NODEBUG_TYPE = typename conditional<
       _MaybeEnable, _CheckArgs, __check_tuple_constructor_fail>::type;
 
     struct _CheckTupleLikeConstructor {
@@ -399,7 +398,7 @@ struct _LIBCPP_TEMPLATE_VIS pair
     };
 
     template <class _Tuple>
-    using _CheckTLC = typename conditional<
+    using _CheckTLC _LIBCPP_NODEBUG_TYPE = typename conditional<
         __tuple_like_with_size<_Tuple, 2>::value
             && !is_same<typename decay<_Tuple>::type, pair>::value,
         _CheckTupleLikeConstructor,
@@ -638,10 +637,10 @@ swap(pair<_T1, _T2>& __x, pair<_T1, _T2>& __y)
 }
 
 template <class _Tp>
-struct __unwrap_reference { typedef _Tp type; };
+struct __unwrap_reference { typedef _LIBCPP_NODEBUG_TYPE _Tp type; };
 
 template <class _Tp>
-struct __unwrap_reference<reference_wrapper<_Tp> > { typedef _Tp& type; };
+struct __unwrap_reference<reference_wrapper<_Tp> > { typedef _LIBCPP_NODEBUG_TYPE _Tp& type; };
 
 #if _LIBCPP_STD_VER > 17
 template <class _Tp>
@@ -688,23 +687,21 @@ template <class _T1, class _T2>
     : public integral_constant<size_t, 2> {};
 
 template <size_t _Ip, class _T1, class _T2>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, pair<_T1, _T2> >
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, pair<_T1, _T2> >
 {
     static_assert(_Ip < 2, "Index out of bounds in std::tuple_element<std::pair<T1, T2>>");
 };
 
 template <class _T1, class _T2>
-class _LIBCPP_TEMPLATE_VIS tuple_element<0, pair<_T1, _T2> >
+struct _LIBCPP_TEMPLATE_VIS tuple_element<0, pair<_T1, _T2> >
 {
-public:
-    typedef _T1 type;
+    typedef _LIBCPP_NODEBUG_TYPE _T1 type;
 };
 
 template <class _T1, class _T2>
-class _LIBCPP_TEMPLATE_VIS tuple_element<1, pair<_T1, _T2> >
+struct _LIBCPP_TEMPLATE_VIS tuple_element<1, pair<_T1, _T2> >
 {
-public:
-    typedef _T2 type;
+    typedef _LIBCPP_NODEBUG_TYPE _T2 type;
 };
 
 template <size_t _Ip> struct __get_pair;
@@ -883,11 +880,11 @@ template<size_t... _Ip>
 #if __has_builtin(__make_integer_seq) && !defined(_LIBCPP_TESTING_FALLBACK_MAKE_INTEGER_SEQUENCE)
 
 template <class _Tp, _Tp _Ep>
-using __make_integer_sequence = __make_integer_seq<integer_sequence, _Tp, _Ep>;
+using __make_integer_sequence _LIBCPP_NODEBUG_TYPE = __make_integer_seq<integer_sequence, _Tp, _Ep>;
 
 #else
 
-template<typename _Tp, _Tp _Np> using __make_integer_sequence_unchecked =
+template<typename _Tp, _Tp _Np> using __make_integer_sequence_unchecked _LIBCPP_NODEBUG_TYPE  =
   typename __detail::__make<_Np>::type::template __convert<integer_sequence, _Tp>;
 
 template <class _Tp, _Tp _Ep>
@@ -898,11 +895,11 @@ struct __make_integer_sequence_checked
     static_assert(0 <= _Ep, "std::make_integer_sequence must have a non-negative sequence length");
     // Workaround GCC bug by preventing bad installations when 0 <= _Ep
     // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=68929
-    typedef __make_integer_sequence_unchecked<_Tp, 0 <= _Ep ? _Ep : 0> type;
+    typedef _LIBCPP_NODEBUG_TYPE  __make_integer_sequence_unchecked<_Tp, 0 <= _Ep ? _Ep : 0> type;
 };
 
 template <class _Tp, _Tp _Ep>
-using __make_integer_sequence = typename __make_integer_sequence_checked<_Tp, _Ep>::type;
+using __make_integer_sequence _LIBCPP_NODEBUG_TYPE = typename __make_integer_sequence_checked<_Tp, _Ep>::type;
 
 #endif
 
@@ -1482,7 +1479,7 @@ struct _LIBCPP_TEMPLATE_VIS hash<float>
     size_t operator()(float __v) const _NOEXCEPT
     {
         // -0.0 and 0.0 should return same hash
-       if (__v == 0.0)
+       if (__v == 0.0f)
            return 0;
         return __scalar_hash<float>::operator()(__v);
     }
@@ -1510,7 +1507,7 @@ struct _LIBCPP_TEMPLATE_VIS hash<long double>
     size_t operator()(long double __v) const _NOEXCEPT
     {
         // -0.0 and 0.0 should return same hash
-        if (__v == 0.0)
+        if (__v == 0.0L)
             return 0;
 #if defined(__i386__)
         // Zero out padding bits
@@ -1593,29 +1590,29 @@ struct _LIBCPP_TEMPLATE_VIS hash<nullptr_t>
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Key, class _Hash>
-using __check_hash_requirements = integral_constant<bool,
+using __check_hash_requirements _LIBCPP_NODEBUG_TYPE  = integral_constant<bool,
     is_copy_constructible<_Hash>::value &&
     is_move_constructible<_Hash>::value &&
     __invokable_r<size_t, _Hash, _Key const&>::value
 >;
 
 template <class _Key, class _Hash = std::hash<_Key> >
-using __has_enabled_hash = integral_constant<bool,
+using __has_enabled_hash _LIBCPP_NODEBUG_TYPE = integral_constant<bool,
     __check_hash_requirements<_Key, _Hash>::value &&
     is_default_constructible<_Hash>::value
 >;
 
 #if _LIBCPP_STD_VER > 14
 template <class _Type, class>
-using __enable_hash_helper_imp = _Type;
+using __enable_hash_helper_imp _LIBCPP_NODEBUG_TYPE  = _Type;
 
 template <class _Type, class ..._Keys>
-using __enable_hash_helper = __enable_hash_helper_imp<_Type,
+using __enable_hash_helper _LIBCPP_NODEBUG_TYPE  = __enable_hash_helper_imp<_Type,
   typename enable_if<__all<__has_enabled_hash<_Keys>::value...>::value>::type
 >;
 #else
 template <class _Type, class ...>
-using __enable_hash_helper = _Type;
+using __enable_hash_helper _LIBCPP_NODEBUG_TYPE = _Type;
 #endif
 
 #endif // !_LIBCPP_CXX03_LANG

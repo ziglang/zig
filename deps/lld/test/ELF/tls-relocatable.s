@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -r -o %tr.o
 // RUN: ld.lld %tr.o -shared -o %t1
-// RUN: llvm-readobj -t %t1 | FileCheck %s
+// RUN: llvm-readobj --symbols %t1 | FileCheck %s
 
 // CHECK:       Symbol {
 // CHECK:         Name: tls0

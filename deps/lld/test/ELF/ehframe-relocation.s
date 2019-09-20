@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/ehframe-relocation.s  -o %t2.o
 // RUN: ld.lld %t.o %t2.o -o %t
-// RUN: llvm-readobj -s %t | FileCheck %s
+// RUN: llvm-readobj -S %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
 // CHECK:      Name: .eh_frame
@@ -18,6 +18,7 @@
 // 0x200120 = 2097440
 // 0x200120 + 5 = 2097445
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
 // DISASM-NEXT:   201000: {{.*}} movq 2097440, %rax
 // DISASM-NEXT:   201008: {{.*}} movq 2097445, %rax

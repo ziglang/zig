@@ -3,18 +3,18 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/relocatable.s -o %t2.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/relocatable2.s -o %t3.o
 # RUN: ld.lld -r %t1.o %t2.o %t3.o -o %t
-# RUN: llvm-readobj -file-headers -sections -program-headers -symbols -r %t | FileCheck %s
+# RUN: llvm-readobj --file-headers --sections -l --symbols -r %t | FileCheck %s
 # RUN: llvm-objdump -section-headers %t | FileCheck -check-prefix=SECTION %s
 # RUN: llvm-objdump -s -d %t | FileCheck -check-prefix=CHECKTEXT %s
 
 ## Test --relocatable alias
 # RUN: ld.lld --relocatable %t1.o %t2.o %t3.o -o %t
-# RUN: llvm-readobj -file-headers -sections -program-headers -symbols -r %t | FileCheck %s
+# RUN: llvm-readobj --file-headers --sections -l --symbols -r %t | FileCheck %s
 # RUN: llvm-objdump -s -d %t | FileCheck -check-prefix=CHECKTEXT %s
 
 ## Verify that we can use our relocation output as input to produce executable
 # RUN: ld.lld -e main %t -o %texec
-# RUN: llvm-readobj -file-headers %texec | FileCheck -check-prefix=CHECKEXE %s
+# RUN: llvm-readobj --file-headers %texec | FileCheck -check-prefix=CHECKEXE %s
 
 # CHECK:       ElfHeader {
 # CHECK-NEXT:  Ident {
@@ -53,7 +53,7 @@
 # CHECK-NEXT:  }
 
 # SECTION: Sections:
-# SECTION: Idx Name          Size      Address          Type
+# SECTION: Idx Name          Size     VMA              Type
 # SECTION:   0               00000000 0000000000000000
 # SECTION:   1 .text         00000056 0000000000000000 TEXT
 # SECTION:   2 .rela.text    00000090 0000000000000000
@@ -64,6 +64,7 @@
 # SECTION:   7 .strtab       0000002d 0000000000000000
 
 # CHECKTEXT:      Disassembly of section .text:
+# CHECKTEXT-EMPTY:
 # CHECKTEXT-NEXT: main:
 # CHECKTEXT-NEXT: 0: c7 04 25 00 00 00 00 05 00 00 00 movl $5, 0
 # CHECKTEXT-NEXT: b: c7 04 25 00 00 00 00 07 00 00 00 movl $7, 0

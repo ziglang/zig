@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t -shared
-// RUN: llvm-readobj -program-headers %t | FileCheck %s
+// RUN: llvm-readobj -l %t | FileCheck %s
 
 // CHECK:      Type: PT_NOTE
 // CHECK-NEXT: Offset:

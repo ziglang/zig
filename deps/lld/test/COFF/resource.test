@@ -7,7 +7,7 @@
 EXE: {{H.e.l.l.o}}
 
 # Verify the resource tree layout in the final executable.
-# RUN: llvm-readobj -file-headers -coff-resources -section-data %t.exe | \
+# RUN: llvm-readobj --file-headers --coff-resources --section-data %t.exe | \
 # RUN:   FileCheck --check-prefix=RESOURCE_INFO %s
 
 RESOURCE_INFO:      ResourceTableRVA: 0x2000
@@ -17,7 +17,7 @@ RESOURCE_INFO-NEXT:   Total Number of Resources: 1
 RESOURCE_INFO-NEXT:   Base Table Address: 0x600
 RESOURCE_INFO-DAG:    Number of String Entries: 0
 RESOURCE_INFO-NEXT:   Number of ID Entries: 1
-RESOURCE_INFO-NEXT:   Type: kRT_STRING (ID 6) [
+RESOURCE_INFO-NEXT:   Type: STRINGTABLE (ID 6) [
 RESOURCE_INFO-NEXT:     Table Offset: 0x18
 RESOURCE_INFO-NEXT:     Number of String Entries: 0
 RESOURCE_INFO-NEXT:     Number of ID Entries: 1

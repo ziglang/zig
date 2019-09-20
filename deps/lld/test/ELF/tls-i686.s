@@ -31,6 +31,7 @@ _start:
  leal var1@ntpoff+123(%ecx), %eax
 
 // DIS:      Disassembly of section test:
+// DIS-EMPTY:
 // DIS-NEXT: _start:
 // DIS-NEXT: 401000: ba 08 00 00 00       movl $8, %edx
 // DIS-NEXT: 401005: 65 8b 0d 00 00 00 00 movl %gs:0, %ecx
@@ -47,6 +48,7 @@ _start:
 // RELOC-NEXT: ]
 
 // DISSHARED: Disassembly of section test:
+// DISSHARED-EMPTY:
 // DISSHARED-NEXT: _start:
 // DISSHARED-NEXT: 1000: ba 00 00 00 00 movl   $0, %edx
 // DISSHARED-NEXT: 1005: 65 8b 0d 00 00 00 00  movl %gs:0, %ecx

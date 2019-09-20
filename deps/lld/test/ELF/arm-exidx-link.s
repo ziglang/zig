@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: ld.lld %t.o -o %t.so -shared
-// RUN: llvm-readobj -s %t.so | FileCheck %s
+// RUN: llvm-readobj -S %t.so | FileCheck %s
 
 // CHECK:      Name: .ARM.exidx
 // CHECK-NEXT: Type: SHT_ARM_EXIDX

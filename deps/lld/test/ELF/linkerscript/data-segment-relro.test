@@ -7,10 +7,10 @@
 ## page boundary.
 
 # RUN: ld.lld --hash-style=sysv -z norelro %t1.o %t2.so --script %s -o %t
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 
 # RUN: ld.lld --hash-style=sysv -z relro %t1.o %t2.so --script %s -o %t2
-# RUN: llvm-readobj -s %t2 | FileCheck %s
+# RUN: llvm-readobj -S %t2 | FileCheck %s
 
 SECTIONS {
   . = SIZEOF_HEADERS;
