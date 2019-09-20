@@ -5882,8 +5882,11 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
 
 static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op1);
-    assert(instruction->base.value.type->id == ZigTypeIdFloat);
-    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value.type, ZigLLVMFnIdFloatOp, instruction->op);
+    ZigType *zig_type = instruction->base.value.type;
+    bool is_vector = zig_type->id == ZigTypeIdVector;
+    ZigType *scalar_zig_type = is_vector ? zig_type->data.vector.elem_type : zig_type;
+    assert(scalar_zig_type->id == ZigTypeIdFloat);
+    LLVMValueRef fn_val = get_float_fn(g, zig_type, ZigLLVMFnIdFloatOp, instruction->op);
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 

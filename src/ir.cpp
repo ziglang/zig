@@ -11592,6 +11592,27 @@ static ZigType *ir_resolve_int_type(IrAnalyze *ira, IrInstruction *type_value) {
     return ty;
 }
 
+static ZigType *ir_resolve_float_type(IrAnalyze *ira, IrInstruction *type_value) {
+    ZigType *ty = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(ty))
+       return ira->codegen->builtin_types.entry_invalid;
+
+    if (ty->id != ZigTypeIdFloat && ty->id != ZigTypeIdComptimeFloat) {
+        ErrorMsg *msg = ir_add_error(ira, type_value,
+            buf_sprintf("expected float type, found '%s'", buf_ptr(&ty->name)));
+        if (ty->id == ZigTypeIdVector &&
+            ty->data.vector.elem_type->id == ZigTypeIdFloat)
+        {
+            add_error_note(ira->codegen, msg, type_value->source_node,
+                buf_sprintf("represent vectors with their element types, i.e. '%s'",
+                    buf_ptr(&ty->data.vector.elem_type->name)));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    return ty;
+}
+
 static ZigType *ir_resolve_error_set_type(IrAnalyze *ira, IrInstruction *op_source, IrInstruction *type_value) {
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -26975,21 +26996,18 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
     if (type_is_invalid(type->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *expr_type = ir_resolve_type(ira, type);
-    if (type_is_invalid(expr_type))
+    ZigType *float_type = ir_resolve_float_type(ira, type);
+    if (type_is_invalid(float_type))
         return ira->codegen->invalid_instruction;
-
-    // Only allow float types, and vectors of floats.
-    ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
-    if (float_type->id != ZigTypeIdFloat && float_type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error(ira, instruction->type, buf_sprintf("@%s does not support type '%s'",
-            builtin_op_to_name(instruction->op, false, ZigLLVMFnIdFloatOp), buf_ptr(&float_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
 
     IrInstruction *op1 = instruction->op1->child;
     if (type_is_invalid(op1->value.type))
         return ira->codegen->invalid_instruction;
+
+    ZigType *scalar_float_type = float_type;
+    if (op1->value.type->id == ZigTypeIdVector) {
+        float_type = get_vector_type(ira->codegen, op1->value.type->data.vector.len, float_type);
+    }
 
     IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, float_type);
     if (type_is_invalid(casted_op1->value.type))
@@ -27005,40 +27023,43 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
             return ira->codegen->invalid_instruction;
         }
 
-        ConstExprValue *op1_const = ir_resolve_const(ira, casted_op1, UndefBad);
+        ConstExprValue *op1_const = ir_resolve_const(ira, casted_op1, UndefOk);
         if (!op1_const)
             return ira->codegen->invalid_instruction;
 
-        IrInstruction *result = ir_const(ira, &instruction->base, expr_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, float_type);
         ConstExprValue *out_val = &result->value;
 
-        if (expr_type->id == ZigTypeIdVector) {
+        if (float_type->id == ZigTypeIdVector) {
             expand_undef_array(ira->codegen, op1_const);
-            out_val->special = ConstValSpecialUndef;
-            expand_undef_array(ira->codegen, out_val);
-            size_t len = expr_type->data.vector.len;
+            out_val->type = float_type;
+            out_val->special = ConstValSpecialStatic;
+            out_val->data.x_array.data.s_none.elements =
+                allocate<ConstExprValue>(float_type->data.vector.len);
+            size_t len = float_type->data.vector.len;
             for (size_t i = 0; i < len; i += 1) {
                 ConstExprValue *float_operand_op1 = &op1_const->data.x_array.data.s_none.elements[i];
                 ConstExprValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
-                assert(float_operand_op1->type == float_type);
-                assert(float_out_val->type == float_type);
-                ir_eval_float_op(ira, instruction, float_type,
-                        op1_const, float_out_val);
-                float_out_val->type = float_type;
+                assert(float_operand_op1->type == scalar_float_type);
+                if (float_operand_op1->special == ConstValSpecialUndef) {
+                    float_out_val->special = ConstValSpecialUndef;
+                    float_out_val->type = scalar_float_type;
+                    continue;
+                }
+                ir_eval_float_op(ira, instruction, scalar_float_type,
+                        float_operand_op1, float_out_val);
+                float_out_val->type = scalar_float_type;
+                float_out_val->special = ConstValSpecialStatic;
             }
-            out_val->type = expr_type;
-            out_val->special = ConstValSpecialStatic;
         } else {
             ir_eval_float_op(ira, instruction, float_type, op1_const, out_val);
         }
         return result;
     }
 
-    ir_assert(float_type->id == ZigTypeIdFloat, &instruction->base);
-
     IrInstruction *result = ir_build_float_op(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, casted_op1, instruction->op);
-    result->value.type = expr_type;
+    result->value.type = float_type;
     return result;
 }
 

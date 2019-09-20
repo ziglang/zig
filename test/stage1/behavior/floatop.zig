@@ -13,12 +13,30 @@ fn testSqrt() void {
         expect(@sqrt(f16, a) == 2);
     }
     {
+        var a: @Vector(2, f16) = [_]f16{9, 4 };
+        var res = @sqrt(f16, a);
+        expect(res[0] == 3);
+        expect(res[1] == 2);
+    }
+    {
         var a: f32 = 9;
         expect(@sqrt(f32, a) == 3);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{9, 4 };
+        var res = @sqrt(f32, a);
+        expect(res[0] == 3);
+        expect(res[1] == 2);
+    }
+    {
         var a: f64 = 25;
         expect(@sqrt(f64, a) == 5);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{9, 4 };
+        var res = @sqrt(f64, a);
+        expect(res[0] == 3);
+        expect(res[1] == 2);
     }
     {
         const a: comptime_float = 25.0;
@@ -49,8 +67,20 @@ fn testSin() void {
         expect(@sin(f32, a) == 0);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{0, 0 };
+        var res = @sin(f32, a);
+        expect(res[0] == 0);
+        expect(res[1] == 0);
+    }
+    {
         var a: f64 = 0;
         expect(@sin(f64, a) == 0);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{0, 0 };
+        var res = @sin(f64, a);
+        expect(res[0] == 0);
+        expect(res[1] == 0);
     }
     // TODO
     //{
@@ -70,8 +100,20 @@ fn testCos() void {
         expect(@cos(f32, a) == 1);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{0, 0 };
+        var res = @cos(f32, a);
+        expect(res[0] == 1);
+        expect(res[1] == 1);
+    }
+    {
         var a: f64 = 0;
         expect(@cos(f64, a) == 1);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{0, 0 };
+        var res = @cos(f64, a);
+        expect(res[0] == 1);
+        expect(res[1] == 1);
     }
 }
 
@@ -86,8 +128,20 @@ fn testExp() void {
         expect(@exp(f32, a) == 1);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{0, 0 };
+        var res = @exp(f32, a);
+        expect(res[0] == 1);
+        expect(res[1] == 1);
+    }
+    {
         var a: f64 = 0;
         expect(@exp(f64, a) == 1);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{0, 0 };
+        var res = @exp(f64, a);
+        expect(res[0] == 1);
+        expect(res[1] == 1);
     }
 }
 
@@ -102,8 +156,20 @@ fn testExp2() void {
         expect(@exp2(f32, a) == 4);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{2, 3 };
+        var res = @exp2(f32, a);
+        expect(res[0] == 4);
+        expect(res[1] == 8);
+    }
+    {
         var a: f64 = 2;
         expect(@exp2(f64, a) == 4);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{2, 3 };
+        var res = @exp2(f64, a);
+        expect(res[0] == 4);
+        expect(res[1] == 8);
     }
 }
 
@@ -120,8 +186,20 @@ fn testLn() void {
         expect(@ln(f32, a) == 1 or @ln(f32, a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
     }
     {
+        var a: @Vector(2, f32) = [_]f32{e, e };
+        var res = @ln(f32, a);
+        expect(res[0] == 1 or res[0] == @bitCast(f32, u32(0x3f7fffff)));
+        expect(res[1] == 1 or res[1] == @bitCast(f32, u32(0x3f7fffff)));
+    }
+    {
         var a: f64 = e;
         expect(@ln(f64, a) == 1 or @ln(f64, a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{e, e };
+        var res = @ln(f64, a);
+        expect(res[0] == 1 or res[0] == @bitCast(f64, u64(0x3ff0000000000000)));
+        expect(res[1] == 1 or res[1] == @bitCast(f64, u64(0x3ff0000000000000)));
     }
 }
 
@@ -136,8 +214,20 @@ fn testLog2() void {
         expect(@log2(f32, a) == 2);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{4, 8 };
+        var res = @log2(f32, a);
+        expect(res[0] == 2);
+        expect(res[1] == 3);
+    }
+    {
         var a: f64 = 4;
         expect(@log2(f64, a) == 2);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{4, 8 };
+        var res = @log2(f64, a);
+        expect(res[0] == 2);
+        expect(res[1] == 3);
     }
 }
 
@@ -152,8 +242,20 @@ fn testLog10() void {
         expect(@log10(f32, a) == 2);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{100, 1000 };
+        var res = @log10(f32, a);
+        expect(res[0] == 2);
+        expect(res[1] == 3);
+    }
+    {
         var a: f64 = 1000;
         expect(@log10(f64, a) == 3);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{100, 1000 };
+        var res = @log10(f64, a);
+        expect(res[0] == 2);
+        expect(res[1] == 3);
     }
 }
 
@@ -170,10 +272,22 @@ fn testFabs() void {
         expect(@fabs(f32, b) == 2.5);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{-2.5, 2.5};
+        var res = @fabs(f32, a);
+        expect(res[0] == 2.5);
+        expect(res[1] == 2.5);
+    }
+    {
         var a: f64 = -2.5;
         var b: f64 = 2.5;
         expect(@fabs(f64, a) == 2.5);
         expect(@fabs(f64, b) == 2.5);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{-2.5, 2.5};
+        var res = @fabs(f64, a);
+        expect(res[0] == 2.5);
+        expect(res[1] == 2.5);
     }
 }
 
@@ -188,8 +302,20 @@ fn testFloor() void {
         expect(@floor(f32, a) == 2);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{2.1, 5.6};
+        var res = @floor(f32, a);
+        expect(res[0] == 2);
+        expect(res[1] == 5);
+    }
+    {
         var a: f64 = 3.5;
         expect(@floor(f64, a) == 3);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{2.1, 5.6};
+        var res = @floor(f64, a);
+        expect(res[0] == 2);
+        expect(res[1] == 5);
     }
 }
 
@@ -204,8 +330,20 @@ fn testCeil() void {
         expect(@ceil(f32, a) == 3);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{2.1, 5};
+        var res = @ceil(f32, a);
+        expect(res[0] == 3);
+        expect(res[1] == 5);
+    }
+    {
         var a: f64 = 3.5;
         expect(@ceil(f64, a) == 4);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{2.1, 5};
+        var res = @ceil(f64, a);
+        expect(res[0] == 3);
+        expect(res[1] == 5);
     }
 }
 
@@ -220,8 +358,20 @@ fn testTrunc() void {
         expect(@trunc(f32, a) == 2);
     }
     {
+        var a: @Vector(2, f32) = [_]f32{2.1, -5.6};
+        var res = @trunc(f32, a);
+        expect(res[0] == 2);
+        expect(res[1] == -5);
+    }
+    {
         var a: f64 = -3.5;
         expect(@trunc(f64, a) == -3);
+    }
+    {
+        var a: @Vector(2, f64) = [_]f64{2.1, -5.6};
+        var res = @trunc(f64, a);
+        expect(res[0] == 2);
+        expect(res[1] == -5);
     }
 }
 
