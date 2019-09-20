@@ -15,6 +15,7 @@ pub usingnamespace switch (builtin.arch) {
 pub const pid_t = i32;
 pub const fd_t = i32;
 pub const uid_t = i32;
+pub const gid_t = u32;
 pub const clock_t = isize;
 
 pub const PATH_MAX = 4096;

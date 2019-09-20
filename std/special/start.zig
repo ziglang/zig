@@ -76,7 +76,7 @@ nakedcc fn _start() noreturn {
             );
         },
         .riscv64 => {
-            argc_ptr = asm ("mv %[argc], sp"
+            starting_stack_ptr = asm ("mv %[argc], sp"
                 : [argc] "=r" (-> [*]usize)
             );
         },

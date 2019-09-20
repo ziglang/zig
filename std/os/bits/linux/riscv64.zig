@@ -1,4 +1,7 @@
 // riscv64-specific declarations that are intended to be imported into the POSIX namespace.
+const std = @import("../../../std.zig");
+const uid_t = std.os.linux.uid_t;
+const gid_t = std.os.linux.gid_t;
 
 pub const SYS_io_setup = 0;
 pub const SYS_io_destroy = 1;
@@ -294,3 +297,92 @@ pub const SYS_fsmount = 432;
 pub const SYS_fspick = 433;
 pub const SYS_pidfd_open = 434;
 pub const SYS_clone3 = 435;
+
+pub const O_CREAT = 0100;
+pub const O_EXCL = 0200;
+pub const O_NOCTTY = 0400;
+pub const O_TRUNC = 01000;
+pub const O_APPEND = 02000;
+pub const O_NONBLOCK = 04000;
+pub const O_DSYNC = 010000;
+pub const O_SYNC = 04010000;
+pub const O_RSYNC = 04010000;
+pub const O_DIRECTORY = 0200000;
+pub const O_NOFOLLOW = 0400000;
+pub const O_CLOEXEC = 02000000;
+
+pub const O_ASYNC = 020000;
+pub const O_DIRECT = 040000;
+pub const O_LARGEFILE = 0100000;
+pub const O_NOATIME = 01000000;
+pub const O_PATH = 010000000;
+pub const O_TMPFILE = 020200000;
+pub const O_NDELAY = O_NONBLOCK;
+
+pub const F_DUPFD = 0;
+pub const F_GETFD = 1;
+pub const F_SETFD = 2;
+pub const F_GETFL = 3;
+pub const F_SETFL = 4;
+pub const F_GETLK = 5;
+pub const F_SETLK = 6;
+pub const F_SETLKW = 7;
+pub const F_SETOWN = 8;
+pub const F_GETOWN = 9;
+pub const F_SETSIG = 10;
+pub const F_GETSIG = 11;
+
+pub const F_SETOWN_EX = 15;
+pub const F_GETOWN_EX = 16;
+
+pub const F_GETOWNER_UIDS = 17;
+
+pub const blksize_t = i32;
+pub const nlink_t = u32;
+pub const time_t = isize;
+pub const mode_t = u32;
+pub const off_t = isize;
+pub const ino_t = usize;
+pub const dev_t = usize;
+pub const blkcnt_t = isize;
+pub const timespec = extern struct {
+    tv_sec: time_t,
+    tv_nsec: isize,
+};
+
+/// Renamed to Stat to not conflict with the stat function.
+/// atime, mtime, and ctime have functions to return `timespec`,
+/// because although this is a POSIX API, the layout and names of
+/// the structs are inconsistent across operating systems, and
+/// in C, macros are used to hide the differences. Here we use
+/// methods to accomplish this.
+pub const Stat = extern struct {
+    dev: dev_t,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    __pad: usize,
+    size: off_t,
+    blksize: blksize_t,
+    __pad2: i32,
+    blocks: blkcnt_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __unused: [2]u32,
+
+    pub fn atime(self: Stat) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return self.ctim;
+    }
+};
