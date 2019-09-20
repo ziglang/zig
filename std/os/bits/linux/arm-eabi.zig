@@ -389,6 +389,14 @@ pub const SYS_pidfd_send_signal = 424;
 pub const SYS_io_uring_setup = 425;
 pub const SYS_io_uring_enter = 426;
 pub const SYS_io_uring_register = 427;
+pub const SYS_open_tree = 428;
+pub const SYS_move_mount = 429;
+pub const SYS_fsopen = 430;
+pub const SYS_fsconfig = 431;
+pub const SYS_fsmount = 432;
+pub const SYS_fspick = 433;
+pub const SYS_pidfd_open = 434;
+pub const SYS_clone3 = 435;
 
 pub const SYS_breakpoint = 0x0f0001;
 pub const SYS_cacheflush = 0x0f0002;
@@ -454,21 +462,6 @@ pub const MAP_LOCKED = 0x2000;
 
 /// don't check for reservations
 pub const MAP_NORESERVE = 0x4000;
-
-/// populate (prefault) pagetables
-pub const MAP_POPULATE = 0x8000;
-
-/// do not block on IO
-pub const MAP_NONBLOCK = 0x10000;
-
-/// give out an address that is best suited for process/thread stacks
-pub const MAP_STACK = 0x20000;
-
-/// create a huge page mapping
-pub const MAP_HUGETLB = 0x40000;
-
-/// perform synchronous page faults for the mapping
-pub const MAP_SYNC = 0x80000;
 
 pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
