@@ -480,6 +480,10 @@ pub const FixedBufferAllocator = struct {
     fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         return old_mem[0..new_size];
     }
+
+    pub fn reset(self: *FixedBufferAllocator) void {
+        self.end_index = 0;
+    }
 };
 
 // FIXME: Exposed LLVM intrinsics is a bug
@@ -773,6 +777,26 @@ test "FixedBufferAllocator" {
     try testAllocatorAligned(&fixed_buffer_allocator.allocator, 16);
     try testAllocatorLargeAlignment(&fixed_buffer_allocator.allocator);
     try testAllocatorAlignedShrink(&fixed_buffer_allocator.allocator);
+}
+
+test "FixedBufferAllocator.reset" {
+    var buf: [8]u8 align(@alignOf(usize)) = undefined;
+    var fba = FixedBufferAllocator.init(buf[0..]);
+
+    const X = 0xeeeeeeeeeeeeeeee;
+    const Y = 0xffffffffffffffff;
+
+    var x = try fba.allocator.create(u64);
+    x.* = X;
+    testing.expectError(error.OutOfMemory, fba.allocator.create(u64));
+
+    fba.reset();
+    var y = try fba.allocator.create(u64);
+    y.* = Y;
+
+    // we expect Y to have overwritten X.
+    testing.expect(x.* == y.*);
+    testing.expect(y.* == Y);
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {
