@@ -47,7 +47,7 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (builtin.arch) {
-    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64 => TLSVariant.VariantI,
+    .arm, .armeb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mipsel => TLSVariant.VariantI,
     .x86_64, .i386 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -57,13 +57,18 @@ const tls_tcb_size = switch (builtin.arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
     .arm, .armeb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
-    .i386, .x86_64 => @sizeOf(usize),
-    else => 0,
+    else => @sizeOf(usize),
 };
 
 // Controls if the TCB should be aligned according to the TLS segment p_align
 const tls_tcb_align_size = switch (builtin.arch) {
     .arm, .armeb, .aarch64, .aarch64_be => true,
+    else => false,
+};
+
+// Controls if the TP points to the end of the TCB instead of its beginning
+const tls_tp_points_past_tcb = switch (builtin.arch) {
+    .riscv32, .riscv64, .mipsel, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
@@ -78,10 +83,12 @@ comptime {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (builtin.arch) {
+    .mipsel => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (builtin.arch) {
+    .mipsel => 0x8000,
     else => 0,
 };
 
@@ -119,7 +126,8 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .arm => |arm| {
-            _ = std.os.linux.syscall1(std.os.linux.SYS_set_tls, addr);
+            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_tls, addr);
+            assert(rc == 0);
         },
         .riscv64 => {
             asm volatile (
@@ -251,7 +259,8 @@ pub fn copyTLS(addr: usize) usize {
     @memcpy(@intToPtr([*]u8, addr + tls_img.data_offset), tls_img.data_src.ptr, tls_img.data_src.len);
 
     // Return the corrected (if needed) value for the tp register
-    return addr + tls_img.tcb_offset + tls_tp_offset;
+    return addr + tls_tp_offset +
+        if (tls_tp_points_past_tcb) tls_img.data_offset else tls_img.tcb_offset;
 }
 
 var main_thread_tls_buffer: [256]u8 align(32) = undefined;
