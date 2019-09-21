@@ -9884,6 +9884,28 @@ static void gen_h_file_functions(CodeGen* g, GenH* gen_h, Buf* out_buf, Buf* exp
     }
 }
 
+static void gen_h_file_variables(CodeGen* g, GenH* gen_h, Buf* h_buf, Buf* export_macro) {
+    for (size_t exp_var_i = 0; exp_var_i < g->global_vars.length; exp_var_i += 1) {
+        ZigVar* var = g->global_vars.at(exp_var_i)->var;
+        if (var->export_list.length == 0)
+            continue;
+
+        Buf var_type_c = BUF_INIT;
+        get_c_type(g, gen_h, var->var_type, &var_type_c);
+
+        if (export_macro != nullptr) {
+            buf_appendf(h_buf, "extern %s %s %s;\n",
+                buf_ptr(export_macro),
+                buf_ptr(&var_type_c),
+                var->name);
+        } else {
+            buf_appendf(h_buf, "extern %s %s;\n",
+                buf_ptr(&var_type_c),
+                var->name);
+        }
+    }
+}
+
 static void gen_h_file(CodeGen *g) {
     GenH gen_h_data = {0};
     GenH *gen_h = &gen_h_data;
@@ -9907,9 +9929,15 @@ static void gen_h_file(CodeGen *g) {
     buf_resize(&fns_buf, 0);
     gen_h_file_functions(g, gen_h, &fns_buf, export_macro);
 
+    Buf vars_buf = BUF_INIT;
+    buf_resize(&vars_buf, 0);
+    gen_h_file_variables(g, gen_h, &vars_buf, export_macro);
+
+    // Types will be populated by exported functions and variables so it has to run last.
     Buf types_buf = BUF_INIT;
     buf_resize(&types_buf, 0);
     gen_h_file_types(g, gen_h, &types_buf);
+
     Buf *ifdef_dance_name = preprocessor_mangle(buf_sprintf("%s_H", buf_ptr(g->root_out_name)));
     buf_upcase(ifdef_dance_name);
 
