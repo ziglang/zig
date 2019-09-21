@@ -1300,7 +1300,7 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                if (!target_can_exec(&native, &target)) {
+                if (!target_can_exec(&native, &target) && test_exec_args.length == 0) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
                             buf_ptr(test_exe_path));
                     return 0;
