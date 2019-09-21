@@ -481,7 +481,7 @@ pub const FixedBufferAllocator = struct {
         return old_mem[0..new_size];
     }
 
-    pub inline fn reset(self: *FixedBufferAllocator) void {
+    pub fn reset(self: *FixedBufferAllocator) void {
         self.end_index = 0;
     }
 };
