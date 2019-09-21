@@ -9,8 +9,11 @@ pub usingnamespace switch (builtin.arch) {
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
+    .mipsel => @import("linux/mipsel.zig"),
     else => struct {},
 };
+
+const is_mips = builtin.arch == .mipsel;
 
 pub const pid_t = i32;
 pub const fd_t = i32;
@@ -96,21 +99,21 @@ pub const MAP_TYPE = 0x0f;
 pub const MAP_FIXED = 0x10;
 
 /// don't use a file
-pub const MAP_ANONYMOUS = 0x20;
+pub const MAP_ANONYMOUS = if (is_mips) 0x800 else 0x20;
 
 // MAP_ 0x0100 - 0x4000 flags are per architecture
 
 /// populate (prefault) pagetables
-pub const MAP_POPULATE = 0x8000;
+pub const MAP_POPULATE = if (is_mips) 0x10000 else 0x8000;
 
 /// do not block on IO
-pub const MAP_NONBLOCK = 0x10000;
+pub const MAP_NONBLOCK = if (is_mips) 0x20000 else 0x10000;
 
 /// give out an address that is best suited for process/thread stacks
-pub const MAP_STACK = 0x20000;
+pub const MAP_STACK = if (is_mips) 0x40000 else 0x20000;
 
 /// create a huge page mapping
-pub const MAP_HUGETLB = 0x40000;
+pub const MAP_HUGETLB = if (is_mips) 0x80000 else 0x40000;
 
 /// perform synchronous page faults for the mapping
 pub const MAP_SYNC = 0x80000;
@@ -247,15 +250,15 @@ pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
+pub const SOCK_STREAM = if (is_mips) 2 else 1;
+pub const SOCK_DGRAM = if (is_mips) 1 else 2;
 pub const SOCK_RAW = 3;
 pub const SOCK_RDM = 4;
 pub const SOCK_SEQPACKET = 5;
 pub const SOCK_DCCP = 6;
 pub const SOCK_PACKET = 10;
 pub const SOCK_CLOEXEC = 0o2000000;
-pub const SOCK_NONBLOCK = 0o4000;
+pub const SOCK_NONBLOCK = if (is_mips) 0o200 else 0o4000;
 
 pub const PF_UNSPEC = 0;
 pub const PF_LOCAL = 1;
@@ -355,32 +358,38 @@ pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
 
-pub const SO_DEBUG = 1;
-pub const SO_REUSEADDR = 2;
-pub const SO_TYPE = 3;
-pub const SO_ERROR = 4;
-pub const SO_DONTROUTE = 5;
-pub const SO_BROADCAST = 6;
-pub const SO_SNDBUF = 7;
-pub const SO_RCVBUF = 8;
-pub const SO_KEEPALIVE = 9;
-pub const SO_OOBINLINE = 10;
-pub const SO_NO_CHECK = 11;
-pub const SO_PRIORITY = 12;
-pub const SO_LINGER = 13;
-pub const SO_BSDCOMPAT = 14;
-pub const SO_REUSEPORT = 15;
-pub const SO_PASSCRED = 16;
-pub const SO_PEERCRED = 17;
-pub const SO_RCVLOWAT = 18;
-pub const SO_SNDLOWAT = 19;
-pub const SO_RCVTIMEO = 20;
-pub const SO_SNDTIMEO = 21;
-pub const SO_ACCEPTCONN = 30;
-pub const SO_SNDBUFFORCE = 32;
-pub const SO_RCVBUFFORCE = 33;
-pub const SO_PROTOCOL = 38;
-pub const SO_DOMAIN = 39;
+pub usingnamespace if (!@hasDecl(@This(), "SO_DEBUG"))
+    struct {
+        const SO_DEBUG = 1;
+        const SO_REUSEADDR = 2;
+        const SO_TYPE = 3;
+        const SO_ERROR = 4;
+        const SO_DONTROUTE = 5;
+        const SO_BROADCAST = 6;
+        const SO_SNDBUF = 7;
+        const SO_RCVBUF = 8;
+        const SO_KEEPALIVE = 9;
+        const SO_OOBINLINE = 10;
+        const SO_NO_CHECK = 11;
+        const SO_PRIORITY = 12;
+        const SO_LINGER = 13;
+        const SO_BSDCOMPAT = 14;
+        const SO_REUSEPORT = 15;
+        const SO_PASSCRED = 16;
+        const SO_PEERCRED = 17;
+        const SO_RCVLOWAT = 18;
+        const SO_SNDLOWAT = 19;
+        const SO_RCVTIMEO = 20;
+        const SO_SNDTIMEO = 21;
+        const SO_ACCEPTCONN = 30;
+        const SO_PEERSEC = 31;
+        const SO_SNDBUFFORCE = 32;
+        const SO_RCVBUFFORCE = 33;
+        const SO_PROTOCOL = 38;
+        const SO_DOMAIN = 39;
+    }
+else
+    struct {};
 
 pub const SO_SECURITY_AUTHENTICATION = 22;
 pub const SO_SECURITY_ENCRYPTION_TRANSPORT = 23;
@@ -394,11 +403,11 @@ pub const SO_GET_FILTER = SO_ATTACH_FILTER;
 
 pub const SO_PEERNAME = 28;
 pub const SO_TIMESTAMP_OLD = 29;
-pub const SO_PEERSEC = 31;
 pub const SO_PASSSEC = 34;
 pub const SO_TIMESTAMPNS_OLD = 35;
 pub const SO_MARK = 36;
 pub const SO_TIMESTAMPING_OLD = 37;
+
 pub const SO_RXQ_OVFL = 40;
 pub const SO_WIFI_STATUS = 41;
 pub const SCM_WIFI_STATUS = SO_WIFI_STATUS;
@@ -432,7 +441,7 @@ pub const SO_RCVTIMEO_NEW = 66;
 pub const SO_SNDTIMEO_NEW = 67;
 pub const SO_DETACH_REUSEPORT_BPF = 68;
 
-pub const SOL_SOCKET = 1;
+pub const SOL_SOCKET = if (is_mips) 65535 else 1;
 
 pub const SOL_IP = 0;
 pub const SOL_IPV6 = 41;
@@ -496,7 +505,7 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
-pub const TCGETS = 0x5401;
+pub const TCGETS = if (is_mips) 0x540D else 0x5401;
 pub const TCSETS = 0x5402;
 pub const TCSETSW = 0x5403;
 pub const TCSETSF = 0x5404;
@@ -512,17 +521,17 @@ pub const TIOCNXCL = 0x540D;
 pub const TIOCSCTTY = 0x540E;
 pub const TIOCGPGRP = 0x540F;
 pub const TIOCSPGRP = 0x5410;
-pub const TIOCOUTQ = 0x5411;
+pub const TIOCOUTQ = if (is_mips) 0x7472 else 0x5411;
 pub const TIOCSTI = 0x5412;
-pub const TIOCGWINSZ = 0x5413;
-pub const TIOCSWINSZ = 0x5414;
+pub const TIOCGWINSZ = if (is_mips) 0x40087468 else 0x5413;
+pub const TIOCSWINSZ = if (is_mips) 0x40087467 else 0x5414;
 pub const TIOCMGET = 0x5415;
 pub const TIOCMBIS = 0x5416;
 pub const TIOCMBIC = 0x5417;
 pub const TIOCMSET = 0x5418;
 pub const TIOCGSOFTCAR = 0x5419;
 pub const TIOCSSOFTCAR = 0x541A;
-pub const FIONREAD = 0x541B;
+pub const FIONREAD = if (is_mips) 0x467F else 0x541B;
 pub const TIOCINQ = FIONREAD;
 pub const TIOCLINUX = 0x541C;
 pub const TIOCCONS = 0x541D;
@@ -563,8 +572,8 @@ pub const EPOLLPRI = 0x002;
 pub const EPOLLOUT = 0x004;
 pub const EPOLLRDNORM = 0x040;
 pub const EPOLLRDBAND = 0x080;
-pub const EPOLLWRNORM = 0x100;
-pub const EPOLLWRBAND = 0x200;
+pub const EPOLLWRNORM = if (is_mips) 0x004 else 0x100;
+pub const EPOLLWRBAND = if (is_mips) 0x100 else 0x200;
 pub const EPOLLMSG = 0x400;
 pub const EPOLLERR = 0x008;
 pub const EPOLLHUP = 0x010;

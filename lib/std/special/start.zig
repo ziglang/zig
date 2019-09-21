@@ -80,6 +80,14 @@ nakedcc fn _start() noreturn {
                 : [argc] "=r" (-> [*]usize)
             );
         },
+        .mipsel => {
+            // Need noat here because LLVM is free to pick any register
+            starting_stack_ptr = asm (
+                \\ .set noat
+                \\ move %[argc], $sp
+                : [argc] "=r" (-> [*]usize)
+            );
+        },
         else => @compileError("unsupported arch"),
     }
     // If LLVM inlines stack variables into _start, they will overwrite
