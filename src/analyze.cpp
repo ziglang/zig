@@ -7633,6 +7633,11 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     type->data.structure.resolve_status = ResolveStatusLLVMFull;
 }
 
+static LLVMTypeRef get_llvm_array_type(unsigned byte_size) {
+    return byte_size == 1 ?
+        LLVMInt8Type() : LLVMArrayType(LLVMInt8Type(), byte_size);
+}
+
 static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveStatus wanted_resolve_status,
         ZigType *async_frame_type)
 {
@@ -7730,9 +7735,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
                 if (full_abi_size * 8 == full_bit_count) {
                     // next field recovers ABI alignment
-                    element_types[gen_field_index] = LLVMIntType((unsigned)(full_bit_count));
+                    element_types[gen_field_index] = get_llvm_array_type(full_abi_size);
                     gen_field_index += 1;
-
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
             } else if (get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) * 8 != field_size_in_bits) {
@@ -7740,6 +7744,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             } else {
                 // This is a byte-aligned field (both start and end) in a packed struct.
                 element_types[gen_field_index] = get_llvm_type(g, field_type);
+                assert(get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) ==
+                       LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
                 gen_field_index += 1;
             }
             packed_bits_offset = next_packed_bits_offset;
@@ -7802,11 +7808,12 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
         size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = LLVMIntType((unsigned)full_abi_size * 8);
+        element_types[gen_field_index] = get_llvm_array_type(full_abi_size);
         gen_field_index += 1;
     }
 
     if (type_has_bits(struct_type)) {
+        assert(struct_type->data.structure.gen_field_count == gen_field_index);
         LLVMStructSetBody(struct_type->llvm_type, element_types,
                 (unsigned)struct_type->data.structure.gen_field_count, packed);
     }

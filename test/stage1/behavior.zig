@@ -72,7 +72,9 @@ comptime {
     _ = @import("behavior/misc.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
-    _ = @import("behavior/new_stack_call.zig");
+    // See #3268
+    if (@import("builtin").arch != .aarch64)
+        _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");
     _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
