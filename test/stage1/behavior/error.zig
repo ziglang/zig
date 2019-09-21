@@ -361,7 +361,8 @@ test "nested catch" {
 test "implicit cast to optional to error union to return result loc" {
     const S = struct {
         fn entry() void {
-            if (func(undefined)) |opt| {
+            var x: Foo = undefined;
+            if (func(&x)) |opt| {
                 expect(opt != null);
             } else |_| @panic("expected non error");
         }
