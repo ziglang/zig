@@ -7633,7 +7633,7 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     type->data.structure.resolve_status = ResolveStatusLLVMFull;
 }
 
-static LLVMTypeRef get_llvm_array_type(unsigned byte_size) {
+static LLVMTypeRef get_llvm_type_of_n_bytes(unsigned byte_size) {
     return byte_size == 1 ?
         LLVMInt8Type() : LLVMArrayType(LLVMInt8Type(), byte_size);
 }
@@ -7735,7 +7735,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
                 if (full_abi_size * 8 == full_bit_count) {
                     // next field recovers ABI alignment
-                    element_types[gen_field_index] = get_llvm_array_type(full_abi_size);
+                    element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
                     gen_field_index += 1;
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
@@ -7808,7 +7808,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
         size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = get_llvm_array_type(full_abi_size);
+        element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
         gen_field_index += 1;
     }
 
