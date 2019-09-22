@@ -965,6 +965,10 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) usize {
     return syscall2(SYS_sigaltstack, @ptrToInt(ss), @ptrToInt(old_ss));
 }
 
+pub fn uname(uts: *utsname) usize {
+    return syscall1(SYS_uname, @ptrToInt(uts));
+}
+
 // XXX: This should be weak
 extern const __ehdr_start: elf.Ehdr = undefined;
 
