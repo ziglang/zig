@@ -1175,3 +1175,4 @@ pub fn S_ISSOCK(m: u32) bool {
 pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
+pub const HOST_NAME_MAX = 72;

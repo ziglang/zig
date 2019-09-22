@@ -210,3 +210,12 @@ test "dl_iterate_phdr" {
     expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
     expect(counter != 0);
 }
+
+test "gethostname" {
+    if (os.windows.is_the_target)
+        return error.SkipZigTest;
+
+    var buf: [os.HOST_NAME_MAX]u8 = undefined;
+    const hostname = try os.gethostname(&buf);
+    expect(hostname.len != 0);
+}

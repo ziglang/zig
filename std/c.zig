@@ -107,6 +107,7 @@ pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, 
 pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;
 
+pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;
 pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;
