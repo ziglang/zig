@@ -50,7 +50,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
     }
 
     {
-        SplitIterator it = memSplit(buf_to_slice(vers_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(vers_txt_contents), str("\r\n"));
         for (;;) {
             Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
             if (!opt_component.is_some) break;
@@ -65,7 +65,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
         }
     }
     {
-        SplitIterator it = memSplit(buf_to_slice(fns_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(fns_txt_contents), str("\r\n"));
         for (;;) {
             Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
             if (!opt_component.is_some) break;
@@ -91,7 +91,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
         }
     }
     {
-        SplitIterator it = memSplit(buf_to_slice(abi_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(abi_txt_contents), str("\r\n"));
         ZigGLibCVerList *ver_list_base = nullptr;
         int line_num = 0;
         for (;;) {
