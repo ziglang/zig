@@ -1015,6 +1015,7 @@ pub const Target = union(enum) {
             => return .msvc,
             .linux,
             .wasi,
+            .emscripten,
             => return .musl,
         }
     }
