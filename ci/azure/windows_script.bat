@@ -13,11 +13,11 @@ SET "ZIGBUILDDIR=%SRCROOT%\build"
 SET "ZIGINSTALLDIR=%ZIGBUILDDIR%\Release"
 SET "ZIGPREFIXPATH=%SRCROOT%\llvm+clang-9.0.0-win64-msvc-release"
 
-call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
-cmake.exe .. -Thost=x64 -G"Visual Studio 15 2017 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
+cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
 "%ZIGINSTALLDIR%\bin\zig.exe" build test || exit /b
