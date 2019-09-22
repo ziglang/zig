@@ -116,7 +116,7 @@ static void os_spawn_process_posix(ZigList<const char *> &args, Termination *ter
     pid_t pid;
     int rc = posix_spawnp(&pid, args.at(0), nullptr, nullptr, const_cast<char *const*>(argv), environ);
     if (rc != 0) {
-        zig_panic("posix_spawn failed: %s", strerror(rc));
+        zig_panic("unable to spawn %s: %s", args.at(0), strerror(rc));
     }
 
     int status;
