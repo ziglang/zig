@@ -10,7 +10,7 @@ SET "PATH=%PREVPATH%"
 SET "MSYSTEM=%PREVMSYSTEM%"
 
 SET "ZIGBUILDDIR=%SRCROOT%\build"
-SET "ZIGINSTALLDIR=%ZIGBUILDDIR%\Release"
+SET "ZIGINSTALLDIR=%ZIGBUILDDIR%\dist"
 SET "ZIGPREFIXPATH=%SRCROOT%\llvm+clang-9.0.0-win64-msvc-release"
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
