@@ -233,7 +233,7 @@ comptime {
         @export("__aeabi_dcmpgt", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpgt, linkage);
         @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
-    if (builtin.os == builtin.Os.windows) {
+    if (builtin.os == .windows) {
         if (!builtin.link_libc) {
             @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
             @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
@@ -247,11 +247,11 @@ comptime {
         }
 
         switch (builtin.arch) {
-            builtin.Arch.i386 => {
+            .i386 => {
                 @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
                 @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
             },
-            builtin.Arch.x86_64 => {
+            .x86_64 => {
                 // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI
                 // that LLVM expects compiler-rt to have.
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3_windows_x86_64, linkage);
