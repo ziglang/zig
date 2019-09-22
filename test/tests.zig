@@ -154,17 +154,16 @@ const test_targets = [_]TestTarget{
         },
     },
 
-    // TODO https://github.com/ziglang/zig/issues/3285
-    //TestTarget{
-    //    .target = Target{
-    //        .Cross = CrossTarget{
-    //            .os = .windows,
-    //            .arch = .x86_64,
-    //            .abi = .gnu,
-    //        },
-    //    },
-    //    .link_libc = true,
-    //},
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .windows,
+                .arch = .x86_64,
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
 
     // Do the release tests last because they take a long time
     TestTarget{
