@@ -17,8 +17,9 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliar
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
-cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
-msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
+REM Here we use MinSizeRel instead of Release to work around https://github.com/ziglang/zig/issues/3024
+cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=MinSizeRel || exit /b
+msbuild /p:Configuration=MinSizeRel INSTALL.vcxproj || exit /b
 
 "%ZIGINSTALLDIR%\bin\zig.exe" build test || exit /b
 
