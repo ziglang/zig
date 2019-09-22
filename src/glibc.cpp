@@ -99,9 +99,9 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
                 if (!opt_line.is_some) break;
 
                 ver_list_base = allocate<ZigGLibCVerList>(glibc_abi->all_functions.length);
-                ZigTarget *target = allocate<ZigTarget>(1);
                 SplitIterator line_it = memSplit(opt_line.value, str(" "));
                 for (;;) {
+                    ZigTarget *target = allocate<ZigTarget>(1);
                     Optional<Slice<uint8_t>> opt_target = SplitIterator_next(&line_it);
                     if (!opt_target.is_some) break;
 

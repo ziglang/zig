@@ -511,6 +511,8 @@ pub const msghdr_const = extern struct {
     msg_flags: i32,
 };
 
+pub const off_t = i64;
+
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
 /// because although this is a POSIX API, the layout and names of
@@ -527,7 +529,7 @@ pub const Stat = extern struct {
     gid: u32,
     rdev: u64,
     __rdev_padding: u32,
-    size: i64,
+    size: off_t,
     blksize: i32,
     blocks: u64,
     atim: timespec,

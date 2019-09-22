@@ -143,7 +143,7 @@ comptime {
     @export("__negsf2", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
     @export("__negdf2", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
 
-    if (is_arm_arch and !is_arm_64) {
+    if (is_arm_arch and !is_arm_64 and !is_test) {
         @export("__aeabi_unwind_cpp_pr0", __aeabi_unwind_cpp_pr0, strong_linkage);
         @export("__aeabi_unwind_cpp_pr1", __aeabi_unwind_cpp_pr1, linkage);
         @export("__aeabi_unwind_cpp_pr2", __aeabi_unwind_cpp_pr2, linkage);
@@ -264,6 +264,9 @@ comptime {
             else => {},
         }
     } else {
+        if (builtin.glibc_version != null) {
+            @export("__stack_chk_guard", __stack_chk_guard, linkage);
+        }
         @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
         @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);
         @export("__multi3", @import("compiler_rt/multi3.zig").__multi3, linkage);

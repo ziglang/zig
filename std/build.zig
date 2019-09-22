@@ -1175,6 +1175,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isLinux(self: Target) bool {
+        return switch (self.getOs()) {
+            .linux => true,
+            else => false,
+        };
+    }
+
     pub fn isUefi(self: Target) bool {
         return switch (self.getOs()) {
             .uefi => true,
@@ -1196,8 +1203,124 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isNetBSD(self: Target) bool {
+        return switch (self.getOs()) {
+            .netbsd => true,
+            else => false,
+        };
+    }
+
     pub fn wantSharedLibSymLinks(self: Target) bool {
         return !self.isWindows();
+    }
+
+    pub fn osRequiresLibC(self: Target) bool {
+        return self.isDarwin() or self.isFreeBSD() or self.isNetBSD();
+    }
+
+    pub fn getArchPtrBitWidth(self: Target) u32 {
+        switch (self.getArch()) {
+            .avr,
+            .msp430,
+            => return 16,
+
+            .arc,
+            .arm,
+            .armeb,
+            .hexagon,
+            .le32,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .r600,
+            .riscv32,
+            .sparc,
+            .sparcel,
+            .tce,
+            .tcele,
+            .thumb,
+            .thumbeb,
+            .i386,
+            .xcore,
+            .nvptx,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .shave,
+            .lanai,
+            .wasm32,
+            .renderscript32,
+            .aarch64_32,
+            => return 32,
+
+            .aarch64,
+            .aarch64_be,
+            .mips64,
+            .mips64el,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .x86_64,
+            .nvptx64,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .wasm64,
+            .renderscript64,
+            .amdgcn,
+            .bpfel,
+            .bpfeb,
+            .sparcv9,
+            .s390x,
+            => return 64,
+        }
+    }
+
+    pub const Executor = union(enum) {
+        native,
+        qemu: []const u8,
+        wine: []const u8,
+        unavailable,
+    };
+
+    pub fn getExternalExecutor(self: Target) Executor {
+        if (@TagType(Target)(self) == .Native) return .native;
+
+        // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
+        if (self.getOs() == builtin.os) {
+            return switch (self.getArch()) {
+                .aarch64 => Executor{ .qemu = "qemu-aarch64" },
+                .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
+                .arm => Executor{ .qemu = "qemu-arm" },
+                .armeb => Executor{ .qemu = "qemu-armeb" },
+                .i386 => Executor{ .qemu = "qemu-i386" },
+                .mips => Executor{ .qemu = "qemu-mips" },
+                .mipsel => Executor{ .qemu = "qemu-mipsel" },
+                .mips64 => Executor{ .qemu = "qemu-mips64" },
+                .mips64el => Executor{ .qemu = "qemu-mips64el" },
+                .powerpc => Executor{ .qemu = "qemu-ppc" },
+                .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
+                .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
+                .riscv32 => Executor{ .qemu = "qemu-riscv32" },
+                .riscv64 => Executor{ .qemu = "qemu-riscv64" },
+                .s390x => Executor{ .qemu = "qemu-s390x" },
+                .sparc => Executor{ .qemu = "qemu-sparc" },
+                .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+                else => return .unavailable,
+            };
+        }
+
+        if (self.isWindows()) {
+            switch (self.getArchPtrBitWidth()) {
+                32 => return Executor{ .wine = "wine" },
+                64 => return Executor{ .wine = "wine64" },
+                else => return .unavailable,
+            }
+        }
+
+        return .unavailable;
     }
 };
 
@@ -1266,6 +1389,7 @@ pub const LibExeObjStep = struct {
     include_dirs: ArrayList(IncludeDir),
     output_dir: ?[]const u8,
     need_system_paths: bool,
+    is_linking_libc: bool = false,
 
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
@@ -1274,6 +1398,20 @@ pub const LibExeObjStep = struct {
     target_glibc: ?Version = null,
 
     valgrind_support: ?bool = null,
+
+    /// Uses system Wine installation to run cross compiled Windows build artifacts.
+    enable_wine: bool = false,
+
+    /// Uses system QEMU installation to run cross compiled foreign architecture build artifacts.
+    enable_qemu: bool = false,
+
+    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+    /// this will be the directory $glibc-build-dir/install/glibcs
+    /// Given the example of the aarch64 target, this is the directory
+    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    glibc_multi_install_dir: ?[]const u8 = null,
+
+    dynamic_linker: ?[]const u8 = null,
 
     const LinkObject = union(enum) {
         StaticPath: []const u8,
@@ -1504,7 +1642,9 @@ pub const LibExeObjStep = struct {
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
         self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
-        if (!isLibCLibrary(name)) {
+        if (isLibCLibrary(name)) {
+            self.is_linking_libc = true;
+        } else {
             self.need_system_paths = true;
         }
     }
@@ -1840,6 +1980,11 @@ pub const LibExeObjStep = struct {
             zig_args.append(builder.pathFromRoot(linker_script)) catch unreachable;
         }
 
+        if (self.dynamic_linker) |dynamic_linker| {
+            try zig_args.append("--dynamic-linker");
+            try zig_args.append(dynamic_linker);
+        }
+
         if (self.version_script) |version_script| {
             try zig_args.append("--version-script");
             try zig_args.append(builder.pathFromRoot(version_script));
@@ -1854,6 +1999,34 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("--test-cmd-bin");
                 }
             }
+        } else switch (self.target.getExternalExecutor()) {
+            .native, .unavailable => {},
+            .qemu => |bin_name| if (self.enable_qemu) qemu: {
+                const need_cross_glibc = self.target.isGnu() and self.target.isLinux() and self.is_linking_libc;
+                const glibc_dir_arg = if (need_cross_glibc)
+                    self.glibc_multi_install_dir orelse break :qemu
+                else
+                    null;
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
+                if (glibc_dir_arg) |dir| {
+                    const full_dir = try fs.path.join(builder.allocator, [_][]const u8{
+                        dir,
+                        try self.target.linuxTriple(builder.allocator),
+                    });
+
+                    try zig_args.append("--test-cmd");
+                    try zig_args.append("-L");
+                    try zig_args.append("--test-cmd");
+                    try zig_args.append(full_dir);
+                }
+                try zig_args.append("--test-cmd-bin");
+            },
+            .wine => |bin_name| if (self.enable_wine) {
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
+                try zig_args.append("--test-cmd-bin");
+            },
         }
         for (self.packages.toSliceConst()) |pkg| {
             zig_args.append("--pkg-begin") catch unreachable;

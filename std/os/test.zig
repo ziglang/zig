@@ -95,6 +95,10 @@ test "cpu count" {
 }
 
 test "AtomicFile" {
+    if (builtin.arch == .aarch64 and builtin.glibc_version != null) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
     var buffer: [1024]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
     const test_out_file = "tmp_atomic_file_test_dest.txt";

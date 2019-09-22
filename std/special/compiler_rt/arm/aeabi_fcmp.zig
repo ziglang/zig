@@ -14,31 +14,31 @@ const ConditionalOperator = enum {
 
 pub nakedcc fn __aeabi_fcmpeq() noreturn {
     @setRuntimeSafety(false);
-    aeabi_fcmp(.Eq);
+    @inlineCall(aeabi_fcmp, .Eq);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmplt() noreturn {
     @setRuntimeSafety(false);
-    aeabi_fcmp(.Lt);
+    @inlineCall(aeabi_fcmp, .Lt);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmple() noreturn {
     @setRuntimeSafety(false);
-    aeabi_fcmp(.Le);
+    @inlineCall(aeabi_fcmp, .Le);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmpge() noreturn {
     @setRuntimeSafety(false);
-    aeabi_fcmp(.Ge);
+    @inlineCall(aeabi_fcmp, .Ge);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmpgt() noreturn {
     @setRuntimeSafety(false);
-    aeabi_fcmp(.Gt);
+    @inlineCall(aeabi_fcmp, .Gt);
     unreachable;
 }
 
@@ -49,7 +49,7 @@ inline fn convert_fcmp_args_to_sf2_args() void {
     );
 }
 
-inline fn aeabi_fcmp(comptime cond: ConditionalOperator) void {
+fn aeabi_fcmp(comptime cond: ConditionalOperator) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\ push      { r4, lr }

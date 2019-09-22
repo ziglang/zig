@@ -43,6 +43,8 @@ pub const mach_timebase_info_data = extern struct {
     denom: u32,
 };
 
+pub const off_t = i64;
+
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
 /// because although this is a POSIX API, the layout and names of
@@ -65,7 +67,7 @@ pub const Stat = extern struct {
     ctimensec: isize,
     birthtimesec: isize,
     birthtimensec: isize,
-    size: i64,
+    size: off_t,
     blocks: i64,
     blksize: i32,
     flags: u32,
