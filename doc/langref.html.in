@@ -1372,7 +1372,7 @@ unwrapped == 1234{#endsyntax#}</pre>
                           without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre>{#syntax#}false and true == false{#endsyntax#}</pre>
+            <pre>{#syntax#}(false and true) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
