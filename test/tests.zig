@@ -41,42 +41,6 @@ const test_targets = [_]TestTarget{
     },
 
     TestTarget{
-        .mode = .ReleaseFast,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseFast,
-    },
-    TestTarget{
-        .mode = .ReleaseFast,
-        .single_threaded = true,
-    },
-
-    TestTarget{
-        .mode = .ReleaseSafe,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseSafe,
-    },
-    TestTarget{
-        .mode = .ReleaseSafe,
-        .single_threaded = true,
-    },
-
-    TestTarget{
-        .mode = .ReleaseSmall,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseSmall,
-    },
-    TestTarget{
-        .mode = .ReleaseSmall,
-        .single_threaded = true,
-    },
-
-    TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
@@ -201,6 +165,43 @@ const test_targets = [_]TestTarget{
     //    },
     //    .link_libc = true,
     //},
+
+    // Do the release tests last because they take a long time
+    TestTarget{
+        .mode = .ReleaseFast,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseFast,
+    },
+    TestTarget{
+        .mode = .ReleaseFast,
+        .single_threaded = true,
+    },
+
+    TestTarget{
+        .mode = .ReleaseSafe,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseSafe,
+    },
+    TestTarget{
+        .mode = .ReleaseSafe,
+        .single_threaded = true,
+    },
+
+    TestTarget{
+        .mode = .ReleaseSmall,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseSmall,
+    },
+    TestTarget{
+        .mode = .ReleaseSmall,
+        .single_threaded = true,
+    },
 };
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
