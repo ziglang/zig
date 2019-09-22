@@ -28,6 +28,7 @@ const TestTarget = struct {
     mode: builtin.Mode = .Debug,
     link_libc: bool = false,
     single_threaded: bool = false,
+    disable_native: bool = false,
 };
 
 const test_targets = [_]TestTarget{
@@ -175,6 +176,8 @@ const test_targets = [_]TestTarget{
                 .abi = .gnu,
             },
         },
+        // TODO https://github.com/ziglang/zig/issues/3295
+        .disable_native = true,
     },
 
     TestTarget{
@@ -364,6 +367,14 @@ pub fn addPkgTests(
 
         if (skip_single_threaded and test_target.single_threaded)
             continue;
+
+        const ArchTag = @TagType(builtin.Arch);
+        if (test_target.disable_native and
+            test_target.target.getOs() == builtin.os and
+            ArchTag(test_target.target.getArch()) == ArchTag(builtin.arch))
+        {
+            continue;
+        }
 
         const want_this_mode = for (modes) |m| {
             if (m == test_target.mode) break true;
