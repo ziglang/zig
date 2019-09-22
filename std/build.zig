@@ -534,21 +534,33 @@ pub const Builder = struct {
 
     /// Exposes standard `zig build` options for choosing a target. Pass `null` to support all targets.
     pub fn standardTargetOptions(self: *Builder, supported_targets: ?[]const Target) Target {
+        // HELP: Need better ways to indicate error to the user other than `unreachable`
         if (supported_targets) |target_list| {
-            // TODO detect multiple args and emit an error message
-            // there's probably a better way to collect the target
+            var desc = "the target to build for, one of:"[0..];
             for (target_list) |targ| {
-                const targ_str = targ.zigTriple(self.allocator) catch unreachable;
-                const targ_desc = targ.allocDescription(self.allocator) catch unreachable;
-                const this_targ_opt = self.option(bool, targ_str, targ_desc) orelse false;
-                if (this_targ_opt) {
-                    return targ;
-                }
+                const triple = targ.zigTriple(self.allocator) catch unreachable;
+                desc = std.fmt.allocPrint(self.allocator, "{}\n\t\t\t\t{}", desc, triple) catch unreachable;
             }
+            // HELP: Couldn't use an assignment with an if statement for these two as I got a 'runtime cast to union with non-void fields' error
+            var target: Target = undefined;
+            var target_str: []const u8 = undefined;
+            if (self.option([]const u8, "target", desc)) |str| {
+                target_str = str;
+                target = Target.parse(str) catch unreachable;
+            } else {
+                target = Target.Native;
+                target_str = target.zigTriple(self.allocator) catch unreachable;
+            }
+            for (target_list) |targ| {
+                const triple = targ.zigTriple(self.allocator) catch unreachable;
+                if (mem.eql(u8, target_str, triple))
+                    return target;
+            }
+            warn("Unsupported arch\n"); //HELP: How do we error out, but not when --help is used?
             return Target.Native;
         } else {
             const target_str = self.option([]const u8, "target", "the target to build for") orelse return Target.Native;
-            return Target.parse(target_str) catch unreachable; // TODO better error message for bad target
+            return Target.parse(target_str) catch unreachable;
         }
     }
 
