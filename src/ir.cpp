@@ -15976,8 +15976,11 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
 
             IrInstruction *bitcasted_value;
+            ZigType *bitcasted_type = dest_type;
             if (value != nullptr) {
                 bitcasted_value = ir_analyze_bit_cast(ira, result_loc->source_instruction, value, dest_type);
+                    // bit_cast can change the type to a vector type
+                bitcasted_type = bitcasted_value->value.type;
             } else {
                 bitcasted_value = nullptr;
             }
@@ -15987,7 +15990,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
 
             IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
-                    dest_type, bitcasted_value, force_runtime, non_null_comptime, true);
+                    bitcasted_type, bitcasted_value, force_runtime, non_null_comptime, true);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
                 parent_result_loc->value.type->id == ZigTypeIdUnreachable)
             {
@@ -25529,10 +25532,11 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
     if ((err = type_resolve(ira->codegen, src_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
-
     uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
     uint64_t src_size_bytes = type_size(ira->codegen, src_type);
-    if (dest_size_bytes != src_size_bytes) {
+    if (src_type->id != ZigTypeIdVector &&  // abi_size does not makes sense
+        dest_type->id != ZigTypeIdVector && // for vectors.
+        dest_size_bytes != src_size_bytes) {
         ir_add_error(ira, source_instr,
             buf_sprintf("destination type '%s' has size %" ZIG_PRI_u64 " but source type '%s' has size %" ZIG_PRI_u64,
                 buf_ptr(&dest_type->name), dest_size_bytes,
@@ -25542,6 +25546,12 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
 
     uint64_t dest_size_bits = type_size_bits(ira->codegen, dest_type);
     uint64_t src_size_bits = type_size_bits(ira->codegen, src_type);
+    if (dest_type->id != ZigTypeIdVector &&
+        src_type->id == ZigTypeIdVector &&
+        dest_size_bits * src_type->data.vector.len == src_size_bits) {
+        dest_type = get_vector_type(ira->codegen, src_type->data.vector.len, dest_type);
+        dest_size_bits = type_size_bits(ira->codegen, dest_type);
+    }
     if (dest_size_bits != src_size_bits) {
         ir_add_error(ira, source_instr,
             buf_sprintf("destination type '%s' has %" ZIG_PRI_u64 " bits but source type '%s' has %" ZIG_PRI_u64 " bits",
@@ -25556,8 +25566,94 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
             return ira->codegen->invalid_instruction;
 
         IrInstruction *result = ir_const(ira, source_instr, dest_type);
-        uint8_t *buf = allocate_nonzero<uint8_t>(src_size_bytes);
-        buf_write_value_bytes(ira->codegen, buf, val);
+        // Vectors are handled differently
+        uint8_t *buf = nullptr;
+        // FIXME (in stage2) this is hideous because:
+        // 1) bigint.cpp is using Big-Endian padding on Little-Endian. I had a working version
+        //    that did everything except deal with this.
+        // 2) There are no bit-granularity pointers. Doing what the compiler would do is enormously
+        //    complicated, and I could not handle the logic of keeping that syncronized while
+        //    handling (1) at the same time, so now we have this simplified logic version with
+        //    an array of bools, that isn't optimized correctly.
+        bool *buf_easy = nullptr;
+        size_t padding = 0;
+        if (src_type->id == ZigTypeIdVector) {
+            buf = allocate<uint8_t>((src_size_bits + 7) / 8);
+            buf_easy = allocate<bool>(((src_size_bits + 7) / 8) * 8);
+            bool *buf_easy_ptr = buf_easy;
+            uint8_t *buf_ptr = buf;
+            uint64_t elem_size_bits = type_size_bits(ira->codegen, src_type->data.vector.elem_type);
+            uint8_t *elem_buf = allocate<uint8_t>((elem_size_bits + 7) / 8);
+            for (int64_t i = 0; i < src_type->data.vector.len; i++) {
+                buf_write_value_bytes(ira->codegen, elem_buf, &val->data.x_array.data.s_none.elements[i]);
+                size_t elem_bits = 0;
+                for (size_t j = 0; j < (elem_size_bits + 7) / 8; j++) {
+                    uint8_t next = elem_buf[j];
+                    for (uint8_t k = 0; k < 8 && elem_bits < elem_size_bits; (elem_bits++, k++)) {
+                        *buf_easy_ptr++ = (next & (1 << k)) > 0;
+                    }
+                }
+            }
+            for (size_t i = 0; i < src_size_bits; i += 8) {
+                *buf_ptr++ = buf_easy[i    ] |
+                             buf_easy[i + 1] << 1 |
+                             buf_easy[i + 2] << 2 |
+                             buf_easy[i + 3] << 3 |
+                             buf_easy[i + 4] << 4 |
+                             buf_easy[i + 5] << 5 |
+                             buf_easy[i + 6] << 6 |
+                             buf_easy[i + 7] << 7;
+            }
+        }
+        if (buf == nullptr) {
+            buf = allocate_nonzero<uint8_t>(src_size_bytes);
+            buf_write_value_bytes(ira->codegen, buf, val);
+        }
+        if (dest_type->id == ZigTypeIdVector) {
+            result->value.data.x_array.data.s_none.elements = allocate<ConstExprValue>(dest_type->data.vector.len);
+            size_t elem_size_bits = type_size_bits(ira->codegen, dest_type->data.vector.elem_type);
+            if (buf_easy == nullptr) {
+                buf_easy = allocate<bool>(((src_size_bits + 7) / 8) * 8);
+                bool *buf_easy_ptr = buf_easy;
+                for (size_t i = 0; i < src_size_bits + padding; i++) {
+                    *buf_easy_ptr++ = buf[i / 8] & (1 << (i % 8));
+                }
+            }
+            bool *elem_buf_easy = allocate<bool>(elem_size_bits);
+            bool *elem_buf_easy_ptr = elem_buf_easy;
+            uint8_t *elem_buf = allocate<uint8_t>((elem_size_bits + 7) / 8);
+            size_t elem_padding = (8 - ((src_size_bits + 1) % 8)) % 8;
+            size_t bits = 0;
+            for (size_t i = 0; i < dest_type->data.vector.len;
+                (memset(elem_buf_easy, 0, sizeof(bool) * elem_size_bits), i++)) {
+                uint8_t *elem_buf_ptr = elem_buf;
+
+                memcpy(elem_buf_easy_ptr, &buf_easy[bits], elem_size_bits);
+                bits += elem_size_bits;
+
+                for (size_t j = 0; j < elem_size_bits + elem_padding; j += 8) {
+                    *elem_buf_ptr++ = elem_buf_easy[j    ]      |
+                                      elem_buf_easy[j + 1] << 1 |
+                                      elem_buf_easy[j + 2] << 2 |
+                                      elem_buf_easy[j + 3] << 3 |
+                                      elem_buf_easy[j + 4] << 4 |
+                                      elem_buf_easy[j + 5] << 5 |
+                                      elem_buf_easy[j + 6] << 6 |
+                                      elem_buf_easy[j + 7] << 7;
+                }
+
+                ConstExprValue *sval = &result->value.data.x_array.data.s_none.elements[i];
+                sval->special = ConstValSpecialStatic;
+                sval->type = dest_type->data.vector.elem_type;
+                if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, elem_buf, sval)))
+                    return ira->codegen->invalid_instruction;
+            }
+            free(buf);
+            free(buf_easy);
+            free(elem_buf);
+            free(elem_buf_easy);
+            return result;
+        }
         if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, buf, &result->value)))
             return ira->codegen->invalid_instruction;
         return result;

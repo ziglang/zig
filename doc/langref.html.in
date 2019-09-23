@@ -6681,10 +6681,10 @@ async fn func(y: *i32) void {
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
       <p>
-      Converts a value of one type to another type.
+      Converts a value of one type to another type. <b>Vectors are numbered right -> left.</b>
       </p>
       <p>
-      Asserts that {#syntax#}@sizeOf(@typeOf(value)) == @sizeOf(DestType){#endsyntax#}.
+      Asserts that {#syntax#}@sizeOf(@typeOf(value)) == @sizeOf(DestType){#endsyntax#}, except Vectors, in which case only the number of bits must match.
       </p>
       <p>
       Asserts that {#syntax#}@typeId(DestType) != @import("builtin").TypeId.Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
@@ -6695,6 +6695,7 @@ async fn func(y: *i32) void {
       <ul>
           <li>Convert {#syntax#}f32{#endsyntax#} to {#syntax#}u32{#endsyntax#} bits</li>
           <li>Convert {#syntax#}i32{#endsyntax#} to {#syntax#}u32{#endsyntax#} preserving twos complement</li>
+          <li>Convert {#syntax#}@Vector(4, u32){#endsyntax#} to {#syntax#}u128{#endsyntax#}. Note Vectors are numbered right -> left.</li>
       </ul>
       <p>
       Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.

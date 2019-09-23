@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const builtin = @import("builtin");
+const all = std.vector.all;
 
 test "@byteSwap integers" {
     const ByteSwapIntTest = struct {
