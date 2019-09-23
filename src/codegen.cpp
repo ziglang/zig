@@ -1483,6 +1483,10 @@ static LLVMValueRef vector_all(CodeGen *g, LLVMValueRef target_val, uint32_t is_
     return vector_branch(g, target_val, is_vector, true);
 }
 
+static LLVMValueRef vector_any(CodeGen *g, LLVMValueRef target_val, uint32_t is_vector) {
+    return vector_branch(g, target_val, is_vector, false);
+}
+
 static LLVMValueRef vector_splat(CodeGen *g, LLVMValueRef target_val, uint32_t is_vector) {
     if (!is_vector) {
         return target_val;
@@ -2872,17 +2876,18 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast
     }
     LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, type_entry));
     if (want_runtime_safety) {
-        LLVMValueRef is_zero_bit;
+        LLVMValueRef is_zero_bits;
         if (scalar_type->id == ZigTypeIdInt) {
             LLVMIntPredicate pred = scalar_type->data.integral.is_signed ? LLVMIntSLE : LLVMIntEQ;
-            is_zero_bit = LLVMBuildICmp(g->builder, pred, val2, zero, "");
+            is_zero_bits = LLVMBuildICmp(g->builder, pred, val2, zero, "");
         } else if (scalar_type->id == ZigTypeIdFloat) {
-            is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
+            is_zero_bits = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
         } else {
             zig_unreachable();
         }
         LLVMBasicBlockRef rem_zero_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemZeroOk");
         LLVMBasicBlockRef rem_zero_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemZeroFail");
+        LLVMValueRef is_zero_bit = vector_any(g, is_zero_bits, is_vector);
         LLVMBuildCondBr(g->builder, is_zero_bit, rem_zero_fail_block, rem_zero_ok_block);
 
         LLVMPositionBuilderAtEnd(g->builder, rem_zero_fail_block);
