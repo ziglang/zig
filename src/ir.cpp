@@ -26488,6 +26488,7 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
                     continue;
 
                 bigint_write_twos_complement(&op_elem_val->data.x_bigint, buf, int_type->data.integral.bit_count, true);
+                result->value.data.x_array.data.s_none.elements[i].type = int_type;
                 bigint_read_twos_complement(&result->value.data.x_array.data.s_none.elements[i].data.x_bigint,
                         buf, int_type->data.integral.bit_count, false,
                         int_type->data.integral.is_signed);
@@ -26498,6 +26499,7 @@ static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstruction
                     int_type->data.integral.is_signed);
         }
         free(buf);
+        result->value.type = op_type;
         return result;
     }
 
