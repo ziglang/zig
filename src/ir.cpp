@@ -14306,16 +14306,23 @@ never_mind_just_calculate_it_normally:
 static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, IrInstruction *source_instr, ZigType *type_entry,
         ConstExprValue *op1_val, IrBinOp op_id, ConstExprValue *op2_val, ConstExprValue *out_val)
 {
+    bool is_bool;
     bool is_int;
     bool is_float;
     Cmp op2_zcmp;
     if (type_entry->id == ZigTypeIdInt || type_entry->id == ZigTypeIdComptimeInt) {
+        is_bool = false;
         is_int = true;
         is_float = false;
         op2_zcmp = bigint_cmp_zero(&op2_val->data.x_bigint);
+    } else if (type_entry->id == ZigTypeIdBool) {
+        is_bool = true;
+        is_int = false;
+        is_float = false;
     } else if (type_entry->id == ZigTypeIdFloat ||
                 type_entry->id == ZigTypeIdComptimeFloat)
     {
+        is_bool = false;
         is_int = false;
         is_float = true;
         op2_zcmp = float_cmp_zero(op2_val);
@@ -14347,16 +14354,31 @@ static ErrorMsg *ir_eval_math_op_scalar(IrAnalyze *ira, IrInstruction *source_in
         case IrBinOpRemUnspecified:
             zig_unreachable();
         case IrBinOpBinOr:
-            assert(is_int);
-            bigint_or(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            if (is_bool) {
+                out_val->data.x_bool = op1_val->data.x_bool | op2_val->data.x_bool;
+            } else if (is_int) {
+                bigint_or(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                zig_unreachable();
+            }
             break;
         case IrBinOpBinXor:
-            assert(is_int);
-            bigint_xor(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            if (is_bool) {
+                out_val->data.x_bool = op1_val->data.x_bool ^ op2_val->data.x_bool;
+            } else if (is_int) {
+                bigint_xor(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                zig_unreachable();
+            }
             break;
         case IrBinOpBinAnd:
-            assert(is_int);
-            bigint_and(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            if (is_bool) {
+                out_val->data.x_bool = op1_val->data.x_bool & op2_val->data.x_bool;
+            } else if (is_int) {
+                bigint_and(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                zig_unreachable();
+            }
             break;
         case IrBinOpBitShiftLeftExact:
             assert(is_int);
@@ -14615,6 +14637,47 @@ static IrInstruction *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *b
     return result;
 }
 
+static bool ok_bool_op(IrBinOp op) {
+    switch (op) {
+        case IrBinOpInvalid:
+            zig_unreachable();
+        case IrBinOpBinOr:
+        case IrBinOpBinXor:
+        case IrBinOpBinAnd:
+        case IrBinOpBoolOr:
+        case IrBinOpBoolAnd:
+        case IrBinOpCmpEq:
+        case IrBinOpCmpNotEq:
+            return true;
+
+        case IrBinOpAdd:
+        case IrBinOpSub:
+        case IrBinOpMult:
+        case IrBinOpDivUnspecified:
+        case IrBinOpDivTrunc:
+        case IrBinOpDivFloor:
+        case IrBinOpDivExact:
+        case IrBinOpRemRem:
+        case IrBinOpRemMod:
+        case IrBinOpCmpLessThan:
+        case IrBinOpCmpGreaterThan:
+        case IrBinOpCmpLessOrEq:
+        case IrBinOpCmpGreaterOrEq:
+        case IrBinOpBitShiftLeftLossy:
+        case IrBinOpBitShiftLeftExact:
+        case IrBinOpBitShiftRightLossy:
+        case IrBinOpBitShiftRightExact:
+        case IrBinOpAddWrap:
+        case IrBinOpSubWrap:
+        case IrBinOpMultWrap:
+        case IrBinOpRemUnspecified:
+        case IrBinOpArrayCat:
+        case IrBinOpArrayMult:
+            return false;
+    }
+    zig_unreachable();
+}
+
 static bool ok_float_op(IrBinOp op) {
     switch (op) {
         case IrBinOpInvalid:
@@ -14752,6 +14815,7 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
     if (type_is_invalid(resolved_type))
         return ira->codegen->invalid_instruction;
 
+    bool is_bool = resolved_type->id == ZigTypeIdBool;
     bool is_int = resolved_type->id == ZigTypeIdInt || resolved_type->id == ZigTypeIdComptimeInt;
     bool is_float = resolved_type->id == ZigTypeIdFloat || resolved_type->id == ZigTypeIdComptimeFloat;
     bool is_signed_div = (
@@ -14862,11 +14926,15 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
     bool ok = false;
     if (is_int) {
         ok = true;
+    } else if (is_bool && ok_bool_op(op_id)) {
+        ok = true;
     } else if (is_float && ok_float_op(op_id)) {
         ok = true;
     } else if (resolved_type->id == ZigTypeIdVector) {
         ZigType *elem_type = resolved_type->data.vector.elem_type;
         if (elem_type->id == ZigTypeIdInt || elem_type->id == ZigTypeIdComptimeInt) {
+            ok = true;
+        } else if ((elem_type->id == ZigTypeIdBool) && ok_bool_op(op_id)) {
             ok = true;
         } else if ((elem_type->id == ZigTypeIdFloat || elem_type->id == ZigTypeIdComptimeFloat) && ok_float_op(op_id)) {
             ok = true;
@@ -17518,10 +17586,11 @@ static IrInstruction *ir_analyze_optional_type(IrAnalyze *ira, IrInstructionUnOp
 static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInstruction *source_instr, ZigType *scalar_type,
         ConstExprValue *operand_val, ConstExprValue *scalar_out_val, bool is_wrap_op)
 {
+    bool is_bool = scalar_type->id == ZigTypeIdBool;
     bool is_float = (scalar_type->id == ZigTypeIdFloat || scalar_type->id == ZigTypeIdComptimeFloat);
 
     bool ok_type = ((scalar_type->id == ZigTypeIdInt && scalar_type->data.integral.is_signed) ||
-        scalar_type->id == ZigTypeIdComptimeInt || (is_float && !is_wrap_op));
+        scalar_type->id == ZigTypeIdComptimeInt || (is_float && !is_wrap_op) || is_bool);
 
     if (!ok_type) {
         const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
@@ -17530,6 +17599,12 @@ static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInstruction *source_i
 
     if (is_float) {
         float_negate(scalar_out_val, operand_val);
+    } else if (is_bool) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wbool-operation"
+        scalar_out_val->data.x_bool = ~operand_val->data.x_bool;
+#pragma GCC diagnostic pop
+        scalar_out_val->special = ConstValSpecialStatic;
     } else if (is_wrap_op) {
         bigint_negate_wrap(&scalar_out_val->data.x_bigint, &operand_val->data.x_bigint,
                 scalar_type->data.integral.bit_count);
@@ -17540,7 +17615,7 @@ static ErrorMsg *ir_eval_negation_scalar(IrAnalyze *ira, IrInstruction *source_i
     scalar_out_val->type = scalar_type;
     scalar_out_val->special = ConstValSpecialStatic;
 
-    if (is_wrap_op || is_float || scalar_type->id == ZigTypeIdComptimeInt) {
+    if (is_wrap_op || is_float || is_bool || scalar_type->id == ZigTypeIdComptimeInt) {
         return nullptr;
     }
 
@@ -17619,15 +17694,40 @@ static IrInstruction *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *inst
     if (type_is_invalid(expr_type))
         return ira->codegen->invalid_instruction;
 
-    if (expr_type->id == ZigTypeIdInt) {
+    bool is_vector = expr_type->id == ZigTypeIdVector;
+    ZigType *scalar_expr_type = is_vector ? expr_type->data.vector.elem_type : expr_type;
+    bool is_bool = scalar_expr_type->id == ZigTypeIdBool;
+
+    if (is_bool || scalar_expr_type->id == ZigTypeIdInt) {
         if (instr_is_comptime(value)) {
             ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
             if (target_const_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
             IrInstruction *result = ir_const(ira, &instruction->base, expr_type);
-            bigint_not(&result->value.data.x_bigint, &target_const_val->data.x_bigint,
-                    expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
+            if (is_vector) {
+                result->value.data.x_array.data.s_none.elements =
+                    allocate<ConstExprValue>(expr_type->data.vector.len);
+                for (uint32_t i = 0; i < expr_type->data.vector.len; i++) {
+                    ConstExprValue *out = &result->value.data.x_array.data.s_none.elements[i];
+                    ConstExprValue *in = &target_const_val->data.x_array.data.s_none.elements[i];
+                    if (is_bool) {
+                        out->data.x_bool = !in->data.x_bool;
+                    } else {
+                        bigint_not(&out->data.x_bigint, &in->data.x_bigint,
+                            scalar_expr_type->data.integral.bit_count, scalar_expr_type->data.integral.is_signed);
+                    }
+                    out->type = scalar_expr_type;
+                    out->special = ConstValSpecialStatic;
+                }
+            } else {
+                if (is_bool) {
+                    result->value.data.x_bool = !target_const_val->data.x_bool;
+                } else {
+                    bigint_not(&result->value.data.x_bigint, &target_const_val->data.x_bigint,
+                            expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
+                }
+            }
             return result;
         }
 
@@ -17727,6 +17827,8 @@ static IrInstruction *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructi
     if (!ir_resolve_comptime(ira, cond_br_instruction->is_comptime->child, &is_comptime))
         return ir_unreach_error(ira);
 
+    // FIXME pass down whether this came from a _gen_bool_and or _gen_bool_or
+    // so we can give a helpful error message when a @Vector(_, bool) was passed.
     ZigType *bool_type = ira->codegen->builtin_types.entry_bool;
     IrInstruction *casted_condition = ir_implicit_cast(ira, condition, bool_type);
     if (type_is_invalid(casted_condition->value.type))

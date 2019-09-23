@@ -261,11 +261,23 @@ test "binary not" {
     expect(comptime x: {
         break :x ~@as(u64, 2147483647) == 18446744071562067968;
     });
+    expect(comptime x: {
+        break :x ~true == false;
+    });
+    expect(~false == true);
     testBinaryNot(0b1010101010101010);
+    var v: @Vector(2, u16) = [_]u16{0b1010101010101010, 0b0101010101010101};
+    testBinaryNotVector(v);
+    comptime var v2: @Vector(2, u16) = [_]u16{0b1010101010101010, 0b0101010101010101};
+    comptime testBinaryNotVector(v2);
 }
 
 fn testBinaryNot(x: u16) void {
     expect(~x == 0b0101010101010101);
+}
+
+fn testBinaryNotVector(x: @Vector(2, u16)) void {
+    expect(@import("std").vector.all(~x == @Vector(2, u16)([_]u16{0b0101010101010101, 0b1010101010101010})));
 }
 
 test "small int addition" {
@@ -499,6 +511,23 @@ test "comptime_int multi-limb partial shift right" {
         a >>= 16;
         expect(a == 0x1ffffffffeeee);
     }
+}
+
+test "bitwise on bools" {
+    test_bitwise_on_bools();
+    comptime test_bitwise_on_bools();
+}
+
+fn test_bitwise_on_bools() void {
+    expect(false ^ false == false);
+    expect(false ^ true == true);
+    expect(true ^ true == false);
+    expect(false & false == false);
+    expect(false & true == false);
+    expect(true & true == true);
+    expect(false | false == false);
+    expect(false | true == true);
+    expect(true | true == true);
 }
 
 test "xor" {

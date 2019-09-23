@@ -48,3 +48,29 @@ test "compile time bool not" {
     expect(not_global_f);
     expect(!not_global_t);
 }
+
+test "bool branching ordering" {
+    const S = struct {
+        fn doTheTest() void {
+            var o = false;
+            var t = true;
+            var f = false;
+            _ = t or wasRun(&o);
+            expect(o == false);
+            _ = f and wasRun(&o);
+            expect(o == false);
+            _ = t | wasRun(&o);
+            expect(o == true);
+            o = false;
+            _ = f & wasRun(&o);
+            expect(o == true);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+fn wasRun(b: *bool) bool {
+    b.* = true;
+    return true;
+}

@@ -540,3 +540,69 @@ test "vector @gather/@scatter" {
     S.test2();
     //comptime S.test2();
 }
+
+test "vector | & ^" {
+    const S = struct {
+        fn doTheTest() void {
+            {
+                var v: @Vector(2, u32) = [_]u32{2, 4};
+                var v2: @Vector(2, u32) = [_]u32{2, 8};
+                var bin_or: @Vector(2, u32) = v | v2;
+                var bin_and: @Vector(2, u32) = v & v2;
+                var bin_xor: @Vector(2, u32) = v ^ v2;
+                expect(bin_or[0] == 2);
+                expect(bin_or[1] == 12);
+                expect(bin_and[0] == 2);
+                expect(bin_and[1] == 0);
+                expect(bin_xor[0] == 0);
+                expect(bin_xor[1] == 12);
+            }
+            {
+                const all = std.vector.all;
+
+                var v: @Vector(2, bool) = [_]bool{true, true};
+                var v2: @Vector(2, bool) = [_]bool{true, false};
+                var bin_or: @Vector(2, bool) = v | v2;
+                var bin_and: @Vector(2, bool) = v & v2;
+                var bin_xor: @Vector(2, bool) = v ^ v2;
+                var bin_not: @Vector(2, bool) = ~v;
+                expect(bin_or[0] == true);
+                expect(bin_or[1] == true);
+                expect(bin_and[0] == true);
+                expect(bin_and[1] == false);
+                expect(bin_xor[0] == false);
+                expect(bin_xor[1] == true);
+                expect(bin_not[0] == false);
+                expect(bin_not[1] == false);
+                var copy = v;
+                copy |= v2;
+                expect(all(bin_or == copy));
+                copy = v;
+                copy &= v2;
+                expect(all(bin_and == copy));
+                copy = v;
+                copy ^= v2;
+                expect(all(bin_xor == copy));
+            }
+            // Even if the return value has already been determined,
+            // & and |, unlike "and" and "or" must evaluate all operands.
+            {
+                var wasRun: bool = false;
+                var res = vectorFalseFalse() & shouldRun(&wasRun);
+                expect(res[0] == false);
+                expect(res[1] == false);
+                expect(wasRun == true);
+            }
+        }
+        fn vectorFalseFalse() @Vector(2, bool) {
+            return [_]bool{false, false};
+        }
+        fn shouldRun(x: *bool) @Vector(2, bool) {
+            expect(x.* == false);
+            x.* = true;
+            return [_]bool{true, true};
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
