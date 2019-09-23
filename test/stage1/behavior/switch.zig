@@ -425,3 +425,12 @@ test "switch prongs with cases with identical payload types" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "switch with disjoint range" {
+    var q: u8 = 0;
+    switch (q) {
+        0...125 => {},
+        127...255 => {},
+        126...126 => {},
+    }
+}

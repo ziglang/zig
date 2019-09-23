@@ -3,6 +3,19 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "switch with overlapping case ranges",
+        \\export fn entry() void {
+        \\    var q: u8 = 0;
+        \\    switch (q) {
+        \\        1...2 => {},
+        \\        0...255 => {},
+        \\    }
+        \\}
+    ,
+        "tmp.zig:5:9: error: duplicate switch value",
+    );
+
+    cases.add(
         "attempt to negate a non-integer, non-float or non-vector type",
         \\fn foo() anyerror!u32 {
         \\    return 1;
