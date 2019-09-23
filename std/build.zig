@@ -55,6 +55,20 @@ pub const Builder = struct {
     override_std_dir: ?[]const u8,
     override_lib_dir: ?[]const u8,
 
+    pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
+
+    const PkgConfigError = error{
+        PkgConfigCrashed,
+        PkgConfigFailed,
+        PkgConfigNotInstalled,
+        PkgConfigInvalidOutput,
+    };
+
+    pub const PkgConfigPkg = struct {
+        name: []const u8,
+        desc: []const u8,
+    };
+
     pub const CStd = enum {
         C89,
         C99,
@@ -833,12 +847,13 @@ pub const Builder = struct {
         return error.FileNotFound;
     }
 
-    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
+    pub fn execAllowFail(
+        self: *Builder,
+        argv: []const []const u8,
+        out_code: *u8,
+        stderr_behavior: std.ChildProcess.StdIo,
+    ) ![]u8 {
         assert(argv.len != 0);
-
-        if (self.verbose) {
-            printCmd(null, argv);
-        }
 
         const max_output_size = 100 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
@@ -846,7 +861,7 @@ pub const Builder = struct {
 
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Inherit;
+        child.stderr_behavior = stderr_behavior;
 
         try child.spawn();
 
@@ -856,24 +871,48 @@ pub const Builder = struct {
         var stdout_file_in_stream = child.stdout.?.inStream();
         try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
 
-        const term = child.wait() catch |err| panic("unable to spawn {}: {}", argv[0], err);
+        const term = try child.wait();
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    warn("The following command exited with error code {}:\n", code);
-                    printCmd(null, argv);
-                    std.os.exit(@truncate(u8, code));
+                    out_code.* = @truncate(u8, code);
+                    return error.ExitCodeFailure;
                 }
                 return stdout.toOwnedSlice();
             },
             .Signal, .Stopped, .Unknown => |code| {
+                out_code.* = @truncate(u8, code);
+                return error.ProcessTerminated;
+            },
+        }
+    }
+
+    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
+        assert(argv.len != 0);
+
+        if (self.verbose) {
+            printCmd(null, argv);
+        }
+
+        var code: u8 = undefined;
+        return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
+            error.FileNotFound => {
+                warn("Unable to spawn the following command: file not found\n");
+                printCmd(null, argv);
+                std.os.exit(@truncate(u8, code));
+            },
+            error.ExitCodeFailure => {
+                warn("The following command exited with error code {}:\n", code);
+                printCmd(null, argv);
+                std.os.exit(@truncate(u8, code));
+            },
+            error.ProcessTerminated => {
                 warn("The following command terminated unexpectedly:\n");
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
-        }
-
-        return stdout.toOwnedSlice();
+            else => |e| return e,
+        };
     }
 
     pub fn addSearchPrefix(self: *Builder, search_prefix: []const u8) void {
@@ -891,13 +930,45 @@ pub const Builder = struct {
             [_][]const u8{ base_dir, dest_rel_path },
         ) catch unreachable;
     }
+
+    fn execPkgConfigList(self: *Builder, out_code: *u8) ![]const PkgConfigPkg {
+        const stdout = try self.execAllowFail([_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+        var list = ArrayList(PkgConfigPkg).init(self.allocator);
+        var line_it = mem.tokenize(stdout, "\r\n");
+        while (line_it.next()) |line| {
+            if (mem.trim(u8, line, " \t").len == 0) continue;
+            var tok_it = mem.tokenize(line, " \t");
+            try list.append(PkgConfigPkg{
+                .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
+                .desc = tok_it.rest(),
+            });
+        }
+        return list.toSliceConst();
+    }
+
+    fn getPkgConfigList(self: *Builder) ![]const PkgConfigPkg {
+        if (self.pkg_config_pkg_list) |res| {
+            return res;
+        }
+        var code: u8 = undefined;
+        if (self.execPkgConfigList(&code)) |list| {
+            self.pkg_config_pkg_list = list;
+            return list;
+        } else |err| {
+            const result = switch (err) {
+                error.ProcessTerminated => error.PkgConfigCrashed,
+                error.ExitCodeFailure => error.PkgConfigFailed,
+                error.FileNotFound => error.PkgConfigNotInstalled,
+                error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
+                else => return err,
+            };
+            self.pkg_config_pkg_list = result;
+            return result;
+        }
+    }
 };
 
 test "builder.findProgram compiles" {
-    //allocator: *Allocator,
-    //zig_exe: []const u8,
-    //build_root: []const u8,
-    //cache_root: []const u8,
     const builder = try Builder.create(std.heap.direct_allocator, "zig", "zig-cache", "zig-cache");
     _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
 }
@@ -1388,6 +1459,7 @@ pub const LibExeObjStep = struct {
 
     link_objects: ArrayList(LinkObject),
     include_dirs: ArrayList(IncludeDir),
+    c_macros: ArrayList([]const u8),
     output_dir: ?[]const u8,
     need_system_paths: bool,
     is_linking_libc: bool = false,
@@ -1491,6 +1563,7 @@ pub const LibExeObjStep = struct {
             .packages = ArrayList(Pkg).init(builder.allocator),
             .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
             .link_objects = ArrayList(LinkObject).init(builder.allocator),
+            .c_macros = ArrayList([]const u8).init(builder.allocator),
             .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .framework_dirs = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
@@ -1617,6 +1690,9 @@ pub const LibExeObjStep = struct {
 
     /// Returns whether the library, executable, or object depends on a particular system library.
     pub fn dependsOnSystemLibrary(self: LibExeObjStep, name: []const u8) bool {
+        if (isLibCLibrary(name)) {
+            return self.is_linking_libc;
+        }
         for (self.link_objects.toSliceConst()) |link_object| {
             switch (link_object) {
                 LinkObject.SystemLib => |n| if (mem.eql(u8, n, name)) return true,
@@ -1641,13 +1717,135 @@ pub const LibExeObjStep = struct {
         return self.isDynamicLibrary() or self.kind == .Exe;
     }
 
-    pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
-        self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
-        if (isLibCLibrary(name)) {
+    pub fn linkLibC(self: *LibExeObjStep) void {
+        if (!self.is_linking_libc) {
             self.is_linking_libc = true;
-        } else {
-            self.need_system_paths = true;
+            self.link_objects.append(LinkObject{ .SystemLib = "c" }) catch unreachable;
         }
+    }
+
+    /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
+    pub fn defineCMacro(self: *LibExeObjStep, name_and_value: []const u8) void {
+        self.c_macros.append(self.builder.dupe(name_and_value)) catch unreachable;
+    }
+
+    /// This one has no integration with anything, it just puts -lname on the command line.
+    /// Prefer to use `linkSystemLibrary` instead.
+    pub fn linkSystemLibraryName(self: *LibExeObjStep, name: []const u8) void {
+        self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
+        self.need_system_paths = true;
+    }
+
+    /// This links against a system library, exclusively using pkg-config to find the library.
+    /// Prefer to use `linkSystemLibrary` instead.
+    pub fn linkSystemLibraryPkgConfigOnly(self: *LibExeObjStep, lib_name: []const u8) !void {
+        const pkg_name = match: {
+            // First we have to map the library name to pkg config name. Unfortunately,
+            // there are several examples where this is not straightforward:
+            // -lSDL2 -> pkg-config sdl2
+            // -lgdk-3 -> pkg-config gdk-3.0
+            // -latk-1.0 -> pkg-config atk
+            const pkgs = try self.builder.getPkgConfigList();
+
+            // Exact match means instant winner.
+            for (pkgs) |pkg| {
+                if (mem.eql(u8, pkg.name, lib_name)) {
+                    break :match pkg.name;
+                }
+            }
+
+            // Next we'll try ignoring case.
+            for (pkgs) |pkg| {
+                if (std.ascii.eqlIgnoreCase(pkg.name, lib_name)) {
+                    break :match pkg.name;
+                }
+            }
+
+            // Now try appending ".0".
+            for (pkgs) |pkg| {
+                if (std.ascii.indexOfIgnoreCase(pkg.name, lib_name)) |pos| {
+                    if (pos != 0) continue;
+                    if (mem.eql(u8, pkg.name[lib_name.len..], ".0")) {
+                        break :match pkg.name;
+                    }
+                }
+            }
+
+            // Trimming "-1.0".
+            if (mem.endsWith(u8, lib_name, "-1.0")) {
+                const trimmed_lib_name = lib_name[0 .. lib_name.len - "-1.0".len];
+                for (pkgs) |pkg| {
+                    if (std.ascii.eqlIgnoreCase(pkg.name, trimmed_lib_name)) {
+                        break :match pkg.name;
+                    }
+                }
+            }
+
+            return error.PackageNotFound;
+        };
+
+        var code: u8 = undefined;
+        const stdout = if (self.builder.execAllowFail([_][]const u8{
+            "pkg-config",
+            pkg_name,
+            "--cflags",
+            "--libs",
+        }, &code, .Ignore)) |stdout| stdout else |err| switch (err) {
+            error.ProcessTerminated => return error.PkgConfigCrashed,
+            error.ExitCodeFailure => return error.PkgConfigFailed,
+            error.FileNotFound => return error.PkgConfigNotInstalled,
+            else => return err,
+        };
+        var it = mem.tokenize(stdout, " \r\n\t");
+        while (it.next()) |tok| {
+            if (mem.eql(u8, tok, "-I")) {
+                const dir = it.next() orelse return error.PkgConfigInvalidOutput;
+                self.addIncludeDir(dir);
+            } else if (mem.startsWith(u8, tok, "-I")) {
+                self.addIncludeDir(tok["-I".len..]);
+            } else if (mem.eql(u8, tok, "-L")) {
+                const dir = it.next() orelse return error.PkgConfigInvalidOutput;
+                self.addLibPath(dir);
+            } else if (mem.startsWith(u8, tok, "-L")) {
+                self.addLibPath(tok["-L".len..]);
+            } else if (mem.eql(u8, tok, "-l")) {
+                const lib = it.next() orelse return error.PkgConfigInvalidOutput;
+                self.linkSystemLibraryName(lib);
+            } else if (mem.startsWith(u8, tok, "-l")) {
+                self.linkSystemLibraryName(tok["-l".len..]);
+            } else if (mem.eql(u8, tok, "-D")) {
+                const macro = it.next() orelse return error.PkgConfigInvalidOutput;
+                self.defineCMacro(macro);
+            } else if (mem.startsWith(u8, tok, "-D")) {
+                self.defineCMacro(tok["-D".len..]);
+            } else if (mem.eql(u8, tok, "-pthread")) {
+                self.linkLibC();
+            } else if (self.builder.verbose) {
+                warn("Ignoring pkg-config flag '{}'\n", tok);
+            }
+        }
+    }
+
+    pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
+        if (isLibCLibrary(name)) {
+            self.linkLibC();
+            return;
+        }
+        if (self.linkSystemLibraryPkgConfigOnly(name)) |_| {
+            // pkg-config worked, so nothing further needed to do.
+            return;
+        } else |err| switch (err) {
+            error.PkgConfigInvalidOutput,
+            error.PkgConfigCrashed,
+            error.PkgConfigFailed,
+            error.PkgConfigNotInstalled,
+            error.PackageNotFound,
+            => {},
+
+            else => unreachable,
+        }
+
+        self.linkSystemLibraryName(name);
     }
 
     pub fn setNamePrefix(self: *LibExeObjStep, text: []const u8) void {
@@ -2070,6 +2268,11 @@ pub const LibExeObjStep = struct {
                 zig_args.append("--library-path") catch unreachable;
                 zig_args.append(lib_path) catch unreachable;
             }
+        }
+
+        for (self.c_macros.toSliceConst()) |c_macro| {
+            try zig_args.append("-D");
+            try zig_args.append(c_macro);
         }
 
         if (self.target.isDarwin()) {

@@ -91,6 +91,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --override-std-dir [arg]     override path to Zig standard library\n"
         "  --override-lib-dir [arg]     override path to Zig lib library\n"
         "  -ffunction-sections          places each function in a separate section\n"
+        "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
@@ -691,6 +692,9 @@ int main(int argc, char **argv) {
                 bundle_compiler_rt = true;
             } else if (strcmp(arg, "--test-cmd-bin") == 0) {
                 test_exec_args.append(nullptr);
+            } else if (arg[1] == 'D' && arg[2] != 0) {
+                clang_argv.append("-D");
+                clang_argv.append(&arg[2]);
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
@@ -769,6 +773,9 @@ int main(int argc, char **argv) {
                     dynamic_linker = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--libc") == 0) {
                     libc_txt = argv[i];
+                } else if (strcmp(arg, "-D") == 0) {
+                    clang_argv.append("-D");
+                    clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
                     clang_argv.append(argv[i]);

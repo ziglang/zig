@@ -7,6 +7,8 @@
 //
 // https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/USASCII_code_chart.png/1200px-USASCII_code_chart.png
 
+const std = @import("std");
+
 const tIndex = enum(u3) {
     Alpha,
     Hex,
@@ -25,7 +27,6 @@ const tIndex = enum(u3) {
 const combinedTable = init: {
     comptime var table: [256]u8 = undefined;
 
-    const std = @import("std");
     const mem = std.mem;
 
     const alpha = [_]u1{
@@ -215,7 +216,6 @@ pub fn toLower(c: u8) u8 {
 }
 
 test "ascii character classes" {
-    const std = @import("std");
     const testing = std.testing;
 
     testing.expect('C' == toUpper('c'));
@@ -225,4 +225,60 @@ test "ascii character classes" {
     testing.expect(isAlpha('c'));
     testing.expect(!isAlpha('5'));
     testing.expect(isSpace(' '));
+}
+
+pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, ascii_string.len);
+    for (result) |*c, i| {
+        c.* = toLower(ascii_string[i]);
+    }
+    return result;
+}
+
+test "allocLowerString" {
+    var buf: [100]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    const result = try allocLowerString(allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
+}
+
+pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a) |a_c, i| {
+        if (toLower(a_c) != toLower(b[i])) return false;
+    }
+    return true;
+}
+
+test "eqlIgnoreCase" {
+    std.testing.expect(eqlIgnoreCase("HEl💩Lo!", "hel💩lo!"));
+    std.testing.expect(!eqlIgnoreCase("hElLo!", "hello! "));
+    std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
+}
+
+/// Finds `substr` in `container`, starting at `start_index`.
+/// TODO boyer-moore algorithm
+pub fn indexOfIgnoreCasePos(container: []const u8, start_index: usize, substr: []const u8) ?usize {
+    if (substr.len > container.len) return null;
+
+    var i: usize = start_index;
+    const end = container.len - substr.len;
+    while (i <= end) : (i += 1) {
+        if (eqlIgnoreCase(container[i .. i + substr.len], substr)) return i;
+    }
+    return null;
+}
+
+/// Finds `substr` in `container`, starting at `start_index`.
+pub fn indexOfIgnoreCase(container: []const u8, substr: []const u8) ?usize {
+    return indexOfIgnoreCasePos(container, 0, substr);
+}
+
+test "indexOfIgnoreCase" {
+    std.testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
+    std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
+    std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
+    std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
+
+    std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
 }
