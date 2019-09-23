@@ -61,7 +61,6 @@ void buf_appendf(Buf *buf, const char *format, ...) {
 
 // these functions are not static inline so they can be better used as template parameters
 bool buf_eql_buf(Buf *buf, Buf *other) {
-    assert(buf->list.length);
     return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
 }
 

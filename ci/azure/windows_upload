@@ -6,16 +6,15 @@ set -e
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   cd "$ZIGBUILDDIR"
 
-  rm release/*.exe
-  mv ../LICENSE release/
-  mv ../zig-cache/langref.html release/
-  mv release/bin/zig.exe release/
-  rmdir release/bin
+  mv ../LICENSE dist/
+  mv ../zig-cache/langref.html dist/
+  mv dist/bin/zig.exe dist/
+  rmdir dist/bin
 
-  VERSION=$(release/zig.exe version)
+  VERSION=$(dist/zig.exe version)
   DIRNAME="zig-windows-x86_64-$VERSION"
   TARBALL="$DIRNAME.zip"
-  mv release "$DIRNAME"
+  mv dist "$DIRNAME"
   7z a "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"

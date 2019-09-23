@@ -646,6 +646,10 @@ test "resolve" {
 }
 
 test "resolveWindows" {
+    if (@import("builtin").arch == .aarch64) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
     if (windows.is_the_target) {
         const cwd = try process.getCwdAlloc(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
@@ -1086,6 +1090,10 @@ pub fn relativePosix(allocator: *Allocator, from: []const u8, to: []const u8) ![
 }
 
 test "relative" {
+    if (@import("builtin").arch == .aarch64) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
     testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");

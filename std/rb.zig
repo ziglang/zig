@@ -511,6 +511,11 @@ fn testCompare(l: *Node, r: *Node) mem.Compare {
 }
 
 test "rb" {
+    if (@import("builtin").arch == .aarch64) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
+
     var tree: Tree = undefined;
     var ns: [10]testNumber = undefined;
     ns[0].value = 42;
@@ -571,6 +576,10 @@ test "inserting and looking up" {
 }
 
 test "multiple inserts, followed by calling first and last" {
+    if (@import("builtin").arch == .aarch64) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
     var tree: Tree = undefined;
     tree.init(testCompare);
     var zeroth: testNumber = undefined;

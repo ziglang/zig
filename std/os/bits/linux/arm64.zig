@@ -1,11 +1,13 @@
 // arm64-specific declarations that are intended to be imported into the POSIX namespace.
 // This does include Linux-only APIs.
 
-const std = @import("../../std.zig");
+const std = @import("../../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
+const uid_t = linux.uid_t;
+const gid_t = linux.gid_t;
 
 pub const SYS_io_setup = 0;
 pub const SYS_io_destroy = 1;
@@ -382,6 +384,15 @@ pub const msghdr_const = extern struct {
     msg_flags: i32,
 };
 
+pub const blksize_t = i32;
+pub const nlink_t = u32;
+pub const time_t = isize;
+pub const mode_t = u32;
+pub const off_t = isize;
+pub const ino_t = usize;
+pub const dev_t = usize;
+pub const blkcnt_t = isize;
+
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
 /// because although this is a POSIX API, the layout and names of
@@ -389,23 +400,22 @@ pub const msghdr_const = extern struct {
 /// in C, macros are used to hide the differences. Here we use
 /// methods to accomplish this.
 pub const Stat = extern struct {
-    dev: u64,
-    ino: u64,
-    nlink: usize,
-
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    __pad0: u32,
-    rdev: u64,
-    size: i64,
-    blksize: isize,
-    blocks: i64,
-
+    dev: dev_t,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    __pad: usize,
+    size: off_t,
+    blksize: blksize_t,
+    __pad2: i32,
+    blocks: blkcnt_t,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    __unused: [3]isize,
+    __unused: [2]u32,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;
@@ -421,7 +431,7 @@ pub const Stat = extern struct {
 };
 
 pub const timespec = extern struct {
-    tv_sec: isize,
+    tv_sec: time_t,
     tv_nsec: isize,
 };
 

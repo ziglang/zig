@@ -50,7 +50,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
     }
 
     {
-        SplitIterator it = memSplit(buf_to_slice(vers_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(vers_txt_contents), str("\r\n"));
         for (;;) {
             Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
             if (!opt_component.is_some) break;
@@ -65,7 +65,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
         }
     }
     {
-        SplitIterator it = memSplit(buf_to_slice(fns_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(fns_txt_contents), str("\r\n"));
         for (;;) {
             Optional<Slice<uint8_t>> opt_component = SplitIterator_next(&it);
             if (!opt_component.is_some) break;
@@ -91,17 +91,19 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
         }
     }
     {
-        SplitIterator it = memSplit(buf_to_slice(abi_txt_contents), str("\n"));
+        SplitIterator it = memSplit(buf_to_slice(abi_txt_contents), str("\r\n"));
         ZigGLibCVerList *ver_list_base = nullptr;
+        int line_num = 0;
         for (;;) {
             if (ver_list_base == nullptr) {
+                line_num += 1;
                 Optional<Slice<uint8_t>> opt_line = SplitIterator_next_separate(&it);
                 if (!opt_line.is_some) break;
 
                 ver_list_base = allocate<ZigGLibCVerList>(glibc_abi->all_functions.length);
-                ZigTarget *target = allocate<ZigTarget>(1);
                 SplitIterator line_it = memSplit(opt_line.value, str(" "));
                 for (;;) {
+                    ZigTarget *target = allocate<ZigTarget>(1);
                     Optional<Slice<uint8_t>> opt_target = SplitIterator_next(&line_it);
                     if (!opt_target.is_some) break;
 
@@ -122,7 +124,19 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
                     target->os = OsLinux;
 
                     err = target_parse_abi(&target->abi, (char*)opt_abi.value.ptr, opt_abi.value.len);
-                    assert(err == ErrorNone);
+                    if (err != ErrorNone) {
+                        fprintf(stderr, "Error parsing %s:%d: %s\n", buf_ptr(glibc_abi->abi_txt_path),
+                                line_num, err_str(err));
+                        fprintf(stderr, "arch: '%.*s', os: '%.*s', abi: '%.*s'\n",
+                                (int)opt_arch.value.len, (const char*)opt_arch.value.ptr,
+                                (int)opt_os.value.len, (const char*)opt_os.value.ptr,
+                                (int)opt_abi.value.len, (const char*)opt_abi.value.ptr);
+                        fprintf(stderr, "parsed from target: '%.*s'\n",
+                                (int)opt_target.value.len, (const char*)opt_target.value.ptr);
+                        fprintf(stderr, "parsed from line:\n%.*s\n", (int)opt_line.value.len, opt_line.value.ptr);
+                        fprintf(stderr, "Zig installation appears to be corrupted.\n");
+                        exit(1);
+                    }
 
                     glibc_abi->version_table.put(target, ver_list_base);
                 }
@@ -130,6 +144,7 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
             }
             for (size_t fn_i = 0; fn_i < glibc_abi->all_functions.length; fn_i += 1) {
                 ZigGLibCVerList *ver_list = &ver_list_base[fn_i];
+                line_num += 1;
                 Optional<Slice<uint8_t>> opt_line = SplitIterator_next_separate(&it);
                 assert(opt_line.is_some);
 
@@ -266,7 +281,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
             // - If there are no versions, don't emit it
             // - Take the greatest one <= than the target one
             // - If none of them is <= than the
-            //   specified one don't pick any default version 
+            //   specified one don't pick any default version
             if (ver_list->len == 0) continue;
             uint8_t chosen_def_ver_index = 255;
             for (uint8_t ver_i = 0; ver_i < ver_list->len; ver_i += 1) {
@@ -322,7 +337,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
         codegen_set_lib_version(child_gen, lib->sover, 0, 0);
         child_gen->is_dynamic = true;
         child_gen->is_dummy_so = true;
-        child_gen->version_script_path = map_file_path; 
+        child_gen->version_script_path = map_file_path;
         child_gen->enable_cache = false;
         child_gen->output_dir = dummy_dir;
         codegen_build_and_link(child_gen);

@@ -23,21 +23,183 @@ const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const gen_h = @import("gen_h.zig");
 
-const cross_targets = [_]CrossTarget{
-    CrossTarget{
-        .os = .linux,
-        .arch = .x86_64,
-        .abi = .gnu,
+const TestTarget = struct {
+    target: Target = .Native,
+    mode: builtin.Mode = .Debug,
+    link_libc: bool = false,
+    single_threaded: bool = false,
+    disable_native: bool = false,
+};
+
+const test_targets = [_]TestTarget{
+    TestTarget{},
+    TestTarget{
+        .link_libc = true,
     },
-    CrossTarget{
-        .os = .macosx,
-        .arch = .x86_64,
-        .abi = .gnu,
+    TestTarget{
+        .single_threaded = true,
     },
-    CrossTarget{
-        .os = .windows,
-        .arch = .x86_64,
-        .abi = .msvc,
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .x86_64,
+                .abi = .none,
+            },
+        },
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .x86_64,
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .x86_64,
+                .abi = .musl,
+            },
+        },
+        .link_libc = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
+                .abi = .none,
+            },
+        },
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
+                .abi = .musl,
+            },
+        },
+        .link_libc = true,
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
+                .abi = .none,
+            },
+        },
+    },
+    // TODO https://github.com/ziglang/zig/issues/3286
+    //TestTarget{
+    //    .target = Target{
+    //        .Cross = CrossTarget{
+    //            .os = .linux,
+    //            .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
+    //            .abi = .musleabihf,
+    //        },
+    //    },
+    //    .link_libc = true,
+    //},
+    // TODO https://github.com/ziglang/zig/issues/3287
+    //TestTarget{
+    //    .target = Target{
+    //        .Cross = CrossTarget{
+    //            .os = .linux,
+    //            .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
+    //            .abi = .gnueabihf,
+    //        },
+    //    },
+    //    .link_libc = true,
+    //},
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .macosx,
+                .arch = .x86_64,
+                .abi = .gnu,
+            },
+        },
+        // TODO https://github.com/ziglang/zig/issues/3295
+        .disable_native = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .windows,
+                .arch = .x86_64,
+                .abi = .msvc,
+            },
+        },
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .windows,
+                .arch = .x86_64,
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
+
+    // Do the release tests last because they take a long time
+    TestTarget{
+        .mode = .ReleaseFast,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseFast,
+    },
+    TestTarget{
+        .mode = .ReleaseFast,
+        .single_threaded = true,
+    },
+
+    TestTarget{
+        .mode = .ReleaseSafe,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseSafe,
+    },
+    TestTarget{
+        .mode = .ReleaseSafe,
+        .single_threaded = true,
+    },
+
+    TestTarget{
+        .mode = .ReleaseSmall,
+    },
+    TestTarget{
+        .link_libc = true,
+        .mode = .ReleaseSmall,
+    },
+    TestTarget{
+        .mode = .ReleaseSmall,
+        .single_threaded = true,
     },
 };
 
@@ -182,57 +344,77 @@ pub fn addPkgTests(
     name: []const u8,
     desc: []const u8,
     modes: []const Mode,
-    single_threaded_list: []const bool,
+    skip_single_threaded: bool,
     skip_non_native: bool,
+    skip_libc: bool,
+    is_wine_enabled: bool,
+    is_qemu_enabled: bool,
+    glibc_dir: ?[]const u8,
 ) *build.Step {
     const step = b.step(b.fmt("test-{}", name), desc);
 
-    var targets = std.ArrayList(*const CrossTarget).init(b.allocator);
-    defer targets.deinit();
-    const host = CrossTarget{ .os = builtin.os, .arch = builtin.arch, .abi = builtin.abi };
-    targets.append(&host) catch unreachable;
-    for (cross_targets) |*t| {
-        if (t.os == builtin.os and t.arch == builtin.arch and t.abi == builtin.abi) continue;
-        targets.append(t) catch unreachable;
-    }
-
-    for (targets.toSliceConst()) |test_target| {
-        const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
-        if (skip_non_native and !is_native)
+    for (test_targets) |test_target| {
+        if (skip_non_native and test_target.target != .Native)
             continue;
-        for (modes) |mode| {
-            for ([_]bool{ false, true }) |link_libc| {
-                for (single_threaded_list) |single_threaded| {
-                    if (link_libc and !is_native) {
-                        // don't assume we have a cross-compiling libc set up
-                        continue;
-                    }
-                    const these_tests = b.addTest(root_src);
-                    these_tests.setNamePrefix(b.fmt(
-                        "{}-{}-{}-{}-{}-{} ",
-                        name,
-                        @tagName(test_target.os),
-                        @tagName(test_target.arch),
-                        @tagName(mode),
-                        if (link_libc) "c" else "bare",
-                        if (single_threaded) "single" else "multi",
-                    ));
-                    these_tests.single_threaded = single_threaded;
-                    these_tests.setFilter(test_filter);
-                    these_tests.setBuildMode(mode);
-                    if (!is_native) {
-                        these_tests.setTarget(test_target.arch, test_target.os, test_target.abi);
-                    }
-                    if (link_libc) {
-                        these_tests.linkSystemLibrary("c");
-                    }
-                    if (mem.eql(u8, name, "std")) {
-                        these_tests.overrideStdDir("std");
-                    }
-                    step.dependOn(&these_tests.step);
-                }
-            }
+
+        if (skip_libc and test_target.link_libc)
+            continue;
+
+        if (test_target.link_libc and test_target.target.osRequiresLibC()) {
+            // This would be a redundant test.
+            continue;
         }
+
+        if (skip_single_threaded and test_target.single_threaded)
+            continue;
+
+        const ArchTag = @TagType(builtin.Arch);
+        if (test_target.disable_native and
+            test_target.target.getOs() == builtin.os and
+            ArchTag(test_target.target.getArch()) == ArchTag(builtin.arch))
+        {
+            continue;
+        }
+
+        const want_this_mode = for (modes) |m| {
+            if (m == test_target.mode) break true;
+        } else false;
+        if (!want_this_mode) continue;
+
+        const libc_prefix = if (test_target.target.osRequiresLibC())
+            ""
+        else if (test_target.link_libc)
+            "c"
+        else
+            "bare";
+
+        const triple_prefix = if (test_target.target == .Native)
+            ([]const u8)("native")
+        else
+            test_target.target.zigTripleNoSubArch(b.allocator) catch unreachable;
+
+        const these_tests = b.addTest(root_src);
+        these_tests.setNamePrefix(b.fmt(
+            "{}-{}-{}-{}-{} ",
+            name,
+            triple_prefix,
+            @tagName(test_target.mode),
+            libc_prefix,
+            if (test_target.single_threaded) "single" else "multi",
+        ));
+        these_tests.single_threaded = test_target.single_threaded;
+        these_tests.setFilter(test_filter);
+        these_tests.setBuildMode(test_target.mode);
+        these_tests.setTheTarget(test_target.target);
+        if (test_target.link_libc) {
+            these_tests.linkSystemLibrary("c");
+        }
+        these_tests.overrideStdDir("std");
+        these_tests.enable_wine = is_wine_enabled;
+        these_tests.enable_qemu = is_qemu_enabled;
+        these_tests.glibc_multi_install_dir = glibc_dir;
+
+        step.dependOn(&these_tests.step);
     }
     return step;
 }

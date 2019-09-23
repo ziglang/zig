@@ -14,31 +14,31 @@ const ConditionalOperator = enum {
 
 pub nakedcc fn __aeabi_dcmpeq() noreturn {
     @setRuntimeSafety(false);
-    aeabi_dcmp(.Eq);
+    @inlineCall(aeabi_dcmp, .Eq);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_dcmplt() noreturn {
     @setRuntimeSafety(false);
-    aeabi_dcmp(.Lt);
+    @inlineCall(aeabi_dcmp, .Lt);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_dcmple() noreturn {
     @setRuntimeSafety(false);
-    aeabi_dcmp(.Le);
+    @inlineCall(aeabi_dcmp, .Le);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_dcmpge() noreturn {
     @setRuntimeSafety(false);
-    aeabi_dcmp(.Ge);
+    @inlineCall(aeabi_dcmp, .Ge);
     unreachable;
 }
 
 pub nakedcc fn __aeabi_dcmpgt() noreturn {
     @setRuntimeSafety(false);
-    aeabi_dcmp(.Gt);
+    @inlineCall(aeabi_dcmp, .Gt);
     unreachable;
 }
 
@@ -49,7 +49,7 @@ inline fn convert_dcmp_args_to_df2_args() void {
     );
 }
 
-inline fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
+fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\ push      { r4, lr }

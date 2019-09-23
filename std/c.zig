@@ -63,7 +63,7 @@ pub extern "c" fn close(fd: fd_t) c_int;
 pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn lseek(fd: fd_t, offset: isize, whence: c_int) isize;
+pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
 pub extern "c" fn open(path: [*]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn openat(fd: c_int, path: [*]const u8, oflag: c_uint, ...) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;

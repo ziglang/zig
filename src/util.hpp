@@ -43,15 +43,21 @@ ATTRIBUTE_NORETURN
 ATTRIBUTE_PRINTF(1, 2)
 void zig_panic(const char *format, ...);
 
+static inline void zig_assert(bool ok, const char *file, int line, const char *func) {
+    if (!ok) {
+        zig_panic("Assertion failed at %s:%d in %s. This is a bug in the Zig compiler.", file, line, func);
+    }
+}
+
 #ifdef _WIN32
 #define __func__ __FUNCTION__
 #endif
 
-#define zig_unreachable() zig_panic("unreachable: %s:%s:%d", __FILE__, __func__, __LINE__)
+#define zig_unreachable() zig_panic("Unreachable at %s:%d in %s. This is a bug in the Zig compiler.", __FILE__, __LINE__, __func__)
 
 // Assertions in stage1 are always on, and they call zig @panic.
 #undef assert
-void assert(bool ok);
+#define assert(ok) zig_assert(ok, __FILE__, __LINE__, __func__)
 
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {

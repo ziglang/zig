@@ -1295,6 +1295,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
             c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-Wno-nonportable-include-path");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
             c_file->args.append("-DTOP_NAMESPACE=glibc");
@@ -1321,6 +1322,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
             c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-Wno-nonportable-include-path");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
             c_file->args.append("-DPIC");
@@ -1377,6 +1379,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
                 c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-Wno-nonportable-include-path");
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
                 c_file->args.append("-DPIC");
@@ -1420,6 +1423,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
                 c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-Wno-nonportable-include-path");
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
                 c_file->args.append("-DPIC");
