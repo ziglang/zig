@@ -14837,6 +14837,8 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExport *instruction) {
+    Error err;
+
     IrInstruction *name = instruction->name->child;
     Buf *symbol_name = ir_resolve_str(ira, name);
     if (symbol_name == nullptr) {
@@ -14933,8 +14935,12 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 want_var_export = true;
             }
             break;
-        case ZigTypeIdArray:
-            if (!type_allowed_in_extern(ira->codegen, target->value.type->data.array.child_type)) {
+        case ZigTypeIdArray: {
+            bool ok_type;
+            if ((err = type_allowed_in_extern(ira->codegen, target->value.type->data.array.child_type, &ok_type)))
+                return ira->codegen->invalid_instruction;
+
+            if (!ok_type) {
                 ir_add_error(ira, target,
                     buf_sprintf("array element type '%s' not extern-compatible",
                         buf_ptr(&target->value.type->data.array.child_type->name)));
@@ -14942,6 +14948,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 want_var_export = true;
             }
             break;
+        }
         case ZigTypeIdMetaType: {
             ZigType *type_value = target->value.data.x_type;
             switch (type_value->id) {
@@ -26720,7 +26727,10 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
                         buf_create_from_str("unknown-length pointer to opaque"));
                 return ErrorSemanticAnalyzeFail;
             } else if (lazy_ptr_type->ptr_len == PtrLenC) {
-                if (!type_allowed_in_extern(ira->codegen, elem_type)) {
+                bool ok_type;
+                if ((err = type_allowed_in_extern(ira->codegen, elem_type, &ok_type)))
+                    return err;
+                if (!ok_type) {
                     ir_add_error(ira, lazy_ptr_type->elem_type,
                         buf_sprintf("C pointers cannot point to non-C-ABI-compatible type '%s'",
                             buf_ptr(&elem_type->name)));

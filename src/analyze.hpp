@@ -42,7 +42,7 @@ ZigType *get_any_frame_type(CodeGen *g, ZigType *result_type);
 bool handle_is_ptr(ZigType *type_entry);
 
 bool type_has_bits(ZigType *type_entry);
-bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry);
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result);
 bool ptr_allows_addr_zero(ZigType *ptr_type);
 bool type_is_nonnull_ptr(ZigType *type);
 

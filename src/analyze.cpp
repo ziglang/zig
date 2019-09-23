@@ -1538,7 +1538,8 @@ static Error emit_error_unless_type_allowed_in_packed_union(CodeGen *g, ZigType 
     return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "union");
 }
 
-bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
+    Error err;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -1555,11 +1556,13 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdVoid:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
-            return false;
+            *result = false;
+            return ErrorNone;
         case ZigTypeIdOpaque:
         case ZigTypeIdUnreachable:
         case ZigTypeIdBool:
-            return true;
+            *result = true;
+            return ErrorNone;
         case ZigTypeIdInt:
             switch (type_entry->data.integral.bit_count) {
                 case 8:
@@ -1567,37 +1570,52 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
                 case 32:
                 case 64:
                 case 128:
-                    return true;
+                    *result = true;
+                    return ErrorNone;
                 default:
-                    return false;
+                    *result = false;
+                    return ErrorNone;
             }
         case ZigTypeIdVector:
-            return type_allowed_in_extern(g, type_entry->data.vector.elem_type);
+            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
         case ZigTypeIdFloat:
-            return true;
+            *result = true;
+            return ErrorNone;
         case ZigTypeIdArray:
-            return type_allowed_in_extern(g, type_entry->data.array.child_type);
+            return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            return type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
+            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
                  type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
+            return ErrorNone;
         case ZigTypeIdPointer:
-            if (type_size(g, type_entry) == 0)
-                return false;
-            return true;
-        case ZigTypeIdStruct:
-            return type_entry->data.structure.layout == ContainerLayoutExtern || type_entry->data.structure.layout == ContainerLayoutPacked;
-        case ZigTypeIdOptional:
-            {
-                ZigType *child_type = type_entry->data.maybe.child_type;
-                if (child_type->id != ZigTypeIdPointer && child_type->id != ZigTypeIdFn) {
-                    return false;
-                }
-                return type_allowed_in_extern(g, child_type);
+            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+                return err;
+            if (!type_has_bits(type_entry)) {
+                *result = false;
+                return ErrorNone;
             }
+            *result = true;
+            return ErrorNone;
+        case ZigTypeIdStruct:
+            *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
+                type_entry->data.structure.layout == ContainerLayoutPacked;
+            return ErrorNone;
+        case ZigTypeIdOptional: {
+            ZigType *child_type = type_entry->data.maybe.child_type;
+            if (child_type->id != ZigTypeIdPointer && child_type->id != ZigTypeIdFn) {
+                *result = false;
+                return ErrorNone;
+            }
+            return type_allowed_in_extern(g, child_type, result);
+        }
         case ZigTypeIdEnum:
-            return type_entry->data.enumeration.layout == ContainerLayoutExtern || type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            return ErrorNone;
         case ZigTypeIdUnion:
-            return type_entry->data.unionation.layout == ContainerLayoutExtern || type_entry->data.unionation.layout == ContainerLayoutPacked;
+            *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
+                type_entry->data.unionation.layout == ContainerLayoutPacked;
+            return ErrorNone;
     }
     zig_unreachable();
 }
@@ -1687,12 +1705,17 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             }
         }
 
-        if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, type_entry)) {
-            add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
-                        buf_ptr(&type_entry->name),
-                        calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+            bool ok_type;
+            if ((err = type_allowed_in_extern(g, type_entry, &ok_type)))
+                return g->builtin_types.entry_invalid;
+            if (!ok_type) {
+                add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
+                            buf_ptr(&type_entry->name),
+                            calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
+            }
         }
 
         switch (type_entry->id) {
@@ -1809,7 +1832,10 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     {
         if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusSizeKnown)))
             return g->builtin_types.entry_invalid;
-        if (!type_allowed_in_extern(g, fn_type_id.return_type)) {
+        bool ok_type;
+        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, &ok_type)))
+            return g->builtin_types.entry_invalid;
+        if (!ok_type) {
             add_node_error(g, fn_proto->return_type,
                     buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                         buf_ptr(&fn_type_id.return_type->name),
@@ -2128,14 +2154,19 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             return err;
         }
 
-        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-            !type_allowed_in_extern(g, field_type))
-        {
-            add_node_error(g, field->decl_node,
-                    buf_sprintf("extern structs cannot contain fields of type '%s'",
-                        buf_ptr(&field_type->name)));
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
+        if (struct_type->data.structure.layout == ContainerLayoutExtern) {
+            bool ok_type;
+            if ((err = type_allowed_in_extern(g, field_type, &ok_type))) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (!ok_type) {
+                add_node_error(g, field->decl_node,
+                        buf_sprintf("extern structs cannot contain fields of type '%s'",
+                            buf_ptr(&field_type->name)));
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
         }
     }
 
@@ -2368,19 +2399,22 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
+static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result) {
     // Only integer types are allowed by the C ABI
-    if(ty->id != ZigTypeIdInt)
-        return false;
+    if(ty->id != ZigTypeIdInt) {
+        *result = false;
+        return ErrorNone;
+    }
 
     // According to the ANSI C standard the enumeration type should be either a
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
     // other integral types as a compiler extension so let's accomodate them
     // aswell.
-    return type_allowed_in_extern(g, ty);
+    return type_allowed_in_extern(g, ty, result);
 }
 
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
+    Error err;
     assert(enum_type->id == ZigTypeIdEnum);
 
     if (enum_type->data.enumeration.resolve_status == ResolveStatusInvalid)
@@ -2443,15 +2477,23 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
-                   !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' is not a valid tag type for an extern enum",
-                            buf_ptr(&wanted_tag_int_type->name)));
-            add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
         } else {
+            if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
+                bool ok_type;
+                if ((err = type_is_valid_extern_enum_tag(g, wanted_tag_int_type, &ok_type))) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+                    return err;
+                }
+                if (!ok_type) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+                    ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                        buf_sprintf("'%s' is not a valid tag type for an extern enum",
+                                    buf_ptr(&wanted_tag_int_type->name)));
+                    add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
+                        buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
+                    return ErrorNone;
+                }
+            }
             tag_int_type = wanted_tag_int_type;
         }
     }
