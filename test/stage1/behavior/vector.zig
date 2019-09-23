@@ -479,3 +479,64 @@ test "vector @bitCast" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "vector @gather/@scatter" {
+    const S = struct {
+        fn doTheTest() void {
+            var st: [16]u16 = undefined;
+            {
+                var i: u16 = 0;
+                while (i < st.len) : (i += 1) {
+                    st[i] = i;
+                }
+            }
+            var even: @Vector(8, bool) = [_]bool{true, false, true, false, true, false, true, false};
+            const odd = [_]bool{false, true, false, true, false, true, false, true};
+            var pass: @Vector(8, u16) = [_]u16{25, 25, 25, 25, 25, 25, 25, 25};
+            var g: @Vector(8, *u16) = [_]*u16{&st[0], &st[1], &st[2], &st[3], &st[4], &st[5], &st[6], &st[7]};
+            var v: @Vector(8, u16) = @gather(u16, g, even, pass);
+            var x: @Vector(8, u16) = @gather(u16, g, odd, pass);
+            comptime var i: usize = 0;
+            inline while (i < 8) : (i += 2) {
+                expect(i == v[i]);
+            }
+            i = 1;
+            inline while (i < 8) : (i += 2) {
+                expect(25 == v[i]);
+            }
+            i = 1;
+            inline while (i < 8) : (i += 2) {
+                expect(i == x[i]);
+            }
+            i = 0;
+            inline while (i < 8) : (i += 2) {
+                expect(25 == x[i]);
+            }
+            mem.set(u16, st[0..], 0);
+            @scatter(u16, v, g, even);
+            @scatter(u16, x, g, odd);
+            i = 0;
+            inline while (i < 8) : (i += 1) {
+                expect(i == st[i]);
+            }
+        }
+        fn test2() void {
+            var left: u64 = 4;
+            var right: u64 = 5;
+            var mask: @Vector(2, bool) = [_]bool{false, true};
+            var g: @Vector(2, *u64) = [_]*u64{&right, &left};
+            var pass: @Vector(2, u64) = [_]u64{99, 98};
+            var r: @Vector(2, u64) = @gather(u64, g, mask, pass);
+            expect(r[0] == 99);
+            expect(r[1] == 4);
+            @scatter(u64, pass, g, mask);
+            expect(left == 98);
+        }
+    };
+    S.doTheTest();
+    // FIXME Zig is currently unable to use pointers to the middle
+    // of things at comptime, which breaks comptime @gather and @scatter.
+    //comptime S.doTheTest();
+    S.test2();
+    //comptime S.test2();
+}

@@ -33,6 +33,6 @@ bool ir_has_side_effects(IrInstruction *instruction);
 struct IrAnalyze;
 ConstExprValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ConstExprValue *const_val,
         AstNode *source_node);
-const char *float_op_to_name(BuiltinFnId op, bool llvm_name);
+const char *builtin_op_to_name(BuiltinFnId op, bool llvm_name, ZigLLVMFnId id);
 
 #endif

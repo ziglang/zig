@@ -48,6 +48,10 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SplatSrc";
         case IrInstructionIdSplatGen:
             return "SplatGen";
+        case IrInstructionIdGather:
+            return "Gather";
+        case IrInstructionIdScatter:
+            return "Scatter";
         case IrInstructionIdDeclVarSrc:
             return "DeclVarSrc";
         case IrInstructionIdDeclVarGen:
@@ -1258,6 +1262,30 @@ static void ir_print_shuffle_vector(IrPrint *irp, IrInstructionShuffleVector *in
     fprintf(irp->f, ")");
 }
 
+static void ir_print_gather(IrPrint *irp, IrInstructionGather *instruction) {
+    fprintf(irp->f, "@gather(");
+    ir_print_other_instruction(irp, instruction->scalar_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->mask);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_scatter(IrPrint *irp, IrInstructionScatter *instruction) {
+    fprintf(irp->f, "@scatter(");
+    ir_print_other_instruction(irp, instruction->scalar_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->mask);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_splat_src(IrPrint *irp, IrInstructionSplatSrc *instruction) {
     fprintf(irp->f, "@splat(");
     ir_print_other_instruction(irp, instruction->len);
@@ -1906,7 +1934,7 @@ static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImpl
 
 static void ir_print_float_op(IrPrint *irp, IrInstructionFloatOp *instruction) {
 
-    fprintf(irp->f, "@%s(", float_op_to_name(instruction->op, false));
+    fprintf(irp->f, "@%s(", builtin_op_to_name(instruction->op, false, ZigLLVMFnIdFloatOp));
     if (instruction->type != nullptr) {
         ir_print_other_instruction(irp, instruction->type);
     } else {
@@ -2249,6 +2277,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdSplatGen:
             ir_print_splat_gen(irp, (IrInstructionSplatGen *)instruction);
+        case IrInstructionIdGather:
+            ir_print_gather(irp, (IrInstructionGather *)instruction);
+            break;
+        case IrInstructionIdScatter:
+            ir_print_scatter(irp, (IrInstructionScatter *)instruction);
             break;
         case IrInstructionIdBoolNot:
             ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);
