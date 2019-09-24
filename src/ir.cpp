@@ -17675,18 +17675,36 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         assert(container_scope != nullptr);
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
-        if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
-            if (tld->resolution == TldResolutionInvalid)
-                return ira->codegen->invalid_instruction;
-            TldFn *tld_fn = (TldFn *)tld;
-            ZigFn *fn_entry = tld_fn->fn_entry;
-            if (type_is_invalid(fn_entry->type_entry))
-                return ira->codegen->invalid_instruction;
+        if (tld) {
+            if (tld->id == TldIdFn) {
+                resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
+                if (tld->resolution == TldResolutionInvalid)
+                    return ira->codegen->invalid_instruction;
+                TldFn *tld_fn = (TldFn *)tld;
+                ZigFn *fn_entry = tld_fn->fn_entry;
+                if (type_is_invalid(fn_entry->type_entry))
+                    return ira->codegen->invalid_instruction;
 
-            IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, source_instr->scope,
-                source_instr->source_node, fn_entry, container_ptr);
-            return ir_get_ref(ira, source_instr, bound_fn_value, true, false);
+                IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, fn_entry, container_ptr);
+                return ir_get_ref(ira, source_instr, bound_fn_value, true, false);
+            } else if (tld->id == TldIdVar) {
+                resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
+                if (tld->resolution == TldResolutionInvalid)
+                    return ira->codegen->invalid_instruction;
+                TldVar *tld_var = (TldVar *)tld;
+                ZigVar *var = tld_var->var;
+                if (type_is_invalid(var->var_type))
+                    return ira->codegen->invalid_instruction;
+
+                if (var->const_value->type->id == ZigTypeIdFn) {
+                    ir_assert(var->const_value->data.x_ptr.special == ConstPtrSpecialFunction, source_instr);
+                    ZigFn *fn = var->const_value->data.x_ptr.data.fn.fn_entry;
+                    IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, fn, container_ptr);
+                    return ir_get_ref(ira, source_instr, bound_fn_value, true, false);
+                }
+            }
         }
     }
     const char *prefix_name;
