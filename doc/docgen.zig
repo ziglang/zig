@@ -1198,6 +1198,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try out.print(" --release-small");
                             },
                         }
+                        if (code.link_libc) {
+                            try test_args.append("-lc");
+                            try out.print(" -lc");
+                        }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice([_][]const u8{ "-target", triple });
                             try out.print(" -target {}", triple);
