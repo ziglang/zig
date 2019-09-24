@@ -1086,9 +1086,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print(" --object {}", name_with_ext);
                         }
                         if (code.link_libc) {
-                            try build_args.append("--library");
-                            try build_args.append("c");
-                            try out.print(" --library c");
+                            try build_args.append("-lc");
+                            try out.print(" -lc");
                         }
                         if (code.target_str) |triple| {
                             try build_args.appendSlice([_][]const u8{ "-target", triple });
