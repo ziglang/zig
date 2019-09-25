@@ -5187,6 +5187,41 @@ test "@intToPtr for pointer to zero bit type" {
       </p>
       {#header_close#}
 
+      {#header_open|usingnamespace#}
+      <p>
+      {#syntax#}usingnamespace{#endsyntax#} is a top level declaration that imports all the declarations of
+      the operand, which must be a {#link|struct#}, {#link|union#}, or {#link|enum#}, into the current scope:
+      </p>
+      {#code_begin|test|usingnamespace#}
+usingnamespace @import("std");
+
+test "using std namespace" {
+    debug.assert(true);
+}
+      {#code_end#}
+      <p>
+      Instead of the above pattern, it is generally recommended to explicitly alias individual declarations.
+      However, {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
+      API of a file or package. For example, one might have <code>c.zig</code> with all of the
+      {#link|C imports|Import from C Header File#}:
+      </p>
+      <pre>{#syntax#}
+pub usingnamespace @cImport({
+    @cInclude("epoxy/gl.h");
+    @cInclude("GLFW/glfw3.h");
+    @cDefine("STBI_ONLY_PNG", "");
+    @cDefine("STBI_NO_STDIO", "");
+    @cInclude("stb_image.h");
+});
+      {#endsyntax#}</pre>
+      <p>
+      The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
+      {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
+      {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
+      over what declarations a given file exposes.
+      </p>
+      {#header_close#}
+
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
