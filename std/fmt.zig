@@ -1233,6 +1233,10 @@ test "cstr" {
 }
 
 test "filesize" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
     try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", usize(63 * 1024 * 1024));
 }
@@ -1267,6 +1271,10 @@ test "enum" {
 }
 
 test "float.scientific" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("f32: 1.34000003e+00", "f32: {e}", f32(1.34));
     try testFmt("f32: 1.23400001e+01", "f32: {e}", f32(12.34));
     try testFmt("f64: -1.234e+11", "f64: {e}", f64(-12.34e10));
@@ -1274,6 +1282,10 @@ test "float.scientific" {
 }
 
 test "float.scientific.precision" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("f64: 1.40971e-42", "f64: {e:.5}", f64(1.409706e-42));
     try testFmt("f64: 1.00000e-09", "f64: {e:.5}", f64(@bitCast(f32, u32(814313563))));
     try testFmt("f64: 7.81250e-03", "f64: {e:.5}", f64(@bitCast(f32, u32(1006632960))));
@@ -1283,6 +1295,10 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("f64: nan", "f64: {}", math.nan_f64);
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -1294,6 +1310,10 @@ test "float.special" {
 }
 
 test "float.decimal" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("f64: 152314000000000000000000000000", "f64: {d}", f64(1.52314e+29));
     try testFmt("f32: 1.1", "f32: {d:.1}", f32(1.1234));
     try testFmt("f32: 1234.57", "f32: {d:.2}", f32(1234.567));
@@ -1312,6 +1332,10 @@ test "float.decimal" {
 }
 
 test "float.libc.sanity" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     try testFmt("f64: 0.00001", "f64: {d:.5}", f64(@bitCast(f32, u32(916964781))));
     try testFmt("f64: 0.00001", "f64: {d:.5}", f64(@bitCast(f32, u32(925353389))));
     try testFmt("f64: 0.10000", "f64: {d:.5}", f64(@bitCast(f32, u32(1036831278))));

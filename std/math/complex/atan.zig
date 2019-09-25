@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/catan.c
 
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 const cmath = math.complex;
@@ -129,6 +130,10 @@ test "complex.catan32" {
 }
 
 test "complex.catan64" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     const a = Complex(f64).new(5, 3);
     const c = atan(a);
 

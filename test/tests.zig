@@ -109,17 +109,16 @@ const test_targets = [_]TestTarget{
             },
         },
     },
-    // TODO https://github.com/ziglang/zig/issues/3286
-    //TestTarget{
-    //    .target = Target{
-    //        .Cross = CrossTarget{
-    //            .os = .linux,
-    //            .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
-    //            .abi = .musleabihf,
-    //        },
-    //    },
-    //    .link_libc = true,
-    //},
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
+                .abi = .musleabihf,
+            },
+        },
+        .link_libc = true,
+    },
     // TODO https://github.com/ziglang/zig/issues/3287
     //TestTarget{
     //    .target = Target{

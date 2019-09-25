@@ -4,6 +4,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/ccoshf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/complex/ccosh.c
 
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
@@ -164,6 +165,10 @@ test "complex.ccosh32" {
 }
 
 test "complex.ccosh64" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
     const a = Complex(f64).new(5, 3);
     const c = cosh(a);
 
