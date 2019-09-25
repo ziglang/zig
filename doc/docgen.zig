@@ -1042,21 +1042,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
                         const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
-                        const tmp_bin_file_name = try fs.path.join(
-                            allocator,
-                            [_][]const u8{ tmp_dir_name, name_plus_bin_ext },
-                        );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice([_][]const u8{
                             zig_exe,
                             "build-exe",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
                             "--name",
                             code.name,
                             "--color",
+                            "on",
+                            "--cache",
                             "on",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
@@ -1128,7 +1124,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print("\n{}</code></pre>\n", colored_stderr);
                             break :code_block;
                         }
-                        _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
                         if (code.target_str) |triple| {
                             if (mem.startsWith(u8, triple, "wasm32") or
@@ -1141,7 +1137,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
 
-                        const run_args = [_][]const u8{tmp_bin_file_name};
+                        const path_to_exe = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const run_args = [_][]const u8{path_to_exe};
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
                             const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
@@ -1179,8 +1176,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
+                            "--cache",
+                            "on",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
