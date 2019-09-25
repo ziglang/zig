@@ -2415,7 +2415,8 @@ stdcallcc fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) c_long {
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
-    const sp = asm ("" : [argc] "={rsp}" (-> usize));
+    const sp = asm (""
+        : [argc] "={rsp}" (-> usize)
+    );
     std.debug.warn("{} sp = 0x{x}\n", prefix, sp);
 }
-

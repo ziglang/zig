@@ -234,7 +234,8 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     if (extern_export_inline_token) |token| {
         if (tree.tokens.at(token).id == .Keyword_inline or
-            tree.tokens.at(token).id == .Keyword_noinline) {
+            tree.tokens.at(token).id == .Keyword_noinline)
+        {
             putBackToken(it, token);
             return null;
         }

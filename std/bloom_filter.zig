@@ -84,7 +84,9 @@ pub fn BloomFilter(
         pub fn add(self: *Self, item: []const u8) void {
             comptime var i = 0;
             inline while (i < K) : (i += 1) {
-                var K_th_bit: packed struct { x: Index } = undefined;
+                var K_th_bit: packed struct {
+                    x: Index,
+                } = undefined;
                 hash(std.mem.asBytes(&K_th_bit), i, item);
                 incrementCell(self, K_th_bit.x);
             }
@@ -93,7 +95,9 @@ pub fn BloomFilter(
         pub fn contains(self: Self, item: []const u8) bool {
             comptime var i = 0;
             inline while (i < K) : (i += 1) {
-                var K_th_bit: packed struct { x: Index } = undefined;
+                var K_th_bit: packed struct {
+                    x: Index,
+                } = undefined;
                 hash(std.mem.asBytes(&K_th_bit), i, item);
                 if (getCell(self, K_th_bit.x) == cellEmpty)
                     return false;
