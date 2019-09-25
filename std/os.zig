@@ -2048,7 +2048,7 @@ pub fn mmap(
     prot: u32,
     flags: u32,
     fd: fd_t,
-    offset: isize,
+    offset: u64,
 ) MMapError![]align(mem.page_size) u8 {
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);

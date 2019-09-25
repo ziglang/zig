@@ -780,7 +780,7 @@ test "FixedBufferAllocator" {
 }
 
 test "FixedBufferAllocator.reset" {
-    var buf: [8]u8 align(@alignOf(usize)) = undefined;
+    var buf: [8]u8 align(@alignOf(u64)) = undefined;
     var fba = FixedBufferAllocator.init(buf[0..]);
 
     const X = 0xeeeeeeeeeeeeeeee;
