@@ -951,11 +951,10 @@ static void musl_add_cc_args(CodeGen *parent, CFile *c_file, bool want_O3) {
 
     c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf(
-            "%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+            "%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-musl",
         buf_ptr(parent->zig_lib_dir),
-        target_arch_name(parent->zig_target->arch),
-        target_os_name(parent->zig_target->os),
-        target_abi_name(parent->zig_target->abi))));
+        target_arch_musl_name(parent->zig_target->arch),
+        target_os_name(parent->zig_target->os))));
 
     c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-musl",
