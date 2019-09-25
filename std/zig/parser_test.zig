@@ -2266,6 +2266,13 @@ test "zig fmt: async functions" {
     );
 }
 
+test "zig fmt: noasync" {
+    try testCanonical(
+        \\const a = noasync foo();
+        \\
+    );
+}
+
 test "zig fmt: Block after if" {
     try testCanonical(
         \\test "Block after if" {
