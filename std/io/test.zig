@@ -611,6 +611,11 @@ test "c out stream" {
 }
 
 test "File seek ops" {
+    if (builtin.arch == .aarch64 and builtin.glibc_version != null) {
+        // TODO https://github.com/ziglang/zig/issues/3288
+        return error.SkipZigTest;
+    }
+
     const tmp_file_name = "temp_test_file.txt";
     var file = try File.openWrite(tmp_file_name);
     defer {
