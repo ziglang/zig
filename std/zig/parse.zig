@@ -1096,16 +1096,19 @@ fn parseErrorUnionExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
 /// SuffixExpr
 ///     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
+///      / KEYWORD_noasync PrimaryTypeExpr SuffixOp* FnCallArguments
 ///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    if (eatToken(it, .Keyword_async)) |async_token| {
-        if (eatToken(it, .Keyword_fn)) |token_fn| {
+    var maybe_async = eatAnnotatedToken(it, .Keyword_async) orelse eatAnnotatedToken(it, .Keyword_noasync);
+    if (maybe_async) |async_token| {
+        const token_fn = eatToken(it, .Keyword_fn);
+        if (async_token.ptr.id == .Keyword_async and token_fn != null) {
             // HACK: If we see the keyword `fn`, then we assume that
             //       we are parsing an async fn proto, and not a call.
             //       We therefore put back all tokens consumed by the async
             //       prefix...
-            putBackToken(it, token_fn);
-            putBackToken(it, async_token);
+            putBackToken(it, token_fn.?);
+            putBackToken(it, async_token.index);
             return parsePrimaryTypeExpr(arena, it, tree);
         }
         // TODO: Implement hack for parsing `async fn ...` in ast_parse_suffix_expr
@@ -1135,7 +1138,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
                     .params = params.list,
-                    .async_token = async_token,
+                    .async_token = async_token.index,
                 },
             },
             .rtoken = params.rparen,
