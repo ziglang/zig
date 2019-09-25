@@ -30,6 +30,11 @@ enum ResumeId {
     ResumeIdCall,
 };
 
+// TODO https://github.com/ziglang/zig/issues/2883
+// Until then we have this same default as Clang.
+// This avoids https://github.com/ziglang/zig/issues/3275
+static const char *riscv_default_features = "+a,+c,+d,+f,+m,+relax";
+
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -8720,8 +8725,9 @@ static void init(CodeGen *g) {
         }
     } else if (target_is_riscv(g->zig_target)) {
         // TODO https://github.com/ziglang/zig/issues/2883
+        // Be aware of https://github.com/ziglang/zig/issues/3275
         target_specific_cpu_args = "";
-        target_specific_features = "+a";
+        target_specific_features = riscv_default_features;
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";
@@ -9007,7 +9013,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             args.append("-Xclang");
             args.append("-target-feature");
             args.append("-Xclang");
-            args.append("+a");
+            args.append(riscv_default_features);
         }
     }
     if (g->zig_target->os == OsFreestanding) {
