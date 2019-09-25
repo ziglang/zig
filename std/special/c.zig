@@ -182,10 +182,7 @@ comptime {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
     if (builtin.os == builtin.Os.linux) {
-        // TODO implement clone for riscv64
-        if (builtin.arch != .riscv64) {
-            @export("clone", clone, builtin.GlobalLinkage.Strong);
-        }
+        @export("clone", clone, builtin.GlobalLinkage.Strong);
     }
 }
 extern fn __stack_chk_fail() noreturn {
@@ -196,87 +193,124 @@ extern fn __stack_chk_fail() noreturn {
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 nakedcc fn clone() void {
-    if (builtin.arch == builtin.Arch.x86_64) {
-        asm volatile (
-            \\      xor %%eax,%%eax
-            \\      mov $56,%%al // SYS_clone
-            \\      mov %%rdi,%%r11
-            \\      mov %%rdx,%%rdi
-            \\      mov %%r8,%%rdx
-            \\      mov %%r9,%%r8
-            \\      mov 8(%%rsp),%%r10
-            \\      mov %%r11,%%r9
-            \\      and $-16,%%rsi
-            \\      sub $8,%%rsi
-            \\      mov %%rcx,(%%rsi)
-            \\      syscall
-            \\      test %%eax,%%eax
-            \\      jnz 1f
-            \\      xor %%ebp,%%ebp
-            \\      pop %%rdi
-            \\      call *%%r9
-            \\      mov %%eax,%%edi
-            \\      xor %%eax,%%eax
-            \\      mov $60,%%al // SYS_exit
-            \\      syscall
-            \\      hlt
-            \\1:    ret
-            \\
-        );
-    } else if (builtin.arch == builtin.Arch.aarch64) {
-        // __clone(func, stack, flags, arg, ptid, tls, ctid)
-        //         x0,   x1,    w2,    x3,  x4,   x5,  x6
+    switch (builtin.arch) {
+        .x86_64 => {
+            asm volatile (
+                \\      xor %%eax,%%eax
+                \\      mov $56,%%al // SYS_clone
+                \\      mov %%rdi,%%r11
+                \\      mov %%rdx,%%rdi
+                \\      mov %%r8,%%rdx
+                \\      mov %%r9,%%r8
+                \\      mov 8(%%rsp),%%r10
+                \\      mov %%r11,%%r9
+                \\      and $-16,%%rsi
+                \\      sub $8,%%rsi
+                \\      mov %%rcx,(%%rsi)
+                \\      syscall
+                \\      test %%eax,%%eax
+                \\      jnz 1f
+                \\      xor %%ebp,%%ebp
+                \\      pop %%rdi
+                \\      call *%%r9
+                \\      mov %%eax,%%edi
+                \\      xor %%eax,%%eax
+                \\      mov $60,%%al // SYS_exit
+                \\      syscall
+                \\      hlt
+                \\1:    ret
+                \\
+            );
+        },
+        .aarch64 => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //         x0,   x1,    w2,    x3,  x4,   x5,  x6
 
-        // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
-        //         x8,        x0,    x1,    x2,   x3,  x4
-        asm volatile (
-            \\      // align stack and save func,arg
-            \\      and x1,x1,#-16
-            \\      stp x0,x3,[x1,#-16]!
-            \\
-            \\      // syscall
-            \\      uxtw x0,w2
-            \\      mov x2,x4
-            \\      mov x3,x5
-            \\      mov x4,x6
-            \\      mov x8,#220 // SYS_clone
-            \\      svc #0
-            \\
-            \\      cbz x0,1f
-            \\      // parent
-            \\      ret
-            \\      // child
-            \\1:    ldp x1,x0,[sp],#16
-            \\      blr x1
-            \\      mov x8,#93 // SYS_exit
-            \\      svc #0
-        );
-    } else if (builtin.arch == builtin.Arch.arm) {
-        asm volatile (
-            \\    stmfd sp!,{r4,r5,r6,r7}
-            \\    mov r7,#120
-            \\    mov r6,r3
-            \\    mov r5,r0
-            \\    mov r0,r2
-            \\    and r1,r1,#-16
-            \\    ldr r2,[sp,#16]
-            \\    ldr r3,[sp,#20]
-            \\    ldr r4,[sp,#24]
-            \\    svc 0
-            \\    tst r0,r0
-            \\    beq 1f
-            \\    ldmfd sp!,{r4,r5,r6,r7}
-            \\    bx lr
-            \\
-            \\1:  mov r0,r6
-            \\    bl 3f
-            \\2:  mov r7,#1
-            \\    svc 0
-            \\    b 2b
-            \\3:  bx r5
-        );
-    } else {
-        @compileError("Implement clone() for this arch.");
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //         x8,        x0,    x1,    x2,   x3,  x4
+            asm volatile (
+                \\      // align stack and save func,arg
+                \\      and x1,x1,#-16
+                \\      stp x0,x3,[x1,#-16]!
+                \\
+                \\      // syscall
+                \\      uxtw x0,w2
+                \\      mov x2,x4
+                \\      mov x3,x5
+                \\      mov x4,x6
+                \\      mov x8,#220 // SYS_clone
+                \\      svc #0
+                \\
+                \\      cbz x0,1f
+                \\      // parent
+                \\      ret
+                \\      // child
+                \\1:    ldp x1,x0,[sp],#16
+                \\      blr x1
+                \\      mov x8,#93 // SYS_exit
+                \\      svc #0
+            );
+        },
+        .arm => {
+            asm volatile (
+                \\    stmfd sp!,{r4,r5,r6,r7}
+                \\    mov r7,#120
+                \\    mov r6,r3
+                \\    mov r5,r0
+                \\    mov r0,r2
+                \\    and r1,r1,#-16
+                \\    ldr r2,[sp,#16]
+                \\    ldr r3,[sp,#20]
+                \\    ldr r4,[sp,#24]
+                \\    svc 0
+                \\    tst r0,r0
+                \\    beq 1f
+                \\    ldmfd sp!,{r4,r5,r6,r7}
+                \\    bx lr
+                \\
+                \\1:  mov r0,r6
+                \\    bl 3f
+                \\2:  mov r7,#1
+                \\    svc 0
+                \\    b 2b
+                \\3:  bx r5
+            );
+        },
+        .riscv64 => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //           a0,    a1,    a2,  a3,   a4,  a5,   a6
+
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //                a7     a0,    a1,   a2,  a3,   a4
+            asm volatile (
+                \\    # Save func and arg to stack
+                \\    addi a1, a1, -16
+                \\    sd a0, 0(a1)
+                \\    sd a3, 8(a1)
+                \\
+                \\    # Call SYS_clone
+                \\    mv a0, a2
+                \\    mv a2, a4
+                \\    mv a3, a5
+                \\    mv a4, a6
+                \\    li a7, 220 # SYS_clone
+                \\    ecall
+                \\
+                \\    beqz a0, 1f
+                \\    # Parent
+                \\    ret
+                \\
+                \\    # Child
+                \\1:  ld a1, 0(sp)
+                \\    ld a0, 8(sp)
+                \\    jalr a1
+                \\
+                \\    # Exit
+                \\    li a7, 93 # SYS_exit
+                \\    ecall
+            );
+        },
+        else => @compileError("Implement clone() for this arch."),
     }
 }
 
