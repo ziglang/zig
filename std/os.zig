@@ -2243,7 +2243,8 @@ pub const SeekError = error{
 /// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (linux.is_the_target and !builtin.link_libc and @sizeOf(usize) == 4) {
-        switch (errno(system.llseek(fd, offset, null, SEEK_SET))) {
+        var result: u64 = undefined;
+        switch (errno(system.llseek(fd, offset, &result, SEEK_SET))) {
             0 => return,
             EBADF => unreachable, // always a race condition
             EINVAL => return error.Unseekable,
@@ -2271,7 +2272,8 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
 /// Repositions read/write file offset relative to the current offset.
 pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (linux.is_the_target and !builtin.link_libc and @sizeOf(usize) == 4) {
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), null, SEEK_CUR))) {
+        var result: u64 = undefined;
+        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_CUR))) {
             0 => return,
             EBADF => unreachable, // always a race condition
             EINVAL => return error.Unseekable,
@@ -2298,7 +2300,9 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
 /// Repositions read/write file offset relative to the end.
 pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (linux.is_the_target and !builtin.link_libc and @sizeOf(usize) == 4) {
-        switch (errno(system.llseek(fd, @bitCast(u64, offset), null, SEEK_END))) {
+        var result: u64 = undefined;
+        switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_END))) {
+            0 => return,
             EBADF => unreachable, // always a race condition
             EINVAL => return error.Unseekable,
             EOVERFLOW => return error.Unseekable,

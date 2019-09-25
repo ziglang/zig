@@ -609,3 +609,27 @@ test "c out stream" {
     const out_stream = &io.COutStream.init(out_file).stream;
     try out_stream.print("hi: {}\n", i32(123));
 }
+
+test "File seek ops" {
+    const tmp_file_name = "temp_test_file.txt";
+    var file = try File.openWrite(tmp_file_name);
+    defer {
+        file.close();
+        fs.deleteFile(tmp_file_name) catch {};
+    }
+
+    try file.write([_]u8{0x55} ** 8192);
+
+    // Seek to the end
+    try file.seekFromEnd(0);
+    std.testing.expect((try file.getPos()) == try file.getEndPos());
+    // Negative delta
+    try file.seekBy(-4096);
+    std.testing.expect((try file.getPos()) == 4096);
+    // Positive delta
+    try file.seekBy(10);
+    std.testing.expect((try file.getPos()) == 4106);
+    // Absolute position
+    try file.seekTo(1234);
+    std.testing.expect((try file.getPos()) == 1234);
+}
