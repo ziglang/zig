@@ -89,6 +89,7 @@ const tls_tp_offset = switch (builtin.arch) {
 
 const tls_dtv_offset = switch (builtin.arch) {
     .mipsel => 0x8000,
+    .riscv32, .riscv64 => 0x800,
     else => 0,
 };
 
