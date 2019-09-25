@@ -469,7 +469,7 @@ var vdso_clock_gettime = @ptrCast(?*const c_void, init_vdso_clock_gettime);
 const vdso_clock_gettime_ty = extern fn (i32, *timespec) usize;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
-    if (VDSO_CGT_SYM.len != 0) {
+    if (@hasDecl(@This(), "VDSO_CGT_SYM")) {
         const ptr = @atomicLoad(?*const c_void, &vdso_clock_gettime, .Unordered);
         if (ptr) |fn_ptr| {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);

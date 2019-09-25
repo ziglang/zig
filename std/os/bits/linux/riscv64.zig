@@ -298,25 +298,25 @@ pub const SYS_fspick = 433;
 pub const SYS_pidfd_open = 434;
 pub const SYS_clone3 = 435;
 
-pub const O_CREAT = 0100;
-pub const O_EXCL = 0200;
-pub const O_NOCTTY = 0400;
-pub const O_TRUNC = 01000;
-pub const O_APPEND = 02000;
-pub const O_NONBLOCK = 04000;
-pub const O_DSYNC = 010000;
-pub const O_SYNC = 04010000;
-pub const O_RSYNC = 04010000;
-pub const O_DIRECTORY = 0200000;
-pub const O_NOFOLLOW = 0400000;
-pub const O_CLOEXEC = 02000000;
+pub const O_CREAT = 0o100;
+pub const O_EXCL = 0o200;
+pub const O_NOCTTY = 0o400;
+pub const O_TRUNC = 0o1000;
+pub const O_APPEND = 0o2000;
+pub const O_NONBLOCK = 0o4000;
+pub const O_DSYNC = 0o10000;
+pub const O_SYNC = 0o4010000;
+pub const O_RSYNC = 0o4010000;
+pub const O_DIRECTORY = 0o200000;
+pub const O_NOFOLLOW = 0o400000;
+pub const O_CLOEXEC = 0o2000000;
 
-pub const O_ASYNC = 020000;
-pub const O_DIRECT = 040000;
-pub const O_LARGEFILE = 0100000;
-pub const O_NOATIME = 01000000;
-pub const O_PATH = 010000000;
-pub const O_TMPFILE = 020200000;
+pub const O_ASYNC = 0o20000;
+pub const O_DIRECT = 0o40000;
+pub const O_LARGEFILE = 0o100000;
+pub const O_NOATIME = 0o1000000;
+pub const O_PATH = 0o10000000;
+pub const O_TMPFILE = 0o20200000;
 pub const O_NDELAY = O_NONBLOCK;
 
 pub const F_DUPFD = 0;
@@ -386,3 +386,5 @@ pub const Stat = extern struct {
         return self.ctim;
     }
 };
+
+pub const Elf_Symndx = u32;
