@@ -1450,6 +1450,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_aarch64_32:
         case ZigLLVM_riscv32:
         case ZigLLVM_riscv64:
+        case ZigLLVM_mipsel:
             return "sp";
 
         case ZigLLVM_amdgcn:
@@ -1469,7 +1470,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mips:
         case ZigLLVM_mips64:
         case ZigLLVM_mips64el:
-        case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
@@ -1884,6 +1884,11 @@ bool target_libc_needs_crti_crtn(const ZigTarget *target) {
 
 bool target_is_riscv(const ZigTarget *target) {
     return target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64;
+}
+
+bool target_is_mips(const ZigTarget *target) {
+    return target->arch == ZigLLVM_mips || target->arch == ZigLLVM_mipsel ||
+        target->arch == ZigLLVM_mips64 || target->arch == ZigLLVM_mips64el;
 }
 
 unsigned target_fn_align(const ZigTarget *target) {

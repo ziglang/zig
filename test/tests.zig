@@ -134,6 +134,16 @@ const test_targets = [_]TestTarget{
     TestTarget{
         .target = Target{
             .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .mipsel,
+                .abi = .none,
+            },
+        },
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
                 .os = .macosx,
                 .arch = .x86_64,
                 .abi = .gnu,

@@ -137,6 +137,10 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr)
             );
         },
+        .mipsel => {
+            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_thread_area, addr);
+            assert(rc == 0);
+        },
         else => @compileError("Unsupported architecture"),
     }
 }

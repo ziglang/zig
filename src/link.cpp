@@ -1816,7 +1816,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->zig_target->os == OsZen) {
         lj->args.append("-e");
         lj->args.append("_start");
-
         lj->args.append("--image-base=0x10000000");
     }
 }

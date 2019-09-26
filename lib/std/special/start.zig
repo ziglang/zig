@@ -13,6 +13,11 @@ const is_wasm = switch (builtin.arch) {
     else => false,
 };
 
+const is_mips = switch (builtin.arch) {
+    .mips, .mipsel, .mips64, .mips64el => true,
+    else => false,
+};
+
 comptime {
     if (builtin.link_libc) {
         @export("main", main, .Strong);
@@ -22,6 +27,8 @@ comptime {
         @export("_start", wasm_freestanding_start, .Strong);
     } else if (builtin.os == .uefi) {
         @export("EfiMain", EfiMain, .Strong);
+    } else if (is_mips) {
+        if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
     } else {
         if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
     }
@@ -77,6 +84,14 @@ nakedcc fn _start() noreturn {
         },
         .riscv64 => {
             starting_stack_ptr = asm ("mv %[argc], sp"
+                : [argc] "=r" (-> [*]usize)
+            );
+        },
+        .mipsel => {
+            // Need noat here because LLVM is free to pick any register
+            starting_stack_ptr = asm (
+                \\ .set noat
+                \\ move %[argc], $sp
                 : [argc] "=r" (-> [*]usize)
             );
         },
