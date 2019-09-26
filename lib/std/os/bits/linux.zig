@@ -3,7 +3,11 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 usingnamespace @import("../bits.zig");
 
-pub usingnamespace @import("linux/errno.zig");
+pub usingnamespace switch (builtin.arch) {
+    .mips, .mipsel => @import("linux/errno-mips.zig"),
+    else => @import("linux/errno-generic.zig"),
+};
+
 pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
