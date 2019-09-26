@@ -8423,8 +8423,9 @@ pub fn build(b: *Builder) void {
       detected at compile-time, Zig emits a compile error and refuses to continue.
       Most undefined behavior that cannot be detected at compile-time can be detected
       at runtime. In these cases, Zig has safety checks. Safety checks can be disabled
-      on a per-block basis with {#link|setRuntimeSafety#}. The {#link|ReleaseFast#}
-      build mode disables all safety checks in order to facilitate optimizations.
+      on a per-block basis with {#link|@setRuntimeSafety#}. The {#link|ReleaseFast#}
+      and {#link|ReleaseSmall#} build modes disable all safety checks (except where overridden
+      by {#link|@setRuntimeSafety#}) in order to facilitate optimizations.
       </p>
       <p>
       When a safety check fails, Zig crashes with a stack trace, like this:
