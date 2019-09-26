@@ -1813,14 +1813,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append("--allow-shlib-undefined");
     }
 
-    // MIPS entry point name is __start instead of _start, force the linker to
-    // use the latter
-    if (target_is_mips(g->zig_target) || g->zig_target->os == OsZen) {
+    if (g->zig_target->os == OsZen) {
         lj->args.append("-e");
         lj->args.append("_start");
-    }
-
-    if (g->zig_target->os == OsZen) {
         lj->args.append("--image-base=0x10000000");
     }
 }
