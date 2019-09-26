@@ -3,6 +3,8 @@
 set -x
 set -e
 
+system_profiler SPHardwareDataType
+
 brew install s3cmd gcc@8
 
 ZIGDIR="$(pwd)"
