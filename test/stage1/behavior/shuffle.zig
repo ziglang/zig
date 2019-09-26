@@ -33,6 +33,7 @@ test "@shuffle" {
             expect(mem.eql(i32, ([4]i32)(res), [4]i32{ 2147483647, 3, -2, 4 }));
 
             // bool
+            // Disabled because of #3317
             if (@import("builtin").arch != .mipsel) {
                 var x2: @Vector(4, bool) = [4]bool{ false, true, false, true };
                 var v4: @Vector(2, bool) = [2]bool{ true, false };

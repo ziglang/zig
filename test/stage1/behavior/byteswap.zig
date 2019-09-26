@@ -39,6 +39,7 @@ test "@byteSwap integers" {
 }
 
 test "@byteSwap vectors" {
+    // Disabled because of #3317
     if (@import("builtin").arch == .mipsel) return error.SkipZigTest;
 
     const ByteSwapVectorTest = struct {
