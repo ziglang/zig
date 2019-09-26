@@ -3676,7 +3676,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                 }
                 if (search_scope != nullptr) {
                     Tld *tld = find_decl(g, search_scope, name);
-                    if (tld != nullptr) {
+                    if (tld != nullptr && tld != src_tld) {
                         ErrorMsg *msg = add_node_error(g, source_node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                         add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
