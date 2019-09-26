@@ -601,8 +601,7 @@ else()
 endif()
 add_custom_target(zig_build_libuserland ALL
     COMMAND zig0 build
-        --override-std-dir std
-        --override-lib-dir "${CMAKE_SOURCE_DIR}"
+        --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
         libuserland install
         "-Doutput-dir=${CMAKE_BINARY_DIR}"
         "-Drelease=${LIBUSERLAND_RELEASE_MODE}"

@@ -408,7 +408,7 @@ pub fn addPkgTests(
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }
-        these_tests.overrideStdDir("std");
+        these_tests.overrideZigLibDir("lib");
         these_tests.enable_wine = is_wine_enabled;
         these_tests.enable_qemu = is_qemu_enabled;
         these_tests.glibc_multi_install_dir = glibc_dir;

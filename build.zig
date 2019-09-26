@@ -87,11 +87,6 @@ pub fn build(b: *Builder) !void {
         .source_dir = "lib",
         .install_dir = .Lib,
         .install_subdir = "zig",
-    });
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "std",
-        .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "std",
         .exclude_extensions = [_][]const u8{ "test.zig", "README.md" },
     });
 
@@ -134,9 +129,9 @@ pub fn build(b: *Builder) !void {
 
     test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));

@@ -130,37 +130,35 @@ Error get_compiler_id(Buf **result) {
 }
 
 static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
-    Buf lib_buf = BUF_INIT;
-    buf_init_from_str(&lib_buf, "lib");
-
-    Buf zig_buf = BUF_INIT;
-    buf_init_from_str(&zig_buf, "zig");
-
-    Buf std_buf = BUF_INIT;
-    buf_init_from_str(&std_buf, "std");
-
-    Buf std_zig_buf = BUF_INIT;
-    buf_init_from_str(&std_zig_buf, "std.zig");
-
-    Buf test_lib_dir = BUF_INIT;
-    Buf test_zig_dir = BUF_INIT;
-    Buf test_std_dir = BUF_INIT;
-    Buf test_index_file = BUF_INIT;
-
-    os_path_join(test_path, &lib_buf, &test_lib_dir);
-    os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
-    os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
-    os_path_join(&test_std_dir, &std_zig_buf, &test_index_file);
-
-    int err;
-    bool exists;
-    if ((err = os_file_exists(&test_index_file, &exists))) {
-        exists = false;
+    {
+        Buf *test_zig_dir = buf_sprintf("%s" OS_SEP "lib" OS_SEP "zig", buf_ptr(test_path));
+        Buf *test_index_file = buf_sprintf("%s" OS_SEP "std" OS_SEP "std.zig", buf_ptr(test_zig_dir));
+        int err;
+        bool exists;
+        if ((err = os_file_exists(test_index_file, &exists))) {
+            exists = false;
+        }
+        if (exists) {
+            buf_init_from_buf(out_zig_lib_dir, test_zig_dir);
+            return true;
+        }
     }
-    if (exists) {
-        buf_init_from_buf(out_zig_lib_dir, &test_zig_dir);
-        return true;
+
+    // Also try without "zig"
+    {
+        Buf *test_zig_dir = buf_sprintf("%s" OS_SEP "lib", buf_ptr(test_path));
+        Buf *test_index_file = buf_sprintf("%s" OS_SEP "std" OS_SEP "std.zig", buf_ptr(test_zig_dir));
+        int err;
+        bool exists;
+        if ((err = os_file_exists(test_index_file, &exists))) {
+            exists = false;
+        }
+        if (exists) {
+            buf_init_from_buf(out_zig_lib_dir, test_zig_dir);
+            return true;
+        }
     }
+
     return false;
 }
 
