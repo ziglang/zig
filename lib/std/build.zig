@@ -52,7 +52,6 @@ pub const Builder = struct {
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
     is_release: bool,
-    override_std_dir: ?[]const u8,
     override_lib_dir: ?[]const u8,
 
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
@@ -158,7 +157,6 @@ pub const Builder = struct {
             },
             .release_mode = null,
             .is_release = false,
-            .override_std_dir = null,
             .override_lib_dir = null,
             .install_path = undefined,
         };
@@ -1439,7 +1437,6 @@ pub const LibExeObjStep = struct {
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
     c_std: Builder.CStd,
-    override_std_dir: ?[]const u8,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
     exec_cmd_args: ?[]const ?[]const u8,
@@ -1570,7 +1567,6 @@ pub const LibExeObjStep = struct {
             .build_options_contents = std.Buffer.initSize(builder.allocator, 0) catch unreachable,
             .c_std = Builder.CStd.C99,
             .system_linker_hack = false,
-            .override_std_dir = null,
             .override_lib_dir = null,
             .main_pkg_path = null,
             .exec_cmd_args = null,
@@ -1883,8 +1879,8 @@ pub const LibExeObjStep = struct {
         self.build_mode = mode;
     }
 
-    pub fn overrideStdDir(self: *LibExeObjStep, dir_path: []const u8) void {
-        self.override_std_dir = dir_path;
+    pub fn overrideZigLibDir(self: *LibExeObjStep, dir_path: []const u8) void {
+        self.override_lib_dir = self.builder.dupe(dir_path);
     }
 
     pub fn setMainPkgPath(self: *LibExeObjStep, dir_path: []const u8) void {
@@ -2298,14 +2294,6 @@ pub const LibExeObjStep = struct {
             } else {
                 try zig_args.append("--disable-valgrind");
             }
-        }
-
-        if (self.override_std_dir) |dir| {
-            try zig_args.append("--override-std-dir");
-            try zig_args.append(builder.pathFromRoot(dir));
-        } else if (self.builder.override_std_dir) |dir| {
-            try zig_args.append("--override-std-dir");
-            try zig_args.append(builder.pathFromRoot(dir));
         }
 
         if (self.override_lib_dir) |dir| {

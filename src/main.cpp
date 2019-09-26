@@ -88,8 +88,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 (unsupported) forward an arg to LLVM's option processing\n"
-        "  --override-std-dir [arg]     override path to Zig standard library\n"
-        "  --override-lib-dir [arg]     override path to Zig lib library\n"
+        "  --override-lib-dir [arg]     override path to Zig lib directory\n"
         "  -ffunction-sections          places each function in a separate section\n"
         "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
         "\n"
@@ -490,7 +489,6 @@ int main(int argc, char **argv) {
     bool want_single_threaded = false;
     bool disable_gen_h = false;
     bool bundle_compiler_rt = false;
-    Buf *override_std_dir = nullptr;
     Buf *override_lib_dir = nullptr;
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
@@ -526,12 +524,6 @@ int main(int argc, char **argv) {
             } else if (i + 1 < argc && strcmp(argv[i], "--cache-dir") == 0) {
                 cache_dir = argv[i + 1];
                 i += 1;
-            } else if (i + 1 < argc && strcmp(argv[i], "--override-std-dir") == 0) {
-                override_std_dir = buf_create_from_str(argv[i + 1]);
-                i += 1;
-
-                args.append("--override-std-dir");
-                args.append(buf_ptr(override_std_dir));
             } else if (i + 1 < argc && strcmp(argv[i], "--override-lib-dir") == 0) {
                 override_lib_dir = buf_create_from_str(argv[i + 1]);
                 i += 1;
@@ -590,7 +582,7 @@ int main(int argc, char **argv) {
         }
 
         CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
-                BuildModeDebug, override_lib_dir, override_std_dir, nullptr, &full_cache_dir, false);
+                BuildModeDebug, override_lib_dir, nullptr, &full_cache_dir, false);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -787,8 +779,6 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
-                } else if (strcmp(arg, "--override-std-dir") == 0) {
-                    override_std_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--override-lib-dir") == 0) {
                     override_lib_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--main-pkg-path") == 0) {
@@ -1036,7 +1026,7 @@ int main(int argc, char **argv) {
     }
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
-                out_type, build_mode, override_lib_dir, override_std_dir, nullptr, nullptr, false);
+                out_type, build_mode, override_lib_dir, nullptr, nullptr, false);
         codegen_set_strip(g, strip);
         for (size_t i = 0; i < link_libs.length; i += 1) {
             LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
@@ -1140,7 +1130,7 @@ int main(int argc, char **argv) {
                 cache_dir_buf = buf_create_from_str(cache_dir);
             }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
-                    override_lib_dir, override_std_dir, libc, cache_dir_buf, cmd == CmdTest);
+                    override_lib_dir, libc, cache_dir_buf, cmd == CmdTest);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;

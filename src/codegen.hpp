@@ -17,7 +17,7 @@
 #include <stdio.h>
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
-    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir, Buf *override_std_dir,
+    OutType out_type, BuildMode build_mode, Buf *zig_lib_dir,
     ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build);
 
 CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
