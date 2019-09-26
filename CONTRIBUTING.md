@@ -53,10 +53,15 @@ knowledge of Zig internals.**
 
 First, build the Stage 1 compiler as described in [the Building section](#building).
 
-When making changes to the standard library, be sure to edit the files in the
-`std` directory and not the installed copy in the build directory. If you add a
-new file to the standard library, you must also add the file path in
-CMakeLists.txt.
+One modification you may want to make is adding `-DZIG_SKIP_INSTALL_LIB_FILES=ON`
+to the cmake line. If you use the build directory as a working directory to run
+tests with, zig will find the lib files in the source directory, and they will not
+be "installed" every time you run `make`. This will allow you to make modifications
+directly to the standard library, for example, and have them effective immediately.
+Note that if you already ran `make` or `make install` with the default cmake
+settings, there will already be a `lib/` directory in your build directory. When
+executed from the build directory, zig will find this instead of the source lib/
+directory. Remove the unwanted directory so that the desired one can be found.
 
 To test changes, do the following from the build directory:
 
@@ -65,8 +70,9 @@ To test changes, do the following from the build directory:
 2. `bin/zig build test` (on POSIX) or `bin\zig.exe build test` (on Windows).
 
 That runs the whole test suite, which does a lot of extra testing that you
-likely won't always need, and can take upwards of 2 hours. This is what the
-CI server runs when you make a pull request.
+likely won't always need, and can take upwards of 1 hour. This is what the
+CI server runs when you make a pull request. (Note: actually it runs a few
+more tests; keep reading.)
 
 To save time, you can add the `--help` option to the `zig build` command and
 see what options are available. One of the most helpful ones is
@@ -89,3 +95,31 @@ them).
 When making changes to the compiler source code, the most helpful test step to
 run is `test-behavior`. When editing documentation it is `docs`. You can find
 this information and more in the `--help` menu.
+
+#### Testing Non-Native Architectures with QEMU
+
+The Linux CI server additionally has qemu installed and sets `-Denable-qemu`.
+This provides test coverage for, e.g. aarch64 even on x86_64 machines. It's 
+recommended for Linux users to install qemu and enable this testing option
+when editing the standard library or anything related to a non-native
+architecture.
+
+##### glibc
+
+Testing foreign architectures with dynamically linked glibc is one step trickier.
+This requires enabling `-Denable-foreign-glibc=/path/to/glibc/multi/install/glibcs`.
+This path is obtained by building glibc for multiple architectures. This
+process for me took an entire day to complete and takes up 65 GiB on my hard
+drive. The CI server does not provide this test coverage. Instructions for
+producing this path can be found
+[on the wiki](https://github.com/ziglang/zig/wiki/Updating-libc#glibc).
+Just the part with `build-many-glibcs.py`.
+
+It's understood that most contributors will not have these tests enabled.
+
+#### Testing Windows from a Linux Machine with Wine
+
+When developing on Linux, another option is available to you: `-Denable-wine`.
+This will enable running behavior tests and std lib tests with Wine. It's
+recommended for Linux users to install Wine and enable this testing option 
+when editing the standard library or anything Windows-related.
