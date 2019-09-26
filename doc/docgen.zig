@@ -1140,6 +1140,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const path_to_exe = mem.trim(u8, exec_result.stdout, " \r\n");
                         const run_args = [_][]const u8{path_to_exe};
 
+                        var exited_with_signal = false;
+
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
                             const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
                             switch (result.term) {
@@ -1153,6 +1155,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled");
                                     }
                                 },
+                                .Signal => exited_with_signal = true,
                                 else => {},
                             }
                             break :blk result;
@@ -1166,7 +1169,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
-                        try out.print("\n$ ./{}\n{}{}</code></pre>\n", code.name, colored_stdout, colored_stderr);
+                        try out.print("\n$ ./{}\n{}{}", code.name, colored_stdout, colored_stderr);
+                        if (exited_with_signal) {
+                            try out.print("(process terminated by signal)");
+                        }
+                        try out.print("</code></pre>\n");
                     },
                     Code.Id.Test => {
                         var test_args = std.ArrayList([]const u8).init(allocator);
