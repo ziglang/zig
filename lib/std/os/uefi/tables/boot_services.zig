@@ -21,7 +21,7 @@ pub const BootServices = extern struct {
     allocatePages: usize, // TODO
     freePages: usize, // TODO
     getMemoryMap: extern fn (*usize, [*]MemoryDescriptor, *usize, *usize, *u32) usize,
-    allocatePool: usize, // TODO
+    allocatePool: extern fn (MemoryType, usize, *align(8) [*]u8) usize,
     freePool: usize, // TODO
     createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
     setTimer: extern fn (Event, TimerDelay, u64) usize,
@@ -42,7 +42,7 @@ pub const BootServices = extern struct {
     imageStart: usize, // TODO
     exit: extern fn (Handle, usize, usize, ?*const c_void) usize,
     imageUnload: usize, // TODO
-    exitBootServices: usize, // TODO
+    exitBootServices: extern fn (Handle, usize) usize,
     getNextMonotonicCount: usize, // TODO
     stall: extern fn (usize) usize,
     setWatchdogTimer: extern fn (usize, u64, usize, ?[*]const u16) usize,
@@ -82,25 +82,27 @@ pub const TimerDelay = extern enum(u32) {
     TimerRelative,
 };
 
+pub const MemoryType = extern enum(u32) {
+    ReservedMemoryType,
+    LoaderCode,
+    LoaderData,
+    BootServicesCode,
+    BootServicesData,
+    RuntimeServicesCode,
+    RuntimeServicesData,
+    ConventionalMemory,
+    UnusableMemory,
+    ACPIReclaimMemory,
+    ACPIMemoryNVS,
+    MemoryMappedIO,
+    MemoryMappedIOPortSpace,
+    PalCode,
+    PersistentMemory,
+    MaxMemoryType,
+};
+
 pub const MemoryDescriptor = extern struct {
-    type: extern enum(u32) {
-        ReservedMemoryType,
-        LoaderCode,
-        LoaderData,
-        BootServicesCode,
-        BootServicesData,
-        RuntimeServicesCode,
-        RuntimeServicesData,
-        ConventionalMemory,
-        UnusableMemory,
-        ACPIReclaimMemory,
-        ACPIMemoryNVS,
-        MemoryMappedIO,
-        MemoryMappedIOPortSpace,
-        PalCode,
-        PersistentMemory,
-        MaxMemoryType,
-    },
+    type: MemoryType,
     physical_start: u64,
     virtual_start: u64,
     number_of_pages: usize,
