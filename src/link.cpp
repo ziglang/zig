@@ -822,6 +822,10 @@ static void glibc_add_include_dirs(CodeGen *parent, CFile *c_file) {
     if (parent->zig_target->os == OsLinux) {
         c_file->args.append("-I");
         c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
+                    "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "generic"));
+
+        c_file->args.append("-I");
+        c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
                     "unix" OS_SEP "sysv" OS_SEP "linux" OS_SEP "include"));
         c_file->args.append("-I");
         c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "sysdeps" OS_SEP
