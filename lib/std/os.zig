@@ -1834,6 +1834,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     if (darwin.is_the_target) {
         switch (darwin.getErrno(darwin.@"fstat$INODE64"(fd, &stat))) {
             0 => return stat,
+            EINVAL => unreachable,
             EBADF => unreachable, // Always a race condition.
             ENOMEM => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
@@ -1842,6 +1843,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
 
     switch (errno(system.fstat(fd, &stat))) {
         0 => return stat,
+        EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
