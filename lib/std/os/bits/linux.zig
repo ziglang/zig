@@ -362,7 +362,7 @@ pub const AF_QIPCRTR = PF_QIPCRTR;
 pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
 
-pub usingnamespace if (!@hasDecl(@This(), "SO_DEBUG"))
+pub usingnamespace if (!is_mips)
     struct {
         pub const SO_DEBUG = 1;
         pub const SO_REUSEADDR = 2;
