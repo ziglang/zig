@@ -1653,7 +1653,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize, buf_ptr(g->root_out_name), g->version_major);
     }
 
-    if (target_requires_pie(g->zig_target) && !is_dyn_lib) {
+    if (target_requires_pie(g->zig_target) && !is_dyn_lib && g->libc != nullptr) {
         lj->args.append("-pie");
     }
 
@@ -1821,7 +1821,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     // crt end
-    if (target_is_android(g->zig_target) && g->have_dynamic_link) {
+    if (target_is_android(g->zig_target) && g->libc != nullptr) {
         lj->args.append(get_libc_crt_file(g, "crtend_android.o"));
     } else if (lj->link_in_crt && target_libc_needs_crti_crtn(g->zig_target)) {
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
