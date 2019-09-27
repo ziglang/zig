@@ -10,7 +10,7 @@ pub const RNGProtocol = extern struct {
         return self._get_info(self, list_size, list);
     }
 
-    pub fn getRNG(self: *const RNGProtocol, algo: ?*const Guid, value_length: usize, value: [*]u8) usize {
+    pub fn getRNG(self: *const RNGProtocol, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) usize {
         return self._get_rng(self, algo, value_length, value);
     }
 
