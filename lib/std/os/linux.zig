@@ -193,9 +193,29 @@ pub fn umount2(special: [*]const u8, flags: u32) usize {
 
 pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: u64) usize {
     if (@hasDecl(@This(), "SYS_mmap2")) {
-        return syscall6(SYS_mmap2, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), @truncate(usize, offset / MMAP2_UNIT));
+        // Make sure the offset is also specified in multiples of page size
+        if ((offset & (MMAP2_UNIT - 1)) != 0)
+            return @bitCast(usize, isize(-EINVAL));
+
+        return syscall6(
+            SYS_mmap2,
+            @ptrToInt(address),
+            length,
+            prot,
+            flags,
+            @bitCast(usize, isize(fd)),
+            @truncate(usize, offset / MMAP2_UNIT),
+        );
     } else {
-        return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, @bitCast(usize, isize(fd)), offset);
+        return syscall6(
+            SYS_mmap,
+            @ptrToInt(address),
+            length,
+            prot,
+            flags,
+            @bitCast(usize, isize(fd)),
+            offset,
+        );
     }
 }
 
