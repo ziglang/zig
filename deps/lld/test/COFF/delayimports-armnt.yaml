@@ -3,8 +3,8 @@
 # RUN: lld-link %t.obj %p/Inputs/library.lib /subsystem:console \
 # RUN:   /entry:mainCRTStartup /alternatename:__delayLoadHelper2=mainCRTStartup \
 # RUN:   /delayload:library.dll /out:%t.exe
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
-# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=DISASM %s
 
 # IMPORT:      Format: COFF-ARM
@@ -35,7 +35,7 @@
 # BASEREL-NEXT:   }
 # BASEREL-NEXT:   Entry {
 # BASEREL-NEXT:     Type: ARM_MOV32(T)
-# BASEREL-NEXT:     Address: 0x1022
+# BASEREL-NEXT:     Address: 0x1026
 # BASEREL-NEXT:   }
 # BASEREL-NEXT:   Entry {
 # BASEREL-NEXT:     Type: ABSOLUTE
@@ -53,13 +53,14 @@
 #
 # DISASM:      40100c:       43 f2 08 0c     movw r12, #12296
 # DISASM-NEXT:               c0 f2 40 0c     movt    r12, #64
+# DISASM-NEXT:               00 f0 00 b8     b.w     #0
 # DISASM-NEXT:               2d e9 0f 48     push.w  {r0, r1, r2, r3, r11, lr}
 # DISASM-NEXT:               0d f2 10 0b     addw    r11, sp, #16
 # DISASM-NEXT:               2d ed 10 0b     vpush   {d0, d1, d2, d3, d4, d5, d6, d7}
 # DISASM-NEXT:               61 46           mov     r1, r12
 # DISASM-NEXT:               42 f2 00 00     movw r0, #8192
 # DISASM-NEXT:               c0 f2 40 00     movt    r0, #64
-# DISASM-NEXT:               ff f7 e9 ff     bl      #-46
+# DISASM-NEXT:               ff f7 e7 ff     bl      #-50
 # DISASM-NEXT:               84 46           mov     r12, r0
 # DISASM-NEXT:               bd ec 10 0b     vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
 # DISASM-NEXT:               bd e8 0f 48     pop.w   {r0, r1, r2, r3, r11, lr}

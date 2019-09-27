@@ -4,14 +4,16 @@
 # RUN: llvm-objdump -d %t.obj | FileCheck %s -check-prefix BEFORE
 # RUN: lld-link /entry:main /subsystem:console /out:%t.exe %t.obj %p/Inputs/library-arm64.lib %p/Inputs/library2-arm64.lib
 # RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck %s -check-prefix IMPORTS
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck %s -check-prefix IMPORTS
 
 # BEFORE: Disassembly of section .text:
+# BEFORE-EMPTY:
 # BEFORE:        0:       00 00 00 94     bl      #0
 # BEFORE:        4:       00 00 00 94     bl      #0
 # BEFORE:        8:       c0 03 5f d6     ret
 
 # AFTER: Disassembly of section .text:
+# AFTER-EMPTY:
 # AFTER:  140001000:      03 00 00 94     bl      #12
 # AFTER:  140001004:      05 00 00 94     bl      #20
 # AFTER:  140001008:      c0 03 5f d6     ret

@@ -14,12 +14,15 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s --check-prefixes=HAZARDPLT,CHECK
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:   20000:       0c 00 80 0c     jal     131120
 #                                                    ^-- 0x20030 gotplt[foo0]
 # CHECK-NEXT:   20004:       00 00 00 00     nop
 #
+# CHECK-EMPTY:
 # CHECK-NEXT: Disassembly of section .plt:
+# CHECK-EMPTY:
 # CHECK-NEXT: .plt:
 # CHECK-NEXT:   20010:       3c 0e 00 03     lui     $14, 3
 # CHECK-NEXT:   20014:       8d d9 00 04     lw      $25, 4($14)

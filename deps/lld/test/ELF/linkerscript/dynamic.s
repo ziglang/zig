@@ -5,7 +5,7 @@
 
 # RUN: echo "SECTIONS { }" > %t.script
 # RUN: ld.lld %t1.o %t2.so -o %t
-# RUN: llvm-readobj -dynamic-table %t | FileCheck %s
+# RUN: llvm-readobj --dynamic-table %t | FileCheck %s
 
 # CHECK:      DynamicSection [
 # CHECK-NEXT:  Tag                 Type             Name/Value

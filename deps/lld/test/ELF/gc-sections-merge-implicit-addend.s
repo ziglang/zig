@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=i386-pc-linux
 // RUN: ld.lld %t.o -o %t.so -shared --gc-sections
-// RUN: llvm-readobj -s -section-data %t.so | FileCheck %s
+// RUN: llvm-readobj -S --section-data %t.so | FileCheck %s
 
 
 // CHECK:      Name: .rodata

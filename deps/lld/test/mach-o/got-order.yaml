@@ -1,6 +1,6 @@
 # RUN: ld64.lld -arch x86_64  %s %p/Inputs/got-order.yaml \
 # RUN: %p/Inputs/got-order2.yaml -o %t %p/Inputs/x86_64/libSystem.yaml
-# RUN: llvm-objdump -bind %t | FileCheck %s
+# RUN: llvm-objdump -macho -bind %t | FileCheck %s
 #
 # Test that GOT slots are sorted by name
 #

@@ -8,7 +8,7 @@
 # RUN: lld-link /out:%t.exe /entry:main %t.obj %p/Inputs/resource.res \
 # RUN:   %p/Inputs/combined-resources.res %p/Inputs/combined-resources-2.res
 
-# RUN: llvm-readobj -coff-resources -file-headers -section-data %t.exe | \
+# RUN: llvm-readobj --coff-resources --file-headers --section-data %t.exe | \
 # RUN:   FileCheck %s
 
 CHECK:      ResourceTableRVA: 0x2000

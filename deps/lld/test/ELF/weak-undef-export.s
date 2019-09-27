@@ -4,7 +4,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld --export-dynamic %t.o -o %t
-# RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t | FileCheck %s
 
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {

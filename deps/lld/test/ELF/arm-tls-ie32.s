@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
-// RUN: llvm-readobj -s -dyn-relocations %t.so | FileCheck --check-prefix=SEC %s
+// RUN: llvm-readobj -S --dyn-relocations %t.so | FileCheck --check-prefix=SEC %s
 // RUN: llvm-objdump -d -triple=armv7a-linux-gnueabi %t.so | FileCheck %s
 
 // Test the handling of the initial-exec TLS model. Relative location within
@@ -83,6 +83,7 @@ x:
 // SEC:  0x2050 R_ARM_TLS_TPOFF32 y
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: func:
 // CHECK-NEXT:    1000: 00 f0 20 e3     nop
 // CHECK-NEXT:    1004: 00 f0 20 e3     nop

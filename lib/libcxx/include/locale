@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- locale ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -127,7 +126,7 @@ public:
     wbuffer_convert(const wbuffer_convert&) = delete;               // C++14
     wbuffer_convert & operator=(const wbuffer_convert &) = delete;  // C++14
     ~wbuffer_convert();                                             // C++14
-    
+
     streambuf* rdbuf() const;
     streambuf* rdbuf(streambuf* bytebuf);
 
@@ -547,7 +546,7 @@ __num_get<_CharT>::__stage2_float_loop(_CharT __ct, bool& __in_units, char& __ex
         __exp = 'P';
     else if ((__x & 0x5F) == __exp)
     {
-        __exp |= 0x80;
+        __exp |= (char) 0x80;
         if (__in_units)
         {
             __in_units = false;
@@ -1373,10 +1372,6 @@ __pad_and_output(_OutputIterator __s,
     return __s;
 }
 
-#if !defined(__APPLE__) || \
-    (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED > __MAC_10_8) || \
-    (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED > __IPHONE_6_0)
-
 template <class _CharT, class _Traits>
 _LIBCPP_HIDDEN
 ostreambuf_iterator<_CharT, _Traits>
@@ -1422,8 +1417,6 @@ __pad_and_output(ostreambuf_iterator<_CharT, _Traits> __s,
     __iob.width(0);
     return __s;
 }
-
-#endif
 
 template <class _CharT, class _OutputIterator>
 _OutputIterator
@@ -3930,7 +3923,7 @@ private:
     wbuffer_convert(const wbuffer_convert&);
     wbuffer_convert& operator=(const wbuffer_convert&);
 public:
-    _LIBCPP_EXPLICIT_AFTER_CXX11 wbuffer_convert(streambuf* __bytebuf = 0, 
+    _LIBCPP_EXPLICIT_AFTER_CXX11 wbuffer_convert(streambuf* __bytebuf = 0,
             _Codecvt* __pcvt = new _Codecvt, state_type __state = state_type());
     ~wbuffer_convert();
 
@@ -4045,7 +4038,7 @@ wbuffer_convert<_Codecvt, _Elem, _Tr>::underflow()
                                        this->egptr(), __inext);
                 if (__r == codecvt_base::noconv)
                 {
-                    this->setg((char_type*)__extbuf_, (char_type*)__extbuf_, 
+                    this->setg((char_type*)__extbuf_, (char_type*)__extbuf_,
                                (char_type*) const_cast<char *>(__extbufend_));
                     __c = *this->gptr();
                 }

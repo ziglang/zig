@@ -9,7 +9,7 @@
 # Not linking with -lldmingw; one can link to GNU import libs even if not targeting MinGW.
 # RUN: lld-link -out:%t.exe -entry:main -subsystem:console \
 # RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib %t-implib.a -include:func
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
 
 # Check that import entries from both libraries show up.
 

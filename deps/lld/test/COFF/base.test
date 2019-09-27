@@ -1,7 +1,7 @@
 # RUN: yaml2obj < %s > %t.obj
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=DEFAULT-HEADER %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=DEFAULT-HEADER %s
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=DEFAULT-TEXT %s
 
 # DEFAULT-HEADER:    ImageBase: 0x140000000
@@ -9,7 +9,7 @@
 # DEFAULT-TEXT-NEXT: 1000 00000040 01000000
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj /base:0x280000000
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BASE-HEADER %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=BASE-HEADER %s
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=BASE-TEXT %s
 
 # BASE-HEADER: ImageBase: 0x280000000

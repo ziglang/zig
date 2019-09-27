@@ -1,9 +1,8 @@
 //===- Chunks.cpp ---------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -30,203 +29,201 @@ using llvm::support::ulittle32_t;
 namespace lld {
 namespace coff {
 
-SectionChunk::SectionChunk(ObjFile *F, const coff_section *H)
-    : Chunk(SectionKind), Repl(this), Header(H), File(F),
-      Relocs(File->getCOFFObj()->getRelocations(Header)) {
-  // Initialize SectionName.
-  File->getCOFFObj()->getSectionName(Header, SectionName);
+SectionChunk::SectionChunk(ObjFile *f, const coff_section *h)
+    : Chunk(SectionKind), file(f), header(h), repl(this) {
+  // Initialize relocs.
+  setRelocs(file->getCOFFObj()->getRelocations(header));
 
-  Alignment = Header->getAlignment();
+  // Initialize sectionName.
+  StringRef sectionName;
+  if (Expected<StringRef> e = file->getCOFFObj()->getSectionName(header))
+    sectionName = *e;
+  sectionNameData = sectionName.data();
+  sectionNameSize = sectionName.size();
+
+  setAlignment(header->getAlignment());
+
+  hasData = !(header->Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA);
 
   // If linker GC is disabled, every chunk starts out alive.  If linker GC is
   // enabled, treat non-comdat sections as roots. Generally optimized object
   // files will be built with -ffunction-sections or /Gy, so most things worth
   // stripping will be in a comdat.
-  Live = !Config->DoGC || !isCOMDAT();
+  live = !config->doGC || !isCOMDAT();
 }
 
-// Initialize the RelocTargets vector, to allow redirecting certain relocations
-// to a thunk instead of the actual symbol the relocation's symbol table index
-// indicates.
-void SectionChunk::readRelocTargets() {
-  assert(RelocTargets.empty());
-  RelocTargets.reserve(Relocs.size());
-  for (const coff_relocation &Rel : Relocs)
-    RelocTargets.push_back(File->getSymbol(Rel.SymbolTableIndex));
-}
+// SectionChunk is one of the most frequently allocated classes, so it is
+// important to keep it as compact as possible. As of this writing, the number
+// below is the size of this class on x64 platforms.
+static_assert(sizeof(SectionChunk) <= 88, "SectionChunk grew unexpectedly");
 
-// Reset RelocTargets to their original targets before thunks were added.
-void SectionChunk::resetRelocTargets() {
-  for (size_t I = 0, E = Relocs.size(); I < E; ++I)
-    RelocTargets[I] = File->getSymbol(Relocs[I].SymbolTableIndex);
-}
-
-static void add16(uint8_t *P, int16_t V) { write16le(P, read16le(P) + V); }
-static void add32(uint8_t *P, int32_t V) { write32le(P, read32le(P) + V); }
-static void add64(uint8_t *P, int64_t V) { write64le(P, read64le(P) + V); }
-static void or16(uint8_t *P, uint16_t V) { write16le(P, read16le(P) | V); }
-static void or32(uint8_t *P, uint32_t V) { write32le(P, read32le(P) | V); }
+static void add16(uint8_t *p, int16_t v) { write16le(p, read16le(p) + v); }
+static void add32(uint8_t *p, int32_t v) { write32le(p, read32le(p) + v); }
+static void add64(uint8_t *p, int64_t v) { write64le(p, read64le(p) + v); }
+static void or16(uint8_t *p, uint16_t v) { write16le(p, read16le(p) | v); }
+static void or32(uint8_t *p, uint32_t v) { write32le(p, read32le(p) | v); }
 
 // Verify that given sections are appropriate targets for SECREL
 // relocations. This check is relaxed because unfortunately debug
 // sections have section-relative relocations against absolute symbols.
-static bool checkSecRel(const SectionChunk *Sec, OutputSection *OS) {
-  if (OS)
+static bool checkSecRel(const SectionChunk *sec, OutputSection *os) {
+  if (os)
     return true;
-  if (Sec->isCodeView())
+  if (sec->isCodeView())
     return false;
   error("SECREL relocation cannot be applied to absolute symbols");
   return false;
 }
 
-static void applySecRel(const SectionChunk *Sec, uint8_t *Off,
-                        OutputSection *OS, uint64_t S) {
-  if (!checkSecRel(Sec, OS))
+static void applySecRel(const SectionChunk *sec, uint8_t *off,
+                        OutputSection *os, uint64_t s) {
+  if (!checkSecRel(sec, os))
     return;
-  uint64_t SecRel = S - OS->getRVA();
-  if (SecRel > UINT32_MAX) {
-    error("overflow in SECREL relocation in section: " + Sec->getSectionName());
+  uint64_t secRel = s - os->getRVA();
+  if (secRel > UINT32_MAX) {
+    error("overflow in SECREL relocation in section: " + sec->getSectionName());
     return;
   }
-  add32(Off, SecRel);
+  add32(off, secRel);
 }
 
-static void applySecIdx(uint8_t *Off, OutputSection *OS) {
+static void applySecIdx(uint8_t *off, OutputSection *os) {
   // Absolute symbol doesn't have section index, but section index relocation
   // against absolute symbol should be resolved to one plus the last output
   // section index. This is required for compatibility with MSVC.
-  if (OS)
-    add16(Off, OS->SectionIndex);
+  if (os)
+    add16(off, os->sectionIndex);
   else
-    add16(Off, DefinedAbsolute::NumOutputSections + 1);
+    add16(off, DefinedAbsolute::numOutputSections + 1);
 }
 
-void SectionChunk::applyRelX64(uint8_t *Off, uint16_t Type, OutputSection *OS,
-                               uint64_t S, uint64_t P) const {
-  switch (Type) {
-  case IMAGE_REL_AMD64_ADDR32:   add32(Off, S + Config->ImageBase); break;
-  case IMAGE_REL_AMD64_ADDR64:   add64(Off, S + Config->ImageBase); break;
-  case IMAGE_REL_AMD64_ADDR32NB: add32(Off, S); break;
-  case IMAGE_REL_AMD64_REL32:    add32(Off, S - P - 4); break;
-  case IMAGE_REL_AMD64_REL32_1:  add32(Off, S - P - 5); break;
-  case IMAGE_REL_AMD64_REL32_2:  add32(Off, S - P - 6); break;
-  case IMAGE_REL_AMD64_REL32_3:  add32(Off, S - P - 7); break;
-  case IMAGE_REL_AMD64_REL32_4:  add32(Off, S - P - 8); break;
-  case IMAGE_REL_AMD64_REL32_5:  add32(Off, S - P - 9); break;
-  case IMAGE_REL_AMD64_SECTION:  applySecIdx(Off, OS); break;
-  case IMAGE_REL_AMD64_SECREL:   applySecRel(this, Off, OS, S); break;
+void SectionChunk::applyRelX64(uint8_t *off, uint16_t type, OutputSection *os,
+                               uint64_t s, uint64_t p) const {
+  switch (type) {
+  case IMAGE_REL_AMD64_ADDR32:   add32(off, s + config->imageBase); break;
+  case IMAGE_REL_AMD64_ADDR64:   add64(off, s + config->imageBase); break;
+  case IMAGE_REL_AMD64_ADDR32NB: add32(off, s); break;
+  case IMAGE_REL_AMD64_REL32:    add32(off, s - p - 4); break;
+  case IMAGE_REL_AMD64_REL32_1:  add32(off, s - p - 5); break;
+  case IMAGE_REL_AMD64_REL32_2:  add32(off, s - p - 6); break;
+  case IMAGE_REL_AMD64_REL32_3:  add32(off, s - p - 7); break;
+  case IMAGE_REL_AMD64_REL32_4:  add32(off, s - p - 8); break;
+  case IMAGE_REL_AMD64_REL32_5:  add32(off, s - p - 9); break;
+  case IMAGE_REL_AMD64_SECTION:  applySecIdx(off, os); break;
+  case IMAGE_REL_AMD64_SECREL:   applySecRel(this, off, os, s); break;
   default:
-    error("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
-          toString(File));
+    error("unsupported relocation type 0x" + Twine::utohexstr(type) + " in " +
+          toString(file));
   }
 }
 
-void SectionChunk::applyRelX86(uint8_t *Off, uint16_t Type, OutputSection *OS,
-                               uint64_t S, uint64_t P) const {
-  switch (Type) {
+void SectionChunk::applyRelX86(uint8_t *off, uint16_t type, OutputSection *os,
+                               uint64_t s, uint64_t p) const {
+  switch (type) {
   case IMAGE_REL_I386_ABSOLUTE: break;
-  case IMAGE_REL_I386_DIR32:    add32(Off, S + Config->ImageBase); break;
-  case IMAGE_REL_I386_DIR32NB:  add32(Off, S); break;
-  case IMAGE_REL_I386_REL32:    add32(Off, S - P - 4); break;
-  case IMAGE_REL_I386_SECTION:  applySecIdx(Off, OS); break;
-  case IMAGE_REL_I386_SECREL:   applySecRel(this, Off, OS, S); break;
+  case IMAGE_REL_I386_DIR32:    add32(off, s + config->imageBase); break;
+  case IMAGE_REL_I386_DIR32NB:  add32(off, s); break;
+  case IMAGE_REL_I386_REL32:    add32(off, s - p - 4); break;
+  case IMAGE_REL_I386_SECTION:  applySecIdx(off, os); break;
+  case IMAGE_REL_I386_SECREL:   applySecRel(this, off, os, s); break;
   default:
-    error("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
-          toString(File));
+    error("unsupported relocation type 0x" + Twine::utohexstr(type) + " in " +
+          toString(file));
   }
 }
 
-static void applyMOV(uint8_t *Off, uint16_t V) {
-  write16le(Off, (read16le(Off) & 0xfbf0) | ((V & 0x800) >> 1) | ((V >> 12) & 0xf));
-  write16le(Off + 2, (read16le(Off + 2) & 0x8f00) | ((V & 0x700) << 4) | (V & 0xff));
+static void applyMOV(uint8_t *off, uint16_t v) {
+  write16le(off, (read16le(off) & 0xfbf0) | ((v & 0x800) >> 1) | ((v >> 12) & 0xf));
+  write16le(off + 2, (read16le(off + 2) & 0x8f00) | ((v & 0x700) << 4) | (v & 0xff));
 }
 
-static uint16_t readMOV(uint8_t *Off, bool MOVT) {
-  uint16_t Op1 = read16le(Off);
-  if ((Op1 & 0xfbf0) != (MOVT ? 0xf2c0 : 0xf240))
-    error("unexpected instruction in " + Twine(MOVT ? "MOVT" : "MOVW") +
+static uint16_t readMOV(uint8_t *off, bool movt) {
+  uint16_t op1 = read16le(off);
+  if ((op1 & 0xfbf0) != (movt ? 0xf2c0 : 0xf240))
+    error("unexpected instruction in " + Twine(movt ? "MOVT" : "MOVW") +
           " instruction in MOV32T relocation");
-  uint16_t Op2 = read16le(Off + 2);
-  if ((Op2 & 0x8000) != 0)
-    error("unexpected instruction in " + Twine(MOVT ? "MOVT" : "MOVW") +
+  uint16_t op2 = read16le(off + 2);
+  if ((op2 & 0x8000) != 0)
+    error("unexpected instruction in " + Twine(movt ? "MOVT" : "MOVW") +
           " instruction in MOV32T relocation");
-  return (Op2 & 0x00ff) | ((Op2 >> 4) & 0x0700) | ((Op1 << 1) & 0x0800) |
-         ((Op1 & 0x000f) << 12);
+  return (op2 & 0x00ff) | ((op2 >> 4) & 0x0700) | ((op1 << 1) & 0x0800) |
+         ((op1 & 0x000f) << 12);
 }
 
-void applyMOV32T(uint8_t *Off, uint32_t V) {
-  uint16_t ImmW = readMOV(Off, false);    // read MOVW operand
-  uint16_t ImmT = readMOV(Off + 4, true); // read MOVT operand
-  uint32_t Imm = ImmW | (ImmT << 16);
-  V += Imm;                         // add the immediate offset
-  applyMOV(Off, V);           // set MOVW operand
-  applyMOV(Off + 4, V >> 16); // set MOVT operand
+void applyMOV32T(uint8_t *off, uint32_t v) {
+  uint16_t immW = readMOV(off, false);    // read MOVW operand
+  uint16_t immT = readMOV(off + 4, true); // read MOVT operand
+  uint32_t imm = immW | (immT << 16);
+  v += imm;                         // add the immediate offset
+  applyMOV(off, v);           // set MOVW operand
+  applyMOV(off + 4, v >> 16); // set MOVT operand
 }
 
-static void applyBranch20T(uint8_t *Off, int32_t V) {
-  if (!isInt<21>(V))
+static void applyBranch20T(uint8_t *off, int32_t v) {
+  if (!isInt<21>(v))
     error("relocation out of range");
-  uint32_t S = V < 0 ? 1 : 0;
-  uint32_t J1 = (V >> 19) & 1;
-  uint32_t J2 = (V >> 18) & 1;
-  or16(Off, (S << 10) | ((V >> 12) & 0x3f));
-  or16(Off + 2, (J1 << 13) | (J2 << 11) | ((V >> 1) & 0x7ff));
+  uint32_t s = v < 0 ? 1 : 0;
+  uint32_t j1 = (v >> 19) & 1;
+  uint32_t j2 = (v >> 18) & 1;
+  or16(off, (s << 10) | ((v >> 12) & 0x3f));
+  or16(off + 2, (j1 << 13) | (j2 << 11) | ((v >> 1) & 0x7ff));
 }
 
-void applyBranch24T(uint8_t *Off, int32_t V) {
-  if (!isInt<25>(V))
+void applyBranch24T(uint8_t *off, int32_t v) {
+  if (!isInt<25>(v))
     error("relocation out of range");
-  uint32_t S = V < 0 ? 1 : 0;
-  uint32_t J1 = ((~V >> 23) & 1) ^ S;
-  uint32_t J2 = ((~V >> 22) & 1) ^ S;
-  or16(Off, (S << 10) | ((V >> 12) & 0x3ff));
+  uint32_t s = v < 0 ? 1 : 0;
+  uint32_t j1 = ((~v >> 23) & 1) ^ s;
+  uint32_t j2 = ((~v >> 22) & 1) ^ s;
+  or16(off, (s << 10) | ((v >> 12) & 0x3ff));
   // Clear out the J1 and J2 bits which may be set.
-  write16le(Off + 2, (read16le(Off + 2) & 0xd000) | (J1 << 13) | (J2 << 11) | ((V >> 1) & 0x7ff));
+  write16le(off + 2, (read16le(off + 2) & 0xd000) | (j1 << 13) | (j2 << 11) | ((v >> 1) & 0x7ff));
 }
 
-void SectionChunk::applyRelARM(uint8_t *Off, uint16_t Type, OutputSection *OS,
-                               uint64_t S, uint64_t P) const {
+void SectionChunk::applyRelARM(uint8_t *off, uint16_t type, OutputSection *os,
+                               uint64_t s, uint64_t p) const {
   // Pointer to thumb code must have the LSB set.
-  uint64_t SX = S;
-  if (OS && (OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE))
-    SX |= 1;
-  switch (Type) {
-  case IMAGE_REL_ARM_ADDR32:    add32(Off, SX + Config->ImageBase); break;
-  case IMAGE_REL_ARM_ADDR32NB:  add32(Off, SX); break;
-  case IMAGE_REL_ARM_MOV32T:    applyMOV32T(Off, SX + Config->ImageBase); break;
-  case IMAGE_REL_ARM_BRANCH20T: applyBranch20T(Off, SX - P - 4); break;
-  case IMAGE_REL_ARM_BRANCH24T: applyBranch24T(Off, SX - P - 4); break;
-  case IMAGE_REL_ARM_BLX23T:    applyBranch24T(Off, SX - P - 4); break;
-  case IMAGE_REL_ARM_SECTION:   applySecIdx(Off, OS); break;
-  case IMAGE_REL_ARM_SECREL:    applySecRel(this, Off, OS, S); break;
+  uint64_t sx = s;
+  if (os && (os->header.Characteristics & IMAGE_SCN_MEM_EXECUTE))
+    sx |= 1;
+  switch (type) {
+  case IMAGE_REL_ARM_ADDR32:    add32(off, sx + config->imageBase); break;
+  case IMAGE_REL_ARM_ADDR32NB:  add32(off, sx); break;
+  case IMAGE_REL_ARM_MOV32T:    applyMOV32T(off, sx + config->imageBase); break;
+  case IMAGE_REL_ARM_BRANCH20T: applyBranch20T(off, sx - p - 4); break;
+  case IMAGE_REL_ARM_BRANCH24T: applyBranch24T(off, sx - p - 4); break;
+  case IMAGE_REL_ARM_BLX23T:    applyBranch24T(off, sx - p - 4); break;
+  case IMAGE_REL_ARM_SECTION:   applySecIdx(off, os); break;
+  case IMAGE_REL_ARM_SECREL:    applySecRel(this, off, os, s); break;
+  case IMAGE_REL_ARM_REL32:     add32(off, sx - p - 4); break;
   default:
-    error("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
-          toString(File));
+    error("unsupported relocation type 0x" + Twine::utohexstr(type) + " in " +
+          toString(file));
   }
 }
 
 // Interpret the existing immediate value as a byte offset to the
 // target symbol, then update the instruction with the immediate as
 // the page offset from the current instruction to the target.
-void applyArm64Addr(uint8_t *Off, uint64_t S, uint64_t P, int Shift) {
-  uint32_t Orig = read32le(Off);
-  uint64_t Imm = ((Orig >> 29) & 0x3) | ((Orig >> 3) & 0x1FFFFC);
-  S += Imm;
-  Imm = (S >> Shift) - (P >> Shift);
-  uint32_t ImmLo = (Imm & 0x3) << 29;
-  uint32_t ImmHi = (Imm & 0x1FFFFC) << 3;
-  uint64_t Mask = (0x3 << 29) | (0x1FFFFC << 3);
-  write32le(Off, (Orig & ~Mask) | ImmLo | ImmHi);
+void applyArm64Addr(uint8_t *off, uint64_t s, uint64_t p, int shift) {
+  uint32_t orig = read32le(off);
+  uint64_t imm = ((orig >> 29) & 0x3) | ((orig >> 3) & 0x1FFFFC);
+  s += imm;
+  imm = (s >> shift) - (p >> shift);
+  uint32_t immLo = (imm & 0x3) << 29;
+  uint32_t immHi = (imm & 0x1FFFFC) << 3;
+  uint64_t mask = (0x3 << 29) | (0x1FFFFC << 3);
+  write32le(off, (orig & ~mask) | immLo | immHi);
 }
 
 // Update the immediate field in a AARCH64 ldr, str, and add instruction.
 // Optionally limit the range of the written immediate by one or more bits
-// (RangeLimit).
-void applyArm64Imm(uint8_t *Off, uint64_t Imm, uint32_t RangeLimit) {
-  uint32_t Orig = read32le(Off);
-  Imm += (Orig >> 10) & 0xFFF;
-  Orig &= ~(0xFFF << 10);
-  write32le(Off, Orig | ((Imm & (0xFFF >> RangeLimit)) << 10));
+// (rangeLimit).
+void applyArm64Imm(uint8_t *off, uint64_t imm, uint32_t rangeLimit) {
+  uint32_t orig = read32le(off);
+  imm += (orig >> 10) & 0xFFF;
+  orig &= ~(0xFFF << 10);
+  write32le(off, orig | ((imm & (0xFFF >> rangeLimit)) << 10));
 }
 
 // Add the 12 bit page offset to the existing immediate.
@@ -237,171 +234,178 @@ void applyArm64Imm(uint8_t *Off, uint64_t Imm, uint32_t RangeLimit) {
 // Even if larger loads/stores have a larger range, limit the
 // effective offset to 12 bit, since it is intended to be a
 // page offset.
-static void applyArm64Ldr(uint8_t *Off, uint64_t Imm) {
-  uint32_t Orig = read32le(Off);
-  uint32_t Size = Orig >> 30;
+static void applyArm64Ldr(uint8_t *off, uint64_t imm) {
+  uint32_t orig = read32le(off);
+  uint32_t size = orig >> 30;
   // 0x04000000 indicates SIMD/FP registers
   // 0x00800000 indicates 128 bit
-  if ((Orig & 0x4800000) == 0x4800000)
-    Size += 4;
-  if ((Imm & ((1 << Size) - 1)) != 0)
+  if ((orig & 0x4800000) == 0x4800000)
+    size += 4;
+  if ((imm & ((1 << size) - 1)) != 0)
     error("misaligned ldr/str offset");
-  applyArm64Imm(Off, Imm >> Size, Size);
+  applyArm64Imm(off, imm >> size, size);
 }
 
-static void applySecRelLow12A(const SectionChunk *Sec, uint8_t *Off,
-                              OutputSection *OS, uint64_t S) {
-  if (checkSecRel(Sec, OS))
-    applyArm64Imm(Off, (S - OS->getRVA()) & 0xfff, 0);
+static void applySecRelLow12A(const SectionChunk *sec, uint8_t *off,
+                              OutputSection *os, uint64_t s) {
+  if (checkSecRel(sec, os))
+    applyArm64Imm(off, (s - os->getRVA()) & 0xfff, 0);
 }
 
-static void applySecRelHigh12A(const SectionChunk *Sec, uint8_t *Off,
-                               OutputSection *OS, uint64_t S) {
-  if (!checkSecRel(Sec, OS))
+static void applySecRelHigh12A(const SectionChunk *sec, uint8_t *off,
+                               OutputSection *os, uint64_t s) {
+  if (!checkSecRel(sec, os))
     return;
-  uint64_t SecRel = (S - OS->getRVA()) >> 12;
-  if (0xfff < SecRel) {
+  uint64_t secRel = (s - os->getRVA()) >> 12;
+  if (0xfff < secRel) {
     error("overflow in SECREL_HIGH12A relocation in section: " +
-          Sec->getSectionName());
+          sec->getSectionName());
     return;
   }
-  applyArm64Imm(Off, SecRel & 0xfff, 0);
+  applyArm64Imm(off, secRel & 0xfff, 0);
 }
 
-static void applySecRelLdr(const SectionChunk *Sec, uint8_t *Off,
-                           OutputSection *OS, uint64_t S) {
-  if (checkSecRel(Sec, OS))
-    applyArm64Ldr(Off, (S - OS->getRVA()) & 0xfff);
+static void applySecRelLdr(const SectionChunk *sec, uint8_t *off,
+                           OutputSection *os, uint64_t s) {
+  if (checkSecRel(sec, os))
+    applyArm64Ldr(off, (s - os->getRVA()) & 0xfff);
 }
 
-void applyArm64Branch26(uint8_t *Off, int64_t V) {
-  if (!isInt<28>(V))
+void applyArm64Branch26(uint8_t *off, int64_t v) {
+  if (!isInt<28>(v))
     error("relocation out of range");
-  or32(Off, (V & 0x0FFFFFFC) >> 2);
+  or32(off, (v & 0x0FFFFFFC) >> 2);
 }
 
-static void applyArm64Branch19(uint8_t *Off, int64_t V) {
-  if (!isInt<21>(V))
+static void applyArm64Branch19(uint8_t *off, int64_t v) {
+  if (!isInt<21>(v))
     error("relocation out of range");
-  or32(Off, (V & 0x001FFFFC) << 3);
+  or32(off, (v & 0x001FFFFC) << 3);
 }
 
-static void applyArm64Branch14(uint8_t *Off, int64_t V) {
-  if (!isInt<16>(V))
+static void applyArm64Branch14(uint8_t *off, int64_t v) {
+  if (!isInt<16>(v))
     error("relocation out of range");
-  or32(Off, (V & 0x0000FFFC) << 3);
+  or32(off, (v & 0x0000FFFC) << 3);
 }
 
-void SectionChunk::applyRelARM64(uint8_t *Off, uint16_t Type, OutputSection *OS,
-                                 uint64_t S, uint64_t P) const {
-  switch (Type) {
-  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(Off, S, P, 12); break;
-  case IMAGE_REL_ARM64_REL21:          applyArm64Addr(Off, S, P, 0); break;
-  case IMAGE_REL_ARM64_PAGEOFFSET_12A: applyArm64Imm(Off, S & 0xfff, 0); break;
-  case IMAGE_REL_ARM64_PAGEOFFSET_12L: applyArm64Ldr(Off, S & 0xfff); break;
-  case IMAGE_REL_ARM64_BRANCH26:       applyArm64Branch26(Off, S - P); break;
-  case IMAGE_REL_ARM64_BRANCH19:       applyArm64Branch19(Off, S - P); break;
-  case IMAGE_REL_ARM64_BRANCH14:       applyArm64Branch14(Off, S - P); break;
-  case IMAGE_REL_ARM64_ADDR32:         add32(Off, S + Config->ImageBase); break;
-  case IMAGE_REL_ARM64_ADDR32NB:       add32(Off, S); break;
-  case IMAGE_REL_ARM64_ADDR64:         add64(Off, S + Config->ImageBase); break;
-  case IMAGE_REL_ARM64_SECREL:         applySecRel(this, Off, OS, S); break;
-  case IMAGE_REL_ARM64_SECREL_LOW12A:  applySecRelLow12A(this, Off, OS, S); break;
-  case IMAGE_REL_ARM64_SECREL_HIGH12A: applySecRelHigh12A(this, Off, OS, S); break;
-  case IMAGE_REL_ARM64_SECREL_LOW12L:  applySecRelLdr(this, Off, OS, S); break;
-  case IMAGE_REL_ARM64_SECTION:        applySecIdx(Off, OS); break;
+void SectionChunk::applyRelARM64(uint8_t *off, uint16_t type, OutputSection *os,
+                                 uint64_t s, uint64_t p) const {
+  switch (type) {
+  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(off, s, p, 12); break;
+  case IMAGE_REL_ARM64_REL21:          applyArm64Addr(off, s, p, 0); break;
+  case IMAGE_REL_ARM64_PAGEOFFSET_12A: applyArm64Imm(off, s & 0xfff, 0); break;
+  case IMAGE_REL_ARM64_PAGEOFFSET_12L: applyArm64Ldr(off, s & 0xfff); break;
+  case IMAGE_REL_ARM64_BRANCH26:       applyArm64Branch26(off, s - p); break;
+  case IMAGE_REL_ARM64_BRANCH19:       applyArm64Branch19(off, s - p); break;
+  case IMAGE_REL_ARM64_BRANCH14:       applyArm64Branch14(off, s - p); break;
+  case IMAGE_REL_ARM64_ADDR32:         add32(off, s + config->imageBase); break;
+  case IMAGE_REL_ARM64_ADDR32NB:       add32(off, s); break;
+  case IMAGE_REL_ARM64_ADDR64:         add64(off, s + config->imageBase); break;
+  case IMAGE_REL_ARM64_SECREL:         applySecRel(this, off, os, s); break;
+  case IMAGE_REL_ARM64_SECREL_LOW12A:  applySecRelLow12A(this, off, os, s); break;
+  case IMAGE_REL_ARM64_SECREL_HIGH12A: applySecRelHigh12A(this, off, os, s); break;
+  case IMAGE_REL_ARM64_SECREL_LOW12L:  applySecRelLdr(this, off, os, s); break;
+  case IMAGE_REL_ARM64_SECTION:        applySecIdx(off, os); break;
+  case IMAGE_REL_ARM64_REL32:          add32(off, s - p - 4); break;
   default:
-    error("unsupported relocation type 0x" + Twine::utohexstr(Type) + " in " +
-          toString(File));
+    error("unsupported relocation type 0x" + Twine::utohexstr(type) + " in " +
+          toString(file));
   }
 }
 
-static void maybeReportRelocationToDiscarded(const SectionChunk *FromChunk,
-                                             Defined *Sym,
-                                             const coff_relocation &Rel) {
+static void maybeReportRelocationToDiscarded(const SectionChunk *fromChunk,
+                                             Defined *sym,
+                                             const coff_relocation &rel) {
   // Don't report these errors when the relocation comes from a debug info
   // section or in mingw mode. MinGW mode object files (built by GCC) can
   // have leftover sections with relocations against discarded comdat
   // sections. Such sections are left as is, with relocations untouched.
-  if (FromChunk->isCodeView() || FromChunk->isDWARF() || Config->MinGW)
+  if (fromChunk->isCodeView() || fromChunk->isDWARF() || config->mingw)
     return;
 
   // Get the name of the symbol. If it's null, it was discarded early, so we
   // have to go back to the object file.
-  ObjFile *File = FromChunk->File;
-  StringRef Name;
-  if (Sym) {
-    Name = Sym->getName();
+  ObjFile *file = fromChunk->file;
+  StringRef name;
+  if (sym) {
+    name = sym->getName();
   } else {
-    COFFSymbolRef COFFSym =
-        check(File->getCOFFObj()->getSymbol(Rel.SymbolTableIndex));
-    File->getCOFFObj()->getSymbolName(COFFSym, Name);
+    COFFSymbolRef coffSym =
+        check(file->getCOFFObj()->getSymbol(rel.SymbolTableIndex));
+    file->getCOFFObj()->getSymbolName(coffSym, name);
   }
 
-  error("relocation against symbol in discarded section: " + Name +
-        getSymbolLocations(File, Rel.SymbolTableIndex));
+  std::vector<std::string> symbolLocations =
+      getSymbolLocations(file, rel.SymbolTableIndex);
+
+  std::string out;
+  llvm::raw_string_ostream os(out);
+  os << "relocation against symbol in discarded section: " + name;
+  for (const std::string &s : symbolLocations)
+    os << s;
+  error(os.str());
 }
 
-void SectionChunk::writeTo(uint8_t *Buf) const {
-  if (!hasData())
+void SectionChunk::writeTo(uint8_t *buf) const {
+  if (!hasData)
     return;
   // Copy section contents from source object file to output file.
-  ArrayRef<uint8_t> A = getContents();
-  if (!A.empty())
-    memcpy(Buf + OutputSectionOff, A.data(), A.size());
+  ArrayRef<uint8_t> a = getContents();
+  if (!a.empty())
+    memcpy(buf, a.data(), a.size());
 
   // Apply relocations.
-  size_t InputSize = getSize();
-  for (size_t I = 0, E = Relocs.size(); I < E; I++) {
-    const coff_relocation &Rel = Relocs[I];
+  size_t inputSize = getSize();
+  for (size_t i = 0, e = relocsSize; i < e; i++) {
+    const coff_relocation &rel = relocsData[i];
 
     // Check for an invalid relocation offset. This check isn't perfect, because
     // we don't have the relocation size, which is only known after checking the
     // machine and relocation type. As a result, a relocation may overwrite the
     // beginning of the following input section.
-    if (Rel.VirtualAddress >= InputSize) {
+    if (rel.VirtualAddress >= inputSize) {
       error("relocation points beyond the end of its parent section");
       continue;
     }
 
-    uint8_t *Off = Buf + OutputSectionOff + Rel.VirtualAddress;
+    uint8_t *off = buf + rel.VirtualAddress;
 
-    // Use the potentially remapped Symbol instead of the one that the
-    // relocation points to.
-    auto *Sym = dyn_cast_or_null<Defined>(RelocTargets[I]);
+    auto *sym =
+        dyn_cast_or_null<Defined>(file->getSymbol(rel.SymbolTableIndex));
 
     // Get the output section of the symbol for this relocation.  The output
     // section is needed to compute SECREL and SECTION relocations used in debug
     // info.
-    Chunk *C = Sym ? Sym->getChunk() : nullptr;
-    OutputSection *OS = C ? C->getOutputSection() : nullptr;
+    Chunk *c = sym ? sym->getChunk() : nullptr;
+    OutputSection *os = c ? c->getOutputSection() : nullptr;
 
     // Skip the relocation if it refers to a discarded section, and diagnose it
     // as an error if appropriate. If a symbol was discarded early, it may be
     // null. If it was discarded late, the output section will be null, unless
     // it was an absolute or synthetic symbol.
-    if (!Sym ||
-        (!OS && !isa<DefinedAbsolute>(Sym) && !isa<DefinedSynthetic>(Sym))) {
-      maybeReportRelocationToDiscarded(this, Sym, Rel);
+    if (!sym ||
+        (!os && !isa<DefinedAbsolute>(sym) && !isa<DefinedSynthetic>(sym))) {
+      maybeReportRelocationToDiscarded(this, sym, rel);
       continue;
     }
 
-    uint64_t S = Sym->getRVA();
+    uint64_t s = sym->getRVA();
 
     // Compute the RVA of the relocation for relative relocations.
-    uint64_t P = RVA + Rel.VirtualAddress;
-    switch (Config->Machine) {
+    uint64_t p = rva + rel.VirtualAddress;
+    switch (config->machine) {
     case AMD64:
-      applyRelX64(Off, Rel.Type, OS, S, P);
+      applyRelX64(off, rel.Type, os, s, p);
       break;
     case I386:
-      applyRelX86(Off, Rel.Type, OS, S, P);
+      applyRelX86(off, rel.Type, os, s, p);
       break;
     case ARMNT:
-      applyRelARM(Off, Rel.Type, OS, S, P);
+      applyRelARM(off, rel.Type, os, s, p);
       break;
     case ARM64:
-      applyRelARM64(Off, Rel.Type, OS, S, P);
+      applyRelARM64(off, rel.Type, os, s, p);
       break;
     default:
       llvm_unreachable("unknown machine type");
@@ -409,28 +413,32 @@ void SectionChunk::writeTo(uint8_t *Buf) const {
   }
 }
 
-void SectionChunk::addAssociative(SectionChunk *Child) {
-  AssocChildren.push_back(Child);
+void SectionChunk::addAssociative(SectionChunk *child) {
+  // Insert this child at the head of the list.
+  assert(child->assocChildren == nullptr &&
+         "associated sections cannot have their own associated children");
+  child->assocChildren = assocChildren;
+  assocChildren = child;
 }
 
-static uint8_t getBaserelType(const coff_relocation &Rel) {
-  switch (Config->Machine) {
+static uint8_t getBaserelType(const coff_relocation &rel) {
+  switch (config->machine) {
   case AMD64:
-    if (Rel.Type == IMAGE_REL_AMD64_ADDR64)
+    if (rel.Type == IMAGE_REL_AMD64_ADDR64)
       return IMAGE_REL_BASED_DIR64;
     return IMAGE_REL_BASED_ABSOLUTE;
   case I386:
-    if (Rel.Type == IMAGE_REL_I386_DIR32)
+    if (rel.Type == IMAGE_REL_I386_DIR32)
       return IMAGE_REL_BASED_HIGHLOW;
     return IMAGE_REL_BASED_ABSOLUTE;
   case ARMNT:
-    if (Rel.Type == IMAGE_REL_ARM_ADDR32)
+    if (rel.Type == IMAGE_REL_ARM_ADDR32)
       return IMAGE_REL_BASED_HIGHLOW;
-    if (Rel.Type == IMAGE_REL_ARM_MOV32T)
+    if (rel.Type == IMAGE_REL_ARM_MOV32T)
       return IMAGE_REL_BASED_ARM_MOV32T;
     return IMAGE_REL_BASED_ABSOLUTE;
   case ARM64:
-    if (Rel.Type == IMAGE_REL_ARM64_ADDR64)
+    if (rel.Type == IMAGE_REL_ARM64_ADDR64)
       return IMAGE_REL_BASED_DIR64;
     return IMAGE_REL_BASED_ABSOLUTE;
   default:
@@ -442,18 +450,16 @@ static uint8_t getBaserelType(const coff_relocation &Rel) {
 // Collect all locations that contain absolute addresses, which need to be
 // fixed by the loader if load-time relocation is needed.
 // Only called when base relocation is enabled.
-void SectionChunk::getBaserels(std::vector<Baserel> *Res) {
-  for (size_t I = 0, E = Relocs.size(); I < E; I++) {
-    const coff_relocation &Rel = Relocs[I];
-    uint8_t Ty = getBaserelType(Rel);
-    if (Ty == IMAGE_REL_BASED_ABSOLUTE)
+void SectionChunk::getBaserels(std::vector<Baserel> *res) {
+  for (size_t i = 0, e = relocsSize; i < e; i++) {
+    const coff_relocation &rel = relocsData[i];
+    uint8_t ty = getBaserelType(rel);
+    if (ty == IMAGE_REL_BASED_ABSOLUTE)
       continue;
-    // Use the potentially remapped Symbol instead of the one that the
-    // relocation points to.
-    Symbol *Target = RelocTargets[I];
-    if (!Target || isa<DefinedAbsolute>(Target))
+    Symbol *target = file->getSymbol(rel.SymbolTableIndex);
+    if (!target || isa<DefinedAbsolute>(target))
       continue;
-    Res->emplace_back(RVA + Rel.VirtualAddress, Ty);
+    res->emplace_back(rva + rel.VirtualAddress, ty);
   }
 }
 
@@ -464,7 +470,7 @@ void SectionChunk::getBaserels(std::vector<Baserel> *Res) {
 // another DLL) This returns the size the relocation is supposed to update,
 // in bits, or 0 if the relocation cannot be handled as a runtime pseudo
 // relocation.
-static int getRuntimePseudoRelocSize(uint16_t Type) {
+static int getRuntimePseudoRelocSize(uint16_t type) {
   // Relocations that either contain an absolute address, or a plain
   // relative offset, since the runtime pseudo reloc implementation
   // adds 8/16/32/64 bit values to a memory address.
@@ -490,9 +496,9 @@ static int getRuntimePseudoRelocSize(uint16_t Type) {
   // the image, or temporarily changed at runtime with VirtualProtect.
   // Since this only operates on direct address values, it doesn't work for
   // ARM/ARM64 relocations, other than the plain ADDR32/ADDR64 relocations.
-  switch (Config->Machine) {
+  switch (config->machine) {
   case AMD64:
-    switch (Type) {
+    switch (type) {
     case IMAGE_REL_AMD64_ADDR64:
       return 64;
     case IMAGE_REL_AMD64_ADDR32:
@@ -507,7 +513,7 @@ static int getRuntimePseudoRelocSize(uint16_t Type) {
       return 0;
     }
   case I386:
-    switch (Type) {
+    switch (type) {
     case IMAGE_REL_I386_DIR32:
     case IMAGE_REL_I386_REL32:
       return 32;
@@ -515,14 +521,14 @@ static int getRuntimePseudoRelocSize(uint16_t Type) {
       return 0;
     }
   case ARMNT:
-    switch (Type) {
+    switch (type) {
     case IMAGE_REL_ARM_ADDR32:
       return 32;
     default:
       return 0;
     }
   case ARM64:
-    switch (Type) {
+    switch (type) {
     case IMAGE_REL_ARM64_ADDR64:
       return 64;
     case IMAGE_REL_ARM64_ADDR32:
@@ -541,75 +547,106 @@ static int getRuntimePseudoRelocSize(uint16_t Type) {
 // to a module local variable, which turned out to actually need to be
 // imported from another DLL).
 void SectionChunk::getRuntimePseudoRelocs(
-    std::vector<RuntimePseudoReloc> &Res) {
-  for (const coff_relocation &Rel : Relocs) {
-    auto *Target =
-        dyn_cast_or_null<Defined>(File->getSymbol(Rel.SymbolTableIndex));
-    if (!Target || !Target->IsRuntimePseudoReloc)
+    std::vector<RuntimePseudoReloc> &res) {
+  for (const coff_relocation &rel : getRelocs()) {
+    auto *target =
+        dyn_cast_or_null<Defined>(file->getSymbol(rel.SymbolTableIndex));
+    if (!target || !target->isRuntimePseudoReloc)
       continue;
-    int SizeInBits = getRuntimePseudoRelocSize(Rel.Type);
-    if (SizeInBits == 0) {
-      error("unable to automatically import from " + Target->getName() +
+    int sizeInBits = getRuntimePseudoRelocSize(rel.Type);
+    if (sizeInBits == 0) {
+      error("unable to automatically import from " + target->getName() +
             " with relocation type " +
-            File->getCOFFObj()->getRelocationTypeName(Rel.Type) + " in " +
-            toString(File));
+            file->getCOFFObj()->getRelocationTypeName(rel.Type) + " in " +
+            toString(file));
       continue;
     }
-    // SizeInBits is used to initialize the Flags field; currently no
+    // sizeInBits is used to initialize the Flags field; currently no
     // other flags are defined.
-    Res.emplace_back(
-        RuntimePseudoReloc(Target, this, Rel.VirtualAddress, SizeInBits));
+    res.emplace_back(
+        RuntimePseudoReloc(target, this, rel.VirtualAddress, sizeInBits));
   }
 }
 
-bool SectionChunk::hasData() const {
-  return !(Header->Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA);
-}
-
-uint32_t SectionChunk::getOutputCharacteristics() const {
-  return Header->Characteristics & (PermMask | TypeMask);
-}
-
 bool SectionChunk::isCOMDAT() const {
-  return Header->Characteristics & IMAGE_SCN_LNK_COMDAT;
+  return header->Characteristics & IMAGE_SCN_LNK_COMDAT;
 }
 
 void SectionChunk::printDiscardedMessage() const {
   // Removed by dead-stripping. If it's removed by ICF, ICF already
   // printed out the name, so don't repeat that here.
-  if (Sym && this == Repl)
-    message("Discarded " + Sym->getName());
+  if (sym && this == repl)
+    message("Discarded " + sym->getName());
 }
 
-StringRef SectionChunk::getDebugName() {
-  if (Sym)
-    return Sym->getName();
+StringRef SectionChunk::getDebugName() const {
+  if (sym)
+    return sym->getName();
   return "";
 }
 
 ArrayRef<uint8_t> SectionChunk::getContents() const {
-  ArrayRef<uint8_t> A;
-  File->getCOFFObj()->getSectionContents(Header, A);
-  return A;
+  ArrayRef<uint8_t> a;
+  cantFail(file->getCOFFObj()->getSectionContents(header, a));
+  return a;
 }
 
-void SectionChunk::replace(SectionChunk *Other) {
-  Alignment = std::max(Alignment, Other->Alignment);
-  Other->Repl = Repl;
-  Other->Live = false;
+ArrayRef<uint8_t> SectionChunk::consumeDebugMagic() {
+  assert(isCodeView());
+  return consumeDebugMagic(getContents(), getSectionName());
+}
+
+ArrayRef<uint8_t> SectionChunk::consumeDebugMagic(ArrayRef<uint8_t> data,
+                                                  StringRef sectionName) {
+  if (data.empty())
+    return {};
+
+  // First 4 bytes are section magic.
+  if (data.size() < 4)
+    fatal("the section is too short: " + sectionName);
+
+  if (!sectionName.startswith(".debug$"))
+    fatal("invalid section: " + sectionName);
+
+  uint32_t magic = support::endian::read32le(data.data());
+  uint32_t expectedMagic = sectionName == ".debug$H"
+                               ? DEBUG_HASHES_SECTION_MAGIC
+                               : DEBUG_SECTION_MAGIC;
+  if (magic != expectedMagic) {
+    warn("ignoring section " + sectionName + " with unrecognized magic 0x" +
+         utohexstr(magic));
+    return {};
+  }
+  return data.slice(4);
+}
+
+SectionChunk *SectionChunk::findByName(ArrayRef<SectionChunk *> sections,
+                                       StringRef name) {
+  for (SectionChunk *c : sections)
+    if (c->getSectionName() == name)
+      return c;
+  return nullptr;
+}
+
+void SectionChunk::replace(SectionChunk *other) {
+  p2Align = std::max(p2Align, other->p2Align);
+  other->repl = repl;
+  other->live = false;
 }
 
 uint32_t SectionChunk::getSectionNumber() const {
-  DataRefImpl R;
-  R.p = reinterpret_cast<uintptr_t>(Header);
-  SectionRef S(R, File->getCOFFObj());
-  return S.getIndex() + 1;
+  DataRefImpl r;
+  r.p = reinterpret_cast<uintptr_t>(header);
+  SectionRef s(r, file->getCOFFObj());
+  return s.getIndex() + 1;
 }
 
-CommonChunk::CommonChunk(const COFFSymbolRef S) : Sym(S) {
-  // Common symbols are aligned on natural boundaries up to 32 bytes.
+CommonChunk::CommonChunk(const COFFSymbolRef s) : sym(s) {
+  // The value of a common symbol is its size. Align all common symbols smaller
+  // than 32 bytes naturally, i.e. round the size up to the next power of two.
   // This is what MSVC link.exe does.
-  Alignment = std::min(uint64_t(32), PowerOf2Ceil(Sym.getValue()));
+  setAlignment(std::min(32U, uint32_t(PowerOf2Ceil(sym.getValue()))));
+  hasData = false;
 }
 
 uint32_t CommonChunk::getOutputCharacteristics() const {
@@ -617,139 +654,139 @@ uint32_t CommonChunk::getOutputCharacteristics() const {
          IMAGE_SCN_MEM_WRITE;
 }
 
-void StringChunk::writeTo(uint8_t *Buf) const {
-  memcpy(Buf + OutputSectionOff, Str.data(), Str.size());
-  Buf[OutputSectionOff + Str.size()] = '\0';
+void StringChunk::writeTo(uint8_t *buf) const {
+  memcpy(buf, str.data(), str.size());
+  buf[str.size()] = '\0';
 }
 
-ImportThunkChunkX64::ImportThunkChunkX64(Defined *S) : ImpSymbol(S) {
+ImportThunkChunkX64::ImportThunkChunkX64(Defined *s) : ImportThunkChunk(s) {
   // Intel Optimization Manual says that all branch targets
   // should be 16-byte aligned. MSVC linker does this too.
-  Alignment = 16;
+  setAlignment(16);
 }
 
-void ImportThunkChunkX64::writeTo(uint8_t *Buf) const {
-  memcpy(Buf + OutputSectionOff, ImportThunkX86, sizeof(ImportThunkX86));
+void ImportThunkChunkX64::writeTo(uint8_t *buf) const {
+  memcpy(buf, importThunkX86, sizeof(importThunkX86));
   // The first two bytes is a JMP instruction. Fill its operand.
-  write32le(Buf + OutputSectionOff + 2, ImpSymbol->getRVA() - RVA - getSize());
+  write32le(buf + 2, impSymbol->getRVA() - rva - getSize());
 }
 
-void ImportThunkChunkX86::getBaserels(std::vector<Baserel> *Res) {
-  Res->emplace_back(getRVA() + 2);
+void ImportThunkChunkX86::getBaserels(std::vector<Baserel> *res) {
+  res->emplace_back(getRVA() + 2);
 }
 
-void ImportThunkChunkX86::writeTo(uint8_t *Buf) const {
-  memcpy(Buf + OutputSectionOff, ImportThunkX86, sizeof(ImportThunkX86));
+void ImportThunkChunkX86::writeTo(uint8_t *buf) const {
+  memcpy(buf, importThunkX86, sizeof(importThunkX86));
   // The first two bytes is a JMP instruction. Fill its operand.
-  write32le(Buf + OutputSectionOff + 2,
-            ImpSymbol->getRVA() + Config->ImageBase);
+  write32le(buf + 2,
+            impSymbol->getRVA() + config->imageBase);
 }
 
-void ImportThunkChunkARM::getBaserels(std::vector<Baserel> *Res) {
-  Res->emplace_back(getRVA(), IMAGE_REL_BASED_ARM_MOV32T);
+void ImportThunkChunkARM::getBaserels(std::vector<Baserel> *res) {
+  res->emplace_back(getRVA(), IMAGE_REL_BASED_ARM_MOV32T);
 }
 
-void ImportThunkChunkARM::writeTo(uint8_t *Buf) const {
-  memcpy(Buf + OutputSectionOff, ImportThunkARM, sizeof(ImportThunkARM));
+void ImportThunkChunkARM::writeTo(uint8_t *buf) const {
+  memcpy(buf, importThunkARM, sizeof(importThunkARM));
   // Fix mov.w and mov.t operands.
-  applyMOV32T(Buf + OutputSectionOff, ImpSymbol->getRVA() + Config->ImageBase);
+  applyMOV32T(buf, impSymbol->getRVA() + config->imageBase);
 }
 
-void ImportThunkChunkARM64::writeTo(uint8_t *Buf) const {
-  int64_t Off = ImpSymbol->getRVA() & 0xfff;
-  memcpy(Buf + OutputSectionOff, ImportThunkARM64, sizeof(ImportThunkARM64));
-  applyArm64Addr(Buf + OutputSectionOff, ImpSymbol->getRVA(), RVA, 12);
-  applyArm64Ldr(Buf + OutputSectionOff + 4, Off);
+void ImportThunkChunkARM64::writeTo(uint8_t *buf) const {
+  int64_t off = impSymbol->getRVA() & 0xfff;
+  memcpy(buf, importThunkARM64, sizeof(importThunkARM64));
+  applyArm64Addr(buf, impSymbol->getRVA(), rva, 12);
+  applyArm64Ldr(buf + 4, off);
 }
 
 // A Thumb2, PIC, non-interworking range extension thunk.
-const uint8_t ArmThunk[] = {
+const uint8_t armThunk[] = {
     0x40, 0xf2, 0x00, 0x0c, // P:  movw ip,:lower16:S - (P + (L1-P) + 4)
     0xc0, 0xf2, 0x00, 0x0c, //     movt ip,:upper16:S - (P + (L1-P) + 4)
     0xe7, 0x44,             // L1: add  pc, ip
 };
 
 size_t RangeExtensionThunkARM::getSize() const {
-  assert(Config->Machine == ARMNT);
-  return sizeof(ArmThunk);
+  assert(config->machine == ARMNT);
+  return sizeof(armThunk);
 }
 
-void RangeExtensionThunkARM::writeTo(uint8_t *Buf) const {
-  assert(Config->Machine == ARMNT);
-  uint64_t Offset = Target->getRVA() - RVA - 12;
-  memcpy(Buf + OutputSectionOff, ArmThunk, sizeof(ArmThunk));
-  applyMOV32T(Buf + OutputSectionOff, uint32_t(Offset));
+void RangeExtensionThunkARM::writeTo(uint8_t *buf) const {
+  assert(config->machine == ARMNT);
+  uint64_t offset = target->getRVA() - rva - 12;
+  memcpy(buf, armThunk, sizeof(armThunk));
+  applyMOV32T(buf, uint32_t(offset));
 }
 
 // A position independent ARM64 adrp+add thunk, with a maximum range of
 // +/- 4 GB, which is enough for any PE-COFF.
-const uint8_t Arm64Thunk[] = {
+const uint8_t arm64Thunk[] = {
     0x10, 0x00, 0x00, 0x90, // adrp x16, Dest
     0x10, 0x02, 0x00, 0x91, // add  x16, x16, :lo12:Dest
     0x00, 0x02, 0x1f, 0xd6, // br   x16
 };
 
 size_t RangeExtensionThunkARM64::getSize() const {
-  assert(Config->Machine == ARM64);
-  return sizeof(Arm64Thunk);
+  assert(config->machine == ARM64);
+  return sizeof(arm64Thunk);
 }
 
-void RangeExtensionThunkARM64::writeTo(uint8_t *Buf) const {
-  assert(Config->Machine == ARM64);
-  memcpy(Buf + OutputSectionOff, Arm64Thunk, sizeof(Arm64Thunk));
-  applyArm64Addr(Buf + OutputSectionOff + 0, Target->getRVA(), RVA, 12);
-  applyArm64Imm(Buf + OutputSectionOff + 4, Target->getRVA() & 0xfff, 0);
+void RangeExtensionThunkARM64::writeTo(uint8_t *buf) const {
+  assert(config->machine == ARM64);
+  memcpy(buf, arm64Thunk, sizeof(arm64Thunk));
+  applyArm64Addr(buf + 0, target->getRVA(), rva, 12);
+  applyArm64Imm(buf + 4, target->getRVA() & 0xfff, 0);
 }
 
-void LocalImportChunk::getBaserels(std::vector<Baserel> *Res) {
-  Res->emplace_back(getRVA());
+void LocalImportChunk::getBaserels(std::vector<Baserel> *res) {
+  res->emplace_back(getRVA());
 }
 
-size_t LocalImportChunk::getSize() const { return Config->Wordsize; }
+size_t LocalImportChunk::getSize() const { return config->wordsize; }
 
-void LocalImportChunk::writeTo(uint8_t *Buf) const {
-  if (Config->is64()) {
-    write64le(Buf + OutputSectionOff, Sym->getRVA() + Config->ImageBase);
+void LocalImportChunk::writeTo(uint8_t *buf) const {
+  if (config->is64()) {
+    write64le(buf, sym->getRVA() + config->imageBase);
   } else {
-    write32le(Buf + OutputSectionOff, Sym->getRVA() + Config->ImageBase);
+    write32le(buf, sym->getRVA() + config->imageBase);
   }
 }
 
-void RVATableChunk::writeTo(uint8_t *Buf) const {
-  ulittle32_t *Begin = reinterpret_cast<ulittle32_t *>(Buf + OutputSectionOff);
-  size_t Cnt = 0;
-  for (const ChunkAndOffset &CO : Syms)
-    Begin[Cnt++] = CO.InputChunk->getRVA() + CO.Offset;
-  std::sort(Begin, Begin + Cnt);
-  assert(std::unique(Begin, Begin + Cnt) == Begin + Cnt &&
+void RVATableChunk::writeTo(uint8_t *buf) const {
+  ulittle32_t *begin = reinterpret_cast<ulittle32_t *>(buf);
+  size_t cnt = 0;
+  for (const ChunkAndOffset &co : syms)
+    begin[cnt++] = co.inputChunk->getRVA() + co.offset;
+  std::sort(begin, begin + cnt);
+  assert(std::unique(begin, begin + cnt) == begin + cnt &&
          "RVA tables should be de-duplicated");
 }
 
 // MinGW specific, for the "automatic import of variables from DLLs" feature.
 size_t PseudoRelocTableChunk::getSize() const {
-  if (Relocs.empty())
+  if (relocs.empty())
     return 0;
-  return 12 + 12 * Relocs.size();
+  return 12 + 12 * relocs.size();
 }
 
 // MinGW specific.
-void PseudoRelocTableChunk::writeTo(uint8_t *Buf) const {
-  if (Relocs.empty())
+void PseudoRelocTableChunk::writeTo(uint8_t *buf) const {
+  if (relocs.empty())
     return;
 
-  ulittle32_t *Table = reinterpret_cast<ulittle32_t *>(Buf + OutputSectionOff);
+  ulittle32_t *table = reinterpret_cast<ulittle32_t *>(buf);
   // This is the list header, to signal the runtime pseudo relocation v2
   // format.
-  Table[0] = 0;
-  Table[1] = 0;
-  Table[2] = 1;
+  table[0] = 0;
+  table[1] = 0;
+  table[2] = 1;
 
-  size_t Idx = 3;
-  for (const RuntimePseudoReloc &RPR : Relocs) {
-    Table[Idx + 0] = RPR.Sym->getRVA();
-    Table[Idx + 1] = RPR.Target->getRVA() + RPR.TargetOffset;
-    Table[Idx + 2] = RPR.Flags;
-    Idx += 3;
+  size_t idx = 3;
+  for (const RuntimePseudoReloc &rpr : relocs) {
+    table[idx + 0] = rpr.sym->getRVA();
+    table[idx + 1] = rpr.target->getRVA() + rpr.targetOffset;
+    table[idx + 2] = rpr.flags;
+    idx += 3;
   }
 }
 
@@ -792,26 +829,26 @@ void PseudoRelocTableChunk::writeTo(uint8_t *Buf) const {
 //
 // Usually we have a lot of relocations for each page, so the number of
 // bytes for one .reloc entry is close to 2 bytes on average.
-BaserelChunk::BaserelChunk(uint32_t Page, Baserel *Begin, Baserel *End) {
+BaserelChunk::BaserelChunk(uint32_t page, Baserel *begin, Baserel *end) {
   // Block header consists of 4 byte page RVA and 4 byte block size.
   // Each entry is 2 byte. Last entry may be padding.
-  Data.resize(alignTo((End - Begin) * 2 + 8, 4));
-  uint8_t *P = Data.data();
-  write32le(P, Page);
-  write32le(P + 4, Data.size());
-  P += 8;
-  for (Baserel *I = Begin; I != End; ++I) {
-    write16le(P, (I->Type << 12) | (I->RVA - Page));
-    P += 2;
+  data.resize(alignTo((end - begin) * 2 + 8, 4));
+  uint8_t *p = data.data();
+  write32le(p, page);
+  write32le(p + 4, data.size());
+  p += 8;
+  for (Baserel *i = begin; i != end; ++i) {
+    write16le(p, (i->type << 12) | (i->rva - page));
+    p += 2;
   }
 }
 
-void BaserelChunk::writeTo(uint8_t *Buf) const {
-  memcpy(Buf + OutputSectionOff, Data.data(), Data.size());
+void BaserelChunk::writeTo(uint8_t *buf) const {
+  memcpy(buf, data.data(), data.size());
 }
 
 uint8_t Baserel::getDefaultType() {
-  switch (Config->Machine) {
+  switch (config->machine) {
   case AMD64:
   case ARM64:
     return IMAGE_REL_BASED_DIR64;
@@ -823,36 +860,38 @@ uint8_t Baserel::getDefaultType() {
   }
 }
 
-std::map<uint32_t, MergeChunk *> MergeChunk::Instances;
+MergeChunk *MergeChunk::instances[Log2MaxSectionAlignment + 1] = {};
 
-MergeChunk::MergeChunk(uint32_t Alignment)
-    : Builder(StringTableBuilder::RAW, Alignment) {
-  this->Alignment = Alignment;
+MergeChunk::MergeChunk(uint32_t alignment)
+    : builder(StringTableBuilder::RAW, alignment) {
+  setAlignment(alignment);
 }
 
-void MergeChunk::addSection(SectionChunk *C) {
-  auto *&MC = Instances[C->Alignment];
-  if (!MC)
-    MC = make<MergeChunk>(C->Alignment);
-  MC->Sections.push_back(C);
+void MergeChunk::addSection(SectionChunk *c) {
+  assert(isPowerOf2_32(c->getAlignment()));
+  uint8_t p2Align = llvm::Log2_32(c->getAlignment());
+  assert(p2Align < array_lengthof(instances));
+  auto *&mc = instances[p2Align];
+  if (!mc)
+    mc = make<MergeChunk>(c->getAlignment());
+  mc->sections.push_back(c);
 }
 
 void MergeChunk::finalizeContents() {
-  if (!Finalized) {
-    for (SectionChunk *C : Sections)
-      if (C->Live)
-        Builder.add(toStringRef(C->getContents()));
-    Builder.finalize();
-    Finalized = true;
-  }
+  assert(!finalized && "should only finalize once");
+  for (SectionChunk *c : sections)
+    if (c->live)
+      builder.add(toStringRef(c->getContents()));
+  builder.finalize();
+  finalized = true;
+}
 
-  for (SectionChunk *C : Sections) {
-    if (!C->Live)
+void MergeChunk::assignSubsectionRVAs() {
+  for (SectionChunk *c : sections) {
+    if (!c->live)
       continue;
-    size_t Off = Builder.getOffset(toStringRef(C->getContents()));
-    C->setOutputSection(Out);
-    C->setRVA(RVA + Off);
-    C->OutputSectionOff = OutputSectionOff + Off;
+    size_t off = builder.getOffset(toStringRef(c->getContents()));
+    c->setRVA(rva + off);
   }
 }
 
@@ -861,21 +900,21 @@ uint32_t MergeChunk::getOutputCharacteristics() const {
 }
 
 size_t MergeChunk::getSize() const {
-  return Builder.getSize();
+  return builder.getSize();
 }
 
-void MergeChunk::writeTo(uint8_t *Buf) const {
-  Builder.write(Buf + OutputSectionOff);
+void MergeChunk::writeTo(uint8_t *buf) const {
+  builder.write(buf);
 }
 
 // MinGW specific.
-size_t AbsolutePointerChunk::getSize() const { return Config->Wordsize; }
+size_t AbsolutePointerChunk::getSize() const { return config->wordsize; }
 
-void AbsolutePointerChunk::writeTo(uint8_t *Buf) const {
-  if (Config->is64()) {
-    write64le(Buf + OutputSectionOff, Value);
+void AbsolutePointerChunk::writeTo(uint8_t *buf) const {
+  if (config->is64()) {
+    write64le(buf, value);
   } else {
-    write32le(Buf + OutputSectionOff, Value);
+    write32le(buf, value);
   }
 }
 

@@ -8,7 +8,7 @@
 # RUN: llvm-objdump -section-headers %t1 | FileCheck %s
 
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT: Idx Name          Size      VMA          Type
 # CHECK: .aaa          00000010 0000000000002000 DATA
 
 
@@ -20,7 +20,7 @@
 # RUN: llvm-objdump -section-headers %t2 | FileCheck %s --check-prefix=REV
 
 # REV:      Sections:
-# REV-NEXT: Idx Name          Size      Address          Type
+# REV-NEXT: Idx Name          Size       VMA          Type
 # REV:  .aaa          00000010 0000000000001000 DATA
 
 .global _start

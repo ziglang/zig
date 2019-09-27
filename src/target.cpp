@@ -33,6 +33,7 @@ static const ZigLLVM_SubArchType subarch_list_arm32[] = {
     ZigLLVM_ARMSubArch_v8r,
     ZigLLVM_ARMSubArch_v8m_baseline,
     ZigLLVM_ARMSubArch_v8m_mainline,
+    ZigLLVM_ARMSubArch_v8_1m_mainline,
     ZigLLVM_ARMSubArch_v7,
     ZigLLVM_ARMSubArch_v7em,
     ZigLLVM_ARMSubArch_v7m,
@@ -76,6 +77,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_armeb,          // ARM (big endian): armeb
     ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
     ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+    ZigLLVM_aarch64_32,     // AArch64 (little endian) ILP32: aarch64_32
     ZigLLVM_arc,            // ARC: Synopsys ARC
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
@@ -176,6 +178,7 @@ static const Os os_list[] = {
     OsHermitCore,
     OsHurd,
     OsWASI,
+    OsEmscripten,
     OsZen,
     OsUefi,
 };
@@ -193,15 +196,19 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
+    ZigLLVM_ELFv1,
+    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
     ZigLLVM_MuslEABIHF,
+
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator,
+    ZigLLVM_MacABI,
 };
 
 static const ZigLLVM_ObjectFormatType oformat_list[] = {
@@ -228,6 +235,7 @@ const char *target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
         case ZigLLVM_ELF: return "elf";
         case ZigLLVM_MachO: return "macho";
         case ZigLLVM_Wasm: return "wasm";
+        case ZigLLVM_XCOFF: return "xcoff";
     }
     zig_unreachable();
 }
@@ -330,6 +338,8 @@ ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Hurd;
         case OsWASI:
             return ZigLLVM_WASI;
+        case OsEmscripten:
+            return ZigLLVM_Emscripten;
     }
     zig_unreachable();
 }
@@ -405,6 +415,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsHurd;
         case ZigLLVM_WASI:
             return OsWASI;
+        case ZigLLVM_Emscripten:
+            return OsEmscripten;
     }
     zig_unreachable();
 }
@@ -450,6 +462,7 @@ const char *target_os_name(Os os_type) {
         case OsHermitCore:
         case OsHurd:
         case OsWASI:
+        case OsEmscripten:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -562,6 +575,7 @@ SubArchList target_subarch_list(ZigLLVM_ArchType arch) {
 
         case ZigLLVM_aarch64:
         case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
             return SubArchListArm64;
 
         case ZigLLVM_kalimba:
@@ -672,6 +686,8 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
             return "v8m_baseline";
         case ZigLLVM_ARMSubArch_v8m_mainline:
             return "v8m_mainline";
+        case ZigLLVM_ARMSubArch_v8_1m_mainline:
+            return "v8_1m_mainline";
         case ZigLLVM_ARMSubArch_v7:
             return "v7";
         case ZigLLVM_ARMSubArch_v7em:
@@ -892,6 +908,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_shave:
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
+        case ZigLLVM_aarch64_32:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -959,6 +976,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
 
         case ZigLLVM_aarch64:
         case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
         case ZigLLVM_amdgcn:
         case ZigLLVM_bpfel:
         case ZigLLVM_bpfeb:
@@ -1030,6 +1048,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsNetBSD:
         case OsOpenBSD:
         case OsWASI:
+        case OsEmscripten:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -1110,7 +1129,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
 }
 
 bool target_allows_addr_zero(const ZigTarget *target) {
-    return target->os == OsFreestanding;
+    return target->os == OsFreestanding || target->os == OsUefi;
 }
 
 const char *target_o_file_ext(const ZigTarget *target) {
@@ -1205,7 +1224,40 @@ static bool is_64_bit(ZigLLVM_ArchType arch) {
     return target_arch_pointer_bit_width(arch) == 64;
 }
 
+bool target_is_android(const ZigTarget *target) {
+    return target->abi == ZigLLVM_Android;
+}
+
 const char *target_dynamic_linker(const ZigTarget *target) {
+    if (target_is_android(target)) {
+        return is_64_bit(target->arch) ? "/system/bin/linker64" : "/system/bin/linker";
+    }
+
+    if (target_is_musl(target)) {
+        Buf buf = BUF_INIT;
+        buf_init_from_str(&buf, "/lib/ld-musl-");
+        bool is_arm = false;
+        switch (target->arch) {
+            case ZigLLVM_arm:
+            case ZigLLVM_thumb:
+                buf_append_str(&buf, "arm");
+                is_arm = true;
+                break;
+            case ZigLLVM_armeb:
+            case ZigLLVM_thumbeb:
+                buf_append_str(&buf, "armeb");
+                is_arm = true;
+                break;
+            default:
+                buf_append_str(&buf, target_arch_name(target->arch));
+        }
+        if (is_arm && get_float_abi(target) == FloatAbiHard) {
+            buf_append_str(&buf, "hf");
+        }
+        buf_append_str(&buf, ".so.1");
+        return buf_ptr(&buf);
+    }
+
     switch (target->os) {
         case OsFreeBSD:
             return "/libexec/ld-elf.so.1";
@@ -1213,14 +1265,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
             return "/libexec/ld.elf_so";
         case OsLinux: {
             const ZigLLVM_EnvironmentType abi = target->abi;
-            if (abi == ZigLLVM_Android) {
-                if (is_64_bit(target->arch)) {
-                    return "/system/bin/linker64";
-                } else {
-                    return "/system/bin/linker";
-                }
-            }
-
             switch (target->arch) {
                 case ZigLLVM_UnknownArch:
                     zig_unreachable();
@@ -1234,6 +1278,9 @@ const char *target_dynamic_linker(const ZigTarget *target) {
 
                 case ZigLLVM_aarch64_be:
                     return "/lib/ld-linux-aarch64_be.so.1";
+
+                case ZigLLVM_aarch64_32:
+                    return "/lib/ld-linux-aarch64_32.so.1";
 
                 case ZigLLVM_arm:
                 case ZigLLVM_thumb:
@@ -1327,6 +1374,7 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsMacOSX:
         case OsUefi:
         case OsWindows:
+        case OsEmscripten:
             return nullptr;
 
         case OsAnanas:
@@ -1399,6 +1447,10 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_thumbeb:
         case ZigLLVM_aarch64:
         case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_mipsel:
             return "sp";
 
         case ZigLLVM_amdgcn:
@@ -1418,7 +1470,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mips:
         case ZigLLVM_mips64:
         case ZigLLVM_mips64el:
-        case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
@@ -1426,8 +1477,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
-        case ZigLLVM_riscv32:
-        case ZigLLVM_riscv64:
         case ZigLLVM_shave:
         case ZigLLVM_sparc:
         case ZigLLVM_sparcel:
@@ -1452,10 +1501,11 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_UnknownArch:
             zig_unreachable();
         case ZigLLVM_aarch64:
-        case ZigLLVM_arm:
-        case ZigLLVM_thumb:
         case ZigLLVM_aarch64_be:
+        case ZigLLVM_aarch64_32:
+        case ZigLLVM_arm:
         case ZigLLVM_armeb:
+        case ZigLLVM_thumb:
         case ZigLLVM_thumbeb:
             return true;
 
@@ -1535,12 +1585,12 @@ bool target_supports_fpic(const ZigTarget *target) {
 }
 
 bool target_supports_stack_probing(const ZigTarget *target) {
-    return target->os != OsWindows && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
+    return target->os != OsWindows && target->os != OsUefi && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
 }
 
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
   // This function returns whether non-pic code is completely invalid on the given target.
-  return target->os == OsWindows || target_os_requires_libc(target->os) ||
+  return target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||
       (linking_libc && target_is_glibc(target));
 }
 
@@ -1604,6 +1654,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
             return ZigLLVM_MSVC;
         case OsLinux:
         case OsWASI:
+        case OsEmscripten:
             return ZigLLVM_Musl;
     }
     zig_unreachable();
@@ -1721,12 +1772,15 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
         case ZigLLVM_EABIHF:
+        case ZigLLVM_ELFv1:
+        case ZigLLVM_ELFv2:
         case ZigLLVM_Android:
         case ZigLLVM_MSVC:
         case ZigLLVM_Itanium:
         case ZigLLVM_Cygnus:
         case ZigLLVM_CoreCLR:
         case ZigLLVM_Simulator:
+        case ZigLLVM_MacABI:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1809,12 +1863,33 @@ const char *target_arch_musl_name(ZigLLVM_ArchType arch) {
 }
 
 bool target_supports_libunwind(const ZigTarget *target) {
-    if (target->arch == ZigLLVM_arm || target->arch == ZigLLVM_armeb) {
+    switch (target->arch) {
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+            return false;
+        default:
+            return true;
+    }
+    return true;
+}
+
+bool target_libc_needs_crti_crtn(const ZigTarget *target) {
+    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64) {
         return false;
     }
     return true;
 }
 
+bool target_is_riscv(const ZigTarget *target) {
+    return target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64;
+}
+
+bool target_is_mips(const ZigTarget *target) {
+    return target->arch == ZigLLVM_mips || target->arch == ZigLLVM_mipsel ||
+        target->arch == ZigLLVM_mips64 || target->arch == ZigLLVM_mips64el;
+}
 
 unsigned target_fn_align(const ZigTarget *target) {
     return 16;

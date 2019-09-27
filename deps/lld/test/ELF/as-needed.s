@@ -10,27 +10,27 @@
 /// Check if --as-needed actually works.
 
 // RUN: ld.lld %t.o %t2.so %t3.so %t4.so -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
 
 // RUN: ld.lld --as-needed %t.o %t2.so %t3.so %t4.so -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
 
 // Test with the .o last
 // RUN: ld.lld --as-needed %t2.so %t3.so %t4.so %t.o -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
 
 // RUN: ld.lld --as-needed %t.o %t2.so --no-as-needed %t3.so %t4.so -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
 
 /// GROUP command is the same as listing the files on the command line.
 
 // RUN: echo "GROUP(\"%t2.so\" \"%t3.so\" \"%t4.so\")" > %t.script
 // RUN: ld.lld %t.o %t.script -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
 
 // RUN: echo "GROUP(AS_NEEDED(\"%t2.so\" \"%t3.so\" \"%t4.so\"))" > %t.script
 // RUN: ld.lld %t.o %t.script -o %t2
-// RUN: llvm-readobj -dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
+// RUN: llvm-readobj --dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
 
 // CHECK: NEEDED Shared library: [shared1]
 // CHECK: NEEDED Shared library: [shared2]

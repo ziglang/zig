@@ -5,7 +5,7 @@
 # RUN:        .data_noload_b (0x10000) (NOLOAD) : { *(.data_noload_b) } \
 # RUN:        .text (0x20000) : { *(.text) } };" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readobj -sections -program-headers  %t | FileCheck %s
+# RUN: llvm-readobj --sections -l  %t | FileCheck %s
 
 # CHECK:      Section {
 # CHECK:        Index: 1

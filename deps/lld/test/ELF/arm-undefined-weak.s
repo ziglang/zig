@@ -28,6 +28,7 @@ _start:
  .word target - .
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // 69636 = 0x11004
 // CHECK:         11000: {{.*}} b       #-4 <_start+0x4>
 // CHECK-NEXT:    11004: {{.*}} bl      #-4 <_start+0x8>

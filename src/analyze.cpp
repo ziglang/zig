@@ -918,6 +918,8 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
         return abi_class == X64CABIClass_MEMORY;
     } else if (target_is_arm(g->zig_target)) {
         return type_size(g, fn_type_id->return_type) > 16;
+    } else if (g->zig_target->arch == ZigLLVM_mipsel) {
+        return false;
     }
     zig_panic("TODO implement C ABI for this architecture. See https://github.com/ziglang/zig/issues/1481");
 }
@@ -1432,8 +1434,8 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     return true;
 }
 
-static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType *type_entry,
-        AstNode *source_node)
+static Error emit_error_unless_type_allowed_in_packed_container(CodeGen *g, ZigType *type_entry,
+        AstNode *source_node, const char* container_name)
 {
     Error err;
     switch (type_entry->id) {
@@ -1454,8 +1456,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             add_node_error(g, source_node,
-                    buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                        buf_ptr(&type_entry->name)));
+                    buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                        buf_ptr(&type_entry->name), container_name));
             return ErrorSemanticAnalyzeFail;
         case ZigTypeIdVoid:
         case ZigTypeIdBool:
@@ -1467,14 +1469,14 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
             return ErrorNone;
         case ZigTypeIdArray: {
             ZigType *elem_type = type_entry->data.array.child_type;
-            if ((err = emit_error_unless_type_allowed_in_packed_struct(g, elem_type, source_node)))
+            if ((err = emit_error_unless_type_allowed_in_packed_container(g, elem_type, source_node, container_name)))
                 return err;
             // TODO revisit this when doing https://github.com/ziglang/zig/issues/1512
             if (type_size(g, type_entry) * 8 == type_size_bits(g, type_entry))
                 return ErrorNone;
             add_node_error(g, source_node,
-                buf_sprintf("array of '%s' not allowed in packed struct due to padding bits",
-                    buf_ptr(&elem_type->name)));
+                buf_sprintf("array of '%s' not allowed in packed %s due to padding bits",
+                    buf_ptr(&elem_type->name), container_name));
             return ErrorSemanticAnalyzeFail;
         }
         case ZigTypeIdStruct:
@@ -1484,8 +1486,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                     return ErrorNone;
                 case ContainerLayoutAuto:
                     add_node_error(g, source_node,
-                        buf_sprintf("non-packed, non-extern struct '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                            buf_ptr(&type_entry->name)));
+                        buf_sprintf("non-packed, non-extern struct '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                            buf_ptr(&type_entry->name), container_name));
                     return ErrorSemanticAnalyzeFail;
             }
             zig_unreachable();
@@ -1496,8 +1498,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                     return ErrorNone;
                 case ContainerLayoutAuto:
                     add_node_error(g, source_node,
-                        buf_sprintf("non-packed, non-extern union '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                            buf_ptr(&type_entry->name)));
+                        buf_sprintf("non-packed, non-extern union '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                            buf_ptr(&type_entry->name), container_name));
                     return ErrorSemanticAnalyzeFail;
             }
             zig_unreachable();
@@ -1506,8 +1508,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                 return ErrorNone;
             } else {
                 add_node_error(g, source_node,
-                    buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                        buf_ptr(&type_entry->name)));
+                    buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                        buf_ptr(&type_entry->name), container_name));
                 return ErrorSemanticAnalyzeFail;
             }
         case ZigTypeIdEnum: {
@@ -1516,8 +1518,8 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
                 return ErrorNone;
             }
             ErrorMsg *msg = add_node_error(g, source_node,
-                buf_sprintf("type '%s' not allowed in packed struct; no guaranteed in-memory representation",
-                    buf_ptr(&type_entry->name)));
+                buf_sprintf("type '%s' not allowed in packed %s; no guaranteed in-memory representation",
+                    buf_ptr(&type_entry->name), container_name));
             add_error_note(g, msg, decl_node,
                     buf_sprintf("enum declaration does not specify an integer tag type"));
             return ErrorSemanticAnalyzeFail;
@@ -1526,7 +1528,20 @@ static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType
     zig_unreachable();
 }
 
-bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
+static Error emit_error_unless_type_allowed_in_packed_struct(CodeGen *g, ZigType *type_entry,
+    AstNode *source_node)
+{
+    return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "struct");
+}
+
+static Error emit_error_unless_type_allowed_in_packed_union(CodeGen *g, ZigType *type_entry,
+    AstNode *source_node)
+{
+    return emit_error_unless_type_allowed_in_packed_container(g, type_entry, source_node, "union");
+}
+
+Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
+    Error err;
     switch (type_entry->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -1543,11 +1558,13 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdVoid:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
-            return false;
+            *result = false;
+            return ErrorNone;
         case ZigTypeIdOpaque:
         case ZigTypeIdUnreachable:
         case ZigTypeIdBool:
-            return true;
+            *result = true;
+            return ErrorNone;
         case ZigTypeIdInt:
             switch (type_entry->data.integral.bit_count) {
                 case 8:
@@ -1555,37 +1572,56 @@ bool type_allowed_in_extern(CodeGen *g, ZigType *type_entry) {
                 case 32:
                 case 64:
                 case 128:
-                    return true;
+                    *result = true;
+                    return ErrorNone;
                 default:
-                    return false;
+                    *result = false;
+                    return ErrorNone;
             }
         case ZigTypeIdVector:
-            return type_allowed_in_extern(g, type_entry->data.vector.elem_type);
+            return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
         case ZigTypeIdFloat:
-            return true;
+            *result = true;
+            return ErrorNone;
         case ZigTypeIdArray:
-            return type_allowed_in_extern(g, type_entry->data.array.child_type);
+            return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            return type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
+            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
                  type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
+            return ErrorNone;
         case ZigTypeIdPointer:
-            if (type_size(g, type_entry) == 0)
-                return false;
-            return true;
-        case ZigTypeIdStruct:
-            return type_entry->data.structure.layout == ContainerLayoutExtern || type_entry->data.structure.layout == ContainerLayoutPacked;
-        case ZigTypeIdOptional:
-            {
-                ZigType *child_type = type_entry->data.maybe.child_type;
-                if (child_type->id != ZigTypeIdPointer && child_type->id != ZigTypeIdFn) {
-                    return false;
-                }
-                return type_allowed_in_extern(g, child_type);
+            if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+                return err;
+            if (!type_has_bits(type_entry)) {
+                *result = false;
+                return ErrorNone;
             }
+            *result = true;
+            return ErrorNone;
+        case ZigTypeIdStruct:
+            *result = type_entry->data.structure.layout == ContainerLayoutExtern ||
+                type_entry->data.structure.layout == ContainerLayoutPacked;
+            return ErrorNone;
+        case ZigTypeIdOptional: {
+            ZigType *child_type = type_entry->data.maybe.child_type;
+            if (child_type->id != ZigTypeIdPointer && child_type->id != ZigTypeIdFn) {
+                *result = false;
+                return ErrorNone;
+            }
+            if (!type_is_nonnull_ptr(child_type)) {
+                *result = false;
+                return ErrorNone;
+            }
+            return type_allowed_in_extern(g, child_type, result);
+        }
         case ZigTypeIdEnum:
-            return type_entry->data.enumeration.layout == ContainerLayoutExtern || type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            *result = type_entry->data.enumeration.layout == ContainerLayoutExtern ||
+                type_entry->data.enumeration.layout == ContainerLayoutPacked;
+            return ErrorNone;
         case ZigTypeIdUnion:
-            return type_entry->data.unionation.layout == ContainerLayoutExtern || type_entry->data.unionation.layout == ContainerLayoutPacked;
+            *result = type_entry->data.unionation.layout == ContainerLayoutExtern ||
+                type_entry->data.unionation.layout == ContainerLayoutPacked;
+            return ErrorNone;
     }
     zig_unreachable();
 }
@@ -1675,12 +1711,17 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             }
         }
 
-        if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, type_entry)) {
-            add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
-                        buf_ptr(&type_entry->name),
-                        calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+            bool ok_type;
+            if ((err = type_allowed_in_extern(g, type_entry, &ok_type)))
+                return g->builtin_types.entry_invalid;
+            if (!ok_type) {
+                add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
+                            buf_ptr(&type_entry->name),
+                            calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
+            }
         }
 
         switch (type_entry->id) {
@@ -1797,7 +1838,10 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     {
         if ((err = type_resolve(g, fn_type_id.return_type, ResolveStatusSizeKnown)))
             return g->builtin_types.entry_invalid;
-        if (!type_allowed_in_extern(g, fn_type_id.return_type)) {
+        bool ok_type;
+        if ((err = type_allowed_in_extern(g, fn_type_id.return_type, &ok_type)))
+            return g->builtin_types.entry_invalid;
+        if (!ok_type) {
             add_node_error(g, fn_proto->return_type,
                     buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                         buf_ptr(&fn_type_id.return_type->name),
@@ -2116,14 +2160,19 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             return err;
         }
 
-        if (struct_type->data.structure.layout == ContainerLayoutExtern &&
-            !type_allowed_in_extern(g, field_type))
-        {
-            add_node_error(g, field->decl_node,
-                    buf_sprintf("extern structs cannot contain fields of type '%s'",
-                        buf_ptr(&field_type->name)));
-            struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return ErrorSemanticAnalyzeFail;
+        if (struct_type->data.structure.layout == ContainerLayoutExtern) {
+            bool ok_type;
+            if ((err = type_allowed_in_extern(g, field_type, &ok_type))) {
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
+            if (!ok_type) {
+                add_node_error(g, field->decl_node,
+                        buf_sprintf("extern structs cannot contain fields of type '%s'",
+                            buf_ptr(&field_type->name)));
+                struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                return ErrorSemanticAnalyzeFail;
+            }
         }
     }
 
@@ -2286,6 +2335,8 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     // set temporary flag
     union_type->data.unionation.resolve_loop_flag_other = true;
 
+    const bool is_packed = union_type->data.unionation.layout == ContainerLayoutPacked;
+
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
         ZigType *field_type = resolve_union_field_type(g, union_field);
@@ -2297,6 +2348,12 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
+        }
+        if (is_packed) {
+            if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
+                union_type->data.unionation.resolve_status = ResolveStatusInvalid;
+                return err;
+            }
         }
 
         if (type_is_invalid(union_type))
@@ -2348,19 +2405,22 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static bool type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty) {
+static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result) {
     // Only integer types are allowed by the C ABI
-    if(ty->id != ZigTypeIdInt)
-        return false;
+    if(ty->id != ZigTypeIdInt) {
+        *result = false;
+        return ErrorNone;
+    }
 
     // According to the ANSI C standard the enumeration type should be either a
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
     // other integral types as a compiler extension so let's accomodate them
     // aswell.
-    return type_allowed_in_extern(g, ty);
+    return type_allowed_in_extern(g, ty, result);
 }
 
 static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
+    Error err;
     assert(enum_type->id == ZigTypeIdEnum);
 
     if (enum_type->data.enumeration.resolve_status == ResolveStatusInvalid)
@@ -2406,8 +2466,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
         tag_int_type = get_c_int_type(g, CIntTypeInt);
-    } else if (enum_type->data.enumeration.layout == ContainerLayoutAuto && field_count == 1) {
-        tag_int_type = g->builtin_types.entry_num_lit_int;
     } else {
         tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     }
@@ -2420,19 +2478,28 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         ZigType *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
         if (type_is_invalid(wanted_tag_int_type)) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-        } else if (wanted_tag_int_type->id != ZigTypeIdInt) {
+        } else if (wanted_tag_int_type->id != ZigTypeIdInt &&
+                   wanted_tag_int_type->id != ZigTypeIdComptimeInt) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (enum_type->data.enumeration.layout == ContainerLayoutExtern &&
-                   !type_is_valid_extern_enum_tag(g, wanted_tag_int_type)) {
-            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
-            ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' is not a valid tag type for an extern enum",
-                            buf_ptr(&wanted_tag_int_type->name)));
-            add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
         } else {
+            if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
+                bool ok_type;
+                if ((err = type_is_valid_extern_enum_tag(g, wanted_tag_int_type, &ok_type))) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+                    return err;
+                }
+                if (!ok_type) {
+                    enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+                    ErrorMsg *msg = add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                        buf_sprintf("'%s' is not a valid tag type for an extern enum",
+                                    buf_ptr(&wanted_tag_int_type->name)));
+                    add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
+                        buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
+                    return ErrorNone;
+                }
+            }
             tag_int_type = wanted_tag_int_type;
         }
     }
@@ -2537,6 +2604,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     enum_type->data.enumeration.resolve_loop_flag = false;
     enum_type->data.enumeration.resolve_status = ResolveStatusSizeKnown;
+
+    occupied_tag_values.deinit();
 
     return ErrorNone;
 }
@@ -2804,14 +2873,12 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-            if (tag_int_type->id != ZigTypeIdInt) {
+            if (tag_int_type->id != ZigTypeIdInt && tag_int_type->id != ZigTypeIdComptimeInt) {
                 add_node_error(g, enum_type_node,
                     buf_sprintf("expected integer tag type, found '%s'", buf_ptr(&tag_int_type->name)));
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
                 return ErrorSemanticAnalyzeFail;
             }
-        } else if (auto_layout && field_count == 1) {
-            tag_int_type = g->builtin_types.entry_num_lit_int;
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
@@ -3611,7 +3678,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
                 }
                 if (search_scope != nullptr) {
                     Tld *tld = find_decl(g, search_scope, name);
-                    if (tld != nullptr) {
+                    if (tld != nullptr && tld != src_tld) {
                         ErrorMsg *msg = add_node_error(g, source_node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                         add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
@@ -4709,6 +4776,7 @@ ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
 bool is_valid_vector_elem_type(ZigType *elem_type) {
     return elem_type->id == ZigTypeIdInt ||
         elem_type->id == ZigTypeIdFloat ||
+        elem_type->id == ZigTypeIdBool ||
         get_codegen_ptr_type(elem_type) != nullptr;
 }
 
@@ -4728,7 +4796,7 @@ ZigType *get_vector_type(CodeGen *g, uint32_t len, ZigType *elem_type) {
 
     ZigType *entry = new_type_table_entry(ZigTypeIdVector);
     if ((len != 0) && type_has_bits(elem_type)) {
-        // Vectors can only be ints, floats, or pointers. ints and floats have trivially resolvable
+        // Vectors can only be ints, floats, bools, or pointers. ints (inc. bools) and floats have trivially resolvable
         // llvm type refs. pointers we will use usize instead.
         LLVMTypeRef example_vector_llvm_type;
         if (elem_type->id == ZigTypeIdPointer) {
@@ -5878,6 +5946,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         fn->err_code_spill = &alloca_gen->base;
     }
 
+    ZigType *largest_call_frame_type = nullptr;
+    // Later we'll change this to be largest_call_frame_type instead of void.
+    IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn->fndef_scope->base, fn->body_node,
+            fn, g->builtin_types.entry_void, "@async_call_frame");
+
     for (size_t i = 0; i < fn->call_list.length; i += 1) {
         IrInstructionCallGen *call = fn->call_list.at(i);
         if (call->new_stack != nullptr) {
@@ -5921,9 +5994,21 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
         mark_suspension_point(call->base.scope);
 
-        call->frame_result_loc = ir_create_alloca(g, call->base.scope, call->base.source_node, fn,
-                callee_frame_type, "");
+        if ((err = type_resolve(g, callee_frame_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
+        if (largest_call_frame_type == nullptr ||
+            callee_frame_type->abi_size > largest_call_frame_type->abi_size)
+        {
+            largest_call_frame_type = callee_frame_type;
+        }
+
+        call->frame_result_loc = all_calls_alloca;
     }
+    if (largest_call_frame_type != nullptr) {
+        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+    }
+
     // Since this frame is async, an await might represent a suspend point, and
     // therefore need to spill. It also needs to mark expr scopes as having to spill.
     // For example: foo() + await z
@@ -6879,7 +6964,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.floating.bit_count) * ((uint32_t)x.id + 1025) +
                    (uint32_t)(x.data.floating.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBswap:
-            return (uint32_t)(x.data.bswap.bit_count) * (uint32_t)3661994335;
+            return (uint32_t)(x.data.bswap.bit_count) * ((uint32_t)3661994335) +
+                   (uint32_t)(x.data.bswap.vector_len) * (((uint32_t)x.id << 5) + 1025);
         case ZigLLVMFnIdBitReverse:
             return (uint32_t)(x.data.bit_reverse.bit_count) * (uint32_t)2621398431;
         case ZigLLVMFnIdOverflowArithmetic:
@@ -6902,7 +6988,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
         case ZigLLVMFnIdPopCount:
             return a.data.pop_count.bit_count == b.data.pop_count.bit_count;
         case ZigLLVMFnIdBswap:
-            return a.data.bswap.bit_count == b.data.bswap.bit_count;
+            return a.data.bswap.bit_count == b.data.bswap.bit_count &&
+                   a.data.bswap.vector_len == b.data.bswap.vector_len;
         case ZigLLVMFnIdBitReverse:
             return a.data.bit_reverse.bit_count == b.data.bit_reverse.bit_count;
         case ZigLLVMFnIdFloatOp:
@@ -7594,6 +7681,11 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     type->data.structure.resolve_status = ResolveStatusLLVMFull;
 }
 
+static LLVMTypeRef get_llvm_type_of_n_bytes(unsigned byte_size) {
+    return byte_size == 1 ?
+        LLVMInt8Type() : LLVMArrayType(LLVMInt8Type(), byte_size);
+}
+
 static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveStatus wanted_resolve_status,
         ZigType *async_frame_type)
 {
@@ -7691,9 +7783,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
                 if (full_abi_size * 8 == full_bit_count) {
                     // next field recovers ABI alignment
-                    element_types[gen_field_index] = LLVMIntType((unsigned)(full_bit_count));
+                    element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
                     gen_field_index += 1;
-
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
             } else if (get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) * 8 != field_size_in_bits) {
@@ -7701,6 +7792,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             } else {
                 // This is a byte-aligned field (both start and end) in a packed struct.
                 element_types[gen_field_index] = get_llvm_type(g, field_type);
+                assert(get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) ==
+                       LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
                 gen_field_index += 1;
             }
             packed_bits_offset = next_packed_bits_offset;
@@ -7763,11 +7856,12 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
         size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = LLVMIntType((unsigned)full_abi_size * 8);
+        element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
         gen_field_index += 1;
     }
 
     if (type_has_bits(struct_type)) {
+        assert(struct_type->data.structure.gen_field_count == gen_field_index);
         LLVMStructSetBody(struct_type->llvm_type, element_types,
                 (unsigned)struct_type->data.structure.gen_field_count, packed);
     }
@@ -7848,6 +7942,26 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     }
 }
 
+// This is to be used instead of void for debug info types, to avoid tripping
+// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
+// when targeting CodeView (Windows).
+static ZigLLVMDIType *make_empty_namespace_llvm_di_type(CodeGen *g, ZigType *import, const char *name,
+        AstNode *decl_node)
+{
+    uint64_t debug_size_in_bits = 0;
+    uint64_t debug_align_in_bits = 0;
+    ZigLLVMDIType **di_element_types = nullptr;
+    size_t debug_field_count = 0;
+    return ZigLLVMCreateDebugStructType(g->dbuilder,
+        ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
+        name,
+        import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
+        debug_size_in_bits,
+        debug_align_in_bits,
+        ZigLLVM_DIFlags_Zero,
+        nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+}
+
 static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatus wanted_resolve_status) {
     assert(enum_type->data.enumeration.resolve_status >= ResolveStatusSizeKnown);
     if (enum_type->data.enumeration.resolve_status >= wanted_resolve_status) return;
@@ -7858,19 +7972,8 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
     if (!type_has_bits(enum_type)) {
         enum_type->llvm_type = g->builtin_types.entry_void->llvm_type;
-
-        uint64_t debug_size_in_bits = 0;
-        uint64_t debug_align_in_bits = 0;
-        ZigLLVMDIType **di_element_types = nullptr;
-        size_t debug_field_count = 0;
-        enum_type->llvm_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                ZigLLVMFileToScope(import->data.structure.root_struct->di_file),
-                buf_ptr(&enum_type->name),
-                import->data.structure.root_struct->di_file, (unsigned)(decl_node->line + 1),
-                debug_size_in_bits,
-                debug_align_in_bits,
-                ZigLLVM_DIFlags_Zero,
-                nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+        enum_type->llvm_di_type = make_empty_namespace_llvm_di_type(g, import, buf_ptr(&enum_type->name),
+                decl_node);
         enum_type->data.enumeration.resolve_status = ResolveStatusLLVMFull;
         return;
     }
@@ -7911,6 +8014,8 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     if (union_type->data.unionation.resolve_status >= wanted_resolve_status) return;
 
     bool packed = (union_type->data.unionation.layout == ContainerLayoutPacked);
+    Scope *scope = &union_type->data.unionation.decls_scope->base;
+    ZigType *import = get_scope_import(scope);
 
     TypeUnionField *most_aligned_union_member = union_type->data.unionation.most_aligned_union_member;
     ZigType *tag_type = union_type->data.unionation.tag_type;
@@ -7918,7 +8023,8 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
     if (gen_field_count == 0) {
         if (tag_type == nullptr) {
             union_type->llvm_type = g->builtin_types.entry_void->llvm_type;
-            union_type->llvm_di_type = g->builtin_types.entry_void->llvm_di_type;
+            union_type->llvm_di_type = make_empty_namespace_llvm_di_type(g, import, buf_ptr(&union_type->name),
+                    union_type->data.unionation.decl_node);
         } else {
             union_type->llvm_type = get_llvm_type(g, tag_type);
             union_type->llvm_di_type = get_llvm_di_type(g, tag_type);
@@ -7927,8 +8033,6 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         return;
     }
 
-    Scope *scope = &union_type->data.unionation.decls_scope->base;
-    ZigType *import = get_scope_import(scope);
     AstNode *decl_node = union_type->data.unionation.decl_node;
 
     if (union_type->data.unionation.resolve_status < ResolveStatusLLVMFwdDecl) {
@@ -8089,10 +8193,12 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
         type->data.pointer.explicit_alignment != 0 || type->data.pointer.ptr_len != PtrLenSingle ||
         type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero)
     {
+        assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
         ZigType *peer_type = get_pointer_to_type_extra(g, elem_type, false, false,
                 PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false);
         type->llvm_type = get_llvm_type(g, peer_type);
         type->llvm_di_type = get_llvm_di_type(g, peer_type);
+        assertNoError(type_resolve(g, elem_type, wanted_resolve_status));
         return;
     }
 

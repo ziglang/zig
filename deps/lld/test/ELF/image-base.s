@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld -image-base=0x1000000 %t -o %t1
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s
 
 # RUN: not ld.lld -image-base=ABC %t -o %t1 2>&1 | FileCheck --check-prefix=ERR %s
 # ERR: error: -image-base: number expected, but got ABC
@@ -11,7 +11,7 @@
 
 # Check alias.
 # RUN: ld.lld -image-base 0x1000000 %t -o %t1
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s
 
 .global _start
 _start:

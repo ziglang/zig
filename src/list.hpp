@@ -15,7 +15,7 @@ struct ZigList {
     void deinit() {
         free(items);
     }
-    void append(T item) {
+    void append(const T& item) {
         ensure_capacity(length + 1);
         items[length++] = item;
     }

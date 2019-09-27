@@ -2,7 +2,7 @@
 # RUN: %p/Inputs/arm-interworking.yaml -o %t  | FileCheck %s \
 # RUN: && ld64.lld -arch armv7 -dylib -print_atoms \
 # RUN:         %p/Inputs/armv7/libSystem.yaml %t -o %t2  | FileCheck %s \
-# RUN: && llvm-readobj -s -sd %t2 | FileCheck -check-prefix=CODE %s
+# RUN: && llvm-readobj -S --section-data %t2 | FileCheck -check-prefix=CODE %s
 #
 # Test thumb and arm branches round trip through -r.
 # Test bl/blx instructions are fixed up properly.

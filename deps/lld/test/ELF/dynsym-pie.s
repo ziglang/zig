@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 # RUN: ld.lld -pie %t -o %t.out
-# RUN: llvm-readobj -t -dyn-symbols %t.out | FileCheck %s
+# RUN: llvm-readobj --symbols --dyn-syms %t.out | FileCheck %s
 
 # CHECK:       Symbols [
 # CHECK:        Symbol {

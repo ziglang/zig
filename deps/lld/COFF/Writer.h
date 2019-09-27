@@ -1,9 +1,8 @@
 //===- Writer.h -------------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,9 +18,18 @@
 
 namespace lld {
 namespace coff {
-static const int PageSize = 4096;
+static const int pageSize = 4096;
 
 void writeResult();
+
+class PartialSection {
+public:
+  PartialSection(StringRef n, uint32_t chars)
+      : name(n), characteristics(chars) {}
+  StringRef name;
+  unsigned characteristics;
+  std::vector<Chunk *> chunks;
+};
 
 // OutputSection represents a section in an output file. It's a
 // container of chunks. OutputSection and Chunk are 1:N relationship.
@@ -30,46 +38,48 @@ void writeResult();
 // non-overlapping file offsets and RVAs.
 class OutputSection {
 public:
-  OutputSection(llvm::StringRef N, uint32_t Chars) : Name(N) {
-    Header.Characteristics = Chars;
+  OutputSection(llvm::StringRef n, uint32_t chars) : name(n) {
+    header.Characteristics = chars;
   }
-  void addChunk(Chunk *C);
-  void insertChunkAtStart(Chunk *C);
-  void merge(OutputSection *Other);
-  void addPermissions(uint32_t C);
-  void setPermissions(uint32_t C);
-  uint64_t getRVA() { return Header.VirtualAddress; }
-  uint64_t getFileOff() { return Header.PointerToRawData; }
-  void writeHeaderTo(uint8_t *Buf);
+  void addChunk(Chunk *c);
+  void insertChunkAtStart(Chunk *c);
+  void merge(OutputSection *other);
+  void setPermissions(uint32_t c);
+  uint64_t getRVA() { return header.VirtualAddress; }
+  uint64_t getFileOff() { return header.PointerToRawData; }
+  void writeHeaderTo(uint8_t *buf);
+  void addContributingPartialSection(PartialSection *sec);
 
   // Returns the size of this section in an executable memory image.
   // This may be smaller than the raw size (the raw size is multiple
   // of disk sector size, so there may be padding at end), or may be
   // larger (if that's the case, the loader reserves spaces after end
   // of raw data).
-  uint64_t getVirtualSize() { return Header.VirtualSize; }
+  uint64_t getVirtualSize() { return header.VirtualSize; }
 
   // Returns the size of the section in the output file.
-  uint64_t getRawSize() { return Header.SizeOfRawData; }
+  uint64_t getRawSize() { return header.SizeOfRawData; }
 
   // Set offset into the string table storing this section name.
   // Used only when the name is longer than 8 bytes.
-  void setStringTableOff(uint32_t V) { StringTableOff = V; }
+  void setStringTableOff(uint32_t v) { stringTableOff = v; }
 
   // N.B. The section index is one based.
-  uint32_t SectionIndex = 0;
+  uint32_t sectionIndex = 0;
 
-  llvm::StringRef Name;
-  llvm::object::coff_section Header = {};
+  llvm::StringRef name;
+  llvm::object::coff_section header = {};
 
-  std::vector<Chunk *> Chunks;
-  std::vector<Chunk *> OrigChunks;
+  std::vector<Chunk *> chunks;
+  std::vector<Chunk *> origChunks;
+
+  std::vector<PartialSection *> contribSections;
 
 private:
-  uint32_t StringTableOff = 0;
+  uint32_t stringTableOff = 0;
 };
 
-}
-}
+} // namespace coff
+} // namespace lld
 
 #endif

@@ -1,11 +1,11 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: ld.lld --hash-style=sysv -shared %t -o %t2
-// RUN: llvm-readobj -t %t2 | FileCheck %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck %s
 .long _GLOBAL_OFFSET_TABLE_ - .
 
 // CHECK:      Name: _GLOBAL_OFFSET_TABLE_
-// CHECK-NEXT: Value: 0x2000
+// CHECK-NEXT: Value: 0x3000
 // CHECK-NEXT: Size: 0
 // CHECK-NEXT: Binding: Local
 // CHECK-NEXT: Type: None

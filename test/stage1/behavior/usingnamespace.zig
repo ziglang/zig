@@ -12,3 +12,11 @@ test "usingnamespace inside a generic struct" {
     std2.testing.expect(true);
     testing2.expect(true);
 }
+
+usingnamespace struct {
+    pub const foo = 42;
+};
+
+test "usingnamespace does not redeclare an imported variable" {
+    comptime std.testing.expect(foo == 42);
+}

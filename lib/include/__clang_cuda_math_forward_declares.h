@@ -1,22 +1,8 @@
 /*===- __clang_math_forward_declares.h - Prototypes of __device__ math fns --===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -34,14 +20,37 @@
 // would preclude the use of our own __device__ overloads for these functions.
 
 #pragma push_macro("__DEVICE__")
+#ifdef _OPENMP
+#define __DEVICE__ static __inline__ __attribute__((always_inline))
+#else
 #define __DEVICE__                                                             \
   static __inline__ __attribute__((always_inline)) __attribute__((device))
+#endif
 
-__DEVICE__ double abs(double);
-__DEVICE__ float abs(float);
-__DEVICE__ int abs(int);
+// For C++ 17 we need to include noexcept attribute to be compatible
+// with the header-defined version. This may be removed once
+// variant is supported.
+#if defined(_OPENMP) && defined(__cplusplus) && __cplusplus >= 201703L
+#define __NOEXCEPT noexcept
+#else
+#define __NOEXCEPT
+#endif
+
+#if !(defined(_OPENMP) && defined(__cplusplus))
 __DEVICE__ long abs(long);
 __DEVICE__ long long abs(long long);
+__DEVICE__ double abs(double);
+__DEVICE__ float abs(float);
+#endif
+// While providing the CUDA declarations and definitions for math functions,
+// we may manually define additional functions.
+// TODO: Once variant is supported the additional functions will have
+// to be removed.
+#if defined(_OPENMP) && defined(__cplusplus)
+__DEVICE__ const double abs(const double);
+__DEVICE__ const float abs(const float);
+#endif
+__DEVICE__ int abs(int) __NOEXCEPT;
 __DEVICE__ double acos(double);
 __DEVICE__ float acos(float);
 __DEVICE__ double acosh(double);
@@ -76,8 +85,8 @@ __DEVICE__ double exp(double);
 __DEVICE__ float exp(float);
 __DEVICE__ double expm1(double);
 __DEVICE__ float expm1(float);
-__DEVICE__ double fabs(double);
-__DEVICE__ float fabs(float);
+__DEVICE__ double fabs(double) __NOEXCEPT;
+__DEVICE__ float fabs(float) __NOEXCEPT;
 __DEVICE__ double fdim(double, double);
 __DEVICE__ float fdim(float, float);
 __DEVICE__ double floor(double);
@@ -98,12 +107,18 @@ __DEVICE__ double hypot(double, double);
 __DEVICE__ float hypot(float, float);
 __DEVICE__ int ilogb(double);
 __DEVICE__ int ilogb(float);
+#ifdef _MSC_VER
+__DEVICE__ bool isfinite(long double);
+#endif
 __DEVICE__ bool isfinite(double);
 __DEVICE__ bool isfinite(float);
 __DEVICE__ bool isgreater(double, double);
 __DEVICE__ bool isgreaterequal(double, double);
 __DEVICE__ bool isgreaterequal(float, float);
 __DEVICE__ bool isgreater(float, float);
+#ifdef _MSC_VER
+__DEVICE__ bool isinf(long double);
+#endif
 __DEVICE__ bool isinf(double);
 __DEVICE__ bool isinf(float);
 __DEVICE__ bool isless(double, double);
@@ -112,18 +127,21 @@ __DEVICE__ bool islessequal(float, float);
 __DEVICE__ bool isless(float, float);
 __DEVICE__ bool islessgreater(double, double);
 __DEVICE__ bool islessgreater(float, float);
+#ifdef _MSC_VER
+__DEVICE__ bool isnan(long double);
+#endif
 __DEVICE__ bool isnan(double);
 __DEVICE__ bool isnan(float);
 __DEVICE__ bool isnormal(double);
 __DEVICE__ bool isnormal(float);
 __DEVICE__ bool isunordered(double, double);
 __DEVICE__ bool isunordered(float, float);
-__DEVICE__ long labs(long);
+__DEVICE__ long labs(long) __NOEXCEPT;
 __DEVICE__ double ldexp(double, int);
 __DEVICE__ float ldexp(float, int);
 __DEVICE__ double lgamma(double);
 __DEVICE__ float lgamma(float);
-__DEVICE__ long long llabs(long long);
+__DEVICE__ long long llabs(long long) __NOEXCEPT;
 __DEVICE__ long long llrint(double);
 __DEVICE__ long long llrint(float);
 __DEVICE__ double log10(double);
@@ -134,6 +152,9 @@ __DEVICE__ double log2(double);
 __DEVICE__ float log2(float);
 __DEVICE__ double logb(double);
 __DEVICE__ float logb(float);
+#if defined(_OPENMP) && defined(__cplusplus)
+__DEVICE__ long double log(long double);
+#endif
 __DEVICE__ double log(double);
 __DEVICE__ float log(float);
 __DEVICE__ long lrint(double);
@@ -281,6 +302,7 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 #endif
 
+#undef __NOEXCEPT
 #pragma pop_macro("__DEVICE__")
 
 #endif

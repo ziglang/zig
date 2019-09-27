@@ -3,6 +3,29 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "switch with overlapping case ranges",
+        \\export fn entry() void {
+        \\    var q: u8 = 0;
+        \\    switch (q) {
+        \\        1...2 => {},
+        \\        0...255 => {},
+        \\    }
+        \\}
+    ,
+        "tmp.zig:5:9: error: duplicate switch value",
+    );
+
+    cases.add(
+        "invalid optional type in extern struct",
+        \\const stroo = extern struct {
+        \\    moo: ?[*c]u8,
+        \\};
+        \\export fn testf(fluff: *stroo) void {}
+    ,
+        "tmp.zig:2:5: error: extern structs cannot contain fields of type '?[*c]u8'",
+    );
+
+    cases.add(
         "attempt to negate a non-integer, non-float or non-vector type",
         \\fn foo() anyerror!u32 {
         \\    return 1;
@@ -1227,6 +1250,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:25: error: destination type 'u7' has 7 bits but source type 'u8' has 8 bits",
+    );
+
+    cases.add(
+        "@bitCast with different sizes inside an expression",
+        \\export fn entry() void {
+        \\    var foo = (@bitCast(u8, f32(1.0)) == 0xf);
+        \\}
+    ,
+        "tmp.zig:2:25: error: destination type 'u8' has size 1 but source type 'f32' has size 4",
     );
 
     cases.add(
@@ -6300,6 +6332,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "packed union with automatic layout field",
+        \\const Foo = struct {
+        \\    a: u32,
+        \\    b: f32,
+        \\};
+        \\const Payload = packed union {
+        \\    A: Foo,
+        \\    B: bool,
+        \\};
+        \\export fn entry() void {
+        \\    var a = Payload { .B = true };
+        \\}
+    ,
+        "tmp.zig:6:5: error: non-packed, non-extern struct 'Foo' not allowed in packed union; no guaranteed in-memory representation",
+    );
+
+    cases.add(
         "switch on union with no attached enum",
         \\const Payload = union {
         \\    A: i32,
@@ -6485,13 +6534,36 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addTest(
+        "@shuffle with selected index past first vector length",
+        \\export fn entry() void {
+        \\    const v: @Vector(4, u32) = [4]u32{ 10, 11, 12, 13 };
+        \\    const x: @Vector(4, u32) = [4]u32{ 14, 15, 16, 17 };
+        \\    var z = @shuffle(u32, v, x, [8]i32{ 0, 1, 2, 3, 7, 6, 5, 4 });
+        \\}
+    ,
+        "tmp.zig:4:39: error: mask index '4' has out-of-bounds selection",
+        "tmp.zig:4:27: note: selected index '7' out of bounds of @Vector(4, u32)",
+        "tmp.zig:4:30: note: selections from the second vector are specified with negative numbers",
+    );
+
+    cases.addTest(
         "nested vectors",
         \\export fn entry() void {
         \\    const V = @Vector(4, @Vector(4, u8));
         \\    var v: V = undefined;
         \\}
     ,
-        "tmp.zig:2:26: error: vector element type must be integer, float, or pointer; '@Vector(4, u8)' is invalid",
+        "tmp.zig:2:26: error: vector element type must be integer, float, bool, or pointer; '@Vector(4, u8)' is invalid",
+    );
+
+    cases.addTest(
+        "bad @splat type",
+        \\export fn entry() void {
+        \\    const c = 4;
+        \\    var v = @splat(4, c);
+        \\}
+    ,
+        "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
     );
 
     cases.add("compileLog of tagged enum doesn't crash the compiler",

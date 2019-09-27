@@ -4,7 +4,7 @@
 
 ; RUN: llvm-as %s -o %t.bc
 ; RUN: lld-link -opt:icf -dll -noentry %t.bc -out:%t.dll
-; RUN: llvm-readobj -coff-exports %t.dll | FileCheck %s
+; RUN: llvm-readobj --coff-exports %t.dll | FileCheck %s
 
 ; CHECK: Export {
 ; CHECK: Export {

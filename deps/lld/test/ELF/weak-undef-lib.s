@@ -4,7 +4,7 @@
 # RUN:   llvm-mc -filetype=obj -triple=x86_64-pc-linux - -o %t2.o
 
 # RUN: ld.lld -shared -o %t.so %t1.o --start-lib %t2.o
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck %s
 
 # CHECK:      Name: foo
 # CHECK-NEXT: Value: 0x0

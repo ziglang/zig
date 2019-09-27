@@ -44,7 +44,7 @@ t3_ff8_ldr:
 // CHECK-NEXT:    11004:        02 00 00 14     b       #8
 // CHECK-NEXT:    11008:        c0 03 5f d6     ret
 // CHECK: __CortexA53843419_11004:
-// CHECK-NEXT:    1100c:        00 08 40 f9     ldr     x0, [x0, #16]
+// CHECK-NEXT:    1100c:        00 04 40 f9     ldr     x0, [x0, #8]
 // CHECK-NEXT:    11010:        fe ff ff 17     b       #-8
 
         .section .text.04, "ax", %progbits

@@ -7,13 +7,13 @@
 
 ## Check that linker script can override -defsym assignments.
 # RUN: ld.lld %t.o -defsym=foo=0x11 -script %t.script -o %t
-# RUN: llvm-readobj -t %t | FileCheck %s
+# RUN: llvm-readobj --symbols %t | FileCheck %s
 # CHECK:      Name: foo
 # CHECK-NEXT:   Value: 0x22
 
 ## Check that -defsym can override linker script. Check that multiple
 ## -defsym commands for the same symbol are allowed.
 # RUN: ld.lld %t.o -script %t.script -defsym=foo=0x11 -defsym=foo=0x33 -o %t
-# RUN: llvm-readobj -t %t | FileCheck %s --check-prefix=REORDER
+# RUN: llvm-readobj --symbols %t | FileCheck %s --check-prefix=REORDER
 # REORDER:      Name: foo
 # REORDER-NEXT:   Value: 0x33

@@ -19,6 +19,7 @@ R_X86_64_32:
 // FIXME: this would be far more self evident if llvm-objdump printed
 // constants in hex.
 // CHECK: Disassembly of section .text2:
+// CHECK-EMPTY:
 // CHECK-NEXT: R_X86_64_32:
 // CHECK-NEXT:  201009: {{.*}} movl $2101257, %edx
 
@@ -27,6 +28,7 @@ R_X86_64_32S:
   movq lulz - 0x100000, %rdx
 
 // CHECK: Disassembly of section .R_X86_64_32S:
+// CHECK-EMPTY:
 // CHECK-NEXT: R_X86_64_32S:
 // CHECK-NEXT:  {{.*}}: {{.*}} movq 1052681, %rdx
 

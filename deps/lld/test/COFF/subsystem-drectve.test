@@ -1,6 +1,6 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /dll /noentry /out:%t.dll %t.obj
-# RUN: llvm-readobj -file-headers %t.dll | FileCheck %s
+# RUN: lld-link -safeseh:no /dll /noentry /out:%t.dll %t.obj
+# RUN: llvm-readobj --file-headers %t.dll | FileCheck %s
 
 # CHECK: MajorOperatingSystemVersion: 42
 # CHECK: MinorOperatingSystemVersion: 43

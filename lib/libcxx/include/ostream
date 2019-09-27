@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===-------------------------- ostream -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -57,6 +56,7 @@ public:
     basic_ostream& operator<<(long double f);
     basic_ostream& operator<<(const void* p);
     basic_ostream& operator<<(basic_streambuf<char_type,traits>* sb);
+    basic_ostream& operator<<(nullptr_t);
 
     // 27.7.2.7 Unformatted output:
     basic_ostream& put(char_type c);
@@ -218,6 +218,10 @@ public:
     basic_ostream& operator<<(long double __f);
     basic_ostream& operator<<(const void* __p);
     basic_ostream& operator<<(basic_streambuf<char_type, traits_type>* __sb);
+
+    _LIBCPP_INLINE_VISIBILITY
+    basic_ostream& operator<<(nullptr_t)
+    { return *this << "nullptr"; }
 
     // 27.7.2.7 Unformatted output:
     basic_ostream& put(char_type __c);

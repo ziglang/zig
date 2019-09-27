@@ -1,12 +1,11 @@
 // REQUIRES: arm
-// RUN: llvm-mc %s -triple=armv7-unknown-linux-gnueabi -filetype=obj -o %t.o
+// RUN: llvm-mc %s -triple=armv7-unknown-linux-gnueabi -filetype=obj --arm-add-build-attributes -o %t.o
 // RUN: echo "SECTIONS { \
 // RUN:          .text : { *(.text) } \
 // RUN:          .prel.test : { *(.ARM.exidx) } \
-// RUN:          .prel.test.TEST1 : { *(.ARM.exidx.TEST1) } \
 // RUN:          .TEST1 : { *(.TEST1) } } " > %t.script
 // RUN: ld.lld --script %t.script %t.o -o %t
-// RUN: llvm-readobj -s -sd %t | FileCheck --check-prefix=CHECK %s
+// RUN: llvm-readobj -S --section-data %t | FileCheck --check-prefix=CHECK %s
 
 // The R_ARM_PREL31 relocation is used in by the .ARM.exidx exception tables
 // bit31 of the place denotes whether the field is an inline table entry
@@ -47,17 +46,14 @@ __aeabi_unwind_cpp_pr0:
 // The expected value of the exception table is
 // Word0 0 in bit 31, -4 encoded in 31-bit signed offset
 // Word1 Inline table entry EHT Inline Personality Routine #0
-// CHECK:  Name: .prel.test
-// CHECK:  SectionData (
-// CHECK:     0000: FCFFFF7F B0B0B080
-// CHECK:  )
-
-// The expected value of the exception table is
-// Word0 0 in bit 31, +8 encoded in 31-bit signed offset
-// Word1 Inline table entry EHT Inline Personality Routine #0
+// Word3 0 in bit 31, +10 encoded in 31-bit signed offset
+// Word4 Inline table entry EHT Inline Personality Routine #0
 // set vsp = r11
 // pop r11, r14
-// CHECK:  Name: .prel.test.TEST1
+// Word5 Sentinel +18 EXIDX_CANTUNWIND
+
+// CHECK:  Name: .prel.test
 // CHECK:  SectionData (
-// CHECK:     0000: 08000000 80849B80
+// CHECK:     0000: FCFFFF7F B0B0B080 10000000 80849B80
+// CHECK:     0010: 18000000 01000000
 // CHECK:  )

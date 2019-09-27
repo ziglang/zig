@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=amd64-unknown-openbsd %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=amd64-unknown-openbsd %p/Inputs/eh-frame-end.s -o %t2.o
 // RUN: ld.lld %t.o %t2.o -o %t
-// RUN: llvm-readobj -sections %t | FileCheck %s
+// RUN: llvm-readobj --sections %t | FileCheck %s
 
 // CHECK:      Name: .eh_frame
 // CHECK-NEXT: Type: SHT_PROGBITS

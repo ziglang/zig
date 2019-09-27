@@ -10,9 +10,10 @@
 
 # CHECK-NOT: libfoo
 
-# CHECK:      Symbol table of .hash for image:
-# CHECK-NEXT: Num Buc:    Value          Size   Type   Bind Vis      Ndx Name
-# CHECK-NEXT:   1   1: 0000000000000000     0 FUNC    WEAK   DEFAULT UND foo
+# CHECK:      Symbol table '.dynsym' contains 2 entries:
+# CHECK-NEXT: Num:    Value          Size Type    Bind   Vis     Ndx Name
+# CHECK-NEXT:   0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT UND
+# CHECK-NEXT:   1: 0000000000000000     0 FUNC    WEAK   DEFAULT UND foo
 
 .globl _start
 .weak foo

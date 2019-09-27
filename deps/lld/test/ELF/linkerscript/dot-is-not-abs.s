@@ -3,7 +3,7 @@
 
 # RUN: echo "SECTIONS { .text : { *(.text) } foo = .; .bar : { *(.bar) } }" > %t1.script
 # RUN: ld.lld -o %t1 --script %t1.script %t.o -shared
-# RUN: llvm-readobj -t -s -section-data %t1 | FileCheck %s
+# RUN: llvm-readobj --symbols -S --section-data %t1 | FileCheck %s
 
 .hidden foo
 .long foo - .

@@ -1,22 +1,8 @@
 /*===---- avx512vlintrin.h - AVX512VL intrinsics ---------------------------===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -5513,7 +5499,7 @@ static __inline __m128i __DEFAULT_FN_ATTRS128
 _mm_loadu_epi64 (void const *__P)
 {
   struct __loadu_epi64 {
-    __m128i __v;
+    __m128i_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_epi64*)__P)->__v;
 }
@@ -5539,7 +5525,7 @@ static __inline __m256i __DEFAULT_FN_ATTRS256
 _mm256_loadu_epi64 (void const *__P)
 {
   struct __loadu_epi64 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_epi64*)__P)->__v;
 }
@@ -5565,7 +5551,7 @@ static __inline __m128i __DEFAULT_FN_ATTRS128
 _mm_loadu_epi32 (void const *__P)
 {
   struct __loadu_epi32 {
-    __m128i __v;
+    __m128i_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_epi32*)__P)->__v;
 }
@@ -5591,7 +5577,7 @@ static __inline __m256i __DEFAULT_FN_ATTRS256
 _mm256_loadu_epi32 (void const *__P)
 {
   struct __loadu_epi32 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_epi32*)__P)->__v;
 }
@@ -5717,7 +5703,7 @@ static __inline void __DEFAULT_FN_ATTRS128
 _mm_storeu_epi64 (void *__P, __m128i __A)
 {
   struct __storeu_epi64 {
-    __m128i __v;
+    __m128i_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_epi64*)__P)->__v = __A;
 }
@@ -5734,7 +5720,7 @@ static __inline void __DEFAULT_FN_ATTRS256
 _mm256_storeu_epi64 (void *__P, __m256i __A)
 {
   struct __storeu_epi64 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_epi64*)__P)->__v = __A;
 }
@@ -5751,7 +5737,7 @@ static __inline void __DEFAULT_FN_ATTRS128
 _mm_storeu_epi32 (void *__P, __m128i __A)
 {
   struct __storeu_epi32 {
-    __m128i __v;
+    __m128i_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_epi32*)__P)->__v = __A;
 }
@@ -5768,7 +5754,7 @@ static __inline void __DEFAULT_FN_ATTRS256
 _mm256_storeu_epi32 (void *__P, __m256i __A)
 {
   struct __storeu_epi32 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_epi32*)__P)->__v = __A;
 }
@@ -7000,7 +6986,7 @@ _mm_mask_cvtsepi32_storeu_epi8 (void * __P, __mmask8 __M, __m128i __A)
   __builtin_ia32_pmovsdb128mem_mask ((__v16qi *) __P, (__v4si) __A, __M);
 }
 
-static __inline__ __m128i __DEFAULT_FN_ATTRS128
+static __inline__ __m128i __DEFAULT_FN_ATTRS256
 _mm256_cvtsepi32_epi8 (__m256i __A)
 {
   return (__m128i) __builtin_ia32_pmovsdb256_mask ((__v8si) __A,
@@ -7023,7 +7009,7 @@ _mm256_maskz_cvtsepi32_epi8 (__mmask8 __M, __m256i __A)
                __M);
 }
 
-static __inline__ void __DEFAULT_FN_ATTRS128
+static __inline__ void __DEFAULT_FN_ATTRS256
 _mm256_mask_cvtsepi32_storeu_epi8 (void * __P, __mmask8 __M, __m256i __A)
 {
   __builtin_ia32_pmovsdb256mem_mask ((__v16qi *) __P, (__v8si) __A, __M);
@@ -7581,7 +7567,7 @@ _mm_maskz_cvtepi32_epi8 (__mmask8 __M, __m128i __A)
               __M);
 }
 
-static __inline__ void __DEFAULT_FN_ATTRS256
+static __inline__ void __DEFAULT_FN_ATTRS128
 _mm_mask_cvtepi32_storeu_epi8 (void * __P, __mmask8 __M, __m128i __A)
 {
   __builtin_ia32_pmovdb128mem_mask ((__v16qi *) __P, (__v4si) __A, __M);
@@ -8425,22 +8411,6 @@ _mm256_maskz_cvtph_ps (__mmask8 __U, __m128i __A)
                 (__mmask8) __U);
 }
 
-static __inline __m128i __DEFAULT_FN_ATTRS128
-_mm_mask_cvtps_ph (__m128i __W, __mmask8 __U, __m128 __A)
-{
-  return (__m128i) __builtin_ia32_vcvtps2ph_mask ((__v4sf) __A, _MM_FROUND_CUR_DIRECTION,
-                                                  (__v8hi) __W,
-                                                  (__mmask8) __U);
-}
-
-static __inline __m128i __DEFAULT_FN_ATTRS128
-_mm_maskz_cvtps_ph (__mmask8 __U, __m128 __A)
-{
-  return (__m128i) __builtin_ia32_vcvtps2ph_mask ((__v4sf) __A, _MM_FROUND_CUR_DIRECTION,
-                                                  (__v8hi) _mm_setzero_si128 (),
-                                                  (__mmask8) __U);
-}
-
 #define _mm_mask_cvt_roundps_ph(W, U, A, I) \
   (__m128i)__builtin_ia32_vcvtps2ph_mask((__v4sf)(__m128)(A), (int)(I), \
                                          (__v8hi)(__m128i)(W), \
@@ -8451,21 +8421,9 @@ _mm_maskz_cvtps_ph (__mmask8 __U, __m128 __A)
                                          (__v8hi)_mm_setzero_si128(), \
                                          (__mmask8)(U))
 
-static __inline __m128i __DEFAULT_FN_ATTRS256
-_mm256_mask_cvtps_ph (__m128i __W, __mmask8 __U, __m256 __A)
-{
-  return (__m128i) __builtin_ia32_vcvtps2ph256_mask ((__v8sf) __A, _MM_FROUND_CUR_DIRECTION,
-                                                      (__v8hi) __W,
-                                                      (__mmask8) __U);
-}
+#define _mm_mask_cvtps_ph  _mm_mask_cvt_roundps_ph
+#define _mm_maskz_cvtps_ph _mm_maskz_cvt_roundps_ph
 
-static __inline __m128i __DEFAULT_FN_ATTRS256
-_mm256_maskz_cvtps_ph ( __mmask8 __U, __m256 __A)
-{
-  return (__m128i) __builtin_ia32_vcvtps2ph256_mask ((__v8sf) __A, _MM_FROUND_CUR_DIRECTION,
-                                                      (__v8hi) _mm_setzero_si128(),
-                                                      (__mmask8) __U);
-}
 #define _mm256_mask_cvt_roundps_ph(W, U, A, I) \
   (__m128i)__builtin_ia32_vcvtps2ph256_mask((__v8sf)(__m256)(A), (int)(I), \
                                             (__v8hi)(__m128i)(W), \
@@ -8475,6 +8433,9 @@ _mm256_maskz_cvtps_ph ( __mmask8 __U, __m256 __A)
   (__m128i)__builtin_ia32_vcvtps2ph256_mask((__v8sf)(__m256)(A), (int)(I), \
                                             (__v8hi)_mm_setzero_si128(), \
                                             (__mmask8)(U))
+
+#define _mm256_mask_cvtps_ph  _mm256_mask_cvt_roundps_ph
+#define _mm256_maskz_cvtps_ph _mm256_maskz_cvt_roundps_ph
 
 
 #undef __DEFAULT_FN_ATTRS128

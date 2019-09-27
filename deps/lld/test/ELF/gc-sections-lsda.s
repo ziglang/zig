@@ -7,7 +7,7 @@
 // precise and gc the entire contents of this file, but test that at least
 // we are consistent: if we keep .abc, we have to keep .foo
 
-// RUN: llvm-readobj -s %t | FileCheck %s
+// RUN: llvm-readobj -S %t | FileCheck %s
 // CHECK:  Name: .abc
 // CHECK: Name: .foo
 

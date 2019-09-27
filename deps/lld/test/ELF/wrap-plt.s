@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 
 // RUN: ld.lld -o %t2 %t -wrap foo -shared
-// RUN: llvm-readobj -s -r %t2 | FileCheck %s
+// RUN: llvm-readobj -S -r %t2 | FileCheck %s
 // RUN: llvm-objdump -d %t2 | FileCheck --check-prefix=DISASM %s
 
 // CHECK:      Name: .plt
@@ -20,8 +20,8 @@
 
 // CHECK:      Relocations [
 // CHECK-NEXT:   Section ({{.*}}) .rela.plt {
-// CHECK-NEXT:     0x2018 R_X86_64_JUMP_SLOT __wrap_foo 0x0
-// CHECK-NEXT:     0x2020 R_X86_64_JUMP_SLOT _start 0x0
+// CHECK-NEXT:     0x3018 R_X86_64_JUMP_SLOT __wrap_foo 0x0
+// CHECK-NEXT:     0x3020 R_X86_64_JUMP_SLOT _start 0x0
 // CHECK-NEXT:   }
 // CHECK-NEXT: ]
 

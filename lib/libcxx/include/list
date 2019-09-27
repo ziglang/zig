@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- list ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -130,11 +129,12 @@ public:
     void splice(const_iterator position, list&& x, const_iterator first,
                                                   const_iterator last);
 
-    void remove(const value_type& value);
-    template <class Pred> void remove_if(Pred pred);
-    void unique();
+    size_type remove(const value_type& value);       // void before C++20
+    template <class Pred>
+      size_type remove_if(Pred pred);                // void before C++20
+    size_type unique();                              // void before C++20
     template <class BinaryPredicate>
-        void unique(BinaryPredicate binary_pred);
+      size_type unique(BinaryPredicate binary_pred); // void before C++20
     void merge(list& x);
     void merge(list&& x);
     template <class Compare>
@@ -648,9 +648,9 @@ protected:
 
     void swap(__list_imp& __c)
 #if _LIBCPP_STD_VER >= 14
-        _NOEXCEPT_DEBUG;
+        _NOEXCEPT;
 #else
-        _NOEXCEPT_DEBUG_(!__alloc_traits::propagate_on_container_swap::value ||
+        _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value ||
                     __is_nothrow_swappable<allocator_type>::value);
 #endif
 
@@ -770,9 +770,9 @@ template <class _Tp, class _Alloc>
 void
 __list_imp<_Tp, _Alloc>::swap(__list_imp& __c)
 #if _LIBCPP_STD_VER >= 14
-        _NOEXCEPT_DEBUG
+        _NOEXCEPT
 #else
-        _NOEXCEPT_DEBUG_(!__alloc_traits::propagate_on_container_swap::value ||
+        _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value ||
                     __is_nothrow_swappable<allocator_type>::value)
 #endif
 {
@@ -858,6 +858,11 @@ public:
     typedef typename base::const_iterator            const_iterator;
     typedef _VSTD::reverse_iterator<iterator>         reverse_iterator;
     typedef _VSTD::reverse_iterator<const_iterator>   const_reverse_iterator;
+#if _LIBCPP_STD_VER > 17
+    typedef size_type                                __remove_return_type;
+#else
+    typedef void                                     __remove_return_type;
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     list()
@@ -1039,9 +1044,9 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void swap(list& __c)
 #if _LIBCPP_STD_VER >= 14
-        _NOEXCEPT_DEBUG
+        _NOEXCEPT
 #else
-        _NOEXCEPT_DEBUG_(!__node_alloc_traits::propagate_on_container_swap::value ||
+        _NOEXCEPT_(!__node_alloc_traits::propagate_on_container_swap::value ||
                    __is_nothrow_swappable<__node_allocator>::value)
 #endif
         {base::swap(__c);}
@@ -1071,12 +1076,12 @@ public:
     void splice(const_iterator __p, list& __c, const_iterator __i);
     void splice(const_iterator __p, list& __c, const_iterator __f, const_iterator __l);
 
-    void remove(const value_type& __x);
-    template <class _Pred> void remove_if(_Pred __pred);
+    __remove_return_type remove(const value_type& __x);
+    template <class _Pred> __remove_return_type remove_if(_Pred __pred);
     _LIBCPP_INLINE_VISIBILITY
-    void unique();
+    __remove_return_type unique() { return unique(__equal_to<value_type>()); }
     template <class _BinaryPred>
-        void unique(_BinaryPred __binary_pred);
+        __remove_return_type unique(_BinaryPred __binary_pred);
     _LIBCPP_INLINE_VISIBILITY
     void merge(list& __c);
 #ifndef _LIBCPP_CXX03_LANG
@@ -2014,22 +2019,24 @@ list<_Tp, _Alloc>::splice(const_iterator __p, list& __c)
         base::__sz() += __c.__sz();
         __c.__sz() = 0;
 #if _LIBCPP_DEBUG_LEVEL >= 2
-        __libcpp_db* __db = __get_db();
-        __c_node* __cn1 = __db->__find_c_and_lock(this);
-        __c_node* __cn2 = __db->__find_c(&__c);
-        for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
-        {
-            --__ip;
-            iterator* __i = static_cast<iterator*>((*__ip)->__i_);
-            if (__i->__ptr_ != __c.__end_as_link())
+        if (&__c != this) {
+            __libcpp_db* __db = __get_db();
+            __c_node* __cn1 = __db->__find_c_and_lock(this);
+            __c_node* __cn2 = __db->__find_c(&__c);
+            for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
             {
-                __cn1->__add(*__ip);
-                (*__ip)->__c_ = __cn1;
-                if (--__cn2->end_ != __ip)
-                    memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                --__ip;
+                iterator* __i = static_cast<iterator*>((*__ip)->__i_);
+                if (__i->__ptr_ != __c.__end_as_link())
+                {
+                    __cn1->__add(*__ip);
+                    (*__ip)->__c_ = __cn1;
+                    if (--__cn2->end_ != __ip)
+                        memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                }
             }
+            __db->unlock();
         }
-        __db->unlock();
 #endif
     }
 }
@@ -2057,22 +2064,24 @@ list<_Tp, _Alloc>::splice(const_iterator __p, list& __c, const_iterator __i)
         --__c.__sz();
         ++base::__sz();
 #if _LIBCPP_DEBUG_LEVEL >= 2
-        __libcpp_db* __db = __get_db();
-        __c_node* __cn1 = __db->__find_c_and_lock(this);
-        __c_node* __cn2 = __db->__find_c(&__c);
-        for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
-        {
-            --__ip;
-            iterator* __j = static_cast<iterator*>((*__ip)->__i_);
-            if (__j->__ptr_ == __f)
+        if (&__c != this) {
+            __libcpp_db* __db = __get_db();
+            __c_node* __cn1 = __db->__find_c_and_lock(this);
+            __c_node* __cn2 = __db->__find_c(&__c);
+            for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
             {
-                __cn1->__add(*__ip);
-                (*__ip)->__c_ = __cn1;
-                if (--__cn2->end_ != __ip)
-                    memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                --__ip;
+                iterator* __j = static_cast<iterator*>((*__ip)->__i_);
+                if (__j->__ptr_ == __f)
+                {
+                    __cn1->__add(*__ip);
+                    (*__ip)->__c_ = __cn1;
+                    if (--__cn2->end_ != __ip)
+                        memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                }
             }
+            __db->unlock();
         }
-        __db->unlock();
 #endif
     }
 }
@@ -2111,32 +2120,34 @@ list<_Tp, _Alloc>::splice(const_iterator __p, list& __c, const_iterator __f, con
         base::__unlink_nodes(__first, __last);
         __link_nodes(__p.__ptr_, __first, __last);
 #if _LIBCPP_DEBUG_LEVEL >= 2
-        __libcpp_db* __db = __get_db();
-        __c_node* __cn1 = __db->__find_c_and_lock(this);
-        __c_node* __cn2 = __db->__find_c(&__c);
-        for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
-        {
-            --__ip;
-            iterator* __j = static_cast<iterator*>((*__ip)->__i_);
-            for (__link_pointer __k = __f.__ptr_;
-                                          __k != __l.__ptr_; __k = __k->__next_)
+        if (&__c != this) {
+            __libcpp_db* __db = __get_db();
+            __c_node* __cn1 = __db->__find_c_and_lock(this);
+            __c_node* __cn2 = __db->__find_c(&__c);
+            for (__i_node** __ip = __cn2->end_; __ip != __cn2->beg_;)
             {
-                if (__j->__ptr_ == __k)
+                --__ip;
+                iterator* __j = static_cast<iterator*>((*__ip)->__i_);
+                for (__link_pointer __k = __f.__ptr_;
+                                              __k != __l.__ptr_; __k = __k->__next_)
                 {
-                    __cn1->__add(*__ip);
-                    (*__ip)->__c_ = __cn1;
-                    if (--__cn2->end_ != __ip)
-                        memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                    if (__j->__ptr_ == __k)
+                    {
+                        __cn1->__add(*__ip);
+                        (*__ip)->__c_ = __cn1;
+                        if (--__cn2->end_ != __ip)
+                            memmove(__ip, __ip+1, (__cn2->end_ - __ip)*sizeof(__i_node*));
+                    }
                 }
             }
+            __db->unlock();
         }
-        __db->unlock();
 #endif
     }
 }
 
 template <class _Tp, class _Alloc>
-void
+typename list<_Tp, _Alloc>::__remove_return_type
 list<_Tp, _Alloc>::remove(const value_type& __x)
 {
     list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
@@ -2155,13 +2166,16 @@ list<_Tp, _Alloc>::remove(const value_type& __x)
         else
             ++__i;
     }
+
+    return (__remove_return_type) __deleted_nodes.size();
 }
 
 template <class _Tp, class _Alloc>
 template <class _Pred>
-void
+typename list<_Tp, _Alloc>::__remove_return_type
 list<_Tp, _Alloc>::remove_if(_Pred __pred)
 {
+    list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
     for (iterator __i = begin(), __e = end(); __i != __e;)
     {
         if (__pred(*__i))
@@ -2169,36 +2183,36 @@ list<_Tp, _Alloc>::remove_if(_Pred __pred)
             iterator __j = _VSTD::next(__i);
             for (; __j != __e && __pred(*__j); ++__j)
                 ;
-            __i = erase(__i, __j);
+            __deleted_nodes.splice(__deleted_nodes.end(), *this, __i, __j);
+            __i = __j;
             if (__i != __e)
                 ++__i;
         }
         else
             ++__i;
     }
-}
 
-template <class _Tp, class _Alloc>
-inline
-void
-list<_Tp, _Alloc>::unique()
-{
-    unique(__equal_to<value_type>());
+    return (__remove_return_type) __deleted_nodes.size();
 }
 
 template <class _Tp, class _Alloc>
 template <class _BinaryPred>
-void
+typename list<_Tp, _Alloc>::__remove_return_type
 list<_Tp, _Alloc>::unique(_BinaryPred __binary_pred)
 {
+    list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
     for (iterator __i = begin(), __e = end(); __i != __e;)
     {
         iterator __j = _VSTD::next(__i);
         for (; __j != __e && __binary_pred(*__i, *__j); ++__j)
             ;
-        if (++__i != __j)
-            __i = erase(__i, __j);
+        if (++__i != __j) {
+            __deleted_nodes.splice(__deleted_nodes.end(), *this, __i, __j);
+            __i = __j;
+            }
     }
+    
+    return (__remove_return_type) __deleted_nodes.size();
 }
 
 template <class _Tp, class _Alloc>

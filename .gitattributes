@@ -1,4 +1,5 @@
 *.zig text eol=lf
+*.txt text eol=lf
 langref.html.in text eol=lf
 
 deps/* linguist-vendored

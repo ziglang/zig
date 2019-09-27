@@ -39,13 +39,13 @@
 # struct Struct {
 #   int x;
 # };
-# 
+#
 # using IntTypedef = int;
 # using StructTypedef = Struct;
 # Struct S;
 # StructTypedef SS;
 # IntTypedef I;
-# 
+#
 # int main(int argc, char **argv) {
 #   using LocalTypedef = Struct*;
 #   LocalTypedef SPtr;

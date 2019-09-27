@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld -e A %t -o %t2
-# RUN: llvm-readobj -symbols %t2 | FileCheck %s --check-prefix=NOSORT
+# RUN: llvm-readobj --symbols %t2 | FileCheck %s --check-prefix=NOSORT
 
 # RUN: echo "A B 10" > %t.call_graph
 # RUN: echo "A B 10" >> %t.call_graph
@@ -25,7 +25,7 @@
 # RUN: echo "TooManyPreds9 TooManyPreds 10" >> %t.call_graph
 # RUN: echo "TooManyPreds10 TooManyPreds 11" >> %t.call_graph
 # RUN: ld.lld -e A %t --call-graph-ordering-file %t.call_graph -o %t2
-# RUN: llvm-readobj -symbols %t2 | FileCheck %s
+# RUN: llvm-readobj --symbols %t2 | FileCheck %s
 
     .section    .text.D,"ax",@progbits
 D:

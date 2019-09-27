@@ -22,6 +22,7 @@ _start:
  .space 32 * 1024 * 1024
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:    11000:       00 00 00 ea     b       #0 <__ARMv7ABSLongThunk_undefined_weak_we_expect_a_plt_entry_for>
 // CHECK-NEXT:    11004:       02 00 00 eb     bl      #8 <__ARMv7ABSLongThunk_bar2>

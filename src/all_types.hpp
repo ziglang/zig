@@ -1351,7 +1351,7 @@ struct ZigTypeBoundFn {
 };
 
 struct ZigTypeVector {
-    // The type must be a pointer, integer, or float
+    // The type must be a pointer, integer, bool, or float
     ZigType *elem_type;
     uint32_t len;
 };
@@ -1611,6 +1611,8 @@ enum BuiltinFnId {
     BuiltinFnIdIntToEnum,
     BuiltinFnIdIntType,
     BuiltinFnIdVectorType,
+    BuiltinFnIdShuffle,
+    BuiltinFnIdSplat,
     BuiltinFnIdSetCold,
     BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
@@ -1770,6 +1772,7 @@ struct ZigLLVMFnKey {
         } overflow_arithmetic;
         struct {
             uint32_t bit_count;
+            uint32_t vector_len; // 0 means not a vector
         } bswap;
         struct {
             uint32_t bit_count;
@@ -2428,6 +2431,9 @@ enum IrInstructionId {
     IrInstructionIdBoolToInt,
     IrInstructionIdIntType,
     IrInstructionIdVectorType,
+    IrInstructionIdShuffleVector,
+    IrInstructionIdSplatSrc,
+    IrInstructionIdSplatGen,
     IrInstructionIdBoolNot,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
@@ -3667,6 +3673,28 @@ struct IrInstructionVectorToArray {
 
     IrInstruction *vector;
     IrInstruction *result_loc;
+};
+
+struct IrInstructionShuffleVector {
+    IrInstruction base;
+
+    IrInstruction *scalar_type;
+    IrInstruction *a;
+    IrInstruction *b;
+    IrInstruction *mask; // This is in zig-format, not llvm format
+};
+
+struct IrInstructionSplatSrc {
+    IrInstruction base;
+
+    IrInstruction *len;
+    IrInstruction *scalar;
+};
+
+struct IrInstructionSplatGen {
+    IrInstruction base;
+
+    IrInstruction *scalar;
 };
 
 struct IrInstructionAssertZero {

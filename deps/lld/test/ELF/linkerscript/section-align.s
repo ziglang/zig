@@ -7,7 +7,7 @@
 # RUN:   .ccc : ALIGN(4096 * 8) { *(.ccc) } \
 # RUN: }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -sections %t1 | FileCheck %s
+# RUN: llvm-readobj --sections %t1 | FileCheck %s
 
 .global _start
 _start:

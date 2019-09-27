@@ -17,18 +17,18 @@
 
 # Verify that the .sec2 was indeed placed in a PT_LOAD where the PhysAddr
 # overlaps with where .sec1 is loaded:
-# RUN: llvm-readobj -sections -program-headers -elf-output-style=GNU %t.so | FileCheck %s -check-prefix BAD-LMA
+# RUN: llvm-readelf --sections -l %t.so | FileCheck %s -check-prefix BAD-LMA
 # BAD-LMA-LABEL: Section Headers:
 # BAD-LMA: .sec1             PROGBITS        0000000000008000 002000 000100 00  WA  0   0  1
 # BAD-LMA: .sec2             PROGBITS        0000000000008800 002800 000100 00  WA  0   0  1
 # BAD-LMA-LABEL: Program Headers:
 # BAD-LMA-NEXT:  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
 # BAD-LMA-NEXT:  LOAD           0x001000 0x0000000000000000 0x0000000000000000 0x000100 0x000100 R E 0x1000
+# BAD-LMA-NEXT:  LOAD           0x001100 0x0000000000000100 0x0000000000000100 0x000070 0x000070 RW  0x1000
 # BAD-LMA-NEXT:  LOAD           0x002000 0x0000000000008000 0x0000000000008000 0x000100 0x000100 RW  0x1000
-# BAD-LMA-NEXT:  LOAD           0x002800 0x0000000000008800 0x0000000000008080 0x000170 0x000170 RW  0x1000
 # BAD-LMA-LABEL: Section to Segment mapping:
-# BAD-LMA:  01     .sec1
-# BAD-LMA:  02     .sec2 .dynamic
+# BAD-LMA:  01     .text .dynamic
+# BAD-LMA:  02     .sec1
 
 # Now try a script where the virtual memory addresses overlap but ensure that the
 # load addresses don't:
@@ -43,18 +43,18 @@
 
 # Check that the expected binary was created with --noinhibit-exec:
 # RUN: ld.lld -o %t.so --script %t-vaddr.script %t.o -shared --noinhibit-exec
-# RUN: llvm-readobj -sections -program-headers -elf-output-style=GNU %t.so | FileCheck %s -check-prefix BAD-VADDR
+# RUN: llvm-readelf --sections -l %t.so | FileCheck %s -check-prefix BAD-VADDR
 # BAD-VADDR-LABEL: Section Headers:
 # BAD-VADDR: .sec1             PROGBITS        0000000000008000 002000 000100 00  WA  0   0  1
 # BAD-VADDR: .sec2             PROGBITS        0000000000008020 003020 000100 00  WA  0   0  1
 # BAD-VADDR-LABEL: Program Headers:
 # BAD-VADDR-NEXT:  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
 # BAD-VADDR-NEXT:  LOAD           0x001000 0x0000000000000000 0x0000000000000000 0x000100 0x000100 R E 0x1000
+# BAD-VADDR-NEXT:  LOAD           0x001100 0x0000000000000100 0x0000000000000100 0x000070 0x000070 RW  0x1000
 # BAD-VADDR-NEXT:  LOAD           0x002000 0x0000000000008000 0x0000000000008000 0x000100 0x000100 RW  0x1000
-# BAD-VADDR-NEXT:  LOAD           0x003020 0x0000000000008020 0x0000000000008800 0x000170 0x000170 RW  0x1000
 # BAD-VADDR-LABEL: Section to Segment mapping:
-# BAD-VADDR:  01     .sec1
-# BAD-VADDR:  02     .sec2 .dynamic
+# BAD-VADDR:  01     .text .dynamic
+# BAD-VADDR:  02     .sec1
 
 # Finally check the case where both LMA and vaddr overlap
 
@@ -91,16 +91,16 @@
 # Starting here the contents of .sec2 overwrites .sec1:
 # BROKEN-OUTPUT-FILE-NEXT: 8040 02020202 02020202 02020202 02020202
 
-# RUN: llvm-readobj -sections -program-headers -elf-output-style=GNU %t.so | FileCheck %s -check-prefix BAD-BOTH
+# RUN: llvm-readelf --sections -l %t.so | FileCheck %s -check-prefix BAD-BOTH
 # BAD-BOTH-LABEL: Section Headers:
 # BAD-BOTH: .sec1             PROGBITS        0000000000008000 002000 000100 00  WA  0   0  1
 # BAD-BOTH: .sec2             PROGBITS        0000000000008040 002040 000100 00  WA  0   0  1
 # BAD-BOTH-LABEL: Program Headers:
 # BAD-BOTH-NEXT:  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
 # BAD-BOTH-NEXT:  LOAD 0x001000 0x0000000000000000 0x0000000000000000 0x000100 0x000100 R E 0x1000
-# BAD-BOTH-NEXT:  LOAD           0x002000 0x0000000000008000 0x0000000000008000 0x0001b0 0x0001b0 RW  0x1000
+# BAD-BOTH-NEXT:  LOAD           0x001100 0x0000000000000100 0x0000000000000100 0x000070 0x000070 RW  0x1000
 # BAD-BOTH-LABEL: Section to Segment mapping:
-# BAD-BOTH:   01     .sec1 .sec2 .dynamic
+# BAD-BOTH:   01     .text .dynamic
 
 .section        .first_sec,"aw",@progbits
 .rept 0x100

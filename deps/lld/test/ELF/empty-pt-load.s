@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t.so -shared
-// RUN: llvm-readobj -l --elf-output-style=GNU %t.so | FileCheck %s
+// RUN: llvm-readelf -l %t.so | FileCheck %s
 
 // Test that we don't create an empty executable PT_LOAD.
 

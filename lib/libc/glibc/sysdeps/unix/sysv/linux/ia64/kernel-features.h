@@ -26,8 +26,10 @@
 #define __ASSUME_SEND_SYSCALL		1
 #define __ASSUME_ACCEPT4_SYSCALL	1
 
-/* No statx system call on ia64 yet.  */
-#undef __ASSUME_STATX
+/* Support for statx was added in 5.1.  */
+#if __LINUX_KERNEL_VERSION < 0x050100
+# undef __ASSUME_STATX
+#endif
 
 #undef __ASSUME_CLONE_DEFAULT
 #define __ASSUME_CLONE2

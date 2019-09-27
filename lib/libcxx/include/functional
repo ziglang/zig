@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===------------------------ functional ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -230,6 +229,10 @@ template<class Fn, class... BoundArgs>
   unspecified bind(Fn&&, BoundArgs&&...);
 template<class R, class Fn, class... BoundArgs>
   unspecified bind(Fn&&, BoundArgs&&...);
+
+template<class F, class... Args>
+ invoke_result_t<F, Args...> invoke(F&& f, Args&&... args) // C++17
+    noexcept(is_nothrow_invocable_v<F, Args...>);
 
 namespace placeholders {
   // M is the implementation-defined number of placeholders
@@ -1476,6 +1479,8 @@ namespace __function {
 // __alloc_func holds a functor and an allocator.
 
 template <class _Fp, class _Ap, class _FB> class __alloc_func;
+template <class _Fp, class _FB>
+class __default_alloc_func;
 
 template <class _Fp, class _Ap, class _Rp, class... _ArgTypes>
 class __alloc_func<_Fp, _Ap, _Rp(_ArgTypes...)>
@@ -1483,14 +1488,15 @@ class __alloc_func<_Fp, _Ap, _Rp(_ArgTypes...)>
     __compressed_pair<_Fp, _Ap> __f_;
 
   public:
-    typedef _Fp _Target;
-    typedef _Ap _Alloc;
+    typedef _LIBCPP_NODEBUG_TYPE _Fp _Target;
+    typedef _LIBCPP_NODEBUG_TYPE _Ap _Alloc;
 
     _LIBCPP_INLINE_VISIBILITY
     const _Target& __target() const { return __f_.first(); }
 
+    // WIN32 APIs may define __allocator, so use __get_allocator instead.
     _LIBCPP_INLINE_VISIBILITY
-    const _Alloc& __allocator() const { return __f_.second(); }
+    const _Alloc& __get_allocator() const { return __f_.second(); }
 
     _LIBCPP_INLINE_VISIBILITY
     explicit __alloc_func(_Target&& __f)
@@ -1544,6 +1550,56 @@ class __alloc_func<_Fp, _Ap, _Rp(_ArgTypes...)>
 
     _LIBCPP_INLINE_VISIBILITY
     void destroy() _NOEXCEPT { __f_.~__compressed_pair<_Target, _Alloc>(); }
+
+    static void __destroy_and_delete(__alloc_func* __f) {
+      typedef allocator_traits<_Alloc> __alloc_traits;
+      typedef typename __rebind_alloc_helper<__alloc_traits, __alloc_func>::type
+          _FunAlloc;
+      _FunAlloc __a(__f->__get_allocator());
+      __f->destroy();
+      __a.deallocate(__f, 1);
+    }
+};
+
+template <class _Fp, class _Rp, class... _ArgTypes>
+class __default_alloc_func<_Fp, _Rp(_ArgTypes...)> {
+  _Fp __f_;
+
+public:
+  typedef _LIBCPP_NODEBUG_TYPE _Fp _Target;
+
+  _LIBCPP_INLINE_VISIBILITY
+  const _Target& __target() const { return __f_; }
+
+  _LIBCPP_INLINE_VISIBILITY
+  explicit __default_alloc_func(_Target&& __f) : __f_(std::move(__f)) {}
+
+  _LIBCPP_INLINE_VISIBILITY
+  explicit __default_alloc_func(const _Target& __f) : __f_(__f) {}
+
+  _LIBCPP_INLINE_VISIBILITY
+  _Rp operator()(_ArgTypes&&... __arg) {
+    typedef __invoke_void_return_wrapper<_Rp> _Invoker;
+    return _Invoker::__call(__f_, _VSTD::forward<_ArgTypes>(__arg)...);
+  }
+
+  _LIBCPP_INLINE_VISIBILITY
+  __default_alloc_func* __clone() const {
+      __builtin_new_allocator::__holder_t __hold =
+        __builtin_new_allocator::__allocate_type<__default_alloc_func>(1);
+    __default_alloc_func* __res =
+        ::new (__hold.get()) __default_alloc_func(__f_);
+    (void)__hold.release();
+    return __res;
+  }
+
+  _LIBCPP_INLINE_VISIBILITY
+  void destroy() _NOEXCEPT { __f_.~_Target(); }
+
+  static void __destroy_and_delete(__default_alloc_func* __f) {
+    __f->destroy();
+      __builtin_new_allocator::__deallocate_type<__default_alloc_func>(__f, 1);
+  }
 };
 
 // __base provides an abstract interface for copyable functors.
@@ -1612,7 +1668,7 @@ __func<_Fp, _Alloc, _Rp(_ArgTypes...)>::__clone() const
 {
     typedef allocator_traits<_Alloc> __alloc_traits;
     typedef typename __rebind_alloc_helper<__alloc_traits, __func>::type _Ap;
-    _Ap __a(__f_.__allocator());
+    _Ap __a(__f_.__get_allocator());
     typedef __allocator_destructor<_Ap> _Dp;
     unique_ptr<__func, _Dp> __hold(__a.allocate(1), _Dp(__a, 1));
     ::new ((void*)__hold.get()) __func(__f_.__target(), _Alloc(__a));
@@ -1623,7 +1679,7 @@ template<class _Fp, class _Alloc, class _Rp, class ..._ArgTypes>
 void
 __func<_Fp, _Alloc, _Rp(_ArgTypes...)>::__clone(__base<_Rp(_ArgTypes...)>* __p) const
 {
-    ::new (__p) __func(__f_.__target(), __f_.__allocator());
+    ::new (__p) __func(__f_.__target(), __f_.__get_allocator());
 }
 
 template<class _Fp, class _Alloc, class _Rp, class ..._ArgTypes>
@@ -1639,7 +1695,7 @@ __func<_Fp, _Alloc, _Rp(_ArgTypes...)>::destroy_deallocate() _NOEXCEPT
 {
     typedef allocator_traits<_Alloc> __alloc_traits;
     typedef typename __rebind_alloc_helper<__alloc_traits, __func>::type _Ap;
-    _Ap __a(__f_.__allocator());
+    _Ap __a(__f_.__get_allocator());
     __f_.destroy();
     __a.deallocate(this, 1);
 }
@@ -1692,7 +1748,7 @@ template <class _Rp, class... _ArgTypes> class __value_func<_Rp(_ArgTypes...)>
     __value_func() _NOEXCEPT : __f_(0) {}
 
     template <class _Fp, class _Alloc>
-    _LIBCPP_INLINE_VISIBILITY __value_func(_Fp&& __f, const _Alloc __a)
+    _LIBCPP_INLINE_VISIBILITY __value_func(_Fp&& __f, const _Alloc& __a)
         : __f_(0)
     {
         typedef allocator_traits<_Alloc> __alloc_traits;
@@ -1719,6 +1775,11 @@ template <class _Rp, class... _ArgTypes> class __value_func<_Rp(_ArgTypes...)>
             }
         }
     }
+
+    template <class _Fp,
+        class = typename enable_if<!is_same<typename decay<_Fp>::type, __value_func>::value>::type>
+    _LIBCPP_INLINE_VISIBILITY explicit __value_func(_Fp&& __f)
+        : __value_func(std::forward<_Fp>(__f), allocator<_Fp>()) {}
 
     _LIBCPP_INLINE_VISIBILITY
     __value_func(const __value_func& __f)
@@ -1919,29 +1980,22 @@ struct __policy
         return __f->__clone();
     }
 
-    template <typename _Fun> static void __large_destroy(void* __s)
-    {
-        typedef allocator_traits<typename _Fun::_Alloc> __alloc_traits;
-        typedef typename __rebind_alloc_helper<__alloc_traits, _Fun>::type
-            _FunAlloc;
-        _Fun* __f = static_cast<_Fun*>(__s);
-        _FunAlloc __a(__f->__allocator());
-        __f->destroy();
-        __a.deallocate(__f, 1);
+    template <typename _Fun>
+    static void __large_destroy(void* __s) {
+      _Fun::__destroy_and_delete(static_cast<_Fun*>(__s));
     }
 
     template <typename _Fun>
     _LIBCPP_INLINE_VISIBILITY static const __policy*
-        __choose_policy(/* is_small = */ false_type)
-    {
-        static const _LIBCPP_CONSTEXPR __policy __policy_ = {
-            &__large_clone<_Fun>, &__large_destroy<_Fun>, false,
+    __choose_policy(/* is_small = */ false_type) {
+      static const _LIBCPP_CONSTEXPR __policy __policy_ = {
+          &__large_clone<_Fun>, &__large_destroy<_Fun>, false,
 #ifndef _LIBCPP_NO_RTTI
-            &typeid(typename _Fun::_Target)
+          &typeid(typename _Fun::_Target)
 #else
-            nullptr
+          nullptr
 #endif
-        };
+      };
         return &__policy_;
     }
 
@@ -2066,6 +2120,25 @@ template <class _Rp, class... _ArgTypes> class __policy_func<_Rp(_ArgTypes...)>
         }
     }
 
+    template <class _Fp, class = typename enable_if<!is_same<typename decay<_Fp>::type, __policy_func>::value>::type>
+    _LIBCPP_INLINE_VISIBILITY explicit __policy_func(_Fp&& __f)
+        : __policy_(__policy::__create_empty()) {
+      typedef __default_alloc_func<_Fp, _Rp(_ArgTypes...)> _Fun;
+
+      if (__function::__not_null(__f)) {
+        __invoker_ = __invoker::template __create<_Fun>();
+        __policy_ = __policy::__create<_Fun>();
+        if (__use_small_storage<_Fun>()) {
+          ::new ((void*)&__buf_.__small) _Fun(_VSTD::move(__f));
+        } else {
+          __builtin_new_allocator::__holder_t __hold =
+              __builtin_new_allocator::__allocate_type<_Fun>(1);
+          __buf_.__large = ::new (__hold.get()) _Fun(_VSTD::move(__f));
+          (void)__hold.release();
+        }
+      }
+    }
+
     _LIBCPP_INLINE_VISIBILITY
     __policy_func(const __policy_func& __f)
         : __buf_(__f.__buf_), __invoker_(__f.__invoker_),
@@ -2173,8 +2246,8 @@ class _LIBCPP_TEMPLATE_VIS function<_Rp(_ArgTypes...)>
 
     __func __f_;
 
-    template <class _Fp, bool = __lazy_and<
-        integral_constant<bool, !is_same<__uncvref_t<_Fp>, function>::value>,
+    template <class _Fp, bool = _And<
+        _IsNotSame<__uncvref_t<_Fp>, function>,
         __invokable<_Fp&, _ArgTypes...>
     >::value>
     struct __callable;
@@ -2286,8 +2359,7 @@ function<_Rp(_ArgTypes...)>::function(allocator_arg_t, const _Alloc&,
 
 template <class _Rp, class... _ArgTypes>
 template <class _Fp, class>
-function<_Rp(_ArgTypes...)>::function(_Fp __f)
-    : __f_(_VSTD::move(__f), allocator<_Fp>()) {}
+function<_Rp(_ArgTypes...)>::function(_Fp __f) : __f_(_VSTD::move(__f)) {}
 
 #if _LIBCPP_STD_VER <= 14
 template <class _Rp, class... _ArgTypes>
@@ -2484,7 +2556,7 @@ __mu_expand(_Ti& __ti, tuple<_Uj...>& __uj, __tuple_indices<_Indx...>)
 
 template <class _Ti, class ..._Uj>
 inline _LIBCPP_INLINE_VISIBILITY
-typename __lazy_enable_if
+typename _EnableIf
 <
     is_bind_expression<_Ti>::value,
     __invoke_of<_Ti&, _Uj...>
@@ -2769,9 +2841,9 @@ bind(_Fp&& __f, _BoundArgs&&... __bound_args)
 #if _LIBCPP_STD_VER > 14
 
 template <class _Fn, class ..._Args>
-result_of_t<_Fn&&(_Args&&...)>
+invoke_result_t<_Fn, _Args...>
 invoke(_Fn&& __f, _Args&&... __args)
-    noexcept(noexcept(_VSTD::__invoke(_VSTD::forward<_Fn>(__f), _VSTD::forward<_Args>(__args)...)))
+    noexcept(is_nothrow_invocable_v<_Fn, _Args...>)
 {
     return _VSTD::__invoke(_VSTD::forward<_Fn>(__f), _VSTD::forward<_Args>(__args)...);
 }

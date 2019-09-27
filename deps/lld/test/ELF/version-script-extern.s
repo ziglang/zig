@@ -8,7 +8,7 @@
 # RUN: echo '  extern "C" { _Z3bari; };' >> %t.script
 # RUN: echo "};" >> %t.script
 # RUN: ld.lld --hash-style=sysv --version-script %t.script -soname fixed-length-string -shared %t.o -o %t.so
-# RUN: llvm-readobj -V -dyn-symbols %t.so | FileCheck --check-prefix=DSO %s
+# RUN: llvm-readobj -V --dyn-syms %t.so | FileCheck --check-prefix=DSO %s
 
 # DSO:      DynamicSymbols [
 # DSO-NEXT:    Symbol {

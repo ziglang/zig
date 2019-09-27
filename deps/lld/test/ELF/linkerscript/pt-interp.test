@@ -5,17 +5,17 @@
 ## Check we create PT_INTERP program header when it is specified in PHDRS.
 # RUN: echo "PHDRS { interp PT_INTERP; }" > %t1.script
 # RUN: ld.lld -o %t1 --script %t1.script %t.o %t.so --dynamic-linker foo
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s
 # CHECK: PT_INTERP
 
 ## Check we do not create it if it is not specified,
 ## but only if PHDRS is not empty by itself.
 # RUN: echo "PHDRS { ph_text PT_LOAD; }" > %t2.script
 # RUN: ld.lld -o %t1 --script %t2.script %t.o %t.so --dynamic-linker foo
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s --check-prefix=NOINTERP
+# RUN: llvm-readobj -l %t1 | FileCheck %s --check-prefix=NOINTERP
 # NOINTERP-NOT: PT_INTERP
 
 ## Otherwise, if PHDRS is empty, we create PT_INTERP header.
 # RUN: echo "PHDRS {}" > %t3.script
 # RUN: ld.lld -o %t1 --script %t3.script %t.o %t.so --dynamic-linker foo
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s

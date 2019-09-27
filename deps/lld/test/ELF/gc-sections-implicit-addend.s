@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=i386-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t --gc-sections
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 # RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
 # CHECK:      Name: .foo

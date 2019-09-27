@@ -8,8 +8,8 @@
 # CHECK-NEXT: .hash    {{.*}}   A
 # CHECK-NEXT: .dynstr  {{.*}}   A
 # CHECK-NEXT: .text    {{.*}}   AX
-# CHECK-NEXT: foo      {{.*}}  WA
 # CHECK-NEXT: .dynamic {{.*}}  WA
+# CHECK-NEXT: foo      {{.*}}  WA
 
 .section foo, "aw"
 .byte 0

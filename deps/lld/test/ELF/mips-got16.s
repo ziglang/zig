@@ -4,9 +4,10 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-objdump -d -t %t.so | FileCheck %s
-# RUN: llvm-readobj -r -mips-plt-got %t.so | FileCheck -check-prefix=GOT %s
+# RUN: llvm-readelf -r --mips-plt-got %t.so | FileCheck -check-prefix=GOT %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:    10000:       8f 88 80 18     lw      $8, -32744($gp)
 # CHECK-NEXT:    10004:       21 08 00 2c     addi    $8, $8, 44
@@ -24,83 +25,29 @@
 # CHECK: 00041008         .data           00000000 .hidden bar
 # CHECK: 00000000         *UND*           00000000 foo
 
-# GOT:      Relocations [
-# GOT-NEXT: ]
+# GOT: There are no relocations in this file.
 
-# GOT:      Primary GOT {
-# GOT-NEXT:   Canonical gp value:
-# GOT-NEXT:   Reserved entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32752
-# GOT-NEXT:       Initial: 0x0
-# GOT-NEXT:       Purpose: Lazy resolver
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32748
-# GOT-NEXT:       Initial: 0x80000000
-# GOT-NEXT:       Purpose: Module pointer (GNU extension)
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Local entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32744
-# GOT-NEXT:       Initial: 0x10000
-#                          ^-- (0x1002c + 0x8000) & ~0xffff
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32740
-# GOT-NEXT:       Initial: 0x20000
-#                          ^-- redundant unused entry
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32736
-# GOT-NEXT:       Initial: 0x20000
-#                          ^-- redundant unused entry
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32732
-# GOT-NEXT:       Initial: 0x30000
-#                          ^-- (0x29000 + 0x8000) & ~0xffff
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32728
-# GOT-NEXT:       Initial: 0x40000
-#                          ^-- (0x29000 + 0x10004 + 0x8000) & ~0xffff
-#                          ^-- (0x29000 + 0x18004 + 0x8000) & ~0xffff
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32724
-# GOT-NEXT:       Initial: 0x50000
-#                          ^-- redundant unused entry
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32720
-# GOT-NEXT:       Initial: 0x41008
-#                          ^-- 'bar' address
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Global entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32716
-# GOT-NEXT:       Initial: 0x0
-# GOT-NEXT:       Value: 0x0
-# GOT-NEXT:       Type: None
-# GOT-NEXT:       Section: Undefined
-# GOT-NEXT:       Name: foo
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Number of TLS and multi-GOT entries: 0
-# GOT-NEXT: }
+# GOT:       Local entries:
+# GOT-NEXT:    Address     Access  Initial
+# GOT-NEXT:   00041018 -32744(gp) 00010000
+#                                 ^-- (0x1002c + 0x8000) & ~0xffff
+# GOT-NEXT:   0004101c -32740(gp) 00020000
+#                                 ^-- redundant unused entry
+# GOT-NEXT:   00041020 -32736(gp) 00020000
+#                                 ^-- redundant unused entry
+# GOT-NEXT:   00041024 -32732(gp) 00030000
+#                                 ^-- (0x29000 + 0x8000) & ~0xffff
+# GOT-NEXT:   00041028 -32728(gp) 00040000
+#                                 ^-- (0x29000 + 0x10004 + 0x8000) & ~0xffff
+#                                 ^-- (0x29000 + 0x18004 + 0x8000) & ~0xffff
+# GOT-NEXT:   0004102c -32724(gp) 00050000
+#                                 ^-- redundant unused entry
+# GOT-NEXT:   00041030 -32720(gp) 00041008
+#                                 ^-- 'bar' address
+# GOT-EMPTY:
+# GOT-NEXT:  Global entries:
+# GOT-NEXT:    Address     Access  Initial Sym.Val. Type    Ndx Name
+# GOT-NEXT:   00041034 -32716(gp) 00000000 00000000 NOTYPE  UND foo
 
   .text
   .globl  __start

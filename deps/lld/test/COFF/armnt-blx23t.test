@@ -6,6 +6,7 @@
 # RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
 
 # BEFORE: Disassembly of section .text:
+# BEFORE-EMPTY:
 # BEFORE:        0: 70 47         bx lr
 # BEFORE:        2: 00 bf         nop
 # BEFORE:        4: 2d e9 00 48   push.w {r11, lr}
@@ -16,6 +17,7 @@
 # BEFORE:       12: bd e8 00 88   pop.w {r11, pc}
 
 # AFTER: Disassembly of section .text:
+# AFTER-EMPTY:
 # AFTER:     1000: 70 47         bx lr
 # AFTER:     1002: 00 bf         nop
 # AFTER:     1004: 2d e9 00 48   push.w {r11, lr}

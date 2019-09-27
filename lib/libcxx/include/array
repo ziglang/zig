@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- array -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -92,7 +91,7 @@ template <class T, size_t N >
   void swap(array<T,N>& x, array<T,N>& y) noexcept(noexcept(x.swap(y))); // C++17
 
 template <class T> struct tuple_size;
-template <size_t I, class T> class tuple_element;
+template <size_t I, class T> struct tuple_element;
 template <class T, size_t N> struct tuple_size<array<T, N>>;
 template <size_t I, class T, size_t N> struct tuple_element<I, array<T, N>>;
 template <size_t I, class T, size_t N> T& get(array<T, N>&) noexcept; // constexpr in C++14
@@ -191,17 +190,17 @@ struct _LIBCPP_TEMPLATE_VIS array
 
     // element access:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
-    reference operator[](size_type __n)             {return __elems_[__n];}
+    reference operator[](size_type __n)             _NOEXCEPT {return __elems_[__n];}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
-    const_reference operator[](size_type __n) const {return __elems_[__n];}
+    const_reference operator[](size_type __n) const _NOEXCEPT {return __elems_[__n];}
 
     _LIBCPP_CONSTEXPR_AFTER_CXX14       reference at(size_type __n);
     _LIBCPP_CONSTEXPR_AFTER_CXX11 const_reference at(size_type __n) const;
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 reference front()             {return __elems_[0];}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 const_reference front() const {return __elems_[0];}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 reference back()              {return __elems_[_Size - 1];}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 const_reference back() const  {return __elems_[_Size - 1];}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 reference front()             _NOEXCEPT {return __elems_[0];}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 const_reference front() const _NOEXCEPT {return __elems_[0];}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 reference back()              _NOEXCEPT {return __elems_[_Size - 1];}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 const_reference back() const  _NOEXCEPT {return __elems_[_Size - 1];}
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     value_type* data() _NOEXCEPT {return __elems_;}
@@ -304,13 +303,13 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
 
     // element access:
     _LIBCPP_INLINE_VISIBILITY
-    reference operator[](size_type) {
+    reference operator[](size_type) _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
-    const_reference operator[](size_type) const {
+    const_reference operator[](size_type) const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
@@ -328,25 +327,25 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    reference front() {
+    reference front() _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    const_reference front() const {
+    const_reference front() const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    reference back() {
+    reference back() _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    const_reference back() const {
+    const_reference back() const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
       _LIBCPP_UNREACHABLE();
     }
@@ -434,10 +433,9 @@ struct _LIBCPP_TEMPLATE_VIS tuple_size<array<_Tp, _Size> >
     : public integral_constant<size_t, _Size> {};
 
 template <size_t _Ip, class _Tp, size_t _Size>
-class _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, array<_Tp, _Size> >
+struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, array<_Tp, _Size> >
 {
     static_assert(_Ip < _Size, "Index out of bounds in std::tuple_element<> (std::array)");
-public:
     typedef _Tp type;
 };
 

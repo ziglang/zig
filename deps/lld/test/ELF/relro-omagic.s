@@ -2,12 +2,12 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t2.so -soname relro-omagic.s.tmp2.so
-# RUN: ld.lld --hash-style=sysv -N %t.o %t2.so -o %t
+# RUN: ld.lld --hash-style=sysv -N %t.o -Bdynamic %t2.so -o %t
 # RUN: llvm-objdump -section-headers %t | FileCheck --check-prefix=NORELRO %s
 # RUN: llvm-readobj --program-headers %t | FileCheck --check-prefix=NOPHDRS %s
 
 # NORELRO:      Sections:
-# NORELRO-NEXT: Idx Name          Size      Address          Type
+# NORELRO-NEXT: Idx Name          Size     VMA              Type
 # NORELRO-NEXT:   0               00000000 0000000000000000
 # NORELRO-NEXT:   1 .dynsym       00000048 0000000000200120
 # NORELRO-NEXT:   2 .hash         00000020 0000000000200168

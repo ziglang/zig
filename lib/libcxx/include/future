@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- future -----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -409,11 +408,7 @@ _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(launch)
 
 #ifndef _LIBCPP_HAS_NO_STRONG_ENUMS
 
-#ifdef _LIBCPP_UNDERLYING_TYPE
 typedef underlying_type<launch>::type __launch_underlying_type;
-#else
-typedef int __launch_underlying_type;
-#endif
 
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR
@@ -2016,7 +2011,7 @@ public:
               class = typename enable_if
               <
                   !is_same<
-                      typename __uncvref<_Fp>::type, 
+                      typename __uncvref<_Fp>::type,
                       packaged_task
                       >::value
                   >::type
@@ -2027,7 +2022,7 @@ public:
               class = typename enable_if
               <
                   !is_same<
-                      typename __uncvref<_Fp>::type, 
+                      typename __uncvref<_Fp>::type,
                       packaged_task
                       >::value
                   >::type
@@ -2145,7 +2140,7 @@ public:
               class = typename enable_if
               <
                   !is_same<
-                      typename __uncvref<_Fp>::type, 
+                      typename __uncvref<_Fp>::type,
                       packaged_task
                       >::value
                   >::type
@@ -2156,11 +2151,11 @@ public:
               class = typename enable_if
               <
                   !is_same<
-                      typename __uncvref<_Fp>::type, 
+                      typename __uncvref<_Fp>::type,
                       packaged_task
                       >::value
                   >::type
-              >    
+              >
         _LIBCPP_INLINE_VISIBILITY
         packaged_task(allocator_arg_t, const _Allocator& __a, _Fp&& __f)
              : __f_(allocator_arg, __a, _VSTD::forward<_Fp>(__f)),

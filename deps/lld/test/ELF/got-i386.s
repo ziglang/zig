@@ -1,10 +1,10 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-unknown-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t
-// RUN: llvm-readobj -s -r -t %t | FileCheck %s
+// RUN: llvm-readobj -S -r --symbols %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
-// CHECK:      Name: .got
+// CHECK:      Name: .got.plt
 // CHECK-NEXT: Type: SHT_PROGBITS
 // CHECK-NEXT: Flags [
 // CHECK-NEXT:   SHF_ALLOC
@@ -12,14 +12,14 @@
 // CHECK-NEXT: ]
 // CHECK-NEXT: Address: 0x402000
 // CHECK-NEXT: Offset:
-// CHECK-NEXT: Size: 0
+// CHECK-NEXT: Size:
 // CHECK-NEXT: Link:
 // CHECK-NEXT: Info:
 // CHECK-NEXT: AddressAlignment:
 
 // CHECK:      Symbol {
 // CHECK:       Name: bar
-// CHECK-NEXT:  Value: 0x402000
+// CHECK-NEXT:  Value: 0x40200C
 // CHECK-NEXT:  Size: 10
 // CHECK-NEXT:  Binding: Global
 // CHECK-NEXT:  Type: Object
@@ -28,7 +28,7 @@
 // CHECK-NEXT: }
 // CHECK-NEXT: Symbol {
 // CHECK-NEXT:  Name: obj
-// CHECK-NEXT:  Value: 0x40200A
+// CHECK-NEXT:  Value: 0x402016
 // CHECK-NEXT:  Size: 10
 // CHECK-NEXT:  Binding: Global
 // CHECK-NEXT:  Type: Object
@@ -40,10 +40,11 @@
 // 0x40200A - 10 = addr(.got) = 0x402000
 // 0x40200A + 5 - 15 = addr(.got) = 0x402000
 // DISASM:      Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: _start:
-// DISASM-NEXT: 401000: c7 81 00 00 00 00 01 00 00 00 movl $1, (%ecx)
-// DISASM-NEXT: 40100a: c7 81 0a 00 00 00 02 00 00 00 movl $2, 10(%ecx)
-// DISASM-NEXT: 401014: c7 81 0f 00 00 00 03 00 00 00 movl $3, 15(%ecx)
+// DISASM-NEXT: 401000: c7 81 0c 00 00 00 01 00 00 00 movl $1, 12(%ecx)
+// DISASM-NEXT: 40100a: c7 81 16 00 00 00 02 00 00 00 movl $2, 22(%ecx)
+// DISASM-NEXT: 401014: c7 81 1b 00 00 00 03 00 00 00 movl $3, 27(%ecx)
 
 .global _start
 _start:

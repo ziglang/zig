@@ -26,8 +26,8 @@
 # EL-NEXT:    20014:  7f 80 f6 ff  beqzc  $3, -36
 # EL-NEXT:    20018:  ff b7 f4 ff  balc   -24 <foo>
 
-# SYM: 00020000 g F     .text           00000000 foo
-# SYM: 00020010         .text           00000000 __start
+# SYM: 00020000 g F     .text  00000000 0x80 foo
+# SYM: 00020010         .text  00000000 0x80 __start
 
   .text
   .set micromips

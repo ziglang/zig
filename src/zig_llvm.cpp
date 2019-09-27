@@ -149,6 +149,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     return reinterpret_cast<LLVMTargetMachineRef>(TM);
 }
 
+unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
+    return unwrap(TD)->getStackAlignment();
+}
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
         bool is_small, bool time_report)
@@ -175,7 +179,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->SizeLevel = is_small ? 2 : 0;
 
     PMBuilder->DisableTailCalls = is_debug;
-    PMBuilder->DisableUnitAtATime = is_debug;
     PMBuilder->DisableUnrollLoops = is_debug;
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
@@ -721,6 +724,16 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     }
 }
 
+void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
+    Function *func = unwrap<Function>(fn_ref);
+    const AttributeList attr_set = func->getAttributes();
+    AttrBuilder attr_builder;
+    Type *llvm_type = unwrap<Type>(type_val);
+    attr_builder.addByValAttr(llvm_type);
+    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo, attr_builder);
+    func->setAttributes(new_attr_set);
+}
+
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
     Function *func = unwrap<Function>(fn_ref);
     const AttributeList attr_set = func->getAttributes();
@@ -802,6 +815,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v8m.base";
         case ZigLLVM_ARMSubArch_v8m_mainline:
             return "v8m.main";
+        case ZigLLVM_ARMSubArch_v8_1m_mainline:
+            return "v8.1m.main";
         case ZigLLVM_ARMSubArch_v7:
             return "v7";
         case ZigLLVM_ARMSubArch_v7em:
@@ -970,6 +985,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 
     switch (oformat) {
         case ZigLLVM_UnknownObjectFormat:
+        case ZigLLVM_XCOFF:
             assert(false); // unreachable
 
         case ZigLLVM_COFF:
@@ -1049,6 +1065,7 @@ static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8 == Triple::ARMSubArch_v
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8r == Triple::ARMSubArch_v8r, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_baseline == Triple::ARMSubArch_v8m_baseline, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_mainline == Triple::ARMSubArch_v8m_mainline, "");
+static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1m_mainline == Triple::ARMSubArch_v8_1m_mainline, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7 == Triple::ARMSubArch_v7, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7em == Triple::ARMSubArch_v7em, "");
 static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7m == Triple::ARMSubArch_v7m, "");
@@ -1121,6 +1138,10 @@ static_assert((Triple::OSType)ZigLLVM_WatchOS == Triple::WatchOS, "");
 static_assert((Triple::OSType)ZigLLVM_Mesa3D == Triple::Mesa3D, "");
 static_assert((Triple::OSType)ZigLLVM_Contiki == Triple::Contiki, "");
 static_assert((Triple::OSType)ZigLLVM_AMDPAL == Triple::AMDPAL, "");
+static_assert((Triple::OSType)ZigLLVM_HermitCore == Triple::HermitCore, "");
+static_assert((Triple::OSType)ZigLLVM_Hurd == Triple::Hurd, "");
+static_assert((Triple::OSType)ZigLLVM_WASI == Triple::WASI, "");
+static_assert((Triple::OSType)ZigLLVM_Emscripten == Triple::Emscripten, "");
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 
 static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");
@@ -1133,6 +1154,8 @@ static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABI == Triple::EABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_EABIHF == Triple::EABIHF, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_ELFv1 == Triple::ELFv1, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_ELFv2 == Triple::ELFv2, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Android == Triple::Android, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Musl == Triple::Musl, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_MuslEABI == Triple::MuslEABI, "");
@@ -1149,3 +1172,4 @@ static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_XCOFF == Triple::XCOFF, "");

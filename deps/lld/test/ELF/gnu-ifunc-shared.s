@@ -7,6 +7,7 @@
 // Check that an IRELATIVE relocation is used for a non-preemptible ifunc
 // handler and a JUMP_SLOT is used for a preemptible ifunc
 // DISASM: Disassembly of section .text:
+// DISASM-EMPTY:
 // DISASM-NEXT: fct:
 // DISASM-NEXT:     1000:       c3      retq
 // DISASM:     fct2:
@@ -18,30 +19,32 @@
 // DISASM-NEXT:     1011:       c3      retq
 // DISASM:     f2:
 // DISASM-NEXT:     1012:       c3      retq
+// DISASM-EMPTY:
 // DISASM-NEXT: Disassembly of section .plt:
+// DISASM-EMPTY:
 // DISASM-NEXT: .plt:
-// DISASM-NEXT:     1020:       ff 35 e2 0f 00 00       pushq   4066(%rip)
-// DISASM-NEXT:     1026:       ff 25 e4 0f 00 00       jmpq    *4068(%rip)
+// DISASM-NEXT:     1020:       ff 35 e2 1f 00 00       pushq   8162(%rip)
+// DISASM-NEXT:     1026:       ff 25 e4 1f 00 00       jmpq    *8164(%rip)
 // DISASM-NEXT:     102c:       0f 1f 40 00     nopl    (%rax)
 // DISASM-EMPTY:
 // DISASM-NEXT:   fct2@plt:
-// DISASM-NEXT:     1030:       ff 25 e2 0f 00 00       jmpq    *4066(%rip)
+// DISASM-NEXT:     1030:       ff 25 e2 1f 00 00       jmpq    *8162(%rip)
 // DISASM-NEXT:     1036:       68 00 00 00 00          pushq   $0
 // DISASM-NEXT:     103b:       e9 e0 ff ff ff          jmp     -32 <.plt>
 // DISASM-EMPTY:
 // DISASM-NEXT:   f2@plt:
-// DISASM-NEXT:     1040:       ff 25 da 0f 00 00       jmpq    *4058(%rip)
+// DISASM-NEXT:     1040:       ff 25 da 1f 00 00       jmpq    *8154(%rip)
 // DISASM-NEXT:     1046:       68 01 00 00 00          pushq   $1
 // DISASM-NEXT:     104b:       e9 d0 ff ff ff          jmp     -48 <.plt>
-// DISASM-NEXT:     1050:       ff 25 d2 0f 00 00       jmpq    *4050(%rip)
+// DISASM-NEXT:     1050:       ff 25 d2 1f 00 00       jmpq    *8146(%rip)
 // DISASM-NEXT:     1056:       68 00 00 00 00          pushq   $0
 // DISASM-NEXT:     105b:       e9 e0 ff ff ff          jmp     -32 <f2@plt>
 
 // CHECK: Relocations [
 // CHECK-NEXT:   Section (4) .rela.plt {
-// CHECK-NEXT:     0x2018 R_X86_64_JUMP_SLOT fct2 0x0
-// CHECK-NEXT:     0x2020 R_X86_64_JUMP_SLOT f2 0x0
-// CHECK-NEXT:     0x2028 R_X86_64_IRELATIVE - 0x1000
+// CHECK-NEXT:     0x3018 R_X86_64_JUMP_SLOT fct2 0x0
+// CHECK-NEXT:     0x3020 R_X86_64_JUMP_SLOT f2 0x0
+// CHECK-NEXT:     0x3028 R_X86_64_IRELATIVE - 0x1000
 
  // Hidden expect IRELATIVE
  .globl fct

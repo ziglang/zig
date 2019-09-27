@@ -1,0 +1,8 @@
+RUN: llc -filetype=obj %p/Inputs/start.ll -o %t.foo.o
+
+# Check -t
+RUN: wasm-ld %t.foo.o -o %t.t.out.wasm -t 2>&1 | FileCheck %s
+CHECK: {{.*}}.foo.o
+
+# Check --trace alias
+RUN: wasm-ld %t.foo.o -o %t.trace.out.wasm --trace 2>&1 | FileCheck %s

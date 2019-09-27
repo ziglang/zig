@@ -12,7 +12,7 @@
 ## 3) Address of _end is different from _edata because of 2.
 ## 4) Addresses of _edata == edata, _end == end and _etext == etext.
 # CHECK:      Sections:
-# CHECK-NEXT:  Idx Name          Size      Address          Type
+# CHECK-NEXT:  Idx Name          Size     VMA              Type
 # CHECK-NEXT:    0               00000000 0000000000000000
 # CHECK-NEXT:    1 .text         00000001 0000000000201000 TEXT
 # CHECK-NEXT:    2 .data         00000002 0000000000202000 DATA

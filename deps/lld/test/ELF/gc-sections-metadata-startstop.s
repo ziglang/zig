@@ -11,7 +11,7 @@
 # CHECK-NOT: yy
 
 # CHECK: SYMBOL TABLE:
-# CHECK: xx 00000000 __start_xx
+# CHECK:   xx    00000000 .protected __start_xx
 # CHECK: w *UND* 00000000 __start_yy
 
 .weak __start_xx

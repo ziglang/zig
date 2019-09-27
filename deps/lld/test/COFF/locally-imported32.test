@@ -1,5 +1,5 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: lld-link -safeseh:no /out:%t.exe /entry:main %t.obj
 # RUN: llvm-objdump -s %t.exe | FileCheck %s
 
 # CHECK:      Contents of section .text:

@@ -9,7 +9,7 @@
 bar:
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-// RUN: llvm-readobj -s -section-data %t.o | FileCheck --check-prefix=OBJ %s
+// RUN: llvm-readobj -S --section-data %t.o | FileCheck --check-prefix=OBJ %s
 
 // Check the size of the CIE (0x18 + 4) an FDE (0x10 + 4)
 // OBJ: Name: .eh_frame
@@ -32,7 +32,7 @@ bar:
 
 
 // RUN: ld.lld --hash-style=sysv %t.o -o %t -shared
-// RUN: llvm-readobj -s -section-data %t | FileCheck %s
+// RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 // Check that the size of the CIE was changed to (0x1C + 4) and the FDE one was
 // changed to (0x14 + 4)

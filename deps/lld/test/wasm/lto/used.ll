@@ -28,7 +28,7 @@ return:
 ; CHECK:        - Type:            DATA
 ; CHECK-NEXT:     Segments:
 ; CHECK-NEXT:       - SectionOffset:   7
-; CHECK-NEXT:         MemoryIndex:     0
+; CHECK-NEXT:         InitFlags:       0
 ; CHECK-NEXT:         Offset:
 ; CHECK-NEXT:           Opcode:          I32_CONST
 ; CHECK-NEXT:           Value:           1024
@@ -38,8 +38,6 @@ return:
 ; CHECK-NEXT:    Name:            name
 ; CHECK-NEXT:    FunctionNames:   
 ; CHECK-NEXT:      - Index:           0
-; CHECK-NEXT:        Name:            __wasm_call_ctors
-; CHECK-NEXT:      - Index:           1
 ; CHECK-NEXT:        Name:            _start
-; CHECK-NEXT:      - Index:           2
+; CHECK-NEXT:      - Index:           1
 ; CHECK-NEXT:        Name:            bar

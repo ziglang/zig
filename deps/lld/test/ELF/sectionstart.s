@@ -5,7 +5,7 @@
 # RUN: llvm-objdump -section-headers %t | FileCheck %s
 
 # CHECK:      Sections:
-# CHECK-NEXT:  Idx Name          Size      Address          Type
+# CHECK-NEXT:  Idx Name          Size     VMA              Type
 # CHECK-NEXT:    0               00000000 0000000000000000
 # CHECK-NEXT:    1 .text         00000001 0000000000100000 TEXT
 # CHECK-NEXT:    2 .data         00000004 0000000000110000 DATA
@@ -45,15 +45,15 @@
 
 # RUN: not ld.lld %t.o -Ttext=1w0000 -o %t6 2>&1 \
 # RUN:    | FileCheck -check-prefix=ERR3 %s
-# ERR3: invalid argument: --Ttext 1w0000
+# ERR3: invalid argument: -Ttext=1w0000
 
 # RUN: not ld.lld %t.o -Tbss=1w0000 -o %t6 2>&1 \
 # RUN:    | FileCheck -check-prefix=ERR4 %s
-# ERR4: invalid argument: --Tbss 1w0000
+# ERR4: invalid argument: -Tbss=1w0000
 
 # RUN: not ld.lld %t.o -Tdata=1w0000 -o %t6 2>&1 \
 # RUN:    | FileCheck -check-prefix=ERR5 %s
-# ERR5: invalid argument: --Tdata 1w0000
+# ERR5: invalid argument: -Tdata=1w0000
 
 .text
 .globl _start

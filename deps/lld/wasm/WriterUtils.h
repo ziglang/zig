@@ -1,9 +1,8 @@
 //===- WriterUtils.h --------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -17,50 +16,50 @@
 namespace lld {
 namespace wasm {
 
-void debugWrite(uint64_t Offset, const Twine &Msg);
+void debugWrite(uint64_t offset, const Twine &msg);
 
-void writeUleb128(raw_ostream &OS, uint32_t Number, const Twine &Msg);
+void writeUleb128(raw_ostream &os, uint32_t number, const Twine &msg);
 
-void writeSleb128(raw_ostream &OS, int32_t Number, const Twine &Msg);
+void writeSleb128(raw_ostream &os, int32_t number, const Twine &msg);
 
-void writeBytes(raw_ostream &OS, const char *Bytes, size_t count,
-                const Twine &Msg);
+void writeBytes(raw_ostream &os, const char *bytes, size_t count,
+                const Twine &msg);
 
-void writeStr(raw_ostream &OS, StringRef String, const Twine &Msg);
+void writeStr(raw_ostream &os, StringRef string, const Twine &msg);
 
-void writeU8(raw_ostream &OS, uint8_t byte, const Twine &Msg);
+void writeU8(raw_ostream &os, uint8_t byte, const Twine &msg);
 
-void writeU32(raw_ostream &OS, uint32_t Number, const Twine &Msg);
+void writeU32(raw_ostream &os, uint32_t number, const Twine &msg);
 
-void writeValueType(raw_ostream &OS, llvm::wasm::ValType Type,
-                    const Twine &Msg);
+void writeValueType(raw_ostream &os, llvm::wasm::ValType type,
+                    const Twine &msg);
 
-void writeSig(raw_ostream &OS, const llvm::wasm::WasmSignature &Sig);
+void writeSig(raw_ostream &os, const llvm::wasm::WasmSignature &sig);
 
-void writeInitExpr(raw_ostream &OS, const llvm::wasm::WasmInitExpr &InitExpr);
+void writeInitExpr(raw_ostream &os, const llvm::wasm::WasmInitExpr &initExpr);
 
-void writeLimits(raw_ostream &OS, const llvm::wasm::WasmLimits &Limits);
+void writeLimits(raw_ostream &os, const llvm::wasm::WasmLimits &limits);
 
-void writeGlobalType(raw_ostream &OS, const llvm::wasm::WasmGlobalType &Type);
+void writeGlobalType(raw_ostream &os, const llvm::wasm::WasmGlobalType &type);
 
-void writeGlobal(raw_ostream &OS, const llvm::wasm::WasmGlobal &Global);
+void writeGlobal(raw_ostream &os, const llvm::wasm::WasmGlobal &global);
 
-void writeEventType(raw_ostream &OS, const llvm::wasm::WasmEventType &Type);
+void writeEventType(raw_ostream &os, const llvm::wasm::WasmEventType &type);
 
-void writeEvent(raw_ostream &OS, const llvm::wasm::WasmEvent &Event);
+void writeEvent(raw_ostream &os, const llvm::wasm::WasmEvent &event);
 
-void writeTableType(raw_ostream &OS, const llvm::wasm::WasmTable &Type);
+void writeTableType(raw_ostream &os, const llvm::wasm::WasmTable &type);
 
-void writeImport(raw_ostream &OS, const llvm::wasm::WasmImport &Import);
+void writeImport(raw_ostream &os, const llvm::wasm::WasmImport &import);
 
-void writeExport(raw_ostream &OS, const llvm::wasm::WasmExport &Export);
+void writeExport(raw_ostream &os, const llvm::wasm::WasmExport &export_);
 
 } // namespace wasm
 
-std::string toString(llvm::wasm::ValType Type);
-std::string toString(const llvm::wasm::WasmSignature &Sig);
-std::string toString(const llvm::wasm::WasmGlobalType &Type);
-std::string toString(const llvm::wasm::WasmEventType &Type);
+std::string toString(llvm::wasm::ValType type);
+std::string toString(const llvm::wasm::WasmSignature &sig);
+std::string toString(const llvm::wasm::WasmGlobalType &type);
+std::string toString(const llvm::wasm::WasmEventType &type);
 
 } // namespace lld
 

@@ -1,0 +1,147 @@
+// ---- precomp-a.obj - x86_64, hotpatch
+RUN: lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix BASE
+
+RUN: lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force /functionpadmin
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix PADDED
+
+RUN: lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force /functionpadmin:17
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix PADDED-MORE
+
+// ---- Many arguments
+RUN: lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force /functionpadmin:17 /functionpadmin
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix PADDED
+
+RUN: lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force /functionpadmin /functionpadmin:17
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix PADDED-MORE
+
+RUN: not lld-link %S/Inputs/precomp-a.obj /out:%t.exe /nodefaultlib /force /functionpadmin:zz 2>&1 | FileCheck %s --check-prefix FAIL
+
+// ---- precomp-a.obj, precomp-b.obj - x86_64, hotpatch - Ensure several functions are properly padded
+RUN: lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj %S/Inputs/precomp.obj /out:%t.exe /nodefaultlib /force
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix MULTI-BASE
+
+RUN: lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj %S/Inputs/precomp.obj /out:%t.exe /nodefaultlib /force /functionpadmin
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix MULTI-BASE-PADDED
+
+RUN: lld-link %S/Inputs/precomp-a.obj %S/Inputs/precomp-b.obj %S/Inputs/precomp.obj /out:%t.exe /nodefaultlib /force /functionpadmin:17
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix MULTI-BASE-PADDED-MORE
+
+// ---- pdb-diff.obj - x86, no hotpatch - No padding is applied
+RUN: lld-link %S/Inputs/pdb-diff.obj /out:%t.exe /nodefaultlib /force /functionpadmin
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix NO-HOTPATCH
+
+// ---- hello64.obj - MASM, x86_64, no hotpatch - No padding is applied
+RUN: lld-link %S/Inputs/hello64.obj /out:%t.exe /nodefaultlib /force /functionpadmin
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix HELLO
+
+// ---- std64.lib - Import library, x86_64 - Ensure thunks are padded
+RUN: lld-link %S/Inputs/std64.lib /entry:ExitProcess /out:%t.exe /nodefaultlib /force /subsystem:console
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix THUNKS-NO-PAD
+RUN: llvm-readobj --file-headers %t.exe | FileCheck %s --check-prefix THUNKS-NO-PAD-ENTRY
+
+RUN: lld-link %S/Inputs/std64.lib /entry:ExitProcess /out:%t.exe /nodefaultlib /force /functionpadmin /subsystem:console
+RUN: llvm-objdump -s %t.exe | FileCheck %s --check-prefix THUNKS-PAD
+RUN: llvm-readobj --file-headers %t.exe | FileCheck %s --check-prefix THUNKS-PAD-ENTRY
+
+BASE: Contents of section .text:
+BASE-NEXT:  140001000 4883ec28 b161e8f5 efffbf33 c04883c4  H..(.a.....3.H..
+BASE-NEXT:  140001010 28c3                                 (.
+BASE-NEXT: Contents of section .rdata:
+BASE-NEXT:  140002000 01040100 04420000                    .....B..
+BASE-NEXT: Contents of section .pdata:
+BASE-NEXT:  140003000 00100000 12100000 00200000           ......... ..
+
+PADDED: Contents of section .text:
+PADDED-NEXT:  140001000 cccccccc cccccccc cccccccc cccccccc  ................
+PADDED-NEXT:  140001010 4883ec28 b161e8e5 efffbf33 c04883c4  H..(.a.....3.H..
+PADDED-NEXT:  140001020 28c3                                 (.
+PADDED-NEXT: Contents of section .rdata:
+PADDED-NEXT:  140002000 01040100 04420000                    .....B..
+PADDED-NEXT: Contents of section .pdata:
+PADDED-NEXT:  140003000 10100000 22100000 00200000           ....".... ..
+
+PADDED-MORE: Contents of section .text:
+PADDED-MORE-NEXT:  140001000 cccccccc cccccccc cccccccc cccccccc  ................
+PADDED-MORE-NEXT:  140001010 cccccccc cccccccc cccccccc cccccccc  ................
+PADDED-MORE-NEXT:  140001020 4883ec28 b161e8d5 efffbf33 c04883c4  H..(.a.....3.H..
+PADDED-MORE-NEXT:  140001030 28c3                                 (.
+PADDED-MORE-NEXT: Contents of section .rdata:
+PADDED-MORE-NEXT:  140002000 01040100 04420000                    .....B..
+PADDED-MORE-NEXT: Contents of section .pdata:
+PADDED-MORE-NEXT:  140003000 20100000 32100000 00200000            ...2.... ..
+
+FAIL: lld-link: error: /functionpadmin: invalid argument: zz
+
+MULTI-BASE: Contents of section .text:
+MULTI-BASE-NEXT:  140001000 4883ec28 b161e815 00000033 c04883c4  H..(.a.....3.H..
+MULTI-BASE-NEXT:  140001010 28c3cccc cccccccc cccccccc cccccccc  (...............
+MULTI-BASE-NEXT:  140001020 884c2408 0fbe4424 08c3               .L$...D$..
+MULTI-BASE-NEXT: Contents of section .rdata:
+MULTI-BASE-NEXT:  140002000 01040100 04420000                    .....B..
+MULTI-BASE-NEXT: Contents of section .pdata:
+MULTI-BASE-NEXT:  140004000 00100000 12100000 00200000           ......... ..
+
+MULTI-BASE-PADDED: Contents of section .text:
+MULTI-BASE-PADDED-NEXT:  140001000 cccccccc cccccccc cccccccc cccccccc  ................
+MULTI-BASE-PADDED-NEXT:  140001010 4883ec28 b161e815 00000033 c04883c4  H..(.a.....3.H..
+MULTI-BASE-PADDED-NEXT:  140001020 28c3cccc cccccccc cccccccc cccccccc  (...............
+MULTI-BASE-PADDED-NEXT:  140001030 884c2408 0fbe4424 08c3               .L$...D$..
+MULTI-BASE-PADDED-NEXT: Contents of section .rdata:
+MULTI-BASE-PADDED-NEXT:  140002000 01040100 04420000                    .....B..
+MULTI-BASE-PADDED-NEXT: Contents of section .pdata:
+MULTI-BASE-PADDED-NEXT:  140004000 10100000 22100000 00200000           ....".... ..
+
+MULTI-BASE-PADDED-MORE: Contents of section .text:
+MULTI-BASE-PADDED-MORE-NEXT:  140001000 cccccccc cccccccc cccccccc cccccccc  ................
+MULTI-BASE-PADDED-MORE-NEXT:  140001010 cccccccc cccccccc cccccccc cccccccc  ................
+MULTI-BASE-PADDED-MORE-NEXT:  140001020 4883ec28 b161e825 00000033 c04883c4  H..(.a.%...3.H..
+MULTI-BASE-PADDED-MORE-NEXT:  140001030 28c3cccc cccccccc cccccccc cccccccc  (...............
+MULTI-BASE-PADDED-MORE-NEXT:  140001040 cccccccc cccccccc cccccccc cccccccc  ................
+MULTI-BASE-PADDED-MORE-NEXT:  140001050 884c2408 0fbe4424 08c3               .L$...D$..
+MULTI-BASE-PADDED-MORE-NEXT: Contents of section .rdata:
+MULTI-BASE-PADDED-MORE-NEXT:  140002000 01040100 04420000                    .....B..
+MULTI-BASE-PADDED-MORE-NEXT: Contents of section .pdata:
+MULTI-BASE-PADDED-MORE-NEXT:  140004000 20100000 32100000 00200000            ...2.... ..
+
+
+NO-HOTPATCH: Contents of section .text:
+NO-HOTPATCH-NEXT: 401000 558becb8 2a000000 5dc3               U...*...].
+
+HELLO: Contents of section .text:
+HELLO-NEXT:  140001000 4883ec28 48c7c100 00000048 8d15f40f  H..(H......H....
+HELLO-NEXT:  140001010 00004c8d 05e70f00 0041b900 000000e8  ..L......A......
+HELLO-NEXT:  140001020 dcefffbf b9000000 00e8d2ef ffbfe8cd  ................
+HELLO-NEXT:  140001030 efffbf                               ...
+HELLO-NEXT: Contents of section .data:
+HELLO-NEXT:  140002000 48656c6c 6f004865 6c6c6f20 576f726c  Hello.Hello Worl
+HELLO-NEXT:  140002010 642100                               d!.
+
+THUNKS-NO-PAD: Contents of section .text:
+THUNKS-NO-PAD-NEXT:  140001000 ff253210 0000                        .%2...
+THUNKS-NO-PAD-NEXT: Contents of section .rdata:
+THUNKS-NO-PAD-NEXT:  140002000 28200000 00000000 00000000 56200000  ( ..........V ..
+THUNKS-NO-PAD-NEXT:  140002010 38200000 00000000 00000000 00000000  8 ..............
+THUNKS-NO-PAD-NEXT:  140002020 00000000 00000000 48200000 00000000  ........H ......
+THUNKS-NO-PAD-NEXT:  140002030 00000000 00000000 48200000 00000000  ........H ......
+THUNKS-NO-PAD-NEXT:  140002040 00000000 00000000 00004578 69745072  ..........ExitPr
+THUNKS-NO-PAD-NEXT:  140002050 6f636573 73007374 6436342e 646c6c00  ocess.std64.dll.
+
+THUNKS-NO-PAD-ENTRY-LABEL: ImageOptionalHeader {
+THUNKS-NO-PAD-ENTRY:   AddressOfEntryPoint: 0x1000
+THUNKS-NO-PAD-ENTRY-NEXT:   BaseOfCode: 0x1000
+
+THUNKS-PAD: Contents of section .text:
+THUNKS-PAD-NEXT:  140001000 cccccccc cccccccc cccccccc cccccccc  ................
+THUNKS-PAD-NEXT:  140001010 ff252210 0000                        .%"...
+THUNKS-PAD-NEXT: Contents of section .rdata:
+THUNKS-PAD-NEXT:  140002000 28200000 00000000 00000000 56200000  ( ..........V ..
+THUNKS-PAD-NEXT:  140002010 38200000 00000000 00000000 00000000  8 ..............
+THUNKS-PAD-NEXT:  140002020 00000000 00000000 48200000 00000000  ........H ......
+THUNKS-PAD-NEXT:  140002030 00000000 00000000 48200000 00000000  ........H ......
+THUNKS-PAD-NEXT:  140002040 00000000 00000000 00004578 69745072  ..........ExitPr
+THUNKS-PAD-NEXT:  140002050 6f636573 73007374 6436342e 646c6c00  ocess.std64.dll.
+
+THUNKS-PAD-ENTRY-LABEL: ImageOptionalHeader {
+THUNKS-PAD-ENTRY:   AddressOfEntryPoint: 0x1010
+THUNKS-PAD-ENTRY-NEXT:   BaseOfCode: 0x1000

@@ -1,9 +1,13 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld %t.o -o %t --export-dynamic
-# RUN: llvm-readobj -r %t | FileCheck %s
+# RUN: llvm-readelf -r %t | FileCheck %s
 
-# CHECK: R_X86_64_64 foobar 0x0
+## gABI leaves the behavior of weak undefined references implementation defined.
+## We choose to resolve it statically and not create a dynamic relocation for
+## implementation simplicity. This also matches ld.bfd and gold.
+
+# CHECK: no relocations
 
         .global _start
 _start:

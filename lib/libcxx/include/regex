@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- regex ------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -678,7 +677,7 @@ public:
                    regex_constants::match_flag_type m = regex_constants::match_default);
     regex_iterator(_BidirectionalIterator __a, _BidirectionalIterator __b,
                    const regex_type&& __re,
-                   regex_constants::match_flag_type __m 
+                   regex_constants::match_flag_type __m
                                      = regex_constants::match_default) = delete; // C++14
     regex_iterator(const regex_iterator&);
     regex_iterator& operator=(const regex_iterator&);
@@ -794,13 +793,27 @@ enum syntax_option_type
     nosubs     = 1 << 1,
     optimize   = 1 << 2,
     collate    = 1 << 3,
+#ifdef _LIBCPP_ABI_REGEX_CONSTANTS_NONZERO
+    ECMAScript = 1 << 9,
+#else
     ECMAScript = 0,
+#endif
     basic      = 1 << 4,
     extended   = 1 << 5,
     awk        = 1 << 6,
     grep       = 1 << 7,
     egrep      = 1 << 8
 };
+
+inline _LIBCPP_CONSTEXPR
+syntax_option_type __get_grammar(syntax_option_type __g)
+{
+#ifdef _LIBCPP_ABI_REGEX_CONSTANTS_NONZERO
+    return static_cast<syntax_option_type>(__g & 0x3F0);
+#else
+    return static_cast<syntax_option_type>(__g & 0x1F0);
+#endif
+}
 
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR
@@ -988,16 +1001,7 @@ public:
     typedef locale                  locale_type;
     typedef ctype_base::mask        char_class_type;
 
-#if defined(__mips__) && defined(__GLIBC__)
-    static const char_class_type __regex_word = static_cast<char_class_type>(_ISbit(15));
-#elif defined(__NetBSD__)
-    // NetBSD defines classes up to 0x2000
-    // see sys/ctype_bits.h, _CTYPE_Q
-    static const char_class_type __regex_word = 0x8000;
-#else
-    static const char_class_type __regex_word = 0x80;
-#endif
-
+    static const char_class_type __regex_word = ctype_base::__regex_word;
 private:
     locale __loc_;
     const ctype<char_type>* __ct_;
@@ -2293,7 +2297,7 @@ public:
             else
             {
                 if (__b.size() != 1 || __e.size() != 1)
-                    __throw_regex_error<regex_constants::error_collate>();
+                    __throw_regex_error<regex_constants::error_range>();
                 if (__icase_)
                 {
                     __b[0] = __traits_.translate_nocase(__b[0]);
@@ -2527,19 +2531,27 @@ public:
     // construct/copy/destroy:
     _LIBCPP_INLINE_VISIBILITY
     basic_regex()
-        : __flags_(), __marked_count_(0), __loop_count_(0), __open_count_(0),
+        : __flags_(regex_constants::ECMAScript), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {}
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_regex(const value_type* __p, flag_type __f = regex_constants::ECMAScript)
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
-        {__parse(__p, __p + __traits_.length(__p));}
+        {
+        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+        __parse(__p, __p + __traits_.length(__p));
+        }
+
     _LIBCPP_INLINE_VISIBILITY
     basic_regex(const value_type* __p, size_t __len, flag_type __f = regex_constants::ECMAScript)
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
-        {__parse(__p, __p + __len);}
+        {
+        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+        __parse(__p, __p + __len);
+        }
+
 //     basic_regex(const basic_regex&) = default;
 //     basic_regex(basic_regex&&) = default;
     template <class _ST, class _SA>
@@ -2548,21 +2560,31 @@ public:
                              flag_type __f = regex_constants::ECMAScript)
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
-        {__parse(__p.begin(), __p.end());}
+        {
+        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+        __parse(__p.begin(), __p.end());
+        }
+
     template <class _ForwardIterator>
         _LIBCPP_INLINE_VISIBILITY
         basic_regex(_ForwardIterator __first, _ForwardIterator __last,
                     flag_type __f = regex_constants::ECMAScript)
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
-        {__parse(__first, __last);}
+        {
+        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+        __parse(__first, __last);
+        }
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     basic_regex(initializer_list<value_type> __il,
                 flag_type __f = regex_constants::ECMAScript)
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
-        {__parse(__il.begin(), __il.end());}
+        {
+        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+        __parse(__il.begin(), __il.end());
+        }
 #endif  // _LIBCPP_CXX03_LANG
 
 //    ~basic_regex() = default;
@@ -3044,7 +3066,7 @@ basic_regex<_CharT, _Traits>::__parse(_ForwardIterator __first,
         __h.release();
         __end_ = __start_.get();
     }
-    switch (__flags_ & 0x1F0)
+    switch (__get_grammar(__flags_))
     {
     case ECMAScript:
         __first = __parse_ecma_exp(__first, __last);
@@ -3379,7 +3401,7 @@ basic_regex<_CharT, _Traits>::__parse_BACKREF(_ForwardIterator __first,
         if (__temp != __last)
         {
             if (*__first == '\\')
-            { 
+            {
                 int __val = __traits_.value(*__temp, 10);
                 if (__val >= 1 && __val <= 9)
                 {
@@ -3513,7 +3535,7 @@ basic_regex<_CharT, _Traits>::__parse_QUOTED_CHAR_ERE(_ForwardIterator __first,
                     __first = ++__temp;
                     break;
                 default:
-                    if ((__flags_ & 0x1F0) == awk)
+                    if (__get_grammar(__flags_) == awk)
                         __first = __parse_awk_escape(++__first, __last);
                     break;
                 }
@@ -3597,7 +3619,7 @@ basic_regex<_CharT, _Traits>::__parse_ERE_dupl_symbol(_ForwardIterator __first,
 {
     if (__first != __last)
     {
-        unsigned __grammar = __flags_ & 0x1F0;
+        unsigned __grammar = __get_grammar(__flags_);
         switch (*__first)
         {
         case '*':
@@ -3718,7 +3740,7 @@ basic_regex<_CharT, _Traits>::__parse_bracket_expression(_ForwardIterator __firs
         // __ml owned by *this
         if (__first == __last)
             __throw_regex_error<regex_constants::error_brack>();
-        if ((__flags_ & 0x1F0) != ECMAScript && *__first == ']')
+        if (__get_grammar(__flags_) != ECMAScript && *__first == ']')
         {
             __ml->__add_char(']');
             ++__first;
@@ -3779,7 +3801,7 @@ basic_regex<_CharT, _Traits>::__parse_expression_term(_ForwardIterator __first,
             else if (*__temp == '.')
                 __first = __parse_collating_symbol(++__temp, __last, __start_range);
         }
-        unsigned __grammar = __flags_ & 0x1F0;
+        unsigned __grammar = __get_grammar(__flags_);
         if (__start_range.empty())
         {
             if ((__grammar == ECMAScript || __grammar == awk) && *__first == '\\')
@@ -4076,7 +4098,7 @@ basic_regex<_CharT, _Traits>::__parse_DUP_COUNT(_ForwardIterator __first,
         if ( __val != -1 )
         {
             __c = __val;
-            for (++__first; 
+            for (++__first;
                  __first != __last && ( __val = __traits_.value(*__first, 10)) != -1;
                  ++__first)
             {
@@ -4456,7 +4478,7 @@ basic_regex<_CharT, _Traits>::__parse_character_escape(_ForwardIterator __first,
         case 'c':
             if ((__t = _VSTD::next(__first)) != __last)
             {
-                if (('A' <= *__t && *__t <= 'Z') || 
+                if (('A' <= *__t && *__t <= 'Z') ||
                     ('a' <= *__t && *__t <= 'z'))
                 {
                     if (__str)
@@ -4465,7 +4487,7 @@ basic_regex<_CharT, _Traits>::__parse_character_escape(_ForwardIterator __first,
                         __push_char(_CharT(*__t % 32));
                     __first = ++__t;
                 }
-                else 
+                else
                     __throw_regex_error<regex_constants::error_escape>();
             }
             else
@@ -5265,21 +5287,41 @@ public:
     // element access:
     _LIBCPP_INLINE_VISIBILITY
     difference_type length(size_type __sub = 0) const
-        {return (*this)[__sub].length();}
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::length() called when not ready");
+        return (*this)[__sub].length();
+        }
     _LIBCPP_INLINE_VISIBILITY
     difference_type position(size_type __sub = 0) const
-        {return _VSTD::distance(__position_start_, (*this)[__sub].first);}
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::position() called when not ready");
+        return _VSTD::distance(__position_start_, (*this)[__sub].first);
+        }
     _LIBCPP_INLINE_VISIBILITY
     string_type str(size_type __sub = 0) const
-        {return (*this)[__sub].str();}
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::str() called when not ready");
+        return (*this)[__sub].str();
+        }
     _LIBCPP_INLINE_VISIBILITY
     const_reference operator[](size_type __n) const
-        {return __n < __matches_.size() ? __matches_[__n] : __unmatched_;}
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::operator[]() called when not ready");
+        return __n < __matches_.size() ? __matches_[__n] : __unmatched_;
+        }
 
     _LIBCPP_INLINE_VISIBILITY
-    const_reference prefix() const {return __prefix_;}
+    const_reference prefix() const
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::prefix() called when not ready");
+        return __prefix_;
+        }
     _LIBCPP_INLINE_VISIBILITY
-    const_reference suffix() const {return __suffix_;}
+    const_reference suffix() const
+        {
+        _LIBCPP_ASSERT(ready(), "match_results::suffix() called when not ready");
+        return __suffix_;
+        }
 
     _LIBCPP_INLINE_VISIBILITY
     const_iterator begin() const {return empty() ? __matches_.end() : __matches_.begin();}
@@ -5417,6 +5459,7 @@ match_results<_BidirectionalIterator, _Allocator>::format(_OutputIter __output_i
         const char_type* __fmt_first, const char_type* __fmt_last,
         regex_constants::match_flag_type __flags) const
 {
+    _LIBCPP_ASSERT(ready(), "match_results::format() called when not ready");
     if (__flags & regex_constants::format_sed)
     {
         for (; __fmt_first != __fmt_last; ++__fmt_first)
@@ -5849,7 +5892,7 @@ basic_regex<_CharT, _Traits>::__match_at_start(
         match_results<const _CharT*, _Allocator>& __m,
         regex_constants::match_flag_type __flags, bool __at_first) const
 {
-    if ((__flags_ & 0x1F0) == ECMAScript)
+    if (__get_grammar(__flags_) == ECMAScript)
         return __match_at_start_ecma(__first, __last, __m, __flags, __at_first);
     if (mark_count() == 0)
         return __match_at_start_posix_nosubs(__first, __last, __m, __flags, __at_first);
@@ -5866,7 +5909,7 @@ basic_regex<_CharT, _Traits>::__search(
 {
     __m.__init(1 + mark_count(), __first, __last,
                                     __flags & regex_constants::__no_update_pos);
-    if (__match_at_start(__first, __last, __m, __flags, 
+    if (__match_at_start(__first, __last, __m, __flags,
                                     !(__flags & regex_constants::__no_update_pos)))
     {
         __m.__prefix_.second = __m[0].first;
@@ -6012,7 +6055,7 @@ bool
 regex_search(const basic_string<_Cp, _ST, _SA>&& __s,
              match_results<typename basic_string<_Cp, _ST, _SA>::const_iterator, _Ap>&,
              const basic_regex<_Cp, _Tp>& __e,
-             regex_constants::match_flag_type __flags = regex_constants::match_default) = delete; 
+             regex_constants::match_flag_type __flags = regex_constants::match_default) = delete;
 #endif
 
 // regex_match
@@ -6076,7 +6119,7 @@ bool
 regex_match(const basic_string<_CharT, _ST, _SA>&& __s,
             match_results<typename basic_string<_CharT, _ST, _SA>::const_iterator, _Allocator>& __m,
             const basic_regex<_CharT, _Traits>& __e,
-            regex_constants::match_flag_type __flags = regex_constants::match_default) = delete; 
+            regex_constants::match_flag_type __flags = regex_constants::match_default) = delete;
 #endif
 
 template <class _CharT, class _Traits>
@@ -6129,7 +6172,7 @@ public:
 #if _LIBCPP_STD_VER > 11
     regex_iterator(_BidirectionalIterator __a, _BidirectionalIterator __b,
                    const regex_type&& __re,
-                   regex_constants::match_flag_type __m 
+                   regex_constants::match_flag_type __m
                                      = regex_constants::match_default) = delete;
 #endif
 
@@ -6140,7 +6183,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     reference operator*() const {return  __match_;}
     _LIBCPP_INLINE_VISIBILITY
-    pointer operator->() const  {return &__match_;}
+    pointer operator->() const  {return _VSTD::addressof(__match_);}
 
     regex_iterator& operator++();
     _LIBCPP_INLINE_VISIBILITY
@@ -6164,7 +6207,7 @@ regex_iterator<_BidirectionalIterator, _CharT, _Traits>::
                    const regex_type& __re, regex_constants::match_flag_type __m)
     : __begin_(__a),
       __end_(__b),
-      __pregex_(&__re),
+      __pregex_(_VSTD::addressof(__re)),
       __flags_(__m)
 {
     _VSTD::regex_search(__begin_, __end_, __match_, *__pregex_, __flags_);
@@ -6325,7 +6368,7 @@ private:
             __result_ = &__position_->prefix();
         else
             __result_ = &(*__position_)[__subs_[__n_]];
-        }       
+        }
 };
 
 template <class _BidirectionalIterator, class _CharT, class _Traits>
@@ -6405,7 +6448,7 @@ regex_token_iterator<_BidirectionalIterator, _CharT, _Traits>::
                              regex_constants::match_flag_type __m)
     : __position_(__a, __b, __re, __m),
       __n_(0),
-      __subs_(__submatches, __submatches + _Np)
+      __subs_(begin(__submatches), end(__submatches))
 {
     __init(__a, __b);
 }

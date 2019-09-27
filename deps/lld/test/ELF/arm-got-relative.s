@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -position-independent -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: ld.lld --hash-style=sysv %t.o -shared -o %t
-// RUN: llvm-readobj -s -symbols -dyn-relocations %t | FileCheck %s
+// RUN: llvm-readobj -S --symbols --dyn-relocations %t | FileCheck %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t | FileCheck -check-prefix=CODE %s
  .syntax unified
  .text
@@ -41,6 +41,7 @@ function:
 // CHECK-NEXT:    Section: .got
 
 // CODE: Disassembly of section .text:
+// CODE-EMPTY:
 // CODE-NEXT: _start:
 // CODE-NEXT:    1000:        08 30 9f e5    ldr     r3, [pc, #8]
 // CODE-NEXT:    1004:        08 20 9f e5    ldr     r2, [pc, #8]

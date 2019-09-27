@@ -1,15 +1,15 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 # RUN: ld.lld --emit-relocs %t1.o -o %t
-# RUN: llvm-readobj -t -r -s %t | FileCheck %s
+# RUN: llvm-readobj --symbols -r -S %t | FileCheck %s
 
 ## Check single dash form.
 # RUN: ld.lld -emit-relocs %t1.o -o %t1
-# RUN: llvm-readobj -t -r -s %t1 | FileCheck %s
+# RUN: llvm-readobj --symbols -r -S %t1 | FileCheck %s
 
 ## Check alias.
 # RUN: ld.lld -q %t1.o -o %t2
-# RUN: llvm-readobj -t -r -s %t2 | FileCheck %s
+# RUN: llvm-readobj --symbols -r -S %t2 | FileCheck %s
 
 # CHECK:      Section {
 # CHECK:        Index: 2

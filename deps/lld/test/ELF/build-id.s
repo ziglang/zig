@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 
 # RUN: ld.lld --build-id %t -o %t2
-# RUN: llvm-readobj -s %t2 | FileCheck -check-prefix=ALIGN %s
+# RUN: llvm-readobj -S %t2 | FileCheck -check-prefix=ALIGN %s
 
 # RUN: ld.lld --build-id %t -o %t2 -threads
 # RUN: llvm-objdump -s %t2 | FileCheck -check-prefix=DEFAULT %s
@@ -65,15 +65,15 @@ _start:
 # DEFAULT:      Contents of section .note.test:
 # DEFAULT:      Contents of section .note.gnu.build-id:
 # DEFAULT-NEXT: 04000000 08000000 03000000 474e5500  ............GNU.
-# DEFAULT-NEXT: 894c04e8 fbf5556b
+# DEFAULT-NEXT: 95849665 2621c734
 
 # MD5:      Contents of section .note.gnu.build-id:
 # MD5-NEXT: 04000000 10000000 03000000 474e5500  ............GNU.
-# MD5-NEXT: 6a51bbd7 9e8ee3f9 2e02d213 711cfec9
+# MD5-NEXT: 1882c01f 71698eed 229b3994 eb554c80
 
 # SHA1:      Contents of section .note.gnu.build-id:
 # SHA1-NEXT: 04000000 14000000 03000000 474e5500  ............GNU.
-# SHA1-NEXT: 9a8618b1 d6fd0e5c eda73dd8 76de5596
+# SHA1-NEXT: 96820adf d90d5470 0a0c32ff a88c4017
 
 # UUID:      Contents of section .note.gnu.build-id:
 # UUID-NEXT: 04000000 10000000 03000000 474e5500  ............GNU.

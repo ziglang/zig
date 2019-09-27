@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/gc-sections-weak.s -o %t2.o
 // RUN: ld.lld %t.o %t2.o -o %t.so -shared --gc-sections
-// RUN: llvm-readobj -s %t.so | FileCheck %s
+// RUN: llvm-readobj -S %t.so | FileCheck %s
 
 .global foo
 foo:

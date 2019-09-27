@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- set -------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -156,9 +155,9 @@ public:
     template<typename K>
         const_iterator find(const K& x) const;  // C++14
     template<typename K>
-      size_type count(const K& x) const;        // C++14
-
+        size_type count(const K& x) const;        // C++14
     size_type      count(const key_type& k) const;
+        bool contains(const key_type& x) const; // C++20
           iterator lower_bound(const key_type& k);
     const_iterator lower_bound(const key_type& k) const;
     template<typename K>
@@ -355,8 +354,10 @@ public:
         iterator find(const K& x);
     template<typename K>
         const_iterator find(const K& x) const;  // C++14
-
+    template<typename K>
+        size_type count(const K& x) const;      // C++14
     size_type      count(const key_type& k) const;
+        bool contains(const key_type& x) const; // C++20
           iterator lower_bound(const key_type& k);
     const_iterator lower_bound(const key_type& k) const;
     template<typename K>
@@ -447,11 +448,10 @@ public:
     typedef key_type                                 value_type;
     typedef _Compare                                 key_compare;
     typedef key_compare                              value_compare;
-    typedef _Allocator                               allocator_type;
+    typedef typename __identity<_Allocator>::type    allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 
-    static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
     static_assert((is_same<typename allocator_type::value_type, value_type>::value),
                   "Allocator::value_type must be same type as value_type");
 
@@ -596,6 +596,11 @@ public:
             return *this;
         }
 #endif  // _LIBCPP_CXX03_LANG
+
+    _LIBCPP_INLINE_VISIBILITY
+    ~set() {
+        static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
+    }
 
     _LIBCPP_INLINE_VISIBILITY
           iterator begin() _NOEXCEPT       {return __tree_.begin();}
@@ -784,6 +789,12 @@ public:
     typename enable_if<__is_transparent<_Compare, _K2>::value,size_type>::type
     count(const _K2& __k) const                    {return __tree_.__count_multi(__k);}
 #endif
+
+#if _LIBCPP_STD_VER > 17
+    _LIBCPP_INLINE_VISIBILITY
+    bool contains(const key_type& __k) const {return find(__k) != end();}
+#endif // _LIBCPP_STD_VER > 17
+
     _LIBCPP_INLINE_VISIBILITY
     iterator lower_bound(const key_type& __k)
         {return __tree_.lower_bound(__k);}
@@ -836,6 +847,34 @@ public:
     equal_range(const _K2& __k) const {return __tree_.__equal_range_multi(__k);}
 #endif
 };
+
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _InputIterator,
+         class _Compare = less<typename iterator_traits<_InputIterator>::value_type>,
+         class _Allocator = allocator<typename iterator_traits<_InputIterator>::value_type>,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type,
+         class = typename enable_if<!__is_allocator<_Compare>::value, void>::type>
+set(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
+  -> set<typename iterator_traits<_InputIterator>::value_type, _Compare, _Allocator>;
+
+template<class _Key, class _Compare = less<_Key>,
+         class _Allocator = allocator<_Key>,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type,
+         class = typename enable_if<!__is_allocator<_Compare>::value, void>::type>
+set(initializer_list<_Key>, _Compare = _Compare(), _Allocator = _Allocator())
+  -> set<_Key, _Compare, _Allocator>;
+
+template<class _InputIterator, class _Allocator,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type>
+set(_InputIterator, _InputIterator, _Allocator)
+  -> set<typename iterator_traits<_InputIterator>::value_type,
+         less<typename iterator_traits<_InputIterator>::value_type>, _Allocator>;
+
+template<class _Key, class _Allocator,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type>
+set(initializer_list<_Key>, _Allocator)
+  -> set<_Key, less<_Key>, _Allocator>;
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 
@@ -935,11 +974,10 @@ public:
     typedef key_type                                 value_type;
     typedef _Compare                                  key_compare;
     typedef key_compare                              value_compare;
-    typedef _Allocator                                allocator_type;
+    typedef typename __identity<_Allocator>::type    allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 
-    static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
     static_assert((is_same<typename allocator_type::value_type, value_type>::value),
                   "Allocator::value_type must be same type as value_type");
 
@@ -1083,6 +1121,11 @@ public:
             return *this;
         }
 #endif  // _LIBCPP_CXX03_LANG
+
+    _LIBCPP_INLINE_VISIBILITY
+    ~multiset() {
+        static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), "");
+    }
 
     _LIBCPP_INLINE_VISIBILITY
           iterator begin() _NOEXCEPT       {return __tree_.begin();}
@@ -1272,6 +1315,11 @@ public:
     count(const _K2& __k) const            {return __tree_.__count_multi(__k);}
 #endif
 
+#if _LIBCPP_STD_VER > 17
+    _LIBCPP_INLINE_VISIBILITY
+    bool contains(const key_type& __k) const {return find(__k) != end();}
+#endif // _LIBCPP_STD_VER > 17
+
     _LIBCPP_INLINE_VISIBILITY
     iterator lower_bound(const key_type& __k)
         {return __tree_.lower_bound(__k);}
@@ -1324,6 +1372,34 @@ public:
     equal_range(const _K2& __k) const {return __tree_.__equal_range_multi(__k);}
 #endif
 };
+
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _InputIterator,
+         class _Compare = less<typename iterator_traits<_InputIterator>::value_type>,
+         class _Allocator = allocator<typename iterator_traits<_InputIterator>::value_type>,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type,
+         class = typename enable_if<!__is_allocator<_Compare>::value, void>::type>
+multiset(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
+  -> multiset<typename iterator_traits<_InputIterator>::value_type, _Compare, _Allocator>;
+
+template<class _Key, class _Compare = less<_Key>,
+         class _Allocator = allocator<_Key>,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type,
+         class = typename enable_if<!__is_allocator<_Compare>::value, void>::type>
+multiset(initializer_list<_Key>, _Compare = _Compare(), _Allocator = _Allocator())
+  -> multiset<_Key, _Compare, _Allocator>;
+
+template<class _InputIterator, class _Allocator,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type>
+multiset(_InputIterator, _InputIterator, _Allocator)
+  -> multiset<typename iterator_traits<_InputIterator>::value_type,
+         less<typename iterator_traits<_InputIterator>::value_type>, _Allocator>;
+
+template<class _Key, class _Allocator,
+         class = typename enable_if<__is_allocator<_Allocator>::value, void>::type>
+multiset(initializer_list<_Key>, _Allocator)
+  -> multiset<_Key, less<_Key>, _Allocator>;
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 

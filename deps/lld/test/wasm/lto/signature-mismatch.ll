@@ -15,5 +15,6 @@ define void @_start() {
   ret void
 }
 
+; CHECK: error: function signature mismatch: f
 ; CHECK: >>> defined as (i32) -> void in {{.*}}signature-mismatch.ll.tmp1.o
 ; CHECK: >>> defined as () -> void in lto.tmp

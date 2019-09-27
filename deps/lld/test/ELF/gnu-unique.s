@@ -2,12 +2,12 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 //
 // RUN: ld.lld %t -shared -o %tout.so
-// RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=GNU %s
+// RUN: llvm-readobj --dyn-syms %tout.so | FileCheck -check-prefix=GNU %s
 // RUN: ld.lld %t -shared -o %tout.so --gnu-unique
-// RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=GNU %s
+// RUN: llvm-readobj --dyn-syms %tout.so | FileCheck -check-prefix=GNU %s
 //
 // RUN: ld.lld %t -shared -o %tout.so --no-gnu-unique
-// RUN: llvm-readobj -dyn-symbols %tout.so | FileCheck -check-prefix=NO %s
+// RUN: llvm-readobj --dyn-syms %tout.so | FileCheck -check-prefix=NO %s
 
 // Check that STB_GNU_UNIQUE is treated as a global and ends up in the dynamic
 // symbol table as STB_GNU_UNIQUE.

@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/extend-pt-load.s -o %t.o
 # RUN: ld.lld --hash-style=sysv -o %t3 --script %s %t.o -shared
-# RUN: llvm-readobj --elf-output-style=GNU -l -s %t3 | FileCheck --check-prefix=CHECK %s
+# RUN: llvm-readelf -S -l %t3 | FileCheck --check-prefix=CHECK %s
 
 # If the current behavior becomes a problem we should consider just moving the commands out
 # of the section. That is, handle the above like the following test.

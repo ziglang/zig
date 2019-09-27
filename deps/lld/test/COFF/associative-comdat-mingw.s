@@ -4,7 +4,7 @@
 # RUN: llvm-mc -triple=x86_64-windows-gnu %S/Inputs/associative-comdat-mingw-2.s -filetype=obj -o %t2.obj
 
 # RUN: lld-link -lldmingw -entry:main %t1.obj %t2.obj -out:%t.gc.exe -verbose
-# RUN: llvm-readobj -sections %t.gc.exe | FileCheck %s
+# RUN: llvm-readobj --sections %t.gc.exe | FileCheck %s
 
 # CHECK: Sections [
 # CHECK:   Section {

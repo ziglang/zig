@@ -3,13 +3,13 @@
 // RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %t.o
 // RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
 // RUN: ld.lld  %t.o -o %t
-// RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+// RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=Dis %s
 // RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
 // RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %t.o
 // RUN: llvm-readelf -r %t.o | FileCheck --check-prefix=InputRelocs %s
 // RUN: ld.lld  %t.o -o %t
-// RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
+// RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefix=Dis %s
 // RUN: llvm-readelf -r %t | FileCheck --check-prefix=OutputRelocs %s
 
 	.text
@@ -52,9 +52,7 @@ _start:                                   # @_start
 .Lfunc_end0:
 	.size	_start, .Lfunc_end0-.Lfunc_begin0
                                         # -- End function
-.globl __tls_get_addr
-.type __tls_get_addr,@function
-__tls_get_addr:
+
 	.type	a,@object               # @a
 	.section	.tdata,"awT",@progbits
 	.p2align	2

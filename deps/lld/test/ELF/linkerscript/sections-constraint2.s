@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "SECTIONS { zed : ONLY_IF_RO { *(foo) *(bar) } }" > %t.script
 # RUN: ld.lld -T %t.script %t.o -o %t.so -shared
-# RUN: llvm-readobj -s %t.so | FileCheck %s
+# RUN: llvm-readobj -S %t.so | FileCheck %s
 
 # CHECK: Sections [
 # CHECK-NOT: zed

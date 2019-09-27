@@ -1,6 +1,6 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:mainCRTStartup /subsystem:console %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck %s
 
 # CHECK: Format: COFF-ARM64
 # CHECK: Arch: aarch64

@@ -7,6 +7,7 @@
 // RUN: llvm-objdump -d -s %t.exe | FileCheck %s
 
 // CHECK:      Disassembly of section .plt:
+// CHECK-EMPTY:
 // CHECK-NEXT: .plt:
 // CHECK-NEXT: 1010:	e8 0b 00 00 00 	callq	11 <.plt+0x10>
 // CHECK-NEXT: 1015:	f3 90 	pause

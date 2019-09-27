@@ -70,6 +70,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
+    const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted) {
         // TODO re-enable this after https://github.com/ziglang/zig/issues/2377
@@ -86,15 +87,14 @@ pub fn build(b: *Builder) !void {
         .source_dir = "lib",
         .install_dir = .Lib,
         .install_subdir = "zig",
-    });
-    b.installDirectory(InstallDirectoryOptions{
-        .source_dir = "std",
-        .install_dir = .Lib,
-        .install_subdir = "zig" ++ fs.path.sep_str ++ "std",
         .exclude_extensions = [_][]const u8{ "test.zig", "README.md" },
     });
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
+
+    const is_wine_enabled = b.option(bool, "enable-wine", "Use Wine to run cross compiled Windows tests") orelse false;
+    const is_qemu_enabled = b.option(bool, "enable-qemu", "Use QEMU to run cross compiled foreign architecture tests") orelse false;
+    const glibc_multi_dir = b.option([]const u8, "enable-foreign-glibc", "Provide directory with glibc installations to run cross compiled tests that link glibc");
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
@@ -122,19 +122,16 @@ pub fn build(b: *Builder) !void {
     }
     const modes = chosen_modes[0..chosen_mode_index];
 
-    const multi_and_single = [_]bool{ false, true };
-    const just_multi = [_]bool{false};
-
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
     test_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, multi_and_single, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "test/stage1/behavior.zig", "behavior", "Run the behavior tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/std.zig", "std", "Run the standard library tests", modes, multi_and_single, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/std.zig", "std", "Run the standard library tests", modes, false, skip_non_native, skip_libc, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
-    test_step.dependOn(tests.addPkgTests(b, test_filter, "std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, just_multi, skip_non_native));
+    test_step.dependOn(tests.addPkgTests(b, test_filter, "lib/std/special/compiler_rt.zig", "compiler-rt", "Run the compiler_rt tests", modes, true, skip_non_native, true, is_wine_enabled, is_qemu_enabled, glibc_multi_dir));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     test_step.dependOn(tests.addStandaloneTests(b, test_filter, modes));

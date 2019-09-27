@@ -34,6 +34,7 @@ _start:
  ldr x8, target
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // 2162688 = 0x210000
 // CHECK:         210000: {{.*}} b       #4
 // CHECK-NEXT:    210004: {{.*}} bl      #4

@@ -6,6 +6,7 @@
 # RUN: llvm-objdump -d -t %t.so | FileCheck %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: foo:
 # CHECK-NEXT:    10000:    3c 1c 00 01    lui     $gp, 1
 # CHECK-NEXT:    10004:    03 99 e0 2d    daddu   $gp, $gp, $25

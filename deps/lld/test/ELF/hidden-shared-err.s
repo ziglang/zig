@@ -11,7 +11,7 @@
 # RUN: not ld.lld %t.o %t3.o %t2.so -o %t 2>&1 | FileCheck %s
 # RUN: not ld.lld %t3.o %t.o %t2.so -o %t 2>&1 | FileCheck %s
 
-# CHECK: undefined symbol: foo
+# CHECK: undefined hidden symbol: foo
 
 .global _start
 _start:

@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- chrono ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1263,34 +1262,15 @@ operator*(const _Rep1& __s, const duration<_Rep2, _Period>& __d)
 
 // Duration /
 
-template <class _Duration, class _Rep, bool = __is_duration<_Rep>::value>
-struct __duration_divide_result
-{
-};
-
-template <class _Duration, class _Rep2,
-    bool = is_convertible<_Rep2,
-                          typename common_type<typename _Duration::rep, _Rep2>::type>::value>
-struct __duration_divide_imp
-{
-};
-
-template <class _Rep1, class _Period, class _Rep2>
-struct __duration_divide_imp<duration<_Rep1, _Period>, _Rep2, true>
-{
-    typedef duration<typename common_type<_Rep1, _Rep2>::type, _Period> type;
-};
-
-template <class _Rep1, class _Period, class _Rep2>
-struct __duration_divide_result<duration<_Rep1, _Period>, _Rep2, false>
-    : __duration_divide_imp<duration<_Rep1, _Period>, _Rep2>
-{
-};
-
 template <class _Rep1, class _Period, class _Rep2>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR
-typename __duration_divide_result<duration<_Rep1, _Period>, _Rep2>::type
+typename enable_if
+<
+    !__is_duration<_Rep2>::value &&
+      is_convertible<_Rep2, typename common_type<_Rep1, _Rep2>::type>::value,
+    duration<typename common_type<_Rep1, _Rep2>::type, _Period>
+>::type
 operator/(const duration<_Rep1, _Period>& __d, const _Rep2& __s)
 {
     typedef typename common_type<_Rep1, _Rep2>::type _Cr;
@@ -1313,7 +1293,12 @@ operator/(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2
 template <class _Rep1, class _Period, class _Rep2>
 inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR
-typename __duration_divide_result<duration<_Rep1, _Period>, _Rep2>::type
+typename enable_if
+<
+    !__is_duration<_Rep2>::value &&
+      is_convertible<_Rep2, typename common_type<_Rep1, _Rep2>::type>::value,
+    duration<typename common_type<_Rep1, _Rep2>::type, _Period>
+>::type
 operator%(const duration<_Rep1, _Period>& __d, const _Rep2& __s)
 {
     typedef typename common_type<_Rep1, _Rep2>::type _Cr;
@@ -1605,9 +1590,9 @@ using local_seconds = local_time<seconds>;
 using local_days    = local_time<days>;
 
 
-struct _LIBCPP_TYPE_VIS last_spec { explicit last_spec() = default; };
+struct last_spec { explicit last_spec() = default; };
 
-class _LIBCPP_TYPE_VIS day {
+class day {
 private:
     unsigned char __d;
 public:
@@ -1672,7 +1657,7 @@ inline constexpr day& day::operator-=(const days& __dd) noexcept
 { *this = *this - __dd; return *this; }
 
 
-class _LIBCPP_TYPE_VIS month {
+class month {
 private:
     unsigned char __m;
 public:
@@ -1743,21 +1728,21 @@ inline constexpr month& month::operator-=(const months& __dm) noexcept
 { *this = *this - __dm; return *this; }
 
 
-class _LIBCPP_TYPE_VIS year {
+class year {
 private:
     short __y;
 public:
     year() = default;
     explicit inline constexpr year(int __val) noexcept : __y(static_cast<short>(__val)) {}
 
-    inline constexpr year& operator++()    noexcept { ++__y; return *this; };
-    inline constexpr year  operator++(int) noexcept { year __tmp = *this; ++(*this); return __tmp; };
-    inline constexpr year& operator--()    noexcept { --__y; return *this; };
-    inline constexpr year  operator--(int) noexcept { year __tmp = *this; --(*this); return __tmp; };
+    inline constexpr year& operator++()    noexcept { ++__y; return *this; }
+    inline constexpr year  operator++(int) noexcept { year __tmp = *this; ++(*this); return __tmp; }
+    inline constexpr year& operator--()    noexcept { --__y; return *this; }
+    inline constexpr year  operator--(int) noexcept { year __tmp = *this; --(*this); return __tmp; }
            constexpr year& operator+=(const years& __dy) noexcept;
            constexpr year& operator-=(const years& __dy) noexcept;
     inline constexpr year operator+() const noexcept { return *this; }
-    inline constexpr year operator-() const noexcept { return year{-__y}; };
+    inline constexpr year operator-() const noexcept { return year{-__y}; }
 
     inline constexpr bool is_leap() const noexcept { return __y % 4 == 0 && (__y % 100 != 0 || __y % 400 == 0); }
     explicit inline constexpr operator int() const noexcept { return __y; }
@@ -1817,10 +1802,10 @@ inline constexpr year& year::operator-=(const years& __dy) noexcept
 inline constexpr bool year::ok() const noexcept
 { return static_cast<int>(min()) <= __y && __y <= static_cast<int>(max()); }
 
-class _LIBCPP_TYPE_VIS weekday_indexed;
-class _LIBCPP_TYPE_VIS weekday_last;
+class weekday_indexed;
+class weekday_last;
 
-class _LIBCPP_TYPE_VIS weekday {
+class weekday {
 private:
     unsigned char __wd;
 public:
@@ -1906,7 +1891,7 @@ inline constexpr weekday& weekday::operator-=(const days& __dd) noexcept
 { *this = *this - __dd; return *this; }
 
 
-class _LIBCPP_TYPE_VIS weekday_indexed {
+class weekday_indexed {
 private:
     _VSTD::chrono::weekday __wd;
     unsigned char          __idx;
@@ -1928,7 +1913,7 @@ bool operator!=(const weekday_indexed& __lhs, const weekday_indexed& __rhs) noex
 { return !(__lhs == __rhs); }
 
 
-class _LIBCPP_TYPE_VIS weekday_last {
+class weekday_last {
 private:
     _VSTD::chrono::weekday __wd;
 public:
@@ -1949,7 +1934,7 @@ bool operator!=(const weekday_last& __lhs, const weekday_last& __rhs) noexcept
 inline constexpr
 weekday_indexed weekday::operator[](unsigned __index) const noexcept { return weekday_indexed{*this, __index}; }
 
-inline constexpr 
+inline constexpr
 weekday_last    weekday::operator[](last_spec) const noexcept { return weekday_last{*this}; }
 
 
@@ -1976,7 +1961,7 @@ inline constexpr month November{11};
 inline constexpr month December{12};
 
 
-class _LIBCPP_TYPE_VIS month_day {
+class month_day {
 private:
    chrono::month __m;
    chrono::day   __d;
@@ -2051,7 +2036,7 @@ bool operator>=(const month_day& __lhs, const month_day& __rhs) noexcept
 
 
 
-class _LIBCPP_TYPE_VIS month_day_last {
+class month_day_last {
 private:
     chrono::month __m;
 public:
@@ -2102,7 +2087,7 @@ month_day_last operator/(last_spec, int __rhs) noexcept
 { return month_day_last{month(__rhs)}; }
 
 
-class _LIBCPP_TYPE_VIS month_weekday {
+class month_weekday {
 private:
     chrono::month __m;
     chrono::weekday_indexed __wdi;
@@ -2140,7 +2125,7 @@ month_weekday operator/(const weekday_indexed& __lhs, int __rhs) noexcept
 { return month_weekday{month(__rhs), __lhs}; }
 
 
-class _LIBCPP_TYPE_VIS month_weekday_last {
+class month_weekday_last {
     chrono::month        __m;
     chrono::weekday_last __wdl;
   public:
@@ -2177,7 +2162,7 @@ month_weekday_last operator/(const weekday_last& __lhs, int __rhs) noexcept
 { return month_weekday_last{month(__rhs), __lhs}; }
 
 
-class _LIBCPP_TYPE_VIS year_month {
+class year_month {
     chrono::year  __y;
     chrono::month __m;
 public:
@@ -2251,7 +2236,7 @@ constexpr year_month operator-(const year_month& __lhs, const years& __rhs) noex
 
 class year_month_day_last;
 
-class _LIBCPP_TYPE_VIS year_month_day {
+class year_month_day {
 private:
     chrono::year  __y;
     chrono::month __m;
@@ -2260,7 +2245,7 @@ public:
      year_month_day() = default;
      inline constexpr year_month_day(
             const chrono::year& __yval, const chrono::month& __mval, const chrono::day& __dval) noexcept
-            : __y{__yval}, __m{__mval}, __d{__dval} {}  
+            : __y{__yval}, __m{__mval}, __d{__dval} {}
             constexpr year_month_day(const year_month_day_last& __ymdl) noexcept;
      inline constexpr year_month_day(const sys_days& __sysd) noexcept
             : year_month_day(__from_days(__sysd.time_since_epoch())) {}
@@ -2405,7 +2390,7 @@ inline constexpr year_month_day& year_month_day::operator-=(const months& __dm) 
 inline constexpr year_month_day& year_month_day::operator+=(const years& __dy)  noexcept { *this = *this + __dy; return *this; }
 inline constexpr year_month_day& year_month_day::operator-=(const years& __dy)  noexcept { *this = *this - __dy; return *this; }
 
-class _LIBCPP_TYPE_VIS year_month_day_last {
+class year_month_day_last {
 private:
     chrono::year           __y;
     chrono::month_day_last __mdl;
@@ -2515,7 +2500,7 @@ inline constexpr year_month_day_last& year_month_day_last::operator+=(const year
 inline constexpr year_month_day_last& year_month_day_last::operator-=(const years& __dy)  noexcept { *this = *this - __dy; return *this; }
 
 inline constexpr year_month_day::year_month_day(const year_month_day_last& __ymdl) noexcept
-    : __y{__ymdl.year()}, __m{__ymdl.month()}, __d{__ymdl.day()} {}  
+    : __y{__ymdl.year()}, __m{__ymdl.month()}, __d{__ymdl.day()} {}
 
 inline constexpr bool year_month_day::ok() const noexcept
 {
@@ -2523,7 +2508,7 @@ inline constexpr bool year_month_day::ok() const noexcept
     return chrono::day{1} <= __d && __d <= (__y / __m / last).day();
 }
 
-class _LIBCPP_TYPE_VIS year_month_weekday {
+class year_month_weekday {
     chrono::year            __y;
     chrono::month           __m;
     chrono::weekday_indexed __wdi;
@@ -2566,7 +2551,7 @@ year_month_weekday year_month_weekday::__from_days(days __d) noexcept
     const sys_days      __sysd{__d};
     const chrono::weekday __wd = chrono::weekday(__sysd);
     const year_month_day __ymd = year_month_day(__sysd);
-    return year_month_weekday{__ymd.year(), __ymd.month(), 
+    return year_month_weekday{__ymd.year(), __ymd.month(),
                               __wd[(static_cast<unsigned>(__ymd.day())-1)/7+1]};
 }
 
@@ -2637,7 +2622,7 @@ inline constexpr year_month_weekday& year_month_weekday::operator-=(const months
 inline constexpr year_month_weekday& year_month_weekday::operator+=(const years& __dy)  noexcept { *this = *this + __dy; return *this; }
 inline constexpr year_month_weekday& year_month_weekday::operator-=(const years& __dy)  noexcept { *this = *this - __dy; return *this; }
 
-class _LIBCPP_TYPE_VIS year_month_weekday_last {
+class year_month_weekday_last {
 private:
     chrono::year         __y;
     chrono::month        __m;
@@ -2658,9 +2643,9 @@ public:
     inline constexpr operator                 sys_days() const noexcept { return   sys_days{__to_days()}; }
     inline explicit constexpr operator      local_days() const noexcept { return local_days{__to_days()}; }
     inline constexpr bool ok() const noexcept { return __y.ok() && __m.ok() && __wdl.ok(); }
-    
+
     constexpr days __to_days() const noexcept;
-    
+
 };
 
 inline constexpr
@@ -2698,7 +2683,7 @@ year_month_weekday_last operator/(const month_weekday_last& __lhs, const year& _
 
 inline constexpr
 year_month_weekday_last operator/(const month_weekday_last& __lhs, int __rhs) noexcept
-{ return year(__rhs) / __lhs; }  
+{ return year(__rhs) / __lhs; }
 
 
 inline constexpr
@@ -2810,7 +2795,7 @@ inline namespace literals
     {
         return chrono::day(static_cast<unsigned>(__d));
     }
- 
+
     constexpr chrono::year operator ""y(unsigned long long __y) noexcept
     {
         return chrono::year(static_cast<int>(__y));
@@ -2842,7 +2827,7 @@ struct _FilesystemClock {
 
   static _LIBCPP_CONSTEXPR_AFTER_CXX11 const bool is_steady = false;
 
-  _LIBCPP_FUNC_VIS static time_point now() noexcept;
+  _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_FUNC_VIS static time_point now() noexcept;
 
   _LIBCPP_INLINE_VISIBILITY
   static time_t to_time_t(const time_point& __t) noexcept {

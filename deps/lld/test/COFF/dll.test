@@ -42,10 +42,10 @@ EXPORT-LTO-NEXT:       3   0x1030  exportfn3
 # RUN:   /export:exportfn1 /export:exportfn2
 # RUN: yaml2obj < %p/Inputs/import.yaml > %t2.obj
 # RUN: lld-link /out:%t2.exe /entry:main %t2.obj %t2.lib
-# RUN: llvm-readobj -coff-imports %t2.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-imports %t2.exe | FileCheck -check-prefix=IMPORT %s
 
 # RUN: lld-link /out:%t2.lto.exe /entry:main %t2.obj %t.lto.lib
-# RUN: llvm-readobj -coff-imports %t2.lto.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj --coff-imports %t2.lto.exe | FileCheck -check-prefix=IMPORT %s
 
 IMPORT: Symbol: exportfn1
 IMPORT: Symbol: exportfn2

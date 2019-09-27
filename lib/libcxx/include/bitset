@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===---------------------------- bitset ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -680,7 +679,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR bitset() _NOEXCEPT {}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
         bitset(unsigned long long __v) _NOEXCEPT : base(__v) {}
-    template<class _CharT>
+    template<class _CharT, class = _EnableIf<_IsCharLikeType<_CharT>::value> >
         explicit bitset(const _CharT* __str,
                         typename basic_string<_CharT>::size_type __n = basic_string<_CharT>::npos,
                         _CharT __zero = _CharT('0'), _CharT __one = _CharT('1'));
@@ -761,7 +760,7 @@ private:
 };
 
 template <size_t _Size>
-template<class _CharT>
+template<class _CharT, class>
 bitset<_Size>::bitset(const _CharT* __str,
                       typename basic_string<_CharT>::size_type __n,
                       _CharT __zero, _CharT __one)

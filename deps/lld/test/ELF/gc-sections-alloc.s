@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld %t -o %t2 --gc-sections -shared
-# RUN: llvm-readobj -sections  -section-data %t2 | FileCheck %s
+# RUN: llvm-readobj --sections  --section-data %t2 | FileCheck %s
 
 # Non alloca section .bar should not keep section .foo alive.
 

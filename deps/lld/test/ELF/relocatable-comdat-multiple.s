@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %S/Inputs/relocatable-comdat-multiple.s -o %t2.o
 # RUN: ld.lld -r %t.o %t2.o -o %t
-# RUN: llvm-readobj -elf-section-groups %t | FileCheck %s
+# RUN: llvm-readobj --elf-section-groups %t | FileCheck %s
 
 # CHECK:      Groups {
 # CHECK-NEXT:   Group {

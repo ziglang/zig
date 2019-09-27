@@ -3,11 +3,11 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 
 # RUN: ld.lld %t -o %t2 --gc-sections
-# RUN: llvm-readobj -t %t2 | FileCheck %s
+# RUN: llvm-readobj --symbols %t2 | FileCheck %s
 # RUN: llvm-objdump --dwarf=frames %t2 | FileCheck --check-prefix=EH %s
 
 # RUN: ld.lld %t -o %t3
-# RUN: llvm-readobj -t %t3 | FileCheck --check-prefix=NOGC %s
+# RUN: llvm-readobj --symbols %t3 | FileCheck --check-prefix=NOGC %s
 # RUN: llvm-objdump --dwarf=frames %t3 | FileCheck --check-prefix=EHNOGC %s
 
 # CHECK-NOT: foo

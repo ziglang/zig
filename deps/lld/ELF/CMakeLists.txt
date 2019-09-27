@@ -27,7 +27,6 @@ add_lld_library(lldELF
   Driver.cpp
   DriverUtils.cpp
   EhFrame.cpp
-  Filesystem.cpp
   ICF.cpp
   InputFiles.cpp
   InputSection.cpp

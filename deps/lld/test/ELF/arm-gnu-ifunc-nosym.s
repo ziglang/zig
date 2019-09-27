@@ -1,7 +1,7 @@
 // REQUIRES: arm
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
 // RUN: ld.lld -static %t.o -o %tout
-// RUN: llvm-readobj -symbols %tout | FileCheck %s
+// RUN: llvm-readobj --symbols %tout | FileCheck %s
 
 // Check that no __rel_iplt_end/__rel_iplt_start
 // appear in symtab if there are no references to them.

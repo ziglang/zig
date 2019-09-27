@@ -12,6 +12,7 @@ msg:  .asciz  "Hello, world\n"
 msgend:
 
 # CHECK: Disassembly of section .R_AARCH64_ADR_PREL_LO21:
+# CHECK-EMPTY:
 # CHECK: _start:
 # CHECK:        0:       21 00 00 10     adr     x1, #4
 # CHECK: msg:
@@ -29,6 +30,7 @@ mystr:
 # PAGE(P) = 0x210000
 #
 # CHECK: Disassembly of section .R_AARCH64_ADR_PREL_PG_H121:
+# CHECK-EMPTY:
 # CHECK-NEXT: $x.2:
 # CHECK-NEXT:   210012:       01 00 00 90     adrp    x1, #0
 
@@ -43,6 +45,7 @@ mystr:
 # R << 10 = 0x7c00
 #
 # CHECK: Disassembly of section .R_AARCH64_ADD_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK-NEXT: $x.4:
 # CHECK-NEXT:   21001b:       00 7c 00 91     add     x0, x0, #31
 
@@ -56,6 +59,7 @@ foo:
 # R = ((S + A) & 0xFFF) << 7 = 0x00001400
 # 0x00001400 | 0xf940177c = 0xf940177c
 # CHECK: Disassembly of section .R_AARCH64_LDST64_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK-NEXT: $x.6:
 # CHECK-NEXT:   210024:       7c 17 40 f9     ldr     x28, [x27, #40]
 
@@ -65,6 +69,7 @@ sub:
   nop
 
 # CHECK: Disassembly of section .SUB:
+# CHECK-EMPTY:
 # CHECK-NEXT: $x.8:
 # CHECK-NEXT:   21002c:       1f 20 03 d5     nop
 # CHECK: sub:
@@ -79,6 +84,7 @@ call26:
 # (R & 0x0ffffffc) >> 2 = 0x03ffffff
 # 0x94000000 | 0x03ffffff = 0x97ffffff
 # CHECK: Disassembly of section .R_AARCH64_CALL26:
+# CHECK-EMPTY:
 # CHECK-NEXT: call26:
 # CHECK-NEXT:   210034:       ff ff ff 97     bl     #-4
 
@@ -91,6 +97,7 @@ jump26:
 # (R & 0x0ffffffc) >> 2 = 0x03fffffe
 # 0x14000000 | 0x03fffffe = 0x17fffffe
 # CHECK: Disassembly of section .R_AARCH64_JUMP26:
+# CHECK-EMPTY:
 # CHECK-NEXT: jump26:
 # CHECK-NEXT:   210038:       fe ff ff 17     b      #-8
 
@@ -105,6 +112,7 @@ foo32:
 # R = ((S + A) & 0xFFC) << 8 = 0x00004000
 # 0x00004000 | 0xbd4000a4 = 0xbd4040a4
 # CHECK: Disassembly of section .R_AARCH64_LDST32_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK-NEXT: ldst32:
 # CHECK-NEXT:   21003c:       a4 40 40 bd     ldr s4, [x5, #64]
 
@@ -119,6 +127,7 @@ foo8:
 # R = ((S + A) & 0xFFF) << 10 = 0x00012000
 # 0x00012000 | 0x398001ab = 0x398121ab
 # CHECK: Disassembly of section .R_AARCH64_LDST8_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK-NEXT: ldst8:
 # CHECK-NEXT:   210044:       ab 21 81 39     ldrsb x11, [x13, #72]
 
@@ -133,6 +142,7 @@ foo128:
 # R = ((S + A) & 0xFF8) << 6 = 0x00001400
 # 0x00001400 | 0x3dc00274 = 0x3dc01674
 # CHECK: Disassembly of section .R_AARCH64_LDST128_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK: ldst128:
 # CHECK:   21004c:       74 16 c0 3d     ldr     q20, [x19, #80]
 #foo128:
@@ -151,6 +161,7 @@ foo16:
 # R = ((S + A) & 0x0FFC) << 9 = 0xb000
 # 0xb000 | 0x7d400271 = 0x7d40b271
 # CHECK: Disassembly of section .R_AARCH64_LDST16_ABS_LO12_NC:
+# CHECK-EMPTY:
 # CHECK-NEXT: ldst16:
 # CHECK-NEXT:   210054:       71 c2 40 7d     ldr     h17, [x19, #96]
 # CHECK-NEXT:   210058:       61 c2 40 79     ldrh    w1, [x19, #96]
@@ -166,6 +177,7 @@ movz1:
 
 ## 4222124650659840 == (0xF << 48)
 # CHECK: Disassembly of section .R_AARCH64_MOVW_UABS:
+# CHECK-EMPTY:
 # CHECK-NEXT: movz1:
 # CHECK-NEXT: 8c 01 80 f2   movk  x12, #12
 # CHECK-NEXT: ad 01 a0 f2   movk  x13, #13, lsl #16

@@ -1,9 +1,8 @@
 //===- Args.h ---------------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -11,6 +10,7 @@
 #define LLD_ARGS_H
 
 #include "lld/Common/LLVM.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include <vector>
 
@@ -22,15 +22,20 @@ class InputArgList;
 
 namespace lld {
 namespace args {
-int getInteger(llvm::opt::InputArgList &Args, unsigned Key, int Default);
-std::vector<StringRef> getStrings(llvm::opt::InputArgList &Args, int Id);
 
-uint64_t getZOptionValue(llvm::opt::InputArgList &Args, int Id, StringRef Key,
+llvm::CodeGenOpt::Level getCGOptLevel(int optLevelLTO);
+
+int64_t getInteger(llvm::opt::InputArgList &args, unsigned key,
+                   int64_t Default);
+
+std::vector<StringRef> getStrings(llvm::opt::InputArgList &args, int id);
+
+uint64_t getZOptionValue(llvm::opt::InputArgList &args, int id, StringRef key,
                          uint64_t Default);
 
-std::vector<StringRef> getLines(MemoryBufferRef MB);
+std::vector<StringRef> getLines(MemoryBufferRef mb);
 
-StringRef getFilenameWithoutExe(StringRef Path);
+StringRef getFilenameWithoutExe(StringRef path);
 
 } // namespace args
 } // namespace lld

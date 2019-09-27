@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: ld.lld -shared --gc-sections -o %t1 %t
-# RUN: llvm-readobj --elf-output-style=GNU --file-headers --symbols %t1
+# RUN: llvm-readelf --file-headers --symbols %t1
 #   | FileCheck %s
 # CHECK: Entry point address:               0x1000
 # CHECK: 0000000000001000     0 FUNC    LOCAL  HIDDEN     4 _start

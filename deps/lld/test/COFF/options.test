@@ -1,65 +1,105 @@
 # RUN: yaml2obj < %p/Inputs/ret42.yaml > %t.obj
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BIND %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=BIND %s
 # RUN: lld-link /allowbind /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BIND %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=BIND %s
 BIND-NOT: IMAGE_DLL_CHARACTERISTICS_NO_BIND
 
 # RUN: lld-link /allowbind:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOBIND %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOBIND %s
 NOBIND: IMAGE_DLL_CHARACTERISTICS_NO_BIND
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ISO %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=ISO %s
 # RUN: lld-link /allowisolation /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ISO %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=ISO %s
 ISO-NOT: IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION
 
 # RUN: lld-link /allowisolation:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOISO %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOISO %s
 NOISO: IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ENT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=ENT %s
 # RUN: lld-link /out:%t.exe /entry:main /highentropyva %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ENT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=ENT %s
 ENT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
 
 # RUN: lld-link /out:%t.exe /highentropyva:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOENT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOENT %s
 NOENT-NOT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
 
 # RUN: lld-link /out:%t.exe /entry:main /integritycheck %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=INT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=INT %s
 INT: IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOINT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOINT %s
 # RUN: lld-link /out:%t.exe /integritycheck:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOINT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOINT %s
 NOINT-NOT: IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
 # RUN: lld-link /out:%t.exe /entry:main /nxcompat %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
 NXCOMPAT: IMAGE_DLL_CHARACTERISTICS_NX_COMPAT
 
 # RUN: lld-link /out:%t.exe /nxcompat:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NONXCOMPAT %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NONXCOMPAT %s
 NONXCOMPAT-NOT: IMAGE_DLL_CHARACTERISTICS_NX_COMPAT
 
+# RUN: lld-link /out:%t.exe /entry:main /swaprun:CD %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=SWAPCD %s
+# RUN: lld-link /out:%t.exe /entry:main /swaprun:cd,net %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=SWAPCD %s
+SWAPCD: IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP
+
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOSWAPCD %s
+NOSWAPCD-NOT: IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP
+
+# RUN: lld-link /out:%t.exe /entry:main /swaprun:NeT %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=SWAPNET %s
+# RUN: lld-link /out:%t.exe /entry:main /swaprun:net,cd,cd,net %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=SWAPNET %s
+SWAPNET: IMAGE_FILE_NET_RUN_FROM_SWAP
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOSWAPNET %s
+NOSWAPNET-NOT: IMAGE_FILE_NET_RUN_FROM_SWAP
+
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun: %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR1 %s
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:cd, %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR1 %s
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:,, %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR1 %s
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:,cd %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR1 %s
+SWAPERR1: /swaprun: missing argument
+
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:foo %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR2 %s
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:cd,foo,net %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR2 %s
+SWAPERR2: /swaprun: invalid argument: foo
+
+# RUN: not lld-link /out:%t.exe /entry:main /swaprun:cdfoo,net %t.obj 2>&1 | \
+# RUN:     FileCheck -check-prefix=SWAPERR3 %s
+SWAPERR3: /swaprun: invalid argument: cdfoo
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
 # RUN: lld-link /out:%t.exe /entry:main /tsaware %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
 TSAWARE: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE
 
 # RUN: lld-link /tsaware:no /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOTSAWARE %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck -check-prefix=NOTSAWARE %s
 # RUN: lld-link /dll /out:%t.dll /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
+# RUN: llvm-readobj --file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
 # RUN: lld-link /tsaware /dll /out:%t.dll /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
+# RUN: llvm-readobj --file-headers %t.dll | FileCheck -check-prefix=NOTSAWARE %s
 NOTSAWARE-NOT: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE

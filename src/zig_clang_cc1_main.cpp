@@ -1,9 +1,8 @@
 //===-- cc1_main.cpp - Clang CC1 Compiler Frontend ------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -13,7 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if __GNUC__ >= 9
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winit-list-lifetime"
+#endif
+
 #include "clang/Basic/Stack.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/CodeGen/ObjectFilePCHContainerOperations.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/DriverDiagnostic.h"
@@ -35,10 +40,14 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
 #include <cstdio>
 
 #ifdef CLANG_HAVE_RLIMITS
@@ -159,6 +168,23 @@ static void ensureSufficientStack() {
 static void ensureSufficientStack() {}
 #endif
 
+/// Print supported cpus of the given target.
+static int PrintSupportedCPUs(std::string TargetStr) {
+  std::string Error;
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(TargetStr, Error);
+  if (!TheTarget) {
+    llvm::errs() << Error;
+    return 1;
+  }
+
+  // the target machine will handle the mcpu printing
+  llvm::TargetOptions Options;
+  std::unique_ptr<llvm::TargetMachine> TheTargetMachine(
+      TheTarget->createTargetMachine(TargetStr, "", "+cpuHelp", Options, None));
+  return 0;
+}
+
 int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   ensureSufficientStack();
 
@@ -184,6 +210,13 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success = CompilerInvocation::CreateFromArgs(
       Clang->getInvocation(), Argv.begin(), Argv.end(), Diags);
 
+  if (Clang->getFrontendOpts().TimeTrace)
+    llvm::timeTraceProfilerInitialize();
+
+  // --print-supported-cpus takes priority over the actual compilation.
+  if (Clang->getFrontendOpts().PrintSupportedCPUs)
+    return PrintSupportedCPUs(Clang->getTargetOpts().Triple);
+
   // Infer the builtin include path if unspecified.
   if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
       Clang->getHeaderSearchOpts().ResourceDir.empty())
@@ -205,11 +238,35 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     return 1;
 
   // Execute the frontend actions.
-  Success = ExecuteCompilerInvocation(Clang.get());
+  {
+    llvm::TimeTraceScope TimeScope("ExecuteCompiler", StringRef(""));
+    Success = ExecuteCompilerInvocation(Clang.get());
+  }
 
   // If any timers were active but haven't been destroyed yet, print their
   // results now.  This happens in -disable-free mode.
   llvm::TimerGroup::printAll(llvm::errs());
+
+  if (llvm::timeTraceProfilerEnabled()) {
+    SmallString<128> Path(Clang->getFrontendOpts().OutputFile);
+    llvm::sys::path::replace_extension(Path, "json");
+    auto profilerOutput =
+        Clang->createOutputFile(Path.str(),
+                                /*Binary=*/false,
+                                /*RemoveFileOnSignal=*/false, "",
+                                /*Extension=*/"json",
+                                /*useTemporary=*/false);
+
+    llvm::timeTraceProfilerWrite(*profilerOutput);
+    // FIXME(ibiryukov): make profilerOutput flush in destructor instead.
+    profilerOutput->flush();
+    llvm::timeTraceProfilerCleanup();
+
+    llvm::errs() << "Time trace json-file dumped to " << Path.str() << "\n";
+    llvm::errs()
+        << "Use chrome://tracing or Speedscope App "
+           "(https://www.speedscope.app) for flamegraph visualization\n";
+  }
 
   // Our error handler depends on the Diagnostics object, which we're
   // potentially about to delete. Uninstall the handler now so that any
@@ -224,4 +281,3 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   return !Success;
 }
-

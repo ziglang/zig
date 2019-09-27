@@ -1,12 +1,12 @@
 # REQUIRES: ppc
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-linux %s -o %tppc64
 # RUN: ld.lld -m elf64ppc %tppc64 -o %t2ppc64
-# RUN: llvm-readobj -file-headers %t2ppc64 | FileCheck --check-prefix=PPC64 %s
+# RUN: llvm-readobj --file-headers %t2ppc64 | FileCheck --check-prefix=PPC64 %s
 # RUN: ld.lld %tppc64 -o %t3ppc64
-# RUN: llvm-readobj -file-headers %t3ppc64 | FileCheck --check-prefix=PPC64 %s
+# RUN: llvm-readobj --file-headers %t3ppc64 | FileCheck --check-prefix=PPC64 %s
 # RUN: echo 'OUTPUT_FORMAT(elf64-powerpc)' > %tppc64.script
 # RUN: ld.lld %tppc64.script  %tppc64 -o %t4ppc64
-# RUN: llvm-readobj -file-headers %t4ppc64 | FileCheck --check-prefix=PPC64 %s
+# RUN: llvm-readobj --file-headers %t4ppc64 | FileCheck --check-prefix=PPC64 %s
 
 # PPC64:      ElfHeader {
 # PPC64-NEXT:   Ident {
@@ -38,7 +38,7 @@
 # RUN: llvm-mc -filetype=obj -triple=powerpc64-unknown-freebsd %s -o %tppc64fbsd
 # RUN: echo 'OUTPUT_FORMAT(elf64-powerpc-freebsd)' > %tppc64fbsd.script
 # RUN: ld.lld %tppc64fbsd.script  %tppc64fbsd -o %t2ppc64fbsd
-# RUN: llvm-readobj -file-headers %t2ppc64fbsd | FileCheck --check-prefix=PPC64-FBSD %s
+# RUN: llvm-readobj --file-headers %t2ppc64fbsd | FileCheck --check-prefix=PPC64-FBSD %s
 
 # PPC64-FBSD:      ElfHeader {
 # PPC64-FBSD-NEXT:   Ident {
@@ -69,12 +69,12 @@
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc64le-unknown-linux %s -o %tppc64le
 # RUN: ld.lld -m elf64lppc %tppc64le -o %t2ppc64le
-# RUN: llvm-readobj -file-headers %t2ppc64le | FileCheck --check-prefix=PPC64LE %s
+# RUN: llvm-readobj --file-headers %t2ppc64le | FileCheck --check-prefix=PPC64LE %s
 # RUN: ld.lld %tppc64le -o %t3ppc64le
-# RUN: llvm-readobj -file-headers %t3ppc64le | FileCheck --check-prefix=PPC64LE %s
+# RUN: llvm-readobj --file-headers %t3ppc64le | FileCheck --check-prefix=PPC64LE %s
 # RUN: echo 'OUTPUT_FORMAT(elf64-powerpcle)' > %tppc64le.script
 # RUN: ld.lld %tppc64le.script  %tppc64le -o %t4ppc64le
-# RUN: llvm-readobj -file-headers %t4ppc64le | FileCheck --check-prefix=PPC64LE %s
+# RUN: llvm-readobj --file-headers %t4ppc64le | FileCheck --check-prefix=PPC64LE %s
 
 # PPC64LE:      ElfHeader {
 # PPC64LE-NEXT:   Ident {
@@ -105,14 +105,14 @@
 
 # RUN: llvm-mc -filetype=obj -triple=powerpc-unknown-linux %s -o %tppc32
 # RUN: ld.lld -m elf32ppc %tppc32 -o %t2ppc32
-# RUN: llvm-readobj -file-headers %t2ppc32 | FileCheck --check-prefix=PPC32 %s
+# RUN: llvm-readobj --file-headers %t2ppc32 | FileCheck --check-prefix=PPC32 %s
 # RUN: ld.lld %tppc32 -o %t3ppc32
-# RUN: llvm-readobj -file-headers %t3ppc32 | FileCheck --check-prefix=PPC32 %s
+# RUN: llvm-readobj --file-headers %t3ppc32 | FileCheck --check-prefix=PPC32 %s
 # RUN: echo 'OUTPUT_FORMAT(elf32-powerpc)' > %tppc32.script
 # RUN: ld.lld %tppc32.script  %tppc32 -o %t4ppc32
-# RUN: llvm-readobj -file-headers %t4ppc32 | FileCheck --check-prefix=PPC32 %s
+# RUN: llvm-readobj --file-headers %t4ppc32 | FileCheck --check-prefix=PPC32 %s
 # RUN: ld.lld -m elf32ppclinux %tppc32 -o %t5ppc32
-# RUN: llvm-readobj -file-headers %t5ppc32 | FileCheck --check-prefix=PPC32 %s
+# RUN: llvm-readobj --file-headers %t5ppc32 | FileCheck --check-prefix=PPC32 %s
 
 # PPC32:      ElfHeader {
 # PPC32-NEXT:   Ident {

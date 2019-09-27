@@ -18,7 +18,7 @@
 # RUN: llvm-objdump -section-headers %t2 | FileCheck %s
 
 # CHECK:     Sections:
-# CHECK-NEXT: Idx Name          Size      Address
+# CHECK-NEXT: Idx Name          Size     VMA
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .hex1         00000008 0000000000001000
 # CHECK-NEXT:   2 .hex2         00000008 0000000000001010
@@ -67,7 +67,7 @@
 # RUN: ld.lld %t --script %t8.script -o %t6
 # RUN: llvm-objdump -section-headers %t6 | FileCheck -check-prefix=SECADDR %s
 # SECADDR:     Sections:
-# SECADDR-NEXT: Idx Name          Size      Address
+# SECADDR-NEXT: Idx Name          Size     VMA
 # SECADDR-NEXT:   0               00000000 0000000000000000
 # SECADDR-NEXT:   1 .hex1         00000008 0000000000000400
 # SECADDR-NEXT:   2 .hex2         00000008 0000000000000500

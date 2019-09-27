@@ -41,7 +41,7 @@ entry:
 ; CHECK-NEXT:       - Initial:         0x00000000
 ; CHECK-NEXT:   - Type:            CODE
 ; CHECK-NEXT:     Relocations:
-; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_GLOBAL_INDEX_LEB
+; CHECK-NEXT:       - Type:            R_WASM_GLOBAL_INDEX_LEB
 ; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:         Offset:          0x00000004
 ; CHECK-NEXT:     Functions:

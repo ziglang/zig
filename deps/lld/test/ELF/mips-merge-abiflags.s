@@ -4,8 +4,8 @@
 
 # RUN: llvm-mc -filetype=obj -triple=mips64-unknown-freebsd %s -o %t.o
 # RUN: ld.lld %t.o %p/Inputs/mips-concatenated-abiflags.o -o %t.exe
-# RUN: llvm-readobj -sections -mips-abi-flags %t.exe | FileCheck %s
-# RUN: llvm-readobj -sections -mips-abi-flags \
+# RUN: llvm-readobj --sections --mips-abi-flags %t.exe | FileCheck %s
+# RUN: llvm-readobj --sections --mips-abi-flags \
 # RUN:     %p/Inputs/mips-concatenated-abiflags.o | \
 # RUN:   FileCheck --check-prefix=INPUT-OBJECT %s
 

@@ -17,6 +17,7 @@ foo:
  bl _start
 
 // CHECK1: Disassembly of section .text:
+// CHECK1-EMPTY:
 // CHECK1-NEXT: _start:
 // CHECK1-NEXT:    11000:       ff f7 fe ff     bl      #-4
 // CHECK1: __Thumbv7ABSLongThunk__start:

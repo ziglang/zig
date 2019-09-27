@@ -1,9 +1,8 @@
 //===- lib/ReaderWriter/MachO/MachONormalizedFileBinaryWriter.cpp ---------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -109,7 +108,7 @@ private:
 class MachOFileLayout {
 public:
   /// All layout computation is done in the constructor.
-  MachOFileLayout(const NormalizedFile &file);
+  MachOFileLayout(const NormalizedFile &file, bool alwaysIncludeFunctionStarts);
 
   /// Returns the final file size as computed in the constructor.
   size_t      size() const;
@@ -123,7 +122,8 @@ public:
   llvm::Error writeBinary(StringRef path);
 
 private:
-  uint32_t    loadCommandsSize(uint32_t &count);
+  uint32_t    loadCommandsSize(uint32_t &count,
+                               bool alwaysIncludeFunctionStarts);
   void        buildFileOffsets();
   void        writeMachHeader();
   llvm::Error writeLoadCommands();
@@ -232,8 +232,9 @@ private:
   ByteBuffer            _exportTrie;
 };
 
-size_t headerAndLoadCommandsSize(const NormalizedFile &file) {
-  MachOFileLayout layout(file);
+size_t headerAndLoadCommandsSize(const NormalizedFile &file,
+                                 bool includeFunctionStarts) {
+  MachOFileLayout layout(file, includeFunctionStarts);
   return layout.headerAndLoadCommandsSize();
 }
 
@@ -250,7 +251,8 @@ size_t MachOFileLayout::headerAndLoadCommandsSize() const {
   return _endOfLoadCommands;
 }
 
-MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
+MachOFileLayout::MachOFileLayout(const NormalizedFile &file,
+                                 bool alwaysIncludeFunctionStarts)
     : _file(file),
       _is64(MachOLinkingContext::is64Bit(file.arch)),
       _swap(!MachOLinkingContext::isHostEndian(file.arch)),
@@ -271,7 +273,7 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
       _endOfLoadCommands += sizeof(version_min_command);
       _countOfLoadCommands++;
     }
-    if (!_file.functionStarts.empty()) {
+    if (!_file.functionStarts.empty() || alwaysIncludeFunctionStarts) {
       _endOfLoadCommands += sizeof(linkedit_data_command);
       _countOfLoadCommands++;
     }
@@ -326,7 +328,8 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
   } else {
     // Final linked images have one load command per segment.
     _endOfLoadCommands = _startOfLoadCommands
-                          + loadCommandsSize(_countOfLoadCommands);
+                          + loadCommandsSize(_countOfLoadCommands,
+                                             alwaysIncludeFunctionStarts);
 
     // Assign section file offsets.
     buildFileOffsets();
@@ -375,7 +378,8 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
   }
 }
 
-uint32_t MachOFileLayout::loadCommandsSize(uint32_t &count) {
+uint32_t MachOFileLayout::loadCommandsSize(uint32_t &count,
+                                           bool alwaysIncludeFunctionStarts) {
   uint32_t size = 0;
   count = 0;
 
@@ -445,7 +449,7 @@ uint32_t MachOFileLayout::loadCommandsSize(uint32_t &count) {
   }
 
   // Add LC_FUNCTION_STARTS if needed
-  if (!_file.functionStarts.empty()) {
+  if (!_file.functionStarts.empty() || alwaysIncludeFunctionStarts) {
     size += sizeof(linkedit_data_command);
     ++count;
   }
@@ -1007,6 +1011,7 @@ llvm::Error MachOFileLayout::writeLoadCommands() {
       lc += sizeof(linkedit_data_command);
     }
   }
+  assert(lc == &_buffer[_endOfLoadCommands]);
   return llvm::Error::success();
 }
 
@@ -1018,6 +1023,7 @@ void MachOFileLayout::writeSectionContent() {
     if (s.content.empty())
       continue;
     uint32_t offset = _sectInfo[&s].fileOffset;
+    assert(offset >= _endOfLoadCommands);
     uint8_t *p = &_buffer[offset];
     memcpy(p, &s.content[0], s.content.size());
     p += s.content.size();
@@ -1543,7 +1549,7 @@ llvm::Error MachOFileLayout::writeBinary(StringRef path) {
 
 /// Takes in-memory normalized view and writes a mach-o object file.
 llvm::Error writeBinary(const NormalizedFile &file, StringRef path) {
-  MachOFileLayout layout(file);
+  MachOFileLayout layout(file, false);
   return layout.writeBinary(path);
 }
 

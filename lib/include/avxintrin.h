@@ -1,22 +1,8 @@
 /*===---- avxintrin.h - AVX intrinsics -------------------------------------===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -45,9 +31,13 @@ typedef unsigned char __v32qu __attribute__ ((__vector_size__ (32)));
  * appear in the interface though. */
 typedef signed char __v32qs __attribute__((__vector_size__(32)));
 
-typedef float __m256 __attribute__ ((__vector_size__ (32)));
-typedef double __m256d __attribute__((__vector_size__(32)));
-typedef long long __m256i __attribute__((__vector_size__(32)));
+typedef float __m256 __attribute__ ((__vector_size__ (32), __aligned__(32)));
+typedef double __m256d __attribute__((__vector_size__(32), __aligned__(32)));
+typedef long long __m256i __attribute__((__vector_size__(32), __aligned__(32)));
+
+typedef float __m256_u __attribute__ ((__vector_size__ (32), __aligned__(1)));
+typedef double __m256d_u __attribute__((__vector_size__(32), __aligned__(1)));
+typedef long long __m256i_u __attribute__((__vector_size__(32), __aligned__(1)));
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("avx"), __min_vector_width__(256)))
@@ -3113,7 +3103,7 @@ static __inline __m256d __DEFAULT_FN_ATTRS
 _mm256_loadu_pd(double const *__p)
 {
   struct __loadu_pd {
-    __m256d __v;
+    __m256d_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_pd*)__p)->__v;
 }
@@ -3133,7 +3123,7 @@ static __inline __m256 __DEFAULT_FN_ATTRS
 _mm256_loadu_ps(float const *__p)
 {
   struct __loadu_ps {
-    __m256 __v;
+    __m256_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_ps*)__p)->__v;
 }
@@ -3166,10 +3156,10 @@ _mm256_load_si256(__m256i const *__p)
 ///    A pointer to a 256-bit integer vector containing integer values.
 /// \returns A 256-bit integer vector containing the moved values.
 static __inline __m256i __DEFAULT_FN_ATTRS
-_mm256_loadu_si256(__m256i const *__p)
+_mm256_loadu_si256(__m256i_u const *__p)
 {
   struct __loadu_si256 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_si256*)__p)->__v;
 }
@@ -3246,7 +3236,7 @@ static __inline void __DEFAULT_FN_ATTRS
 _mm256_storeu_pd(double *__p, __m256d __a)
 {
   struct __storeu_pd {
-    __m256d __v;
+    __m256d_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_pd*)__p)->__v = __a;
 }
@@ -3266,7 +3256,7 @@ static __inline void __DEFAULT_FN_ATTRS
 _mm256_storeu_ps(float *__p, __m256 __a)
 {
   struct __storeu_ps {
-    __m256 __v;
+    __m256_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_ps*)__p)->__v = __a;
 }
@@ -3301,10 +3291,10 @@ _mm256_store_si256(__m256i *__p, __m256i __a)
 /// \param __a
 ///    A 256-bit integer vector containing the values to be moved.
 static __inline void __DEFAULT_FN_ATTRS
-_mm256_storeu_si256(__m256i *__p, __m256i __a)
+_mm256_storeu_si256(__m256i_u *__p, __m256i __a)
 {
   struct __storeu_si256 {
-    __m256i __v;
+    __m256i_u __v;
   } __attribute__((__packed__, __may_alias__));
   ((struct __storeu_si256*)__p)->__v = __a;
 }
@@ -4834,7 +4824,7 @@ _mm256_loadu2_m128d(double const *__addr_hi, double const *__addr_lo)
 ///    address of the memory location does not have to be aligned.
 /// \returns A 256-bit integer vector containing the concatenated result.
 static __inline __m256i __DEFAULT_FN_ATTRS
-_mm256_loadu2_m128i(__m128i const *__addr_hi, __m128i const *__addr_lo)
+_mm256_loadu2_m128i(__m128i_u const *__addr_hi, __m128i_u const *__addr_lo)
 {
   __m256i __v256 = _mm256_castsi128_si256(_mm_loadu_si128(__addr_lo));
   return _mm256_insertf128_si256(__v256, _mm_loadu_si128(__addr_hi), 1);
@@ -4918,7 +4908,7 @@ _mm256_storeu2_m128d(double *__addr_hi, double *__addr_lo, __m256d __a)
 /// \param __a
 ///    A 256-bit integer vector.
 static __inline void __DEFAULT_FN_ATTRS
-_mm256_storeu2_m128i(__m128i *__addr_hi, __m128i *__addr_lo, __m256i __a)
+_mm256_storeu2_m128i(__m128i_u *__addr_hi, __m128i_u *__addr_lo, __m256i __a)
 {
   __m128i __v128;
 

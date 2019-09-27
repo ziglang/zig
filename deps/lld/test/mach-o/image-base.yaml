@@ -1,5 +1,5 @@
 # RUN: ld64.lld -arch x86_64 -macosx_version_min 10.9 %s -o %t -image_base 31415926000 %p/Inputs/x86_64/libSystem.yaml
-# RUN: llvm-readobj -macho-segment %t | FileCheck %s
+# RUN: llvm-readobj --macho-segment %t | FileCheck %s
 # RUN: not ld64.lld -arch x86_64 -image_base 0x31415926530 %s >/dev/null 2> %t
 # RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-MISPAGED
 # RUN: not ld64.lld -arch x86_64 -image_base 1000 %s >/dev/null 2> %t

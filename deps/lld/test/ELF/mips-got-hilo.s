@@ -4,9 +4,10 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o -shared -o %t.so
 # RUN: llvm-objdump -d %t.so | FileCheck %s
-# RUN: llvm-readobj -r -mips-plt-got %t.so | FileCheck -check-prefix=GOT %s
+# RUN: llvm-readobj -r --mips-plt-got %t.so | FileCheck -check-prefix=GOT %s
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: foo:
 # CHECK-NEXT:    10000:       3c 02 00 00     lui     $2, 0
 # CHECK-NEXT:    10004:       8c 42 80 20     lw      $2, -32736($2)

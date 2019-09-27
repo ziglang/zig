@@ -1,22 +1,8 @@
 /*===---- cpuid.h - X86 cpu model detection --------------------------------===
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
+ * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ * See https://llvm.org/LICENSE.txt for license information.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  *===-----------------------------------------------------------------------===
  */
@@ -191,12 +177,16 @@
 #define bit_CLDEMOTE         0x02000000
 #define bit_MOVDIRI          0x08000000
 #define bit_MOVDIR64B        0x10000000
+#define bit_ENQCMD           0x20000000
 
 /* Features in %edx for leaf 7 sub-leaf 0 */
 #define bit_AVX5124VNNIW  0x00000004
 #define bit_AVX5124FMAPS  0x00000008
 #define bit_PCONFIG       0x00040000
 #define bit_IBT           0x00100000
+
+/* Features in %eax for leaf 7 sub-leaf 1 */
+#define bit_AVX512BF16    0x00000020
 
 /* Features in %eax for leaf 13 sub-leaf 1 */
 #define bit_XSAVEOPT    0x00000001

@@ -10,6 +10,7 @@ _start:
     bl big
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:    210000:        02 00 00 94     bl      #8
 // CHECK: __AArch64AbsLongThunk_big:

@@ -2,9 +2,9 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: llvm-mc -triple=x86_64-pc-linux %p/Inputs/comdat.s -o %t2.o -filetype=obj
 ; RUN: ld.lld %t.o %t2.o -o %t.so -shared
-; RUN: llvm-readobj -t %t.so | FileCheck %s
+; RUN: llvm-readobj --symbols %t.so | FileCheck %s
 ; RUN: ld.lld %t2.o %t.o -o %t2.so -shared
-; RUN: llvm-readobj -t %t2.so | FileCheck %s --check-prefix=OTHER
+; RUN: llvm-readobj --symbols %t2.so | FileCheck %s --check-prefix=OTHER
 
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"

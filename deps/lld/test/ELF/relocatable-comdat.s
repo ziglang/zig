@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: ld.lld -r %t.o %t.o -o %t
-# RUN: llvm-readobj -elf-section-groups -sections %t | FileCheck %s
+# RUN: llvm-readobj --elf-section-groups --sections %t | FileCheck %s
 
 # CHECK:        Name: .text.bar
 # CHECK-NEXT:   Type: SHT_PROGBITS

@@ -1,5 +1,5 @@
 // RUN: ld.lld %p/Inputs/discard-merge-unnamed.o -o %t2 -shared
-// RUN: llvm-readobj -t %t2 | FileCheck %s
+// RUN: llvm-readobj --symbols %t2 | FileCheck %s
 
 // Test that the unnamed symbol is SHF_MERGE is omitted.
 

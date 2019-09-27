@@ -24,6 +24,7 @@ comptime {
     _ = @import("behavior/bugs/1500.zig");
     _ = @import("behavior/bugs/1607.zig");
     _ = @import("behavior/bugs/1735.zig");
+    _ = @import("behavior/bugs/1741.zig");
     _ = @import("behavior/bugs/1851.zig");
     _ = @import("behavior/bugs/1914.zig");
     _ = @import("behavior/bugs/2006.zig");
@@ -31,6 +32,7 @@ comptime {
     _ = @import("behavior/bugs/2346.zig");
     _ = @import("behavior/bugs/2578.zig");
     _ = @import("behavior/bugs/2692.zig");
+    _ = @import("behavior/bugs/3046.zig");
     _ = @import("behavior/bugs/3112.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
@@ -57,6 +59,7 @@ comptime {
     _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
+    _ = @import("behavior/fn_delegation.zig");
     _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
@@ -80,6 +83,7 @@ comptime {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
+    _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slicetobytes.zig");

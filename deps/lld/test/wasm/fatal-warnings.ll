@@ -1,7 +1,7 @@
 ; RUN: llc -filetype=obj %s -o %t.main.o
 ; RUN: llc -filetype=obj %p/Inputs/ret32.ll -o %t.ret32.o
-; RUN: lld -flavor wasm -o %t.wasm %t.main.o %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-WARN
-; RUN: not lld -flavor wasm --fatal-warnings -o %t.wasm %t.main.o %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-FATAL
+; RUN: wasm-ld -o %t.wasm %t.main.o %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-WARN
+; RUN: not wasm-ld --fatal-warnings -o %t.wasm %t.main.o %t.ret32.o 2>&1 | FileCheck %s -check-prefix=CHECK-FATAL
 
 ; CHECK-WARN: warning: function signature mismatch: ret32
 ; CHECK-FATAL: error: function signature mismatch: ret32

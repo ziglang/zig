@@ -139,3 +139,10 @@ test "bitcast packed struct literal to byte" {
     const casted = @bitCast(u8, Foo{ .value = 0xF });
     expect(casted == 0xf);
 }
+
+test "comptime bitcast used in expression has the correct type" {
+    const Foo = packed struct {
+        value: u8,
+    };
+    expect(@bitCast(u8, Foo{ .value = 0xF }) == 0xf);
+}

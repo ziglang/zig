@@ -20,6 +20,7 @@ bar:
   addi   $t0,$t0,%lo(_gp_disp)
 
 # EXE:      Disassembly of section .text:
+# EXE-EMPTY:
 # EXE-NEXT: __start:
 # EXE-NEXT:  20000:   3c 08 00 02   lui    $8, 2
 #                                              ^-- %hi(0x47ff0-0x20000)
@@ -37,6 +38,7 @@ bar:
 # EXE: 00020000     .text   00000000 __start
 
 # SO:      Disassembly of section .text:
+# SO-EMPTY:
 # SO-NEXT: __start:
 # SO-NEXT:  10000:   3c 08 00 02   lui    $8, 2
 #                                             ^-- %hi(0x28000-0x10000)

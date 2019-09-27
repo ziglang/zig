@@ -1,11 +1,11 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t.so -shared --apply-dynamic-relocs
-// RUN: llvm-readobj -r -s -l -section-data %t.so | FileCheck -check-prefix CHECK -check-prefix APPLYDYNREL %s
+// RUN: llvm-readobj -r -S -l --section-data %t.so | FileCheck -check-prefix CHECK -check-prefix APPLYDYNREL %s
 // RUN: ld.lld %t.o -o %t2.so -shared
-// RUN: llvm-readobj -r -s -l -section-data %t2.so | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
+// RUN: llvm-readobj -r -S -l --section-data %t2.so | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
 // RUN: ld.lld %t.o -o %t2.so -shared --no-apply-dynamic-relocs
-// RUN: llvm-readobj -r -s -l -section-data %t2.so | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
+// RUN: llvm-readobj -r -S -l --section-data %t2.so | FileCheck -check-prefix CHECK -check-prefix NOAPPLYDYNREL %s
 
 // APPLYDYNREL:      Name: .got
 // APPLYDYNREL-NEXT: Type: SHT_PROGBITS

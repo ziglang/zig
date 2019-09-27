@@ -10,6 +10,7 @@
 // RUN: llvm-objdump -d -triple=i386-pc-linux-code16 %t1 | FileCheck %s
 
 // CHECK:        Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // CHECK-NEXT:      200: {{.*}} jmp -1
 //              0x10202 - 0x203 == 0xffff

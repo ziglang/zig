@@ -2,29 +2,29 @@
 
 # RUN: rm -f %t.dll %t.pdb
 # RUN: lld-link /debug /pdbaltpath:test.pdb /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll > %t.1.txt
+# RUN: llvm-readobj --coff-debug-directory %t.dll > %t.1.txt
 # RUN: lld-link /debug /pdbaltpath:test.pdb /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll > %t.2.txt
+# RUN: llvm-readobj --coff-debug-directory %t.dll > %t.2.txt
 # RUN: cat %t.1.txt %t.2.txt | FileCheck %s
 
 # RUN: rm -f %t.dll %t.pdb
 # RUN: lld-link /debug /pdb:%t1.pdb /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll > %t.3.txt
+# RUN: llvm-readobj --coff-debug-directory %t.dll > %t.3.txt
 # RUN: lld-link /debug /pdb:%t2.pdb /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll > %t.4.txt
+# RUN: llvm-readobj --coff-debug-directory %t.dll > %t.4.txt
 # RUN: cat %t.3.txt %t.4.txt | FileCheck --check-prefix TWOPDBS %s
 
 # RUN: rm -f %t.dll %t.pdb
 # RUN: lld-link /Brepro /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix REPRO %s
+# RUN: llvm-readobj --coff-debug-directory %t.dll | FileCheck --check-prefix REPRO %s
 
 # RUN: rm -f %t.dll %t.pdb
 # RUN: lld-link /Brepro /debug /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix REPRODEBUG %s
+# RUN: llvm-readobj --coff-debug-directory %t.dll | FileCheck --check-prefix REPRODEBUG %s
 
 # RUN: rm -f %t.dll %t.pdb
 # RUN: lld-link /lldmingw /debug:dwarf /dll /out:%t.dll /entry:DllMain %t.obj
-# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck --check-prefix MINGW %s
+# RUN: llvm-readobj --coff-debug-directory %t.dll | FileCheck --check-prefix MINGW %s
 
 # CHECK: File: [[FILE:.*]].dll
 # CHECK: DebugDirectory [

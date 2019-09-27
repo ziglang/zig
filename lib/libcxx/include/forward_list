@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===----------------------- forward_list ---------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -121,10 +120,12 @@ public:
                       const_iterator first, const_iterator last);
     void splice_after(const_iterator p, forward_list&& x,
                       const_iterator first, const_iterator last);
-    void remove(const value_type& v);
-    template <class Predicate> void remove_if(Predicate pred);
-    void unique();
-    template <class BinaryPredicate> void unique(BinaryPredicate binary_pred);
+    size_type remove(const value_type& v);           // void before C++20
+    template <class Predicate>
+      size_type remove_if(Predicate pred);           // void before C++20
+    size_type unique();                              // void before C++20
+    template <class BinaryPredicate>
+      size_type unique(BinaryPredicate binary_pred); // void before C++20
     void merge(forward_list& x);
     void merge(forward_list&& x);
     template <class Compare> void merge(forward_list& x, Compare comp);
@@ -531,7 +532,7 @@ public:
 #if _LIBCPP_STD_VER >= 14
         _NOEXCEPT;
 #else
-        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value || 
+        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value ||
                     __is_nothrow_swappable<__node_allocator>::value);
 #endif
 protected:
@@ -596,11 +597,11 @@ __forward_list_base<_Tp, _Alloc>::swap(__forward_list_base& __x)
 #if _LIBCPP_STD_VER >= 14
         _NOEXCEPT
 #else
-        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value || 
+        _NOEXCEPT_(!__node_traits::propagate_on_container_move_assignment::value ||
                     __is_nothrow_swappable<__node_allocator>::value)
 #endif
 {
-    __swap_allocator(__alloc(), __x.__alloc(), 
+    __swap_allocator(__alloc(), __x.__alloc(),
             integral_constant<bool, __node_traits::propagate_on_container_swap::value>());
     using _VSTD::swap;
     swap(__before_begin()->__next_, __x.__before_begin()->__next_);
@@ -648,6 +649,11 @@ public:
 
     typedef typename base::iterator       iterator;
     typedef typename base::const_iterator const_iterator;
+#if _LIBCPP_STD_VER > 17
+    typedef size_type                                __remove_return_type;
+#else
+    typedef void                                     __remove_return_type;
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     forward_list()
@@ -809,7 +815,6 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void clear() _NOEXCEPT {base::clear();}
 
-#ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     void splice_after(const_iterator __p, forward_list&& __x);
     _LIBCPP_INLINE_VISIBILITY
@@ -817,16 +822,15 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void splice_after(const_iterator __p, forward_list&& __x,
                       const_iterator __f, const_iterator __l);
-#endif  // _LIBCPP_CXX03_LANG
     void splice_after(const_iterator __p, forward_list& __x);
     void splice_after(const_iterator __p, forward_list& __x, const_iterator __i);
     void splice_after(const_iterator __p, forward_list& __x,
                       const_iterator __f, const_iterator __l);
-    void remove(const value_type& __v);
-    template <class _Predicate> void remove_if(_Predicate __pred);
+    __remove_return_type remove(const value_type& __v);
+    template <class _Predicate> __remove_return_type remove_if(_Predicate __pred);
     _LIBCPP_INLINE_VISIBILITY
-    void unique() {unique(__equal_to<value_type>());}
-    template <class _BinaryPredicate> void unique(_BinaryPredicate __binary_pred);
+    __remove_return_type unique() {return unique(__equal_to<value_type>());}
+    template <class _BinaryPredicate> __remove_return_type unique(_BinaryPredicate __binary_pred);
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     void merge(forward_list&& __x) {merge(__x, __less<value_type>());}
@@ -1469,8 +1473,6 @@ forward_list<_Tp, _Alloc>::splice_after(const_iterator __p,
     }
 }
 
-#ifndef _LIBCPP_CXX03_LANG
-
 template <class _Tp, class _Alloc>
 inline _LIBCPP_INLINE_VISIBILITY
 void
@@ -1500,21 +1502,21 @@ forward_list<_Tp, _Alloc>::splice_after(const_iterator __p,
     splice_after(__p, __x, __f, __l);
 }
 
-#endif  // _LIBCPP_CXX03_LANG
-
 template <class _Tp, class _Alloc>
-void
+typename forward_list<_Tp, _Alloc>::__remove_return_type
 forward_list<_Tp, _Alloc>::remove(const value_type& __v)
 {
-    forward_list<_Tp, _Alloc> __deleted_nodes; // collect the nodes we're removing
-    iterator __e = end();
+    forward_list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
+    typename forward_list<_Tp, _Alloc>::size_type __count_removed = 0;
+    const iterator __e = end();
     for (iterator __i = before_begin(); __i.__get_begin()->__next_ != nullptr;)
     {
         if (__i.__get_begin()->__next_->__value_ == __v)
         {
+            ++__count_removed;
             iterator __j = _VSTD::next(__i, 2);
             for (; __j != __e && *__j == __v; ++__j)
-                ;
+                ++__count_removed;
             __deleted_nodes.splice_after(__deleted_nodes.before_begin(), *this, __i, __j);
             if (__j == __e)
                 break;
@@ -1523,22 +1525,27 @@ forward_list<_Tp, _Alloc>::remove(const value_type& __v)
         else
             ++__i;
     }
+    
+    return (__remove_return_type) __count_removed;
 }
 
 template <class _Tp, class _Alloc>
 template <class _Predicate>
-void
+typename forward_list<_Tp, _Alloc>::__remove_return_type
 forward_list<_Tp, _Alloc>::remove_if(_Predicate __pred)
 {
-    iterator __e = end();
+    forward_list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
+    typename forward_list<_Tp, _Alloc>::size_type __count_removed = 0;
+    const iterator __e = end();
     for (iterator __i = before_begin(); __i.__get_begin()->__next_ != nullptr;)
     {
         if (__pred(__i.__get_begin()->__next_->__value_))
         {
+            ++__count_removed;
             iterator __j = _VSTD::next(__i, 2);
             for (; __j != __e && __pred(*__j); ++__j)
-                ;
-            erase_after(__i, __j);
+                ++__count_removed;
+            __deleted_nodes.splice_after(__deleted_nodes.before_begin(), *this, __i, __j);
             if (__j == __e)
                 break;
             __i = __j;
@@ -1546,22 +1553,28 @@ forward_list<_Tp, _Alloc>::remove_if(_Predicate __pred)
         else
             ++__i;
     }
+    
+    return (__remove_return_type) __count_removed;
 }
 
 template <class _Tp, class _Alloc>
 template <class _BinaryPredicate>
-void
+typename forward_list<_Tp, _Alloc>::__remove_return_type
 forward_list<_Tp, _Alloc>::unique(_BinaryPredicate __binary_pred)
 {
+    forward_list<_Tp, _Alloc> __deleted_nodes(get_allocator()); // collect the nodes we're removing
+    typename forward_list<_Tp, _Alloc>::size_type __count_removed = 0;
     for (iterator __i = begin(), __e = end(); __i != __e;)
     {
         iterator __j = _VSTD::next(__i);
         for (; __j != __e && __binary_pred(*__i, *__j); ++__j)
-            ;
+            ++__count_removed;
         if (__i.__get_begin()->__next_ != __j.__get_unsafe_node_pointer())
-            erase_after(__i, __j);
+            __deleted_nodes.splice_after(__deleted_nodes.before_begin(), *this, __i, __j);
         __i = __j;
     }
+    
+    return (__remove_return_type) __count_removed;
 }
 
 template <class _Tp, class _Alloc>

@@ -370,6 +370,9 @@ extern int __libc_current_sigrtmax (void) __THROW;
 #define SIGRTMIN        (__libc_current_sigrtmin ())
 #define SIGRTMAX        (__libc_current_sigrtmax ())
 
+/* System-specific extensions.  */
+#include <bits/signal_ext.h>
+
 __END_DECLS
 
 #endif /* not signal.h */

@@ -18,6 +18,7 @@ _start:
  movw r3, :lower16:label3
  movw r4, :lower16:label3 + 4
 // CHECK: Disassembly of section .R_ARM_MOVW_ABS_NC
+// CHECK-EMPTY:
 // CHECK: movw	r0, #0
 // CHECK: movw	r1, #4
 // CHECK: movw	r2, #12
@@ -30,6 +31,7 @@ _start:
  movt r3, :upper16:label3
  movt r4, :upper16:label3 + 4
 // CHECK: Disassembly of section .R_ARM_MOVT_ABS
+// CHECK-EMPTY:
 // CHECK: movt	r0, #2
 // CHECK: movt	r1, #2
 // CHECK: movt	r2, #2

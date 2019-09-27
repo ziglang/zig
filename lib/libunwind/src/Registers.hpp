@@ -1,9 +1,8 @@
 //===----------------------------- Registers.hpp --------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //
 //  Models register sets for supported processors.
@@ -2104,16 +2103,16 @@ private:
     uint32_t __pc;    // Program counter r15
   };
 
-  static void saveVFPWithFSTMD(unw_fpreg_t*);
-  static void saveVFPWithFSTMX(unw_fpreg_t*);
-  static void saveVFPv3(unw_fpreg_t*);
-  static void restoreVFPWithFLDMD(unw_fpreg_t*);
-  static void restoreVFPWithFLDMX(unw_fpreg_t*);
-  static void restoreVFPv3(unw_fpreg_t*);
+  static void saveVFPWithFSTMD(void*);
+  static void saveVFPWithFSTMX(void*);
+  static void saveVFPv3(void*);
+  static void restoreVFPWithFLDMD(void*);
+  static void restoreVFPWithFLDMX(void*);
+  static void restoreVFPv3(void*);
 #if defined(__ARM_WMMX)
-  static void saveiWMMX(unw_fpreg_t*);
+  static void saveiWMMX(void*);
   static void saveiWMMXControl(uint32_t*);
-  static void restoreiWMMX(unw_fpreg_t*);
+  static void restoreiWMMX(void*);
   static void restoreiWMMXControl(uint32_t*);
 #endif
   void restoreCoreAndJumpTo();
@@ -2155,7 +2154,7 @@ inline Registers_arm::Registers_arm(const void *registers)
     _saved_vfp_d16_d31(false) {
   static_assert((check_fit<Registers_arm, unw_context_t>::does_fit),
                 "arm registers do not fit into unw_context_t");
-  // See unw_getcontext() note about data.
+  // See __unw_getcontext() note about data.
   memcpy(&_registers, registers, sizeof(_registers));
   memset(&_vfp_d0_d15_pad, 0, sizeof(_vfp_d0_d15_pad));
   memset(&_vfp_d16_d31, 0, sizeof(_vfp_d16_d31));
@@ -2434,7 +2433,7 @@ inline const char *Registers_arm::getRegisterName(int regNum) {
 
 inline bool Registers_arm::validFloatRegister(int regNum) const {
   // NOTE: Consider the intel MMX registers floating points so the
-  // unw_get_fpreg can be used to transmit the 64-bit data back.
+  // __unw_get_fpreg can be used to transmit the 64-bit data back.
   return ((regNum >= UNW_ARM_D0) && (regNum <= UNW_ARM_D31))
 #if defined(__ARM_WMMX)
       || ((regNum >= UNW_ARM_WR0) && (regNum <= UNW_ARM_WR15))

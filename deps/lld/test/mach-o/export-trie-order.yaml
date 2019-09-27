@@ -1,5 +1,5 @@
 # RUN: ld64.lld -arch i386 %s %p/Inputs/hello-world-x86.yaml -o %t
-# RUN: llvm-objdump -exports-trie %t | FileCheck %s
+# RUN: llvm-objdump -macho -exports-trie %t | FileCheck %s
 #
 # Test that the export trie is emitted in order.
 #

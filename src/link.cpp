@@ -951,11 +951,10 @@ static void musl_add_cc_args(CodeGen *parent, CFile *c_file, bool want_O3) {
 
     c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf(
-            "%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-%s",
+            "%s" OS_SEP "libc" OS_SEP "include" OS_SEP "%s-%s-musl",
         buf_ptr(parent->zig_lib_dir),
-        target_arch_name(parent->zig_target->arch),
-        target_os_name(parent->zig_target->os),
-        target_abi_name(parent->zig_target->abi))));
+        target_arch_musl_name(parent->zig_target->arch),
+        target_os_name(parent->zig_target->os))));
 
     c_file->args.append("-I");
     c_file->args.append(buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "include" OS_SEP "generic-musl",
@@ -1295,6 +1294,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
             c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-Wno-nonportable-include-path");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
             c_file->args.append("-DTOP_NAMESPACE=glibc");
@@ -1321,6 +1321,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
             c_file->args.append("-DMODULE_NAME=libc");
+            c_file->args.append("-Wno-nonportable-include-path");
             c_file->args.append("-include");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
             c_file->args.append("-DPIC");
@@ -1377,6 +1378,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
                 c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-Wno-nonportable-include-path");
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
                 c_file->args.append("-DPIC");
@@ -1420,6 +1422,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-modules.h"));
                 c_file->args.append("-DMODULE_NAME=libc");
+                c_file->args.append("-Wno-nonportable-include-path");
                 c_file->args.append("-include");
                 c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "include" OS_SEP "libc-symbols.h"));
                 c_file->args.append("-DPIC");
@@ -1615,6 +1618,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     lj->args.append("-error-limit=0");
 
+    if (g->out_type == OutTypeExe) {
+        lj->args.append("-z");
+        lj->args.append("stack-size=16777216"); // default to 16 MiB
+    }
+
     if (g->linker_script) {
         lj->args.append("-T");
         lj->args.append(g->linker_script);
@@ -1658,7 +1666,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
             crt1o = "Scrt1.o";
         }
         lj->args.append(get_libc_crt_file(g, crt1o));
-        lj->args.append(get_libc_crt_file(g, "crti.o"));
+        if (target_libc_needs_crti_crtn(g->zig_target)) {
+            lj->args.append(get_libc_crt_file(g, "crti.o"));
+        }
     }
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -1795,7 +1805,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 
     // crt end
-    if (lj->link_in_crt) {
+    if (lj->link_in_crt && target_libc_needs_crti_crtn(g->zig_target)) {
         lj->args.append(get_libc_crt_file(g, "crtn.o"));
     }
 
@@ -1806,7 +1816,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->zig_target->os == OsZen) {
         lj->args.append("-e");
         lj->args.append("_start");
-
         lj->args.append("--image-base=0x10000000");
     }
 }
@@ -2530,6 +2539,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 static void construct_linker_job(LinkJob *lj) {
     switch (target_object_format(lj->codegen->zig_target)) {
         case ZigLLVM_UnknownObjectFormat:
+        case ZigLLVM_XCOFF:
             zig_unreachable();
 
         case ZigLLVM_COFF:

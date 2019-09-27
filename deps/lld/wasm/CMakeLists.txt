@@ -13,8 +13,10 @@ add_lld_library(lldWasm
   LTO.cpp
   MarkLive.cpp
   OutputSections.cpp
+  Relocations.cpp
   SymbolTable.cpp
   Symbols.cpp
+  SyntheticSections.cpp
   Writer.cpp
   WriterUtils.cpp
 

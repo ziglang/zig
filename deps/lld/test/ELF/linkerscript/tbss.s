@@ -7,7 +7,7 @@
 # RUN:   bar : { *(bar) } \
 # RUN: }" > %t.script
 # RUN: ld.lld -T %t.script %t.o -o %t
-# RUN: llvm-readobj -s %t | FileCheck %s
+# RUN: llvm-readobj -S %t | FileCheck %s
 
 # test that a tbss section doesn't use address space.
 

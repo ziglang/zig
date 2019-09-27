@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -triple x86_64-pc-win32 %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -guard:cf -out:%t.exe -entry:main
-# RUN: llvm-readobj -coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK
+# RUN: llvm-readobj --coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK
 
 # f, g, and main go in the table.
 # Including g isn't strictly necessary since it's not an indirect call target,

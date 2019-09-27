@@ -6,10 +6,10 @@
 # RUN: ld.lld -shared %t2.o -o %t2.so
 
 # RUN: ld.lld  %t2.so %p/Inputs/ppc64le-quadword-ldst.o -o %t
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=Dis %s
+# RUN: llvm-objdump -d %t | FileCheck --check-prefix=Dis %s
 
 # RUN: ld.lld --no-toc-optimize %t2.so %p/Inputs/ppc64le-quadword-ldst.o -o %t
-# RUN: llvm-objdump -D %t | FileCheck --check-prefix=NoOpt %s
+# RUN: llvm-objdump -d %t | FileCheck --check-prefix=NoOpt %s
 
 # QuadInputRelocs: Relocation section '.rela.text'
 # QuadInputRelocs:  R_PPC64_TOC16_LO_DS    0000000000000000 quadLd
@@ -70,4 +70,3 @@
 # NoOpt-NEXT:    addis 3, 2, 0
 # NoOpt-NEXT:    82 7f 83 f8  <unknown>
 # NoOpt-NEXT:    blr
-

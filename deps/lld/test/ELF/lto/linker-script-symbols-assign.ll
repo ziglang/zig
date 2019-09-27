@@ -3,12 +3,12 @@
 
 ; RUN: echo "foo = 1;" > %t.script
 ; RUN: ld.lld %t.o -o %t2 --script %t.script -save-temps
-; RUN: llvm-readobj -symbols %t2.lto.o | FileCheck %s
+; RUN: llvm-readobj --symbols %t2.lto.o | FileCheck %s
 
 ; CHECK-NOT: bar
 ; CHECK-NOT: foo
 
-; RUN: llvm-readobj -symbols %t2 | FileCheck %s --check-prefix=VAL
+; RUN: llvm-readobj --symbols %t2 | FileCheck %s --check-prefix=VAL
 ; VAL:       Symbol {
 ; VAL:        Name: foo
 ; VAL-NEXT:   Value: 0x1
@@ -21,7 +21,7 @@
 
 ; RUN: echo "zed = 1;" > %t2.script
 ; RUN: ld.lld %t.o -o %t3 --script %t2.script
-; RUN: llvm-readobj -symbols %t3 | FileCheck %s --check-prefix=ABS
+; RUN: llvm-readobj --symbols %t3 | FileCheck %s --check-prefix=ABS
 ; ABS:      Symbol {
 ; ABS:        Name: zed
 ; ABS-NEXT:   Value: 0x1

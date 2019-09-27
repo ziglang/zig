@@ -7,7 +7,7 @@
 # RUN: llvm-mc -triple=x86_64-windows-gnu %s -filetype=obj -o %t.obj
 # RUN: lld-link -lldmingw -out:%t.exe -entry:main %t.obj %t-lib.lib -verbose
 
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck -check-prefix=IMPORTS %s
 # RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=DISASM %s
 # RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=CONTENTS %s
 
@@ -19,6 +19,7 @@
 # IMPORTS-NEXT: }
 
 # DISASM: Disassembly of section .text:
+# DISASM-EMPTY:
 # DISASM: .text:
 # Relative offset at 0x1002 pointing at the IAT at 0x2060
 # DISASM: 140001000:      48 8b 05 59 10 00 00    movq    4185(%rip), %rax

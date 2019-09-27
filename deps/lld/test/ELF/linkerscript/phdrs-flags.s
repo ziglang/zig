@@ -7,7 +7,7 @@
 # RUN:           .foo : {*(.foo.*)} :all \
 # RUN:           .data : {*(.data.*)} :all}" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck %s
+# RUN: llvm-readobj -l %t1 | FileCheck %s
 
 # RUN: echo "PHDRS {all PT_LOAD FILEHDR PHDRS FLAGS (0x1);} \
 # RUN:       SECTIONS { \
@@ -16,7 +16,7 @@
 # RUN:           .foo : {*(.foo.*)}  \
 # RUN:           .data : {*(.data.*)} }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
-# RUN: llvm-readobj -program-headers %t1 | FileCheck --check-prefix=DEFHDR %s
+# RUN: llvm-readobj -l %t1 | FileCheck --check-prefix=DEFHDR %s
 
 # CHECK:     ProgramHeaders [
 # CHECK-NEXT:  ProgramHeader {

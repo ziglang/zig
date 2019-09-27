@@ -71,23 +71,12 @@ typedef pthread_key_t __libc_key_t;
    For the C library we take a deeper look at the initializer.  For
    this implementation all fields are initialized to zero.  Therefore
    we don't initialize the variable which allows putting it into the
-   BSS section.  (Except on PA-RISC and other odd architectures, where
-   initialized locks must be set to one due to the lack of normal
-   atomic operations.) */
+   BSS section.  */
 
+_Static_assert (LLL_LOCK_INITIALIZER == 0, "LLL_LOCK_INITIALIZER != 0");
 #define _LIBC_LOCK_INITIALIZER LLL_LOCK_INITIALIZER
-#if IS_IN (libc) || IS_IN (libpthread)
-# if LLL_LOCK_INITIALIZER == 0
-#  define __libc_lock_define_initialized(CLASS,NAME) \
+#define __libc_lock_define_initialized(CLASS,NAME) \
   CLASS __libc_lock_t NAME;
-# else
-#  define __libc_lock_define_initialized(CLASS,NAME) \
-  CLASS __libc_lock_t NAME = LLL_LOCK_INITIALIZER;
-# endif
-#else
-# define __libc_lock_define_initialized(CLASS,NAME) \
-  CLASS __libc_lock_t NAME;
-#endif
 
 #define __libc_rwlock_define_initialized(CLASS,NAME) \
   CLASS __libc_rwlock_t NAME = PTHREAD_RWLOCK_INITIALIZER;

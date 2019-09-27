@@ -1,0 +1,19 @@
+# REQUIRES: x86
+# RUN: rm -rf %t && mkdir -p %t
+
+## In this test, we check that able to report objects with
+## invalid ELF class type. There are 2 cases we want to check:
+## when the object is a regular input and when it is fetched from the archive.
+
+## Create a broken ELF object with ELFCLASSNONE class using echo. We need to fill
+## first 18 bytes which are used by LLD to check the object.
+## 0x7f, 'E', 'L', 'F', ELFCLASSNONE(0), ELFDATA2LSB(1),
+## EV_CURRENT(1), ELFOSABI_LINUX(3), <padding zero bytes>, ET_REL(1), EM_NONE(0)
+# RUN: echo -e -n "\x7f\x45\x4c\x46\x00\x01\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00" > %t/invalid.o
+
+# RUN: llvm-ar --format=gnu cr %t/invalid-class.a %t/invalid.o
+# RUN: not ld.lld -whole-archive %t/invalid-class.a -o %t2 2>&1 | FileCheck %s
+# CHECK: invalid-class.a(invalid.o): corrupted ELF file: invalid file class
+
+# RUN: not ld.lld %t/invalid.o -o %t2 2>&1 | FileCheck %s --check-prefix=OBJ
+# OBJ: invalid.o: corrupted ELF file: invalid file class

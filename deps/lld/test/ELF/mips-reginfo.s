@@ -5,7 +5,7 @@
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
 # RUN:         %S/Inputs/mips-dynamic.s -o %t2.o
 # RUN: ld.lld %t1.o %t2.o --gc-sections -shared -o %t.so
-# RUN: llvm-readobj -symbols -mips-reginfo %t.so | FileCheck %s
+# RUN: llvm-readobj --symbols --mips-reginfo %t.so | FileCheck %s
 
   .text
   .globl  __start

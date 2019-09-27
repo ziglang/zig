@@ -2,7 +2,7 @@
 # RUN: grep -B99999 [S]PLITMARKER %s | llvm-mc -triple x86_64-windows-msvc -filetype=obj -o %t1.obj
 # RUN: grep -A99999 [S]PLITMARKER %s | llvm-mc -triple x86_64-windows-msvc -filetype=obj -o %t2.obj
 # RUN: lld-link %t1.obj %t2.obj -guard:nolongjmp -out:%t.exe -entry:main -opt:noref
-# RUN: llvm-readobj -file-headers -coff-load-config %t.exe | FileCheck %s
+# RUN: llvm-readobj --file-headers --coff-load-config %t.exe | FileCheck %s
 
 # CHECK: ImageBase: 0x140000000
 # CHECK: LoadConfig [

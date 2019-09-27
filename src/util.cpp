@@ -18,15 +18,8 @@ void zig_panic(const char *format, ...) {
     vfprintf(stderr, format, ap);
     fflush(stderr);
     va_end(ap);
-    stage2_panic(nullptr, 0);
+    stage2_panic("", 0);
     abort();
-}
-
-void assert(bool ok) {
-    if (!ok) {
-        const char *msg = "Assertion failed. This is a bug in the Zig compiler.";
-        stage2_panic(msg, strlen(msg));
-    }
 }
 
 uint32_t int_hash(int i) {

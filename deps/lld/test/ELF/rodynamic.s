@@ -4,13 +4,13 @@
 
 # RUN: ld.lld -shared %t.so.o -o %t.so
 # RUN: ld.lld %t.o %t.so -o %t.exe
-# RUN: llvm-readobj -dynamic-table %t.exe | FileCheck -check-prefix=DEFDEBUG %s
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=DEFSEC %s
+# RUN: llvm-readobj --dynamic-table %t.exe | FileCheck -check-prefix=DEFDEBUG %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=DEFSEC %s
 
 # RUN: ld.lld -shared -z rodynamic %t.so.o -o %t.so
 # RUN: ld.lld -z rodynamic %t.o %t.so -o %t.exe
-# RUN: llvm-readobj -dynamic-table %t.exe | FileCheck -check-prefix=RODEBUG %s
-# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=ROSEC %s
+# RUN: llvm-readobj --dynamic-table %t.exe | FileCheck -check-prefix=RODEBUG %s
+# RUN: llvm-readobj --sections %t.exe | FileCheck -check-prefix=ROSEC %s
 
 .globl _start
 _start:

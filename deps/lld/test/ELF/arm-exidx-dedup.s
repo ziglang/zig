@@ -1,27 +1,29 @@
 // REQUIRES: arm
-// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
+// RUN: llvm-mc -filetype=obj --arm-add-build-attributes -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: ld.lld %t --no-merge-exidx-entries -o %t2
 // RUN: llvm-objdump -s %t2 | FileCheck --check-prefix CHECK-DUPS %s
 // RUN: ld.lld %t -o %t3
 // RUN: llvm-objdump -s %t3 | FileCheck %s
+
 // Test that lld can at least remove duplicate .ARM.exidx sections. A more
 // fine grained implementation will be able to remove duplicate entries within
 // a .ARM.exidx section.
 
 // With duplicate entries
 // CHECK-DUPS: Contents of section .ARM.exidx:
-// CHECK-DUPS-NEXT:  100d4 2c0f0000 01000000 280f0000 01000000
-// CHECK-DUPS-NEXT:  100e4 240f0000 01000000 200f0000 01000000
-// CHECK-DUPS-NEXT:  100f4 1c0f0000 08849780 180f0000 08849780
-// CHECK-DUPS-NEXT:  10104 140f0000 08849780 100f0000 14000000
-// CHECK-DUPS-NEXT:  10114 0c0f0000 18000000 080f0000 01000000
+// CHECK-DUPS-NEXT: 100d4 2c0f0000 01000000 280f0000 01000000
+// CHECK-DUPS-NEXT: 100e4 240f0000 01000000 200f0000 01000000
+// CHECK-DUPS-NEXT: 100f4 1c0f0000 08849780 180f0000 08849780
+// CHECK-DUPS-NEXT: 10104 140f0000 08849780 100f0000 24000000
+// CHECK-DUPS-NEXT: 10114 0c0f0000 28000000 080f0000 01000000
+// CHECK-DUPS-NEXT: 10124 040f0000 01000000 000f0000 01000000
 // CHECK-DUPS-NEXT: Contents of section .ARM.extab:
 
 // After duplicate entry removal
 // CHECK: Contents of section .ARM.exidx:
-// CHECK-NEXT:  100d4 2c0f0000 01000000 340f0000 08849780
-// CHECK-NEXT:  100e4 380f0000 14000000 340f0000 18000000
-// CHECK-NEXT:  100f4 300f0000 01000000
+// CHECK-NEXT: 100d4 2c0f0000 01000000 340f0000 08849780
+// CHECK-NEXT: 100e4 380f0000 1c000000 340f0000 20000000
+// CHECK-NEXT: 100f4 300f0000 01000000 300f0000 01000000
 // CHECK-NEXT: Contents of section .ARM.extab:
         .syntax unified
 
@@ -113,8 +115,9 @@ f8:
         .long 0
         .fnend
 
- // Dummy implementation of personality routines to satisfy reference from
- // exception tables
+// Dummy implementation of personality routines to satisfy reference from
+// exception tables
+// Expect Linker generated EXIDX_CANTUNWIND tables
         .section .text.__gcc_personality_v0, "ax", %progbits
         .global __gxx_personality_v0
 __gxx_personality_v0:

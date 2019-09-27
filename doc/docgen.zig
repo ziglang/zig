@@ -1042,21 +1042,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
                         const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
-                        const tmp_bin_file_name = try fs.path.join(
-                            allocator,
-                            [_][]const u8{ tmp_dir_name, name_plus_bin_ext },
-                        );
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice([_][]const u8{
                             zig_exe,
                             "build-exe",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
                             "--name",
                             code.name,
                             "--color",
+                            "on",
+                            "--cache",
                             "on",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
@@ -1086,9 +1082,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print(" --object {}", name_with_ext);
                         }
                         if (code.link_libc) {
-                            try build_args.append("--library");
-                            try build_args.append("c");
-                            try out.print(" --library c");
+                            try build_args.append("-lc");
+                            try out.print(" -lc");
                         }
                         if (code.target_str) |triple| {
                             try build_args.appendSlice([_][]const u8{ "-target", triple });
@@ -1129,7 +1124,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             try out.print("\n{}</code></pre>\n", colored_stderr);
                             break :code_block;
                         }
-                        _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
 
                         if (code.target_str) |triple| {
                             if (mem.startsWith(u8, triple, "wasm32") or
@@ -1142,7 +1137,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                         }
 
-                        const run_args = [_][]const u8{tmp_bin_file_name};
+                        const path_to_exe = mem.trim(u8, exec_result.stdout, " \r\n");
+                        const run_args = [_][]const u8{path_to_exe};
+
+                        var exited_with_signal = false;
 
                         const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
                             const result = try ChildProcess.exec(allocator, run_args, null, &env_map, max_doc_file_size);
@@ -1157,6 +1155,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                         return parseError(tokenizer, code.source_token, "example incorrectly compiled");
                                     }
                                 },
+                                .Signal => exited_with_signal = true,
                                 else => {},
                             }
                             break :blk result;
@@ -1170,7 +1169,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
-                        try out.print("\n$ ./{}\n{}{}</code></pre>\n", code.name, colored_stdout, colored_stderr);
+                        try out.print("\n$ ./{}\n{}{}", code.name, colored_stdout, colored_stderr);
+                        if (exited_with_signal) {
+                            try out.print("(process terminated by signal)");
+                        }
+                        try out.print("</code></pre>\n");
                     },
                     Code.Id.Test => {
                         var test_args = std.ArrayList([]const u8).init(allocator);
@@ -1180,8 +1183,8 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             zig_exe,
                             "test",
                             tmp_source_file_name,
-                            "--output-dir",
-                            tmp_dir_name,
+                            "--cache",
+                            "on",
                         });
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
                         switch (code.mode) {
@@ -1198,6 +1201,10 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 try test_args.append("--release-small");
                                 try out.print(" --release-small");
                             },
+                        }
+                        if (code.link_libc) {
+                            try test_args.append("-lc");
+                            try out.print(" -lc");
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice([_][]const u8{ "-target", triple });

@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld --hash-style=sysv %t.o %t2.so -o %t
-// RUN: llvm-readobj -s -r -section-data %t | FileCheck %s
+// RUN: llvm-readobj -S -r --section-data %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 
         .globl _start

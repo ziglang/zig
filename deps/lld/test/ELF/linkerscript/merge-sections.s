@@ -6,7 +6,7 @@
 # RUN:   .foo : { begin = .; *(.foo.*) end = .;} \
 # RUN: }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t -shared
-# RUN: llvm-readobj -s -t %t1 | FileCheck %s
+# RUN: llvm-readobj -S --symbols %t1 | FileCheck %s
 
 # CHECK:        Name: .foo
 # CHECK-NEXT:   Type: SHT_PROGBITS
@@ -32,10 +32,10 @@
 
 # Check that we don't crash with --gc-sections
 # RUN: ld.lld --gc-sections -o %t2 --script %t.script %t -shared
-# RUN: llvm-readobj -s -t %t2 | FileCheck %s --check-prefix=GC
+# RUN: llvm-readobj -S --symbols %t2 | FileCheck %s --check-prefix=GC
 
 # GC:        Name: .foo
-# GC-NEXT:   Type: SHT_NOBITS
+# GC-NEXT:   Type: SHT_PROGBITS
 # GC-NEXT:   Flags [
 # GC-NEXT:     SHF_ALLOC
 # GC-NEXT:   ]

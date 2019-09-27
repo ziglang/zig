@@ -1303,7 +1303,7 @@ a ^= b{#endsyntax#}</pre></td>
             Bitwise NOT.
           </td>
           <td>
-            <pre>{#syntax#}~u8(0b0101111) == 0b1010000{#endsyntax#}</pre>
+            <pre>{#syntax#}~u8(0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1372,7 +1372,7 @@ unwrapped == 1234{#endsyntax#}</pre>
                           without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
-            <pre>{#syntax#}false and true == false{#endsyntax#}</pre>
+            <pre>{#syntax#}(false and true) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -5187,6 +5187,41 @@ test "@intToPtr for pointer to zero bit type" {
       </p>
       {#header_close#}
 
+      {#header_open|usingnamespace#}
+      <p>
+      {#syntax#}usingnamespace{#endsyntax#} is a top level declaration that imports all the public declarations of
+      the operand, which must be a {#link|struct#}, {#link|union#}, or {#link|enum#}, into the current scope:
+      </p>
+      {#code_begin|test|usingnamespace#}
+usingnamespace @import("std");
+
+test "using std namespace" {
+    debug.assert(true);
+}
+      {#code_end#}
+      <p>
+      Instead of the above pattern, it is generally recommended to explicitly alias individual declarations.
+      However, {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
+      API of a file or package. For example, one might have <code>c.zig</code> with all of the
+      {#link|C imports|Import from C Header File#}:
+      </p>
+      <pre>{#syntax#}
+pub usingnamespace @cImport({
+    @cInclude("epoxy/gl.h");
+    @cInclude("GLFW/glfw3.h");
+    @cDefine("STBI_ONLY_PNG", "");
+    @cDefine("STBI_NO_STDIO", "");
+    @cInclude("stb_image.h");
+});
+      {#endsyntax#}</pre>
+      <p>
+      The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
+      {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
+      {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
+      over what declarations a given file exposes.
+      </p>
+      {#header_close#}
+
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
@@ -5846,7 +5881,7 @@ volatile (
 // Next is the output constraint string. This feature is still
 // considered unstable in Zig, and so LLVM/GCC documentation
 // must be used to understand the semantics.
-// http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string
+// http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string
 // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
 // In this example, the constraint string means "the result value of
 // this inline assembly instruction is whatever is in $rax".
@@ -5864,7 +5899,7 @@ volatile (
     : [number] "{rax}" (number),
         [arg1] "{rdi}" (arg1)
 // Next is the list of clobbers. These declare a set of registers whose
-// values will not be preserved by the execution of this assembly code. 
+// values will not be preserved by the execution of this assembly code.
 // These do not include output or input registers. The special clobber
 // value of "memory" means that the assembly writes to arbitrary undeclared
 // memory locations - not only the memory pointed to by a declared indirect
@@ -5885,9 +5920,9 @@ volatile (
       </p>
       {#header_open|Output Constraints#}
       <p>
-      Output constraints are still considered to be unstable in Zig, and 
+      Output constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -5900,9 +5935,9 @@ volatile (
 
       {#header_open|Input Constraints#}
       <p>
-      Input constraints are still considered to be unstable in Zig, and 
+      Input constraints are still considered to be unstable in Zig, and
       so
-      <a href="http://releases.llvm.org/8.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
+      <a href="http://releases.llvm.org/9.0.0/docs/LangRef.html#inline-asm-constraint-string">LLVM documentation</a>
       and
       <a href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">GCC documentation</a>
       must be used to understand the semantics.
@@ -5919,7 +5954,7 @@ volatile (
       the assembly code. These do not include output or input registers. The special clobber
       value of {#syntax#}"memory"{#endsyntax#} means that the assembly causes writes to
       arbitrary undeclared memory locations - not only the memory pointed to by a declared
-      indirect output. 
+      indirect output.
       </p>
       <p>
       Failure to declare the full set of clobbers for a given inline assembly
@@ -6542,11 +6577,20 @@ async fn func(y: *i32) void {
       {#header_close#}
 
       {#header_open|@byteSwap#}
-      <pre>{#syntax#}@byteSwap(comptime T: type, integer: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@byteSwap(comptime T: type, operand: T) T{#endsyntax#}</pre>
       <p>{#syntax#}T{#endsyntax#} must be an integer type with bit count evenly divisible by 8.</p>
+      <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
       Swaps the byte order of the integer. This converts a big endian integer to a little endian integer,
       and converts a little endian integer to a big endian integer.
+      </p>
+      <p>
+      Note that for the purposes of memory layout with respect to endianness, the integer type should be
+      related to the number of bytes reported by {#link|@sizeOf#} bytes. This is demonstrated with
+      {#syntax#}u24{#endsyntax#}. {#syntax#}@sizeOf(u24) == 4{#endsyntax#}, which means that a
+      {#syntax#}u24{#endsyntax#} stored in memory takes 4 bytes, and those 4 bytes are what are swapped on
+      a little vs big endian system. On the other hand, if {#syntax#}T{#endsyntax#} is specified to
+      be {#syntax#}u24{#endsyntax#}, then only 3 bytes are reversed.
       </p>
       {#header_close#}
 
@@ -6641,7 +6685,7 @@ async fn func(y: *i32) void {
       {#header_open|@clz#}
       <pre>{#syntax#}@clz(comptime T: type, integer: T){#endsyntax#}</pre>
       <p>
-      This function counts the number of leading zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
       </p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
@@ -6783,7 +6827,7 @@ test "main" {
       {#header_open|@ctz#}
       <pre>{#syntax#}@ctz(comptime T: type, integer: T){#endsyntax#}</pre>
       <p>
-      This function counts the number of trailing zeroes in {#syntax#}integer{#endsyntax#}.
+      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in {#syntax#}integer{#endsyntax#}.
       </p>
       <p>
       If {#syntax#}integer{#endsyntax#} is known at {#link|comptime#},
@@ -7673,6 +7717,43 @@ test "@setRuntimeSafety" {
       {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
 
+      {#header_open|@shuffle#}
+      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <p>
+      Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
+      {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
+      </p>
+      <p>
+      Each element in {#syntax#}mask{#endsyntax#} selects an element from either {#syntax#}a{#endsyntax#} or
+      {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
+      Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
+      It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
+      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~i32(0){#endsyntax#} is
+      {#syntax#}-1{#endsyntax#}).
+      </p>
+      <p>
+      For each element of {#syntax#}mask{#endsyntax#}, if it or the selected value from
+      {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#},
+      then the resulting element is {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}a_len{#endsyntax#} and {#syntax#}b_len{#endsyntax#} may differ in length. Out-of-bounds element
+      indexes in {#syntax#}mask{#endsyntax#} result in compile errors.
+      </p>
+      <p>
+      If {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} is {#syntax#}undefined{#endsyntax#}, it
+      is equivalent to a vector of all {#syntax#}undefined{#endsyntax#} with the same length as the other vector.
+      If both vectors are {#syntax#}undefined{#endsyntax#}, {#syntax#}@shuffle{#endsyntax#} returns
+      a vector with all elements {#syntax#}undefined{#endsyntax#}.
+      </p>
+      <p>
+      {#syntax#}E{#endsyntax#} must be an {#link|integer|Integers#}, {#link|float|Floats#},
+      {#link|pointer|Pointers#}, or {#syntax#}bool{#endsyntax#}. The mask may be any vector length, and its
+      length determines the result length.
+      </p>
+      {#see_also|SIMD#}
+      {#header_close#}
+
       {#header_open|@sizeOf#}
       <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
       <p>
@@ -7698,6 +7779,30 @@ test "@setRuntimeSafety" {
       Converts a slice or array to a slice of {#syntax#}u8{#endsyntax#}. The resulting slice has the same
       {#link|pointer|Pointers#} properties as the parameter.
       </p>
+      {#header_close#}
+
+      {#header_open|@splat#}
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @typeOf(scalar)){#endsyntax#}</pre>
+      <p>
+      Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
+      {#syntax#}scalar{#endsyntax#}:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "vector @splat" {
+    const scalar: u32 = 5;
+    const result = @splat(4, scalar);
+    comptime assert(@typeOf(result) == @Vector(4, u32));
+    assert(std.mem.eql(u32, ([4]u32)(result), [_]u32{ 5, 5, 5, 5 }));
+}
+      {#code_end#}
+      <p>
+      {#syntax#}scalar{#endsyntax#} must be an {#link|integer|Integers#}, {#link|bool|Primitive Types#},
+      {#link|float|Floats#}, or {#link|pointer|Pointers#}.
+      </p>
+      {#see_also|Vectors|@shuffle#}
       {#header_close#}
 
       {#header_open|@sqrt#}
@@ -8318,8 +8423,9 @@ pub fn build(b: *Builder) void {
       detected at compile-time, Zig emits a compile error and refuses to continue.
       Most undefined behavior that cannot be detected at compile-time can be detected
       at runtime. In these cases, Zig has safety checks. Safety checks can be disabled
-      on a per-block basis with {#link|setRuntimeSafety#}. The {#link|ReleaseFast#}
-      build mode disables all safety checks in order to facilitate optimizations.
+      on a per-block basis with {#link|@setRuntimeSafety#}. The {#link|ReleaseFast#}
+      and {#link|ReleaseSmall#} build modes disable all safety checks (except where overridden
+      by {#link|@setRuntimeSafety#}) in order to facilitate optimizations.
       </p>
       <p>
       When a safety check fails, Zig crashes with a stack trace, like this:
@@ -9263,8 +9369,7 @@ pub fn assert(ok: bool) void {
       This means that when testing in ReleaseFast or ReleaseSmall mode, {#syntax#}assert{#endsyntax#}
       is not sufficient to check the result of a computation:
       </p>
-      {#code_begin|test|assert#}
-      {#code_release_fast#}
+      {#code_begin|syntax#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -9272,9 +9377,11 @@ test "assert in release fast mode" {
     assert(false);
 }
       {#code_end#}
-      <p>Note that although the above example shows the test passing, this is invoking
-      unchecked {#link|Undefined Behavior#}. This documentation is showing only one possible
-      outcome of this test.</p>
+      <p>
+      When compiling this test in {#link|ReleaseFast#} mode, it invokes unchecked
+      {#link|Undefined Behavior#}. Since that could do anything, this documentation
+      cannot show you the output.
+      </p>
       <p>
       Better practice for checking the output when testing is to use {#syntax#}std.testing.expect{#endsyntax#}:
       </p>
@@ -9410,8 +9517,8 @@ const c = @cImport({
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>
       </ul>
-      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to 
-        access to the struct's fields or member data. That syntax looks like 
+      <p>When a C pointer is pointing to a single struct (not an array), deference the C pointer to
+        access to the struct's fields or member data. That syntax looks like
         this: </p>
         <p>{#syntax#}ptr_to_struct.*.struct_member{#endsyntax#}</p>
         <p>This is comparable to doing {#syntax#}->{#endsyntax#} in C.</p>

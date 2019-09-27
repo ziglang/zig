@@ -22,10 +22,10 @@
 # must take responsibility to make sure this does not happen.
 
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address          Type
+# CHECK-NEXT: Idx Name          Size     VMA              Type
 # CHECK-NEXT:   0               00000000 0000000000000000
-# CHECK-NEXT:   1 .data         00000008 0000000000004000
-# CHECK-NEXT:   2 .dynamic      00000060 0000000000004008
+# CHECK-NEXT:   1 .dynamic      00000060 0000000000000000
+# CHECK-NEXT:   2 .data         00000008 0000000000004000
 # CHECK-NEXT:   3 .dynsym       00000018 0000000000002000
 # CHECK-NEXT:   4 .dynstr       00000001 0000000000002018
 # CHECK-NEXT:   5 .hash         00000010 000000000000201c

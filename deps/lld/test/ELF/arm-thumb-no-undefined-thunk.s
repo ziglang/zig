@@ -17,6 +17,7 @@ _start:
  b.w target
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // CHECK-NEXT: _start:
 // 69636 = 0x11004 = next instruction
 // CHECK:         11000: {{.*}} bl      #0

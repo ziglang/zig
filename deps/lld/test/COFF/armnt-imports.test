@@ -1,7 +1,7 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /subsystem:console %t.obj \
 # RUN:   /entry:mainCRTStartup %p/Inputs/library.lib
-# RUN: llvm-readobj -coff-imports %t.exe | FileCheck %s
+# RUN: llvm-readobj --coff-imports %t.exe | FileCheck %s
 
 # CHECK: Import {
 # CHECK:   Name: library.dll

@@ -1,9 +1,8 @@
 //===- Config.h -------------------------------------------------*- C++ -*-===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,6 +28,7 @@ class DefinedAbsolute;
 class DefinedRelative;
 class StringChunk;
 class Symbol;
+class InputFile;
 
 // Short aliases.
 static const auto AMD64 = llvm::COFF::IMAGE_FILE_MACHINE_AMD64;
@@ -38,30 +38,30 @@ static const auto I386 = llvm::COFF::IMAGE_FILE_MACHINE_I386;
 
 // Represents an /export option.
 struct Export {
-  StringRef Name;       // N in /export:N or /export:E=N
-  StringRef ExtName;    // E in /export:E=N
-  Symbol *Sym = nullptr;
-  uint16_t Ordinal = 0;
-  bool Noname = false;
-  bool Data = false;
-  bool Private = false;
-  bool Constant = false;
+  StringRef name;       // N in /export:N or /export:E=N
+  StringRef extName;    // E in /export:E=N
+  Symbol *sym = nullptr;
+  uint16_t ordinal = 0;
+  bool noname = false;
+  bool data = false;
+  bool isPrivate = false;
+  bool constant = false;
 
   // If an export is a form of /export:foo=dllname.bar, that means
   // that foo should be exported as an alias to bar in the DLL.
-  // ForwardTo is set to "dllname.bar" part. Usually empty.
-  StringRef ForwardTo;
-  StringChunk *ForwardChunk = nullptr;
+  // forwardTo is set to "dllname.bar" part. Usually empty.
+  StringRef forwardTo;
+  StringChunk *forwardChunk = nullptr;
 
   // True if this /export option was in .drectves section.
-  bool Directives = false;
-  StringRef SymbolName;
-  StringRef ExportName; // Name in DLL
+  bool directives = false;
+  StringRef symbolName;
+  StringRef exportName; // Name in DLL
 
-  bool operator==(const Export &E) {
-    return (Name == E.Name && ExtName == E.ExtName &&
-            Ordinal == E.Ordinal && Noname == E.Noname &&
-            Data == E.Data && Private == E.Private);
+  bool operator==(const Export &e) {
+    return (name == e.name && extName == e.extName &&
+            ordinal == e.ordinal && noname == e.noname &&
+            data == e.data && isPrivate == e.isPrivate);
   }
 };
 
@@ -81,130 +81,150 @@ enum class GuardCFLevel {
 // Global configuration.
 struct Configuration {
   enum ManifestKind { SideBySide, Embed, No };
-  bool is64() { return Machine == AMD64 || Machine == ARM64; }
+  bool is64() { return machine == AMD64 || machine == ARM64; }
 
-  llvm::COFF::MachineTypes Machine = IMAGE_FILE_MACHINE_UNKNOWN;
-  size_t Wordsize;
-  bool Verbose = false;
-  WindowsSubsystem Subsystem = llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN;
-  Symbol *Entry = nullptr;
-  bool NoEntry = false;
-  std::string OutputFile;
-  std::string ImportName;
-  bool DoGC = true;
-  bool DoICF = true;
-  bool TailMerge;
-  bool Relocatable = true;
-  bool ForceMultiple = false;
-  bool ForceUnresolved = false;
-  bool Debug = false;
-  bool DebugDwarf = false;
-  bool DebugGHashes = false;
-  bool DebugSymtab = false;
-  bool ShowTiming = false;
-  unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
-  std::vector<std::string> NatvisFiles;
-  llvm::SmallString<128> PDBAltPath;
-  llvm::SmallString<128> PDBPath;
-  llvm::SmallString<128> PDBSourcePath;
-  std::vector<llvm::StringRef> Argv;
+  llvm::COFF::MachineTypes machine = IMAGE_FILE_MACHINE_UNKNOWN;
+  size_t wordsize;
+  bool verbose = false;
+  WindowsSubsystem subsystem = llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN;
+  Symbol *entry = nullptr;
+  bool noEntry = false;
+  std::string outputFile;
+  std::string importName;
+  bool demangle = true;
+  bool doGC = true;
+  bool doICF = true;
+  bool tailMerge;
+  bool relocatable = true;
+  bool forceMultiple = false;
+  bool forceMultipleRes = false;
+  bool forceUnresolved = false;
+  bool debug = false;
+  bool debugDwarf = false;
+  bool debugGHashes = false;
+  bool debugSymtab = false;
+  bool showTiming = false;
+  bool showSummary = false;
+  unsigned debugTypes = static_cast<unsigned>(DebugType::None);
+  std::vector<std::string> natvisFiles;
+  llvm::SmallString<128> pdbAltPath;
+  llvm::SmallString<128> pdbPath;
+  llvm::SmallString<128> pdbSourcePath;
+  std::vector<llvm::StringRef> argv;
 
   // Symbols in this set are considered as live by the garbage collector.
-  std::vector<Symbol *> GCRoot;
+  std::vector<Symbol *> gcroot;
 
-  std::set<StringRef> NoDefaultLibs;
-  bool NoDefaultLibAll = false;
+  std::set<std::string> noDefaultLibs;
+  bool noDefaultLibAll = false;
 
   // True if we are creating a DLL.
-  bool DLL = false;
-  StringRef Implib;
-  std::vector<Export> Exports;
-  std::set<std::string> DelayLoads;
-  std::map<std::string, int> DLLOrder;
-  Symbol *DelayLoadHelper = nullptr;
+  bool dll = false;
+  StringRef implib;
+  std::vector<Export> exports;
+  std::set<std::string> delayLoads;
+  std::map<std::string, int> dllOrder;
+  Symbol *delayLoadHelper = nullptr;
 
-  bool SaveTemps = false;
+  bool saveTemps = false;
 
   // /guard:cf
-  GuardCFLevel GuardCF = GuardCFLevel::Off;
+  GuardCFLevel guardCF = GuardCFLevel::Off;
 
   // Used for SafeSEH.
-  Symbol *SEHTable = nullptr;
-  Symbol *SEHCount = nullptr;
+  bool safeSEH = false;
+  Symbol *sehTable = nullptr;
+  Symbol *sehCount = nullptr;
 
   // Used for /opt:lldlto=N
-  unsigned LTOO = 2;
+  unsigned ltoo = 2;
 
   // Used for /opt:lldltojobs=N
-  unsigned ThinLTOJobs = 0;
+  unsigned thinLTOJobs = 0;
   // Used for /opt:lldltopartitions=N
-  unsigned LTOPartitions = 1;
+  unsigned ltoPartitions = 1;
 
   // Used for /opt:lldltocache=path
-  StringRef LTOCache;
+  StringRef ltoCache;
   // Used for /opt:lldltocachepolicy=policy
-  llvm::CachePruningPolicy LTOCachePolicy;
+  llvm::CachePruningPolicy ltoCachePolicy;
 
   // Used for /merge:from=to (e.g. /merge:.rdata=.text)
-  std::map<StringRef, StringRef> Merge;
+  std::map<StringRef, StringRef> merge;
 
   // Used for /section=.name,{DEKPRSW} to set section attributes.
-  std::map<StringRef, uint32_t> Section;
+  std::map<StringRef, uint32_t> section;
 
   // Options for manifest files.
-  ManifestKind Manifest = No;
-  int ManifestID = 1;
-  StringRef ManifestDependency;
-  bool ManifestUAC = true;
-  std::vector<std::string> ManifestInput;
-  StringRef ManifestLevel = "'asInvoker'";
-  StringRef ManifestUIAccess = "'false'";
-  StringRef ManifestFile;
+  ManifestKind manifest = No;
+  int manifestID = 1;
+  StringRef manifestDependency;
+  bool manifestUAC = true;
+  std::vector<std::string> manifestInput;
+  StringRef manifestLevel = "'asInvoker'";
+  StringRef manifestUIAccess = "'false'";
+  StringRef manifestFile;
 
   // Used for /aligncomm.
-  std::map<std::string, int> AlignComm;
+  std::map<std::string, int> alignComm;
 
   // Used for /failifmismatch.
-  std::map<StringRef, StringRef> MustMatch;
+  std::map<StringRef, std::pair<StringRef, InputFile *>> mustMatch;
 
   // Used for /alternatename.
-  std::map<StringRef, StringRef> AlternateNames;
+  std::map<StringRef, StringRef> alternateNames;
 
   // Used for /order.
-  llvm::StringMap<int> Order;
+  llvm::StringMap<int> order;
 
   // Used for /lldmap.
-  std::string MapFile;
+  std::string mapFile;
 
-  uint64_t ImageBase = -1;
-  uint64_t StackReserve = 1024 * 1024;
-  uint64_t StackCommit = 4096;
-  uint64_t HeapReserve = 1024 * 1024;
-  uint64_t HeapCommit = 4096;
-  uint32_t MajorImageVersion = 0;
-  uint32_t MinorImageVersion = 0;
-  uint32_t MajorOSVersion = 6;
-  uint32_t MinorOSVersion = 0;
-  uint32_t Timestamp = 0;
-  bool DynamicBase = true;
-  bool AllowBind = true;
-  bool NxCompat = true;
-  bool AllowIsolation = true;
-  bool TerminalServerAware = true;
-  bool LargeAddressAware = false;
-  bool HighEntropyVA = false;
-  bool AppContainer = false;
-  bool MinGW = false;
-  bool WarnMissingOrderSymbol = true;
-  bool WarnLocallyDefinedImported = true;
-  bool WarnDebugInfoUnusable = true;
-  bool Incremental = true;
-  bool IntegrityCheck = false;
-  bool KillAt = false;
-  bool Repro = false;
+  // Used for /thinlto-index-only:
+  llvm::StringRef thinLTOIndexOnlyArg;
+
+  // Used for /thinlto-object-prefix-replace:
+  std::pair<llvm::StringRef, llvm::StringRef> thinLTOPrefixReplace;
+
+  // Used for /thinlto-object-suffix-replace:
+  std::pair<llvm::StringRef, llvm::StringRef> thinLTOObjectSuffixReplace;
+
+  uint64_t align = 4096;
+  uint64_t imageBase = -1;
+  uint64_t fileAlign = 512;
+  uint64_t stackReserve = 1024 * 1024;
+  uint64_t stackCommit = 4096;
+  uint64_t heapReserve = 1024 * 1024;
+  uint64_t heapCommit = 4096;
+  uint32_t majorImageVersion = 0;
+  uint32_t minorImageVersion = 0;
+  uint32_t majorOSVersion = 6;
+  uint32_t minorOSVersion = 0;
+  uint32_t timestamp = 0;
+  uint32_t functionPadMin = 0;
+  bool dynamicBase = true;
+  bool allowBind = true;
+  bool nxCompat = true;
+  bool allowIsolation = true;
+  bool terminalServerAware = true;
+  bool largeAddressAware = false;
+  bool highEntropyVA = false;
+  bool appContainer = false;
+  bool mingw = false;
+  bool warnMissingOrderSymbol = true;
+  bool warnLocallyDefinedImported = true;
+  bool warnDebugInfoUnusable = true;
+  bool incremental = true;
+  bool integrityCheck = false;
+  bool killAt = false;
+  bool repro = false;
+  bool swaprunCD = false;
+  bool swaprunNet = false;
+  bool thinLTOEmitImportsFiles;
+  bool thinLTOIndexOnly;
 };
 
-extern Configuration *Config;
+extern Configuration *config;
 
 } // namespace coff
 } // namespace lld

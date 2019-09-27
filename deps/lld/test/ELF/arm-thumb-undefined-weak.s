@@ -28,6 +28,7 @@ _start:
  movw r0, :lower16:target - .
 
 // CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
 // 69636 = 0x11004
 // CHECK:         11000: {{.*}} beq.w   #0 <_start+0x4>
 // CHECK-NEXT:    11004: {{.*}} b.w     #0 <_start+0x8>

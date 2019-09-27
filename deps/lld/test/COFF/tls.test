@@ -1,6 +1,6 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
+# RUN: llvm-readobj --file-headers %t.exe | FileCheck %s
 
 # CHECK: TLSTableRVA: 0x1000
 # CHECK: TLSTableSize: 0x28

@@ -13,7 +13,7 @@ SECTIONS {
 }
 
 # CHECK:      Sections:
-# CHECK-NEXT: Idx Name          Size      Address
+# CHECK-NEXT: Idx Name          Size     VMA
 # CHECK-NEXT:   0               00000000 0000000000000000
 # CHECK-NEXT:   1 .dynsym       00000018 0000000000000190
 # CHECK-NEXT:   2 .gnu.hash     0000001c 00000000000001a8

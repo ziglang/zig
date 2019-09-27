@@ -7,7 +7,7 @@
 # RUN: ld.lld %t.so.o -shared -o %t.so
 # RUN: ld.lld %t.exe.o %t.so -o %t.exe
 # RUN: llvm-objdump -d -t %t.exe | FileCheck %s
-# RUN: llvm-readobj -r -mips-plt-got %t.exe | FileCheck -check-prefix=GOT %s
+# RUN: llvm-readelf -r --mips-plt-got %t.exe | FileCheck -check-prefix=GOT %s
 
 # CHECK:      __start:
 
@@ -21,59 +21,25 @@
 # CHECK: 0000000000020000   .text   00000000 __start
 # CHECK: 0000000000020014   .text   00000000 bar
 
-# GOT:      Relocations [
-# GOT-NEXT: ]
-# GOT-NEXT: Primary GOT {
-# GOT-NEXT:   Canonical gp value:
-# GOT-NEXT:   Reserved entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32752
-# GOT-NEXT:       Initial: 0x0
-# GOT-NEXT:       Purpose: Lazy resolver
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32744
-# GOT-NEXT:       Initial: 0x8000000000000000
-# GOT-NEXT:       Purpose: Module pointer (GNU extension)
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Local entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32736
-# GOT-NEXT:       Initial: 0x20000
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32728
-# GOT-NEXT:       Initial: 0x30000
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32720
-# GOT-NEXT:       Initial: 0x20014
-# GOT-NEXT:     }
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32712
-# GOT-NEXT:       Initial: 0x20018
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Global entries [
-# GOT-NEXT:     Entry {
-# GOT-NEXT:       Address:
-# GOT-NEXT:       Access: -32704
-# GOT-NEXT:       Initial: 0x0
-# GOT-NEXT:       Value: 0x0
-# GOT-NEXT:       Type: Function
-# GOT-NEXT:       Section: Undefined
-# GOT-NEXT:       Name: foo1a
-# GOT-NEXT:     }
-# GOT-NEXT:   ]
-# GOT-NEXT:   Number of TLS and multi-GOT entries: 0
-# GOT-NEXT: }
+# GOT:      There are no relocations in this file.
+# GOT-NEXT: Primary GOT:
+# GOT-NEXT:  Canonical gp value: 0000000000038000
+# GOT-EMPTY:
+# GOT-NEXT:  Reserved entries:
+# GOT-NEXT:            Address     Access          Initial Purpose
+# GOT-NEXT:   0000000000030010 -32752(gp) 0000000000000000 Lazy resolver
+# GOT-NEXT:   0000000000030018 -32744(gp) 8000000000000000 Module pointer (GNU extension)
+# GOT-EMPTY:
+# GOT-NEXT:  Local entries:
+# GOT-NEXT:            Address     Access          Initial
+# GOT-NEXT:   0000000000030020 -32736(gp) 0000000000020000
+# GOT-NEXT:   0000000000030028 -32728(gp) 0000000000030000
+# GOT-NEXT:   0000000000030030 -32720(gp) 0000000000020014
+# GOT-NEXT:   0000000000030038 -32712(gp) 0000000000020018
+# GOT-EMPTY:
+# GOT-NEXT:  Global entries:
+# GOT-NEXT:            Address     Access          Initial         Sym.Val. Type Ndx Name
+# GOT-NEXT:   0000000000030040 -32704(gp) 0000000000000000 0000000000000000 FUNC UND foo1a
 
   .text
   .global  __start, bar

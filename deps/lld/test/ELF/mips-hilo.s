@@ -30,6 +30,7 @@ g1:
   .word 0
 
 # CHECK:      Disassembly of section .text:
+# CHECK-EMPTY:
 # CHECK-NEXT: __start:
 # CHECK-NEXT:  20000:   3c 08 00 02   lui    $8, 2
 #                                                ^-- %hi(__start+4)

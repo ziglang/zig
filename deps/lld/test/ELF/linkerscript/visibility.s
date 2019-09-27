@@ -3,7 +3,7 @@
 
 # RUN: echo "SECTIONS { foo = .; }" > %t1.script
 # RUN: ld.lld -o %t1 --script %t1.script %t.o -shared
-# RUN: llvm-readobj -t %t1 | FileCheck %s
+# RUN: llvm-readobj --symbols %t1 | FileCheck %s
 
 # CHECK:      Symbol {
 # CHECK:        Name: foo
@@ -19,4 +19,4 @@
 
         .data
         .hidden foo
-        .long foo
+        .quad foo

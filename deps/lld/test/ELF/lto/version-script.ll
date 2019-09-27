@@ -3,7 +3,7 @@
 ; RUN: echo "VERSION_1.0{ global: foo; local: *; }; VERSION_2.0{ global: bar; local: *; };" > %t.script
 ; RUN: ld.lld %t.o -o %t2 -shared --version-script %t.script -save-temps
 ; RUN: llvm-dis < %t2.0.0.preopt.bc | FileCheck %s
-; RUN: llvm-readobj -V -dyn-symbols %t2 | FileCheck --check-prefix=DSO %s
+; RUN: llvm-readobj -V --dyn-syms %t2 | FileCheck --check-prefix=DSO %s
 
 target triple = "x86_64-unknown-linux-gnu"
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"

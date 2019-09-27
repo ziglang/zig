@@ -7,7 +7,7 @@
 # RUN:         %S/Inputs/mips-dynamic.s -o %t2.o
 # RUN: ld.lld %t2.o -shared -o %t.so
 # RUN: ld.lld %t1.o %t.so -o %t.exe
-# RUN: llvm-readobj -mips-plt-got %t.exe | FileCheck %s
+# RUN: llvm-readobj --mips-plt-got %t.exe | FileCheck %s
 
 # CHECK:      Local entries [
 # CHECK-NEXT:   Entry {

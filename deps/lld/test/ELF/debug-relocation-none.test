@@ -52,7 +52,8 @@ Sections:
     Content:         '0111001017000000'
 
 Symbols:
-  Global:
-    - Name:            _start
-      Section:         .text
-    - Name:            bar
+  - Name:            _start
+    Section:         .text
+    Binding:         STB_GLOBAL
+  - Name:            bar
+    Binding:         STB_GLOBAL

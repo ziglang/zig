@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 // RUN: ld.lld %t -o %tout
-// RUN: llvm-readobj -s %tout | FileCheck %s
+// RUN: llvm-readobj -S %tout | FileCheck %s
 // RUN: echo "SECTIONS { \
 // RUN:   . = 0x201000; \
 // RUN:   .text : { *(.text) } \
@@ -12,7 +12,7 @@
 // RUN: }" > %t.script
 // RUN: ld.lld -T %t.script %t -o %tout2
 // RUN: echo SCRIPT
-// RUN: llvm-readobj -s %tout2 | FileCheck %s
+// RUN: llvm-readobj -S %tout2 | FileCheck %s
         .global _start
 _start:
         retq

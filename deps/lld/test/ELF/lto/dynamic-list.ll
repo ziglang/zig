@@ -2,7 +2,7 @@
 ; RUN: llvm-as %s -o %t.o
 ; RUN: echo "{ foo; };" > %t.list
 ; RUN: ld.lld -o %t --dynamic-list %t.list -pie %t.o
-; RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
+; RUN: llvm-readobj --dyn-syms %t | FileCheck %s
 
 ; CHECK:      Name:     foo
 ; CHECK-NEXT: Value:    0x1010

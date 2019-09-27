@@ -1,10 +1,9 @@
 // -*- C++ -*-
 //===--------------------------- complex ----------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -1450,10 +1449,10 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const complex<_Tp>& __x)
     return __os << __s.str();
 }
 
-#if _LIBCPP_STD_VER > 11 
+#if _LIBCPP_STD_VER > 11
 // Literal suffix for complex number literals [complex.literals]
 inline namespace literals
-{ 
+{
   inline namespace complex_literals
   {
     constexpr complex<long double> operator""il(long double __im)

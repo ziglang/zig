@@ -48,6 +48,7 @@ enum Os {
     OsHermitCore,
     OsHurd,
     OsWASI,
+    OsEmscripten,
     OsZen,
     OsUefi,
 };
@@ -171,6 +172,7 @@ bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target
 ZigLLVM_OSType get_llvm_os_type(Os os_type);
 
 bool target_is_arm(const ZigTarget *target);
+bool target_is_mips(const ZigTarget *target);
 bool target_allows_addr_zero(const ZigTarget *target);
 bool target_has_valgrind_support(const ZigTarget *target);
 bool target_os_is_darwin(Os os);
@@ -185,6 +187,8 @@ bool target_abi_is_musl(ZigLLVM_EnvironmentType abi);
 bool target_is_glibc(const ZigTarget *target);
 bool target_is_musl(const ZigTarget *target);
 bool target_is_wasm(const ZigTarget *target);
+bool target_is_riscv(const ZigTarget *target);
+bool target_is_android(const ZigTarget *target);
 bool target_is_single_threaded(const ZigTarget *target);
 bool target_supports_stack_probing(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
@@ -196,6 +200,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch);
 
 size_t target_libc_count(void);
 void target_libc_enum(size_t index, ZigTarget *out_target);
+bool target_libc_needs_crti_crtn(const ZigTarget *target);
 
 unsigned target_fn_align(const ZigTarget *target);
 

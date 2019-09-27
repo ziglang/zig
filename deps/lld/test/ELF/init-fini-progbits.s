@@ -2,7 +2,7 @@
 
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 // RUN: ld.lld %t -o %t.exe
-// RUN: llvm-readobj -sections %t.exe | FileCheck %s
+// RUN: llvm-readobj --sections %t.exe | FileCheck %s
 
 // CHECK:      Name: .init_array
 // CHECK-NEXT: Type: SHT_INIT_ARRAY

@@ -13,7 +13,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 # RUN: ld.lld -r -o %t %t.o %t.o
-# RUN: llvm-readobj -r -s -section-data %t | FileCheck --check-prefix=REL %s
+# RUN: llvm-readobj -r -S --section-data %t | FileCheck --check-prefix=REL %s
 
 
 # REL:      Section {

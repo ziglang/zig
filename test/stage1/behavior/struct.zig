@@ -677,3 +677,15 @@ test "non-packed struct with u128 entry in union" {
     s.f2 = v2;
     std.testing.expect(s.f2.Num == 123);
 }
+
+test "packed struct with non-ABI-aligned field" {
+    const S = packed struct {
+        x: u9,
+        y: u183,
+    };
+    var s: S = undefined;
+    s.x = 1;
+    s.y = 42;
+    expect(s.x == 1);
+    expect(s.y == 42);
+}

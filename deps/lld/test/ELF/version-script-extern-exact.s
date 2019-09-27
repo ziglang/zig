@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "FOO { global: extern \"C++\" { \"aaa*\"; }; };" > %t.script
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
-# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s --check-prefix=NOMATCH
+# RUN: llvm-readobj --dyn-syms %t.so | FileCheck %s --check-prefix=NOMATCH
 
 # NOMATCH:     DynamicSymbols [
 # NOMATCH-NOT:   _Z3aaaPf@@FOO
@@ -12,7 +12,7 @@
 
 # RUN: echo "FOO { global: extern \"C++\" { \"aaa*\"; aaa*; }; };" > %t2.script
 # RUN: ld.lld --version-script %t2.script -shared %t.o -o %t2.so
-# RUN: llvm-readobj -dyn-symbols %t2.so | FileCheck %s --check-prefix=MATCH
+# RUN: llvm-readobj --dyn-syms %t2.so | FileCheck %s --check-prefix=MATCH
 # MATCH:   DynamicSymbols [
 # MATCH:     _Z3aaaPf@@FOO
 # MATCH:     _Z3aaaPi@@FOO

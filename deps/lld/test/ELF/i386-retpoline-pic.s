@@ -7,10 +7,11 @@
 // RUN: llvm-objdump -d -s %t.exe | FileCheck %s
 
 // CHECK:      Disassembly of section .plt:
+// CHECK-EMPTY:
 // CHECK-NEXT: .plt:
-// CHECK-NEXT: 1010:       ff b3 04 20 00 00       pushl   8196(%ebx)
+// CHECK-NEXT: 1010:       ff b3 04 00 00 00       pushl   4(%ebx)
 // CHECK-NEXT: 1016:       50      pushl   %eax
-// CHECK-NEXT: 1017:       8b 83 08 20 00 00       movl    8200(%ebx), %eax
+// CHECK-NEXT: 1017:       8b 83 08 00 00 00       movl    8(%ebx), %eax
 // CHECK-NEXT: 101d:       e8 0e 00 00 00  calll   14 <.plt+0x20>
 // CHECK-NEXT: 1022:       f3 90   pause
 // CHECK-NEXT: 1024:       0f ae e8        lfence
@@ -30,7 +31,7 @@
 // CHECK-NEXT: 103e:       c3      retl
 // CHECK-NEXT: 103f:       cc      int3
 // CHECK-NEXT: 1040:       50      pushl   %eax
-// CHECK-NEXT: 1041:       8b 83 0c 20 00 00       movl    8204(%ebx), %eax
+// CHECK-NEXT: 1041:       8b 83 0c 00 00 00       movl    12(%ebx), %eax
 // CHECK-NEXT: 1047:       e8 e4 ff ff ff  calll   -28 <.plt+0x20>
 // CHECK-NEXT: 104c:       e9 d1 ff ff ff  jmp     -47 <.plt+0x12>
 // CHECK-NEXT: 1051:       68 00 00 00 00  pushl   $0
@@ -41,7 +42,7 @@
 // CHECK-NEXT: 105e:       cc      int3
 // CHECK-NEXT: 105f:       cc      int3
 // CHECK-NEXT: 1060:       50      pushl   %eax
-// CHECK-NEXT: 1061:       8b 83 10 20 00 00       movl    8208(%ebx), %eax
+// CHECK-NEXT: 1061:       8b 83 10 00 00 00       movl    16(%ebx), %eax
 // CHECK-NEXT: 1067:       e8 c4 ff ff ff  calll   -60 <.plt+0x20>
 // CHECK-NEXT: 106c:       e9 b1 ff ff ff  jmp     -79 <.plt+0x12>
 // CHECK-NEXT: 1071:       68 08 00 00 00  pushl   $8
@@ -53,8 +54,8 @@
 // CHECK-NEXT: 107f:       cc      int3
 
 // CHECK:      Contents of section .got.plt:
-// CHECK-NEXT: 2000 00300000 00000000 00000000 51100000
-// CHECK-NEXT: 2010 71100000
+// CHECK-NEXT: 3000 00200000 00000000 00000000 51100000
+// CHECK-NEXT: 3010 71100000
 
 .global _start
 _start:

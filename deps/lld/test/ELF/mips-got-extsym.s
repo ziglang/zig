@@ -9,7 +9,7 @@
 # RUN: ld.lld -shared %t.so.o -o %t.so
 # RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
 # RUN: ld.lld %t.o %t.so -o %t.exe
-# RUN: llvm-readobj -dt -t -mips-plt-got %t.exe | FileCheck %s
+# RUN: llvm-readobj --dyn-syms --symbols --mips-plt-got %t.exe | FileCheck %s
 
 # CHECK:      Symbols [
 # CHECK:        Symbol {

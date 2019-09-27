@@ -23,5 +23,16 @@ test "float widening" {
     var b: f32 = a;
     var c: f64 = b;
     var d: f128 = c;
-    expect(d == a);
+    expect(a == b);
+    expect(b == c);
+    expect(c == d);
+}
+
+test "float widening f16 to f128" {
+    // TODO https://github.com/ziglang/zig/issues/3282
+    if (@import("builtin").arch == .aarch64) return error.SkipZigTest;
+
+    var x: f16 = 12.34;
+    var y: f128 = x;
+    expect(x == y);
 }

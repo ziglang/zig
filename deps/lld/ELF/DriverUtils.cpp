@@ -1,9 +1,8 @@
 //===- DriverUtils.cpp ----------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -42,7 +41,7 @@ using namespace lld::elf;
 #undef PREFIX
 
 // Create table mapping all options defined in Options.td
-static const opt::OptTable::Info OptInfo[] = {
+static const opt::OptTable::Info optInfo[] = {
 #define OPTION(X1, X2, ID, KIND, GROUP, ALIAS, X7, X8, X9, X10, X11, X12)      \
   {X1, X2, X10,         X11,         OPT_##ID, opt::Option::KIND##Class,       \
    X9, X8, OPT_##GROUP, OPT_##ALIAS, X7,       X12},
@@ -50,36 +49,36 @@ static const opt::OptTable::Info OptInfo[] = {
 #undef OPTION
 };
 
-ELFOptTable::ELFOptTable() : OptTable(OptInfo) {}
+ELFOptTable::ELFOptTable() : OptTable(optInfo) {}
 
 // Set color diagnostics according to -color-diagnostics={auto,always,never}
 // or -no-color-diagnostics flags.
-static void handleColorDiagnostics(opt::InputArgList &Args) {
-  auto *Arg = Args.getLastArg(OPT_color_diagnostics, OPT_color_diagnostics_eq,
+static void handleColorDiagnostics(opt::InputArgList &args) {
+  auto *arg = args.getLastArg(OPT_color_diagnostics, OPT_color_diagnostics_eq,
                               OPT_no_color_diagnostics);
-  if (!Arg)
+  if (!arg)
     return;
-  if (Arg->getOption().getID() == OPT_color_diagnostics) {
-    errorHandler().ColorDiagnostics = true;
-  } else if (Arg->getOption().getID() == OPT_no_color_diagnostics) {
-    errorHandler().ColorDiagnostics = false;
+  if (arg->getOption().getID() == OPT_color_diagnostics) {
+    errorHandler().colorDiagnostics = true;
+  } else if (arg->getOption().getID() == OPT_no_color_diagnostics) {
+    errorHandler().colorDiagnostics = false;
   } else {
-    StringRef S = Arg->getValue();
-    if (S == "always")
-      errorHandler().ColorDiagnostics = true;
-    else if (S == "never")
-      errorHandler().ColorDiagnostics = false;
-    else if (S != "auto")
-      error("unknown option: --color-diagnostics=" + S);
+    StringRef s = arg->getValue();
+    if (s == "always")
+      errorHandler().colorDiagnostics = true;
+    else if (s == "never")
+      errorHandler().colorDiagnostics = false;
+    else if (s != "auto")
+      error("unknown option: --color-diagnostics=" + s);
   }
 }
 
-static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &Args) {
-  if (auto *Arg = Args.getLastArg(OPT_rsp_quoting)) {
-    StringRef S = Arg->getValue();
-    if (S != "windows" && S != "posix")
-      error("invalid response file quoting: " + S);
-    if (S == "windows")
+static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &args) {
+  if (auto *arg = args.getLastArg(OPT_rsp_quoting)) {
+    StringRef s = arg->getValue();
+    if (s != "windows" && s != "posix")
+      error("invalid response file quoting: " + s);
+    if (s == "windows")
       return cl::TokenizeWindowsCommandLine;
     return cl::TokenizeGNUCommandLine;
   }
@@ -97,50 +96,56 @@ static cl::TokenizerCallback getQuotingStyle(opt::InputArgList &Args) {
 // `--plugin-opt <foo>` is converted to `--plugin-opt=<foo>`. This is a
 // bit hacky, but looks like it is still better than handling --plugin-opt
 // options by hand.
-static void concatLTOPluginOptions(SmallVectorImpl<const char *> &Args) {
-  SmallVector<const char *, 256> V;
-  for (size_t I = 0, E = Args.size(); I != E; ++I) {
-    StringRef S = Args[I];
-    if ((S == "-plugin-opt" || S == "--plugin-opt") && I + 1 != E) {
-      V.push_back(Saver.save(S + "=" + Args[I + 1]).data());
-      ++I;
+static void concatLTOPluginOptions(SmallVectorImpl<const char *> &args) {
+  SmallVector<const char *, 256> v;
+  for (size_t i = 0, e = args.size(); i != e; ++i) {
+    StringRef s = args[i];
+    if ((s == "-plugin-opt" || s == "--plugin-opt") && i + 1 != e) {
+      v.push_back(saver.save(s + "=" + args[i + 1]).data());
+      ++i;
     } else {
-      V.push_back(Args[I]);
+      v.push_back(args[i]);
     }
   }
-  Args = std::move(V);
+  args = std::move(v);
 }
 
 // Parses a given list of options.
-opt::InputArgList ELFOptTable::parse(ArrayRef<const char *> Argv) {
+opt::InputArgList ELFOptTable::parse(ArrayRef<const char *> argv) {
   // Make InputArgList from string vectors.
-  unsigned MissingIndex;
-  unsigned MissingCount;
-  SmallVector<const char *, 256> Vec(Argv.data(), Argv.data() + Argv.size());
+  unsigned missingIndex;
+  unsigned missingCount;
+  SmallVector<const char *, 256> vec(argv.data(), argv.data() + argv.size());
 
   // We need to get the quoting style for response files before parsing all
   // options so we parse here before and ignore all the options but
   // --rsp-quoting.
-  opt::InputArgList Args = this->ParseArgs(Vec, MissingIndex, MissingCount);
+  opt::InputArgList args = this->ParseArgs(vec, missingIndex, missingCount);
 
   // Expand response files (arguments in the form of @<filename>)
   // and then parse the argument again.
-  cl::ExpandResponseFiles(Saver, getQuotingStyle(Args), Vec);
-  concatLTOPluginOptions(Vec);
-  Args = this->ParseArgs(Vec, MissingIndex, MissingCount);
+  cl::ExpandResponseFiles(saver, getQuotingStyle(args), vec);
+  concatLTOPluginOptions(vec);
+  args = this->ParseArgs(vec, missingIndex, missingCount);
 
-  handleColorDiagnostics(Args);
-  if (MissingCount)
-    error(Twine(Args.getArgString(MissingIndex)) + ": missing argument");
+  handleColorDiagnostics(args);
+  if (missingCount)
+    error(Twine(args.getArgString(missingIndex)) + ": missing argument");
 
-  for (auto *Arg : Args.filtered(OPT_UNKNOWN))
-    error("unknown argument: " + Arg->getSpelling());
-  return Args;
+  for (auto *arg : args.filtered(OPT_UNKNOWN)) {
+    std::string nearest;
+    if (findNearest(arg->getAsString(args), nearest) > 1)
+      error("unknown argument '" + arg->getAsString(args) + "'");
+    else
+      error("unknown argument '" + arg->getAsString(args) +
+            "', did you mean '" + nearest + "'");
+  }
+  return args;
 }
 
 void elf::printHelp() {
   ELFOptTable().PrintHelp(
-      outs(), (Config->ProgName + " [options] file...").str().c_str(), "lld",
+      outs(), (config->progName + " [options] file...").str().c_str(), "lld",
       false /*ShowHidden*/, true /*ShowAllAliases*/);
   outs() << "\n";
 
@@ -149,30 +154,36 @@ void elf::printHelp() {
   // in a message for the -help option. If it doesn't match, the scripts
   // assume that the linker doesn't support very basic features such as
   // shared libraries. Therefore, we need to print out at least "elf".
-  outs() << Config->ProgName << ": supported targets: elf\n";
+  outs() << config->progName << ": supported targets: elf\n";
+}
+
+static std::string rewritePath(StringRef s) {
+  if (fs::exists(s))
+    return relativeToRoot(s);
+  return s;
 }
 
 // Reconstructs command line arguments so that so that you can re-run
 // the same command with the same inputs. This is for --reproduce.
-std::string elf::createResponseFile(const opt::InputArgList &Args) {
-  SmallString<0> Data;
-  raw_svector_ostream OS(Data);
-  OS << "--chroot .\n";
+std::string elf::createResponseFile(const opt::InputArgList &args) {
+  SmallString<0> data;
+  raw_svector_ostream os(data);
+  os << "--chroot .\n";
 
   // Copy the command line to the output while rewriting paths.
-  for (auto *Arg : Args) {
-    switch (Arg->getOption().getUnaliasedOption().getID()) {
+  for (auto *arg : args) {
+    switch (arg->getOption().getID()) {
     case OPT_reproduce:
       break;
     case OPT_INPUT:
-      OS << quote(rewritePath(Arg->getValue())) << "\n";
+      os << quote(rewritePath(arg->getValue())) << "\n";
       break;
     case OPT_o:
       // If -o path contains directories, "lld @response.txt" will likely
       // fail because the archive we are creating doesn't contain empty
       // directories for the output path (-o doesn't create directories).
       // Strip directories to prevent the issue.
-      OS << "-o " << quote(sys::path::filename(Arg->getValue())) << "\n";
+      os << "-o " << quote(sys::path::filename(arg->getValue())) << "\n";
       break;
     case OPT_dynamic_list:
     case OPT_library_path:
@@ -181,58 +192,62 @@ std::string elf::createResponseFile(const opt::InputArgList &Args) {
     case OPT_symbol_ordering_file:
     case OPT_sysroot:
     case OPT_version_script:
-      OS << Arg->getSpelling() << " " << quote(rewritePath(Arg->getValue()))
+      os << arg->getSpelling() << " " << quote(rewritePath(arg->getValue()))
          << "\n";
       break;
     default:
-      OS << toString(*Arg) << "\n";
+      os << toString(*arg) << "\n";
     }
   }
-  return Data.str();
+  return data.str();
 }
 
 // Find a file by concatenating given paths. If a resulting path
 // starts with "=", the character is replaced with a --sysroot value.
-static Optional<std::string> findFile(StringRef Path1, const Twine &Path2) {
-  SmallString<128> S;
-  if (Path1.startswith("="))
-    path::append(S, Config->Sysroot, Path1.substr(1), Path2);
+static Optional<std::string> findFile(StringRef path1, const Twine &path2) {
+  SmallString<128> s;
+  if (path1.startswith("="))
+    path::append(s, config->sysroot, path1.substr(1), path2);
   else
-    path::append(S, Path1, Path2);
+    path::append(s, path1, path2);
 
-  if (fs::exists(S))
-    return S.str().str();
+  if (fs::exists(s))
+    return s.str().str();
   return None;
 }
 
-Optional<std::string> elf::findFromSearchPaths(StringRef Path) {
-  for (StringRef Dir : Config->SearchPaths)
-    if (Optional<std::string> S = findFile(Dir, Path))
-      return S;
+Optional<std::string> elf::findFromSearchPaths(StringRef path) {
+  for (StringRef dir : config->searchPaths)
+    if (Optional<std::string> s = findFile(dir, path))
+      return s;
   return None;
 }
 
-// This is for -lfoo. We'll look for libfoo.so or libfoo.a from
+// This is for -l<basename>. We'll look for lib<basename>.so or lib<basename>.a from
 // search paths.
-Optional<std::string> elf::searchLibrary(StringRef Name) {
-  if (Name.startswith(":"))
-    return findFromSearchPaths(Name.substr(1));
-
-  for (StringRef Dir : Config->SearchPaths) {
-    if (!Config->Static)
-      if (Optional<std::string> S = findFile(Dir, "lib" + Name + ".so"))
-        return S;
-    if (Optional<std::string> S = findFile(Dir, "lib" + Name + ".a"))
-      return S;
+Optional<std::string> elf::searchLibraryBaseName(StringRef name) {
+  for (StringRef dir : config->searchPaths) {
+    if (!config->isStatic)
+      if (Optional<std::string> s = findFile(dir, "lib" + name + ".so"))
+        return s;
+    if (Optional<std::string> s = findFile(dir, "lib" + name + ".a"))
+      return s;
   }
   return None;
+}
+
+// This is for -l<namespec>.
+Optional<std::string> elf::searchLibrary(StringRef name) {
+    if (name.startswith(":"))
+        return findFromSearchPaths(name.substr(1));
+    return searchLibraryBaseName (name);
 }
 
 // If a linker/version script doesn't exist in the current directory, we also
 // look for the script in the '-L' search paths. This matches the behaviour of
 // '-T', --version-script=, and linker script INPUT() command in ld.bfd.
-Optional<std::string> elf::searchScript(StringRef Name) {
-  if (fs::exists(Name))
-    return Name.str();
-  return findFromSearchPaths(Name);
+Optional<std::string> elf::searchScript(StringRef name) {
+  if (fs::exists(name))
+    return name.str();
+  return findFromSearchPaths(name);
 }

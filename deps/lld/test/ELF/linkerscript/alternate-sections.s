@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 # RUN: echo "SECTIONS { abc : { *(foo) *(bar) *(zed) } }" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o -shared
-# RUN: llvm-readobj -s -section-data %t | FileCheck %s
+# RUN: llvm-readobj -S --section-data %t | FileCheck %s
 
 # CHECK:       Section {
 # CHECK:        Index:

@@ -113,7 +113,7 @@ k:
 // Dis:     test:
 // Dis:        addis 3, 2, 0
 // Dis-NEXT:   addi 3, 3, -32760
-// Dis-NEXT:   bl .+67108804
+// Dis-NEXT:   bl .+60
 // Dis-NEXT:   ld 2, 24(1)
 // Dis-NEXT:   addis 3, 3, 0
 // Dis-NEXT:   lwa 3, -32768(3)

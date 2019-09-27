@@ -20,7 +20,7 @@ RUN: rm -rf %t && mkdir -p %t && cd %t
 RUN: yaml2obj %S/Inputs/pdb-type-server-simple-a.yaml -o a.obj
 RUN: yaml2obj %S/Inputs/pdb-type-server-simple-b.yaml -o b.obj
 RUN: llvm-pdbutil yaml2pdb %S/Inputs/pdb-type-server-simple-ts.yaml -pdb ts.pdb
-RUN: lld-link a.obj b.obj -entry:main -debug -out:t.exe -pdb:t.pdb -nodefaultlib
+RUN: lld-link a.obj b.obj -entry:main -debug -out:t.exe -pdb:t.pdb -nodefaultlib /summary | FileCheck %s -check-prefix SUMMARY
 RUN: llvm-pdbutil dump -symbols -types -ids -globals %t/t.pdb | FileCheck %s
 
 
@@ -95,3 +95,14 @@ CHECK:            type = [[FOO_PTR]] (Foo*), register = RSP, offset = 8
 CHECK:      196 | S_END [size = 4]
 CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[B_BUILD]]`
 CHECK-LABEL:   Mod 0002 | `* Linker *`:
+
+SUMMARY:                                     Summary
+SUMMARY-NEXT: --------------------------------------------------------------------------------
+SUMMARY-NEXT:               2 Input OBJ files (expanded from all cmd-line inputs)
+SUMMARY-NEXT:               1 PDB type server dependencies
+SUMMARY-NEXT:               0 Precomp OBJ dependencies
+SUMMARY-NEXT:              25 Merged TPI records
+SUMMARY-NEXT:               3 Output PDB strings
+SUMMARY-NEXT:               4 Global symbol records
+SUMMARY-NEXT:              14 Module symbol records
+SUMMARY-NEXT:               2 Public symbol records

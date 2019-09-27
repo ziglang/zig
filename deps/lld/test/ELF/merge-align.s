@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: ld.lld %t.o -o %t.so -shared
-// RUN: llvm-readobj -s -section-data %t.so | FileCheck %s
+// RUN: llvm-readobj -S --section-data %t.so | FileCheck %s
 
         .section        .rodata.foo,"aM",@progbits,1
         .align  16

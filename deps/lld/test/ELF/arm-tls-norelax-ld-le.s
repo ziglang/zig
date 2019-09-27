@@ -32,4 +32,4 @@ x:
  .word   10
 
 // CHECK: Contents of section .got:
-// CHECK-NEXT:  13064 01000000 00000000
+// CHECK-NEXT:  12064 01000000 00000000

@@ -41,14 +41,17 @@ _start:
  bx lr
 
 // CHECK-ARM: Disassembly of section .R_ARM_CALL24_callee1:
+// CHECK-ARM-EMPTY:
 // CHECK-NEXT-ARM: callee_low:
 // CHECK-NEXT-ARM:      b4:     1e ff 2f e1     bx      lr
 
 // CHECK-THUMB: Disassembly of section .R_ARM_CALL24_callee2:
+// CHECK-THUMB-EMPTY:
 // CHECK-NEXT-THUMB: callee_thumb_low:
 // CHECK-NEXT-THUMB:     100:	70 47 	bx	lr
 
 // CHECK-THUMB: Disassembly of section .caller:
+// CHECK-THUMB-EMPTY:
 // CHECK-THUMB: _start:
 // Align(0x10000,4) - 0xff50 (65360) + 4 = 0xb4 = callee_low
 // CHECK-NEXT-THUMB:   10000:       f0 f7 58 e8     blx     #-65360
@@ -77,9 +80,11 @@ _start:
 
 
 // CHECK-ARM: Disassembly of section .R_ARM_CALL24_callee3:
+// CHECK-ARM-EMPTY:
 // CHECK-NEXT-ARM: callee_high:
 // CHECK-NEXT-ARM:   10100:     1e ff 2f e1     bx      lr
 
 // CHECK: Disassembly of section .R_ARM_CALL24_callee4:
+// CHECK-EMPTY:
 // CHECK-NEXT-THUMB:callee_thumb_high:
 // CHECK-NEXT-THUMB:   10200:   70 47   bx      lr

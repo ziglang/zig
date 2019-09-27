@@ -8,11 +8,11 @@
 
 # RUN: ld.lld %t.o %t.so -o %t.exe
 # RUN: llvm-objdump -d -s -t %t.exe | FileCheck -check-prefix=DIS %s
-# RUN: llvm-readobj -r -mips-plt-got %t.exe | FileCheck %s
+# RUN: llvm-readobj -r --mips-plt-got %t.exe | FileCheck %s
 
 # RUN: ld.lld -shared %t.o %t.so -o %t-out.so
 # RUN: llvm-objdump -d -s -t %t-out.so | FileCheck -check-prefix=DIS-SO %s
-# RUN: llvm-readobj -r -mips-plt-got %t-out.so | FileCheck -check-prefix=SO %s
+# RUN: llvm-readobj -r --mips-plt-got %t-out.so | FileCheck -check-prefix=SO %s
 
 # DIS:      __start:
 # DIS-NEXT:    20000:   24 62 80 20   addiu   $2, $3, -32736
@@ -22,9 +22,9 @@
 # DIS-NEXT:    20010:   24 62 80 1c   addiu   $2, $3, -32740
 
 # DIS:      Contents of section .got:
-# DIS-NEXT:  30010 00000000 80000000 00000000 ffff9004
-# DIS-NEXT:  30020 00000000 00000000 00000001 00000000
-# DIS-NEXT:  30030 00000001 ffff8004
+# DIS-NEXT:  40010 00000000 80000000 00000000 ffff9004
+# DIS-NEXT:  40020 00000000 00000000 00000001 00000000
+# DIS-NEXT:  40030 00000001 ffff8004
 
 # DIS: 00000000 l    O .tdata          00000000 loc
 # DIS: 00000004 g    O .tdata          00000000 bar
@@ -32,13 +32,13 @@
 
 # CHECK:      Relocations [
 # CHECK-NEXT:   Section (7) .rel.dyn {
-# CHECK-NEXT:     0x30018 R_MIPS_TLS_TPREL32 foo 0x0
-# CHECK-NEXT:     0x30020 R_MIPS_TLS_DTPMOD32 foo 0x0
-# CHECK-NEXT:     0x30024 R_MIPS_TLS_DTPREL32 foo 0x0
+# CHECK-NEXT:     0x40018 R_MIPS_TLS_TPREL32 foo 0x0
+# CHECK-NEXT:     0x40020 R_MIPS_TLS_DTPMOD32 foo 0x0
+# CHECK-NEXT:     0x40024 R_MIPS_TLS_DTPREL32 foo 0x0
 # CHECK-NEXT:   }
 # CHECK-NEXT: ]
 # CHECK-NEXT: Primary GOT {
-# CHECK-NEXT:   Canonical gp value: 0x38000
+# CHECK-NEXT:   Canonical gp value: 0x48000
 # CHECK-NEXT:   Reserved entries [
 # CHECK:        ]
 # CHECK-NEXT:   Local entries [
@@ -56,23 +56,23 @@
 #               ^-- -32716                     VA - 0x8000 bar
 
 # DIS-SO:      Contents of section .got:
-# DIS-SO-NEXT:  20000 00000000 80000000 00000000 00000004
-# DIS-SO-NEXT:  20010 00000000 00000000 00000000 00000000
-# DIS-SO-NEXT:  20020 00000000 00000000
+# DIS-SO-NEXT:  30000 00000000 80000000 00000000 00000004
+# DIS-SO-NEXT:  30010 00000000 00000000 00000000 00000000
+# DIS-SO-NEXT:  30020 00000000 00000000
 
 # SO:      Relocations [
 # SO-NEXT:   Section (7) .rel.dyn {
-# SO-NEXT:     0x20018 R_MIPS_TLS_DTPMOD32 - 0x0
-# SO-NEXT:     0x2000C R_MIPS_TLS_TPREL32 bar 0x0
-# SO-NEXT:     0x20020 R_MIPS_TLS_DTPMOD32 bar 0x0
-# SO-NEXT:     0x20024 R_MIPS_TLS_DTPREL32 bar 0x0
-# SO-NEXT:     0x20008 R_MIPS_TLS_TPREL32 foo 0x0
-# SO-NEXT:     0x20010 R_MIPS_TLS_DTPMOD32 foo 0x0
-# SO-NEXT:     0x20014 R_MIPS_TLS_DTPREL32 foo 0x0
+# SO-NEXT:     0x30018 R_MIPS_TLS_DTPMOD32 - 0x0
+# SO-NEXT:     0x3000C R_MIPS_TLS_TPREL32 bar 0x0
+# SO-NEXT:     0x30020 R_MIPS_TLS_DTPMOD32 bar 0x0
+# SO-NEXT:     0x30024 R_MIPS_TLS_DTPREL32 bar 0x0
+# SO-NEXT:     0x30008 R_MIPS_TLS_TPREL32 foo 0x0
+# SO-NEXT:     0x30010 R_MIPS_TLS_DTPMOD32 foo 0x0
+# SO-NEXT:     0x30014 R_MIPS_TLS_DTPREL32 foo 0x0
 # SO-NEXT:   }
 # SO-NEXT: ]
 # SO-NEXT: Primary GOT {
-# SO-NEXT:   Canonical gp value: 0x27FF0
+# SO-NEXT:   Canonical gp value: 0x37FF0
 # SO-NEXT:   Reserved entries [
 # SO:        ]
 # SO-NEXT:   Local entries [

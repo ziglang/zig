@@ -1,0 +1,21 @@
+# RUN: yaml2obj %s -o %t1.o
+# RUN: not ld.lld %t1.o -o %t 2>&1 | FileCheck %s
+# CHECK: error: {{.*}}1.o: zero option descriptor size
+
+## YAML has a description of ODK_NULL (Undefined) MIPS option,
+## with a size of zero. We do not allow options with a zero size.
+## Check we report it.
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2MSB
+  Type:            ET_REL
+  Machine:         EM_MIPS
+  Flags:           [ EF_MIPS_CPIC, EF_MIPS_ARCH_64 ]
+Sections:
+  - Name:          .MIPS.options
+    Type:          SHT_MIPS_OPTIONS
+    Flags:         [ SHF_ALLOC, SHF_MIPS_NOSTRIP ]
+    AddressAlign:  0x0000000000000008
+    Content:       '0000000000000000'

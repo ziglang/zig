@@ -18,6 +18,7 @@
 // RELOCSHARED-NEXT:]
 
 // DISASM:      Disassembly of section test
+// DISASM-EMPTY:
 // DISASM:      _data:
 // DISASM-NEXT: 201000: 19 00
 // DISASM-NEXT: 201002: 00 00

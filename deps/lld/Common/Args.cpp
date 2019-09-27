@@ -1,9 +1,8 @@
 //===- Args.cpp -----------------------------------------------------------===//
 //
-//                             The LLVM Linker
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -18,56 +17,66 @@
 using namespace llvm;
 using namespace lld;
 
-int lld::args::getInteger(opt::InputArgList &Args, unsigned Key, int Default) {
-  auto *A = Args.getLastArg(Key);
-  if (!A)
+// TODO(sbc): Remove this once CGOptLevel can be set completely based on bitcode
+// function metadata.
+CodeGenOpt::Level lld::args::getCGOptLevel(int optLevelLTO) {
+  if (optLevelLTO == 3)
+    return CodeGenOpt::Aggressive;
+  assert(optLevelLTO < 3);
+  return CodeGenOpt::Default;
+}
+
+int64_t lld::args::getInteger(opt::InputArgList &args, unsigned key,
+                              int64_t Default) {
+  auto *a = args.getLastArg(key);
+  if (!a)
     return Default;
 
-  int V;
-  if (to_integer(A->getValue(), V, 10))
-    return V;
+  int64_t v;
+  if (to_integer(a->getValue(), v, 10))
+    return v;
 
-  StringRef Spelling = Args.getArgString(A->getIndex());
-  error(Spelling + ": number expected, but got '" + A->getValue() + "'");
+  StringRef spelling = args.getArgString(a->getIndex());
+  error(spelling + ": number expected, but got '" + a->getValue() + "'");
   return 0;
 }
 
-std::vector<StringRef> lld::args::getStrings(opt::InputArgList &Args, int Id) {
-  std::vector<StringRef> V;
-  for (auto *Arg : Args.filtered(Id))
-    V.push_back(Arg->getValue());
-  return V;
+std::vector<StringRef> lld::args::getStrings(opt::InputArgList &args, int id) {
+  std::vector<StringRef> v;
+  for (auto *arg : args.filtered(id))
+    v.push_back(arg->getValue());
+  return v;
 }
 
-uint64_t lld::args::getZOptionValue(opt::InputArgList &Args, int Id,
-                                    StringRef Key, uint64_t Default) {
-  for (auto *Arg : Args.filtered_reverse(Id)) {
-    std::pair<StringRef, StringRef> KV = StringRef(Arg->getValue()).split('=');
-    if (KV.first == Key) {
-      uint64_t Result = Default;
-      if (!to_integer(KV.second, Result))
-        error("invalid " + Key + ": " + KV.second);
-      return Result;
+uint64_t lld::args::getZOptionValue(opt::InputArgList &args, int id,
+                                    StringRef key, uint64_t Default) {
+  for (auto *arg : args.filtered_reverse(id)) {
+    std::pair<StringRef, StringRef> kv = StringRef(arg->getValue()).split('=');
+    if (kv.first == key) {
+      uint64_t result = Default;
+      if (!to_integer(kv.second, result))
+        error("invalid " + key + ": " + kv.second);
+      return result;
     }
   }
   return Default;
 }
 
-std::vector<StringRef> lld::args::getLines(MemoryBufferRef MB) {
-  SmallVector<StringRef, 0> Arr;
-  MB.getBuffer().split(Arr, '\n');
+std::vector<StringRef> lld::args::getLines(MemoryBufferRef mb) {
+  SmallVector<StringRef, 0> arr;
+  mb.getBuffer().split(arr, '\n');
 
-  std::vector<StringRef> Ret;
-  for (StringRef S : Arr) {
-    S = S.trim();
-    if (!S.empty() && S[0] != '#')
-      Ret.push_back(S);
+  std::vector<StringRef> ret;
+  for (StringRef s : arr) {
+    s = s.trim();
+    if (!s.empty() && s[0] != '#')
+      ret.push_back(s);
   }
-  return Ret;
+  return ret;
 }
 
-StringRef lld::args::getFilenameWithoutExe(StringRef Path) {
-  if (Path.endswith_lower(".exe"))
-    return sys::path::stem(Path);
-  return sys::path::filename(Path);
+StringRef lld::args::getFilenameWithoutExe(StringRef path) {
+  if (path.endswith_lower(".exe"))
+    return sys::path::stem(path);
+  return sys::path::filename(path);
 }

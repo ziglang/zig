@@ -4,7 +4,7 @@
 ; RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %t2.s -o %t2.o
 ; RUN: ld.lld -shared %t2.o -o %t2.so
 ; RUN: ld.lld -o %t %t.o %t2.so
-; RUN: llvm-readobj -dyn-symbols %t | FileCheck %s
+; RUN: llvm-readobj --dyn-syms %t | FileCheck %s
 
 ; CHECK:      Name:     __progname
 ; CHECK-NEXT: Value:    0x201010
