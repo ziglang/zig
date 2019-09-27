@@ -979,8 +979,7 @@ int main(int argc, char **argv) {
                     return print_error_usage(arg0);
                 }
             } else {
-                // Default cross-compiling glibc version
-                *target.glibc_version = {2, 17, 0};
+                target_init_default_glibc_version(&target);
             }
         } else if (target_glibc != nullptr) {
             fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);

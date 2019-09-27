@@ -524,7 +524,7 @@ void get_native_target(ZigTarget *target) {
     }
     if (target_is_glibc(target)) {
         target->glibc_version = allocate<ZigGLibCVersion>(1);
-        *target->glibc_version = {2, 17, 0};
+        target_init_default_glibc_version(target);
 #ifdef ZIG_OS_LINUX
         Error err;
         if ((err = glibc_detect_native_version(target->glibc_version))) {
@@ -532,6 +532,10 @@ void get_native_target(ZigTarget *target) {
         }
 #endif
     }
+}
+
+void target_init_default_glibc_version(ZigTarget *target) {
+    *target->glibc_version = {2, 17, 0};
 }
 
 Error target_parse_archsub(ZigLLVM_ArchType *out_arch, ZigLLVM_SubArchType *out_sub,
