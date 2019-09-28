@@ -1594,8 +1594,12 @@ bool target_supports_stack_probing(const ZigTarget *target) {
 
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
   // This function returns whether non-pic code is completely invalid on the given target.
-  return target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||
+  return target_is_android(target) || target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||
       (linking_libc && target_is_glibc(target));
+}
+
+bool target_requires_pie(const ZigTarget *target) {
+    return target_is_android(target);
 }
 
 bool target_is_glibc(const ZigTarget *target) {
@@ -1880,7 +1884,7 @@ bool target_supports_libunwind(const ZigTarget *target) {
 }
 
 bool target_libc_needs_crti_crtn(const ZigTarget *target) {
-    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64) {
+    if (target->arch == ZigLLVM_riscv32 || target->arch == ZigLLVM_riscv64 || target_is_android(target)) {
         return false;
     }
     return true;

@@ -1,9 +1,19 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const maxInt = std.math.maxInt;
 usingnamespace std.c;
 
-extern "c" fn __errno_location() *c_int;
-pub const _errno = __errno_location;
+pub const _errno = switch (builtin.abi) {
+    .android => struct {
+        extern "c" var __errno: c_int;
+        fn getErrno() *c_int {
+            return &__errno;
+        }
+    }.getErrno,
+    else => struct {
+        extern "c" fn __errno_location() *c_int;
+    }.__errno_location,
+};
 
 pub const MAP_FAILED = @intToPtr(*c_void, maxInt(usize));
 
