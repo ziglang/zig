@@ -1777,24 +1777,24 @@ static void construct_linker_job_elf(LinkJob *lj) {
         if (g->libc != nullptr) {
             if (!g->have_dynamic_link) {
                 lj->args.append("--start-group");
-                lj->args.append("-lgcc");
                 if (!target_is_android(g->zig_target)) {
+                    lj->args.append("-lgcc");
                     lj->args.append("-lgcc_eh");
                 }
                 lj->args.append("-lc");
                 lj->args.append("-lm");
                 lj->args.append("--end-group");
             } else {
-                lj->args.append("-lgcc");
                 if (!target_is_android(g->zig_target)) {
+                    lj->args.append("-lgcc");
                     lj->args.append("--as-needed");
                     lj->args.append("-lgcc_s");
                     lj->args.append("--no-as-needed");
                 }
                 lj->args.append("-lc");
                 lj->args.append("-lm");
-                lj->args.append("-lgcc");
                 if (!target_is_android(g->zig_target)) {
+                    lj->args.append("-lgcc");
                     lj->args.append("--as-needed");
                     lj->args.append("-lgcc_s");
                     lj->args.append("--no-as-needed");
