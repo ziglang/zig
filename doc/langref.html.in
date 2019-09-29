@@ -7137,7 +7137,7 @@ fn func() void {
       {#header_close#}
 
       {#header_open|@hasDecl#}
-      <pre>{#syntax#}@hasDecl(comptime container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@hasDecl(comptime Container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>
       Returns whether or not a {#link|struct#}, {#link|enum#}, or {#link|union#} has a declaration
       matching {#syntax#}name{#endsyntax#}.
@@ -7170,7 +7170,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@hasField#}
-      <pre>{#syntax#}@hasField(comptime T: type, comptime name: []const u8) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@hasField(comptime Container: type, comptime name: []const u8) bool{#endsyntax#}</pre>
       <p>Returns whether the field name of a struct, union, or enum exists.</p>
       <p>
       The result is a compile time constant.

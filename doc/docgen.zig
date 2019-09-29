@@ -528,6 +528,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "code_release_fast")) {
                             mode = builtin.Mode.ReleaseFast;
+                        } else if (mem.eql(u8, end_tag_name, "code_release_safe")) {
+                            mode = builtin.Mode.ReleaseSafe;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, Token.Id.Separator);
                             const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
