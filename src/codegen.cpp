@@ -8921,8 +8921,8 @@ static void detect_libc(CodeGen *g) {
             }
         }
         bool want_sys_dir = !buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir);
-        bool want_um_dir = (g->zig_target->os == OsWindows);
-        size_t dir_count = 1 + want_sys_dir + want_um_dir;
+        size_t want_um_and_shared_dirs = (g->zig_target->os == OsWindows) ? 2 : 0;
+        size_t dir_count = 1 + want_sys_dir + want_um_and_shared_dirs;
         g->libc_include_dir_len = 0;
         g->libc_include_dir_list = allocate<Buf*>(dir_count);
 
@@ -8934,8 +8934,12 @@ static void detect_libc(CodeGen *g) {
             g->libc_include_dir_len += 1;
         }
 
-        if (want_um_dir) {
+        if (want_um_and_shared_dirs != 0) {
             g->libc_include_dir_list[g->libc_include_dir_len] = buf_sprintf("%s" OS_SEP ".." OS_SEP "um",
+                    buf_ptr(&g->libc->include_dir));
+            g->libc_include_dir_len += 1;
+
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_sprintf("%s" OS_SEP ".." OS_SEP "shared",
                     buf_ptr(&g->libc->include_dir));
             g->libc_include_dir_len += 1;
         }
