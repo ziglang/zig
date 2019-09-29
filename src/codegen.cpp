@@ -8921,13 +8921,25 @@ static void detect_libc(CodeGen *g) {
             }
         }
         bool want_sys_dir = !buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir);
-        size_t dir_count = 1 + want_sys_dir;
-        g->libc_include_dir_len = dir_count;
+        bool want_um_dir = (g->zig_target->os == OsWindows);
+        size_t dir_count = 1 + want_sys_dir + want_um_dir;
+        g->libc_include_dir_len = 0;
         g->libc_include_dir_list = allocate<Buf*>(dir_count);
-        g->libc_include_dir_list[0] = &g->libc->include_dir;
+
+        g->libc_include_dir_list[g->libc_include_dir_len] = &g->libc->include_dir;
+        g->libc_include_dir_len += 1;
+
         if (want_sys_dir) {
-            g->libc_include_dir_list[1] = &g->libc->sys_include_dir;
+            g->libc_include_dir_list[g->libc_include_dir_len] = &g->libc->sys_include_dir;
+            g->libc_include_dir_len += 1;
         }
+
+        if (want_um_dir) {
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_sprintf("%s" OS_SEP ".." OS_SEP "um",
+                    buf_ptr(&g->libc->include_dir));
+            g->libc_include_dir_len += 1;
+        }
+        assert(g->libc_include_dir_len == dir_count);
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
         !target_os_is_darwin(g->zig_target->os))
     {
