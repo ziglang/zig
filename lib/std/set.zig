@@ -87,7 +87,7 @@ fn sub(comptime T: type, set1: Set(T), set2: Set(T)) bool {
     return set1.raw | set2.raw == set2.raw and !eql(T, set1, set2);
 }
 
-//set difference, raises an error if set2 is not a strict subset of set1
+//set difference
 pub fn dif(comptime T: type, set1: Set(T), set2: Set(T)) Set(T) {
     return Set(T).initInt(set1.raw ^ set2.raw);
 }
