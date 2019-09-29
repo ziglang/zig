@@ -536,6 +536,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             target_str = "x86_64-windows";
                         } else if (mem.eql(u8, end_tag_name, "target_linux_x86_64")) {
                             target_str = "x86_64-linux";
+                        } else if (mem.eql(u8, end_tag_name, "target_linux_riscv64")) {
+                            target_str = "riscv64-linux";
                         } else if (mem.eql(u8, end_tag_name, "target_wasm")) {
                             target_str = "wasm32-freestanding";
                         } else if (mem.eql(u8, end_tag_name, "target_wasi")) {
@@ -1128,6 +1130,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 
                         if (code.target_str) |triple| {
                             if (mem.startsWith(u8, triple, "wasm32") or
+                                mem.startsWith(u8, triple, "riscv64-linux") or
                                 mem.startsWith(u8, triple, "x86_64-linux") and
                                 (builtin.os != .linux or builtin.arch != .x86_64))
                             {
