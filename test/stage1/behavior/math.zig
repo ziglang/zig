@@ -6,6 +6,10 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
 test "division" {
+    if (@import("builtin").arch == .riscv64) {
+        // TODO: https://github.com/ziglang/zig/issues/3338
+        return error.SkipZigTest;
+    }
     testDivision();
     comptime testDivision();
 }
@@ -569,6 +573,10 @@ fn remdiv(comptime T: type) void {
 }
 
 test "@sqrt" {
+    if (@import("builtin").arch == .riscv64) {
+        // TODO: https://github.com/ziglang/zig/issues/3338
+        return error.SkipZigTest;
+    }
     testSqrt(f64, 12.0);
     comptime testSqrt(f64, 12.0);
     testSqrt(f32, 13.0);
@@ -614,6 +622,10 @@ test "vector integer addition" {
 }
 
 test "NaN comparison" {
+    if (@import("builtin").arch == .riscv64) {
+        // TODO: https://github.com/ziglang/zig/issues/3338
+        return error.SkipZigTest;
+    }
     testNanEqNan(f16);
     testNanEqNan(f32);
     testNanEqNan(f64);

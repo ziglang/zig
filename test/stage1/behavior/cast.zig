@@ -247,6 +247,10 @@ fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
 }
 
 test "@floatToInt" {
+    if (@import("builtin").arch == .riscv64) {
+        // TODO: https://github.com/ziglang/zig/issues/3338
+        return error.SkipZigTest;
+    }
     testFloatToInts();
     comptime testFloatToInts();
 }
