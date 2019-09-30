@@ -21,6 +21,7 @@ const lib_names = [_][]const u8{
     "m",
     "pthread",
     "rt",
+    "mvec",
 };
 
 // fpu/nofpu are hardcoded elsewhere, based on .gnueabi/.gnueabihf with an exception for .arm
@@ -173,10 +174,18 @@ pub fn main() !void {
                     (std.mem.eql(u8, lib_name, "m") and abi_list.targets[0].arch == .powerpc)))
                 {
                     break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "nofpu", basename });
+                } else if (abi_list.targets[0].arch == .x86_64 and
+                    (std.mem.eql(u8, lib_name, "mvec"))) {
+                    // pointer size is irrelevent to libmvec, so x32/64 is irrelevent
+                    break :blk try fs.path.join(allocator, [_][]const u8{ prefix, "x86_64", basename });
                 }
                 break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, basename });
             };
             const contents = std.io.readFileAlloc(allocator, abi_list_filename) catch |err| {
+                if (std.mem.eql(u8, lib_name, "mvec")) {
+                    assert(abi_list.targets[0].arch != .x86_64);
+                    continue; // Not every arch ships libmvec (only x86_64 in 2.30)
+                }
                 std.debug.warn("unable to open {}: {}\n", abi_list_filename, err);
                 std.process.exit(1);
             };

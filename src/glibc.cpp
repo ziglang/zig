@@ -16,6 +16,7 @@ static const ZigGLibCLib glibc_libs[] = {
     {"pthread", 0},
     {"dl", 2},
     {"rt", 1},
+    {"mvec", 1},
 };
 
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose) {
@@ -266,6 +267,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
 
     for (size_t lib_i = 0; lib_i < array_length(glibc_libs); lib_i += 1) {
         const ZigGLibCLib *lib = &glibc_libs[lib_i];
+        bool got_symbol = false;
         Buf *zig_file_path = buf_sprintf("%s" OS_SEP "%s.zig", buf_ptr(dummy_dir), lib->name);
         Buf *zig_body = buf_alloc();
         Buf *zig_footer = buf_alloc();
@@ -294,6 +296,8 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
             }
             for (uint8_t ver_i = 0; ver_i < ver_list->len; ver_i += 1) {
                 uint8_t ver_index = ver_list->versions[ver_i];
+
+                got_symbol = true;
 
                 Buf *stub_name;
                 const ZigGLibCVersion *ver = &glibc_abi->all_versions.at(ver_index);
@@ -324,6 +328,8 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
         buf_appendf(zig_body, "    );\n");
         buf_appendf(zig_body, "}\n");
         buf_append_buf(zig_body, zig_footer);
+
+        if (!got_symbol) continue;
 
         if ((err = os_write_file(zig_file_path, zig_body))) {
             if (verbose) {

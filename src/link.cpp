@@ -1624,6 +1624,14 @@ static void add_glibc_libs(LinkJob *lj) {
     for (size_t i = 0; i < lib_count; i += 1) {
         const ZigGLibCLib *lib = glibc_lib_enum(i);
         Buf *so_path = buf_sprintf("%s" OS_SEP "lib%s.so.%d.0.0", buf_ptr(artifact_dir), lib->name, lib->sover);
+        // libmvec is not present for every target
+        if (strcmp(lib->name, "mvec") == 0) {
+             bool exists;
+             Error e;
+             e = os_file_exists(so_path, &exists);
+             if (e == ErrorNone) ; // silence incorrect warning, this function doesn't check for errors anyways
+             if (!exists) continue;
+        }
         lj->args.append(buf_ptr(so_path));
     }
 }
