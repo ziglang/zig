@@ -24,7 +24,7 @@ const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
 comptime {
-    assert(@import("std") == std); // std lib tests require --override-std-dir
+    assert(@import("std") == std); // std lib tests require --override-lib-dir
 }
 
 pub const darwin = @import("os/darwin.zig");
