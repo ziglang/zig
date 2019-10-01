@@ -1667,6 +1667,14 @@ ZigClangSourceLocation ZigClangExpr_getBeginLoc(const ZigClangExpr *self) {
     return bitcast(casted->getBeginLoc());
 }
 
+bool ZigClangExpr_EvaluateAsBooleanCondition(const ZigClangExpr *self, bool *result,
+        const struct ZigClangASTContext *ctx, bool in_constant_context)
+{
+    auto casted = reinterpret_cast<const clang::Expr *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    return casted->EvaluateAsBooleanCondition(*result, *casted_ctx, in_constant_context);
+}
+
 ZigClangAPValueKind ZigClangAPValue_getKind(const ZigClangAPValue *self) {
     auto casted = reinterpret_cast<const clang::APValue *>(self);
     return (ZigClangAPValueKind)casted->getKind();

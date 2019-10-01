@@ -541,14 +541,14 @@ static const ZigClangType *qual_type_canon(ZigClangQualType qt) {
 static ZigClangQualType get_expr_qual_type(Context *c, const ZigClangExpr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
     if (ZigClangExpr_getStmtClass(expr) == ZigClangStmt_ImplicitCastExprClass) {
-        const clang::ImplicitCastExpr *cast_expr = reinterpret_cast<const clang::ImplicitCastExpr *>(expr);
-        if ((ZigClangCK)cast_expr->getCastKind() == ZigClangCK_ArrayToPointerDecay) {
-            const ZigClangExpr *sub_expr = bitcast(cast_expr->getSubExpr());
+        const ZigClangImplicitCastExpr *cast_expr = reinterpret_cast<const ZigClangImplicitCastExpr *>(expr);
+        if (ZigClangImplicitCastExpr_getCastKind(cast_expr) == ZigClangCK_ArrayToPointerDecay) {
+            const ZigClangExpr *sub_expr = ZigClangImplicitCastExpr_getSubExpr(cast_expr);
             if (ZigClangExpr_getStmtClass(sub_expr) == ZigClangStmt_StringLiteralClass) {
                 ZigClangQualType array_qt = ZigClangExpr_getType(sub_expr);
-                const clang::ArrayType *array_type = reinterpret_cast<const clang::ArrayType *>(
+                const ZigClangArrayType *array_type = reinterpret_cast<const ZigClangArrayType *>(
                         ZigClangQualType_getTypePtr(array_qt));
-                ZigClangQualType pointee_qt = bitcast(array_type->getElementType());
+                ZigClangQualType pointee_qt = ZigClangArrayType_getElementType(array_type);
                 ZigClangQualType_addConst(&pointee_qt);
                 return ZigClangASTContext_getPointerType(c->ctx, pointee_qt);
             }
@@ -559,8 +559,8 @@ static ZigClangQualType get_expr_qual_type(Context *c, const ZigClangExpr *expr)
 
 static ZigClangQualType get_expr_qual_type_before_implicit_cast(Context *c, const ZigClangExpr *expr) {
     if (ZigClangExpr_getStmtClass(expr) == ZigClangStmt_ImplicitCastExprClass) {
-        const clang::ImplicitCastExpr *cast_expr = reinterpret_cast<const clang::ImplicitCastExpr *>(expr);
-        return get_expr_qual_type(c, bitcast(cast_expr->getSubExpr()));
+        const ZigClangImplicitCastExpr *cast_expr = reinterpret_cast<const ZigClangImplicitCastExpr *>(expr);
+        return get_expr_qual_type(c, ZigClangImplicitCastExpr_getSubExpr(cast_expr));
     }
     return ZigClangExpr_getType(expr);
 }
@@ -1928,88 +1928,93 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
     zig_unreachable();
 }
 
-static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ImplicitCastExpr *stmt) {
-    switch ((ZigClangCK)stmt->getCastKind()) {
+static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangImplicitCastExpr *stmt)
+{
+    switch (ZigClangImplicitCastExpr_getCastKind(stmt)) {
         case ZigClangCK_LValueToRValue:
-            return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+            return trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
         case ZigClangCK_IntegralCast:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                AstNode *node = trans_c_cast(c, bitcast(stmt->getExprLoc()), bitcast(stmt->getType()),
-                        bitcast(stmt->getSubExpr()->getType()), target_node);
+                AstNode *node = trans_c_cast(c, ZigClangImplicitCastExpr_getBeginLoc(stmt),
+                    ZigClangExpr_getType(reinterpret_cast<const ZigClangExpr *>(stmt)),
+                    ZigClangExpr_getType(ZigClangImplicitCastExpr_getSubExpr(stmt)),
+                    target_node);
                 return maybe_suppress_result(c, result_used, node);
             }
         case ZigClangCK_FunctionToPointerDecay:
         case ZigClangCK_ArrayToPointerDecay:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 return maybe_suppress_result(c, result_used, target_node);
             }
         case ZigClangCK_BitCast:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
-                const ZigClangQualType dest_type = get_expr_qual_type(c, bitcast(stmt));
-                const ZigClangQualType src_type = get_expr_qual_type(c, bitcast(stmt->getSubExpr()));
+                const ZigClangQualType dest_type = get_expr_qual_type(c, reinterpret_cast<const ZigClangExpr *>(stmt));
+                const ZigClangQualType src_type = get_expr_qual_type(c, ZigClangImplicitCastExpr_getSubExpr(stmt));
 
-                return trans_c_cast(c, bitcast(stmt->getBeginLoc()), dest_type, src_type, target_node);
+                return trans_c_cast(c, ZigClangImplicitCastExpr_getBeginLoc(stmt),
+                        dest_type, src_type, target_node);
             }
         case ZigClangCK_NullToPointer:
             return trans_create_node(c, NodeTypeNullLiteral);
         case ZigClangCK_NoOp:
-            return trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+            return trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
         case ZigClangCK_Dependent:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_Dependent");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_Dependent");
             return nullptr;
         case ZigClangCK_LValueBitCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_LValueBitCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_LValueBitCast");
             return nullptr;
         case ZigClangCK_BaseToDerived:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_BaseToDerived");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_BaseToDerived");
             return nullptr;
         case ZigClangCK_DerivedToBase:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_DerivedToBase");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_DerivedToBase");
             return nullptr;
         case ZigClangCK_UncheckedDerivedToBase:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_UncheckedDerivedToBase");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_UncheckedDerivedToBase");
             return nullptr;
         case ZigClangCK_Dynamic:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_Dynamic");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_Dynamic");
             return nullptr;
         case ZigClangCK_ToUnion:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_ToUnion");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_ToUnion");
             return nullptr;
         case ZigClangCK_NullToMemberPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_NullToMemberPointer");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_NullToMemberPointer");
             return nullptr;
         case ZigClangCK_BaseToDerivedMemberPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
             return nullptr;
         case ZigClangCK_DerivedToBaseMemberPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
             return nullptr;
         case ZigClangCK_MemberPointerToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_MemberPointerToBoolean");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_MemberPointerToBoolean");
             return nullptr;
         case ZigClangCK_ReinterpretMemberPointer:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_ReinterpretMemberPointer");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_ReinterpretMemberPointer");
             return nullptr;
         case ZigClangCK_UserDefinedConversion:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation cast CK_UserDefinedConversion");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C translation cast CK_UserDefinedConversion");
             return nullptr;
         case ZigClangCK_ConstructorConversion:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ConstructorConversion");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ConstructorConversion");
             return nullptr;
         case ZigClangCK_PointerToBoolean:
             {
-                const clang::Expr *expr = stmt->getSubExpr();
-                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                const ZigClangExpr *expr = ZigClangImplicitCastExpr_getSubExpr(stmt);
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, expr, TransRValue);
                 if (val == nullptr)
                     return nullptr;
 
@@ -2022,21 +2027,21 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 return trans_create_node_bin_op(c, val_ptr, BinOpTypeCmpNotEq, zero);
             }
         case ZigClangCK_ToVoid:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ToVoid");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ToVoid");
             return nullptr;
         case ZigClangCK_VectorSplat:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_VectorSplat");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_VectorSplat");
             return nullptr;
         case ZigClangCK_IntegralToBoolean:
             {
-                const clang::Expr *expr = stmt->getSubExpr();
+                const ZigClangExpr *expr = ZigClangImplicitCastExpr_getSubExpr(stmt);
 
                 bool expr_val;
-                if (expr->EvaluateAsBooleanCondition(expr_val, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+                if (ZigClangExpr_EvaluateAsBooleanCondition(expr, &expr_val, c->ctx, false)) {
                     return trans_create_node_bool(c, expr_val);
                 }
 
-                AstNode *val = trans_expr(c, ResultUsedYes, scope, bitcast(expr), TransRValue);
+                AstNode *val = trans_expr(c, ResultUsedYes, scope, expr, TransRValue);
                 if (val == nullptr)
                     return nullptr;
 
@@ -2047,7 +2052,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             }
         case ZigClangCK_PointerToIntegral:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
@@ -2066,7 +2071,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
             }
         case ZigClangCK_IntegralToPointer:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
@@ -2083,7 +2088,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
         case ZigClangCK_IntegralToFloating:
         case ZigClangCK_FloatingToIntegral:
             {
-                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, ZigClangImplicitCastExpr_getSubExpr(stmt), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
@@ -2091,7 +2096,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 if (dest_type_node == nullptr)
                     return nullptr;
 
-                char const *fn = (ZigClangCK)stmt->getCastKind() == ZigClangCK_IntegralToFloating ?
+                char const *fn = (ZigClangImplicitCastExpr_getCastKind(stmt) == ZigClangCK_IntegralToFloating) ?
                     "intToFloat" : "floatToInt";
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, fn);
                 node->data.fn_call_expr.params.append(dest_type_node);
@@ -2100,103 +2105,103 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
                 return maybe_suppress_result(c, result_used, node);
             }
         case ZigClangCK_FixedPointCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FixedPointCast");
             return nullptr;
         case ZigClangCK_FixedPointToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointToBoolean");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FixedPointToBoolean");
             return nullptr;
         case ZigClangCK_FloatingToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingToBoolean");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingToBoolean");
             return nullptr;
         case ZigClangCK_BooleanToSignedIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BooleanToSignedIntegral");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_BooleanToSignedIntegral");
             return nullptr;
         case ZigClangCK_FloatingCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingCast");
             return nullptr;
         case ZigClangCK_CPointerToObjCPointerCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_CPointerToObjCPointerCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_CPointerToObjCPointerCast");
             return nullptr;
         case ZigClangCK_BlockPointerToObjCPointerCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BlockPointerToObjCPointerCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_BlockPointerToObjCPointerCast");
             return nullptr;
         case ZigClangCK_AnyPointerToBlockPointerCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AnyPointerToBlockPointerCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_AnyPointerToBlockPointerCast");
             return nullptr;
         case ZigClangCK_ObjCObjectLValueCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ObjCObjectLValueCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ObjCObjectLValueCast");
             return nullptr;
         case ZigClangCK_FloatingRealToComplex:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingRealToComplex");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingRealToComplex");
             return nullptr;
         case ZigClangCK_FloatingComplexToReal:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToReal");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingComplexToReal");
             return nullptr;
         case ZigClangCK_FloatingComplexToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToBoolean");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingComplexToBoolean");
             return nullptr;
         case ZigClangCK_FloatingComplexCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingComplexCast");
             return nullptr;
         case ZigClangCK_FloatingComplexToIntegralComplex:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FloatingComplexToIntegralComplex");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FloatingComplexToIntegralComplex");
             return nullptr;
         case ZigClangCK_IntegralRealToComplex:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralRealToComplex");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralRealToComplex");
             return nullptr;
         case ZigClangCK_IntegralComplexToReal:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToReal");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralComplexToReal");
             return nullptr;
         case ZigClangCK_IntegralComplexToBoolean:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToBoolean");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralComplexToBoolean");
             return nullptr;
         case ZigClangCK_IntegralComplexCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralComplexCast");
             return nullptr;
         case ZigClangCK_IntegralComplexToFloatingComplex:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralComplexToFloatingComplex");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralComplexToFloatingComplex");
             return nullptr;
         case ZigClangCK_ARCProduceObject:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCProduceObject");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ARCProduceObject");
             return nullptr;
         case ZigClangCK_ARCConsumeObject:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCConsumeObject");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ARCConsumeObject");
             return nullptr;
         case ZigClangCK_ARCReclaimReturnedObject:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCReclaimReturnedObject");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ARCReclaimReturnedObject");
             return nullptr;
         case ZigClangCK_ARCExtendBlockObject:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ARCExtendBlockObject");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ARCExtendBlockObject");
             return nullptr;
         case ZigClangCK_AtomicToNonAtomic:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AtomicToNonAtomic");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_AtomicToNonAtomic");
             return nullptr;
         case ZigClangCK_NonAtomicToAtomic:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_NonAtomicToAtomic");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_NonAtomicToAtomic");
             return nullptr;
         case ZigClangCK_CopyAndAutoreleaseBlockObject:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_CopyAndAutoreleaseBlockObject");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_CopyAndAutoreleaseBlockObject");
             return nullptr;
         case ZigClangCK_BuiltinFnToFnPtr:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_BuiltinFnToFnPtr");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_BuiltinFnToFnPtr");
             return nullptr;
         case ZigClangCK_ZeroToOCLOpaqueType:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_ZeroToOCLOpaqueType");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_ZeroToOCLOpaqueType");
             return nullptr;
         case ZigClangCK_AddressSpaceConversion:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_AddressSpaceConversion");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_AddressSpaceConversion");
             return nullptr;
         case ZigClangCK_IntToOCLSampler:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntToOCLSampler");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntToOCLSampler");
             return nullptr;
         case ZigClangCK_LValueToRValueBitCast:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_LValueToRValueBitCast");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_LValueToRValueBitCast");
             return nullptr;
         case ZigClangCK_FixedPointToIntegral:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_FixedPointToIntegral");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_FixedPointToIntegral");
             return nullptr;
         case ZigClangCK_IntegralToFixedPoint:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CK_IntegralToFixedPointral");
+            emit_warning(c, ZigClangImplicitCastExpr_getBeginLoc(stmt), "TODO handle C CK_IntegralToFixedPointral");
             return nullptr;
     }
     zig_unreachable();
@@ -3470,7 +3475,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
                     trans_compound_assign_operator(c, result_used, scope, (const clang::CompoundAssignOperator *)stmt));
         case ZigClangStmt_ImplicitCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_implicit_cast_expr(c, result_used, scope, (const clang::ImplicitCastExpr *)stmt));
+                    trans_implicit_cast_expr(c, result_used, scope, (const ZigClangImplicitCastExpr *)stmt));
         case ZigClangStmt_DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_decl_ref_expr(c, scope, (const clang::DeclRefExpr *)stmt, lrvalue));
