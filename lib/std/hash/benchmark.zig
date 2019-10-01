@@ -1,4 +1,4 @@
-// zig run benchmark.zig --release-fast --override-std-dir ..
+// zig run benchmark.zig --release-fast --override-lib-dir ..
 
 const builtin = @import("builtin");
 const std = @import("std");
