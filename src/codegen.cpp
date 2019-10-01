@@ -6764,13 +6764,12 @@ check: switch (const_val->special) {
                                 assert(LLVMGetTypeKind(field_ty) == LLVMIntegerTypeKind);
                                 fields[type_struct_field->gen_index] = val;
                             } else {
-                                const LLVMValueRef MASK = LLVMConstInt(LLVMInt8Type(), 255, false);
-                                const LLVMValueRef AMT = LLVMConstInt(LLVMInt8Type(), 8, false);
+                                const LLVMValueRef AMT = LLVMConstInt(LLVMTypeOf(val), 8, false);
 
                                 LLVMValueRef *values = allocate<LLVMValueRef>(size_in_bytes);
                                 for (size_t i = 0; i < size_in_bytes; i++) {
                                     const size_t idx = is_big_endian ? size_in_bytes - 1 - i : i;
-                                    values[idx] = LLVMConstTruncOrBitCast(LLVMConstAnd(val, MASK), LLVMInt8Type());
+                                    values[idx] = LLVMConstTruncOrBitCast(val, LLVMInt8Type());
                                     val = LLVMConstLShr(val, AMT);
                                 }
 
