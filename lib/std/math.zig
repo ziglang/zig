@@ -6,6 +6,17 @@ const testing = std.testing;
 
 pub const e = 2.71828182845904523536028747135266249775724709369995;
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
+pub const log2e = 1.4426950408889634074; // log2(e)
+pub const log10e = 0.43429448190325182765; // log10(e)
+pub const ln2 = 0.69314718055994530942; // ln(2)
+pub const ln10 = 2.30258509299404568402; // ln(10)
+pub const pi_2 = 1.57079632679489661923; // pi/2
+pub const pi_4 = 0.78539816339744830962; // pi/4
+pub const one_pi = 0.31830988618379067154; // 1/pi
+pub const two_pi = 0.63661977236758134308; // 2/pi
+pub const two_sqrtpi = 1.12837916709551257390; // 2/sqrt(pi)
+pub const sqrt2 = 1.41421356237309504880; // sqrt(2)
+pub const sqrt1_2 = 0.70710678118654752440; // 1/sqrt(2)
 
 // From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
 pub const f128_true_min = @bitCast(f128, u128(0x00000000000000000000000000000001));
