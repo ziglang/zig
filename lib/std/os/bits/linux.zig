@@ -140,9 +140,27 @@ pub const WEXITED = 4;
 pub const WCONTINUED = 8;
 pub const WNOWAIT = 0x1000000;
 
-pub const SA_NOCLDSTOP = 1;
-pub const SA_NOCLDWAIT = 2;
-pub const SA_SIGINFO = 4;
+pub usingnamespace if (is_mips)
+    struct {
+        pub const SA_NOCLDSTOP = 1;
+        pub const SA_NOCLDWAIT = 0x10000;
+        pub const SA_SIGINFO = 8;
+
+        pub const SIG_BLOCK = 1;
+        pub const SIG_UNBLOCK = 2;
+        pub const SIG_SETMASK = 3;
+    }
+else
+    struct {
+        pub const SA_NOCLDSTOP = 1;
+        pub const SA_NOCLDWAIT = 2;
+        pub const SA_SIGINFO = 4;
+
+        pub const SIG_BLOCK = 0;
+        pub const SIG_UNBLOCK = 1;
+        pub const SIG_SETMASK = 2;
+    };
+
 pub const SA_ONSTACK = 0x08000000;
 pub const SA_RESTART = 0x10000000;
 pub const SA_NODEFER = 0x40000000;
@@ -208,10 +226,6 @@ pub const RWF_APPEND = kernel_rwf(0x00000010);
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
-
-pub const SIG_BLOCK = 0;
-pub const SIG_UNBLOCK = 1;
-pub const SIG_SETMASK = 2;
 
 pub const PROTO_ip = 0o000;
 pub const PROTO_icmp = 0o001;
@@ -786,17 +800,34 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
-pub const NSIG = 65;
+pub const NSIG = if (is_mips) 128 else 65;
 pub const sigset_t = [128 / @sizeOf(usize)]usize;
-pub const all_mask = [_]u32{ 0xffffffff, 0xffffffff };
-pub const app_mask = [_]u32{ 0xfffffffc, 0x7fffffff };
 
-pub const k_sigaction = extern struct {
-    sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
-    flags: usize,
-    restorer: extern fn () void,
-    mask: [2]u32,
-};
+pub usingnamespace if (NSIG == 65)
+    struct {
+        pub const all_mask = [2]u32{ 0xffffffff, 0xffffffff };
+        pub const app_mask = [2]u32{ 0xfffffffc, 0x7fffffff };
+    }
+else
+    struct {
+        pub const all_mask = [4]u32{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+        pub const app_mask = [4]u32{ 0xfffffffc, 0x7fffffff, 0xffffffff, 0xffffffff };
+    };
+
+pub const k_sigaction = if (is_mips)
+    extern struct {
+        flags: usize,
+        sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
+        mask: [4]u32,
+        restorer: extern fn () void,
+    }
+else
+    extern struct {
+        sigaction: ?extern fn (i32, *siginfo_t, *c_void) void,
+        flags: usize,
+        restorer: extern fn () void,
+        mask: [2]u32,
+    };
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
@@ -1030,12 +1061,12 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 //#define CPU_EQUAL(s1,s2) CPU_EQUAL_S(sizeof(cpu_set_t),s1,s2)
 
 pub const MINSIGSTKSZ = switch (builtin.arch) {
-    .i386, .x86_64, .arm => 2048,
+    .i386, .x86_64, .arm, .mipsel => 2048,
     .aarch64 => 5120,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
 pub const SIGSTKSZ = switch (builtin.arch) {
-    .i386, .x86_64, .arm => 8192,
+    .i386, .x86_64, .arm, .mipsel => 8192,
     .aarch64 => 16384,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
@@ -1049,6 +1080,70 @@ pub const stack_t = extern struct {
     ss_flags: i32,
     ss_size: isize,
 };
+
+pub const sigval = extern union {
+    int: i32,
+    ptr: *c_void,
+};
+
+const siginfo_fields_union = extern union {
+    pad: [128 - 2 * @sizeOf(c_int) - @sizeOf(c_long)]u8,
+    common: extern struct {
+        first: extern union {
+            piduid: extern struct {
+                pid: pid_t,
+                uid: uid_t,
+            },
+            timer: extern struct {
+                timerid: i32,
+                overrun: i32,
+            },
+        },
+        second: extern union {
+            value: sigval,
+            sigchld: extern struct {
+                status: i32,
+                utime: clock_t,
+                stime: clock_t,
+            },
+        },
+    },
+    sigfault: extern struct {
+        addr: *c_void,
+        addr_lsb: i16,
+        first: extern union {
+            addr_bnd: extern struct {
+                lower: *c_void,
+                upper: *c_void,
+            },
+            pkey: u32,
+        },
+    },
+    sigpoll: extern struct {
+        band: isize,
+        fd: i32,
+    },
+    sigsys: extern struct {
+        call_addr: *c_void,
+        syscall: i32,
+        arch: u32,
+    },
+};
+
+pub const siginfo_t = if (is_mips)
+    extern struct {
+        signo: i32,
+        code: i32,
+        errno: i32,
+        fields: siginfo_fields_union,
+    }
+else
+    extern struct {
+        signo: i32,
+        errno: i32,
+        code: i32,
+        fields: siginfo_fields_union,
+    };
 
 pub const io_uring_params = extern struct {
     sq_entries: u32,

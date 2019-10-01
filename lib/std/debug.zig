@@ -2336,7 +2336,7 @@ fn getDebugInfoAllocator() *mem.Allocator {
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
-pub const have_segfault_handling_support = (builtin.arch == builtin.Arch.x86_64 and builtin.os == .linux) or builtin.os == .windows;
+pub const have_segfault_handling_support = builtin.os == .linux or builtin.os == .windows;
 pub const enable_segfault_handler: bool = if (@hasDecl(root, "enable_segfault_handler"))
     root.enable_segfault_handler
 else
@@ -2390,12 +2390,31 @@ extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *con
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
-    const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-    const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
-    const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]);
     const addr = @ptrToInt(info.fields.sigfault.addr);
     std.debug.warn("Segmentation fault at address 0x{x}\n", addr);
-    dumpStackTraceFromBase(bp, ip);
+
+    switch (builtin.arch) {
+        .x86_64 => {
+            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
+            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_RBP]);
+            dumpStackTraceFromBase(bp, ip);
+        },
+        .arm => {
+            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ip = @intCast(usize, ctx.mcontext.arm_pc);
+            const bp = @intCast(usize, ctx.mcontext.arm_fp);
+            dumpStackTraceFromBase(bp, ip);
+        },
+        .aarch64 => {
+            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ip = @intCast(usize, ctx.mcontext.pc);
+            // x29 is the ABI-designated frame pointer
+            const bp = @intCast(usize, ctx.mcontext.regs[29]);
+            dumpStackTraceFromBase(bp, ip);
+        },
+        else => {},
+    }
 
     // We cannot allow the signal handler to return because when it runs the original instruction
     // again, the memory may be mapped and undefined behavior would occur rather than repeating

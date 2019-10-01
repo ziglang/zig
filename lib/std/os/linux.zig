@@ -673,15 +673,18 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     assert(sig >= 1);
     assert(sig != SIGKILL);
     assert(sig != SIGSTOP);
+
+    const restorer_fn = if ((act.flags & SA_SIGINFO) != 0) restore_rt else restore;
     var ksa = k_sigaction{
         .sigaction = act.sigaction,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
-        .restorer = @ptrCast(extern fn () void, restore_rt),
+        .restorer = @ptrCast(extern fn () void, restorer_fn),
     };
     var ksa_old: k_sigaction = undefined;
-    @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), 8);
-    const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @sizeOf(@typeOf(ksa.mask)));
+    const ksa_mask_size = @sizeOf(@typeOf(ksa_old.mask));
+    @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
+    const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
     const err = getErrno(result);
     if (err != 0) {
         return result;
@@ -689,7 +692,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     if (oact) |old| {
         old.sigaction = ksa_old.sigaction;
         old.flags = @truncate(u32, ksa_old.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), @sizeOf(@typeOf(ksa_old.mask)));
+        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), ksa_mask_size);
     }
     return 0;
 }

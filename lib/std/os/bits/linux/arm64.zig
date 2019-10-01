@@ -8,6 +8,8 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 
 pub const SYS_io_setup = 0;
 pub const SYS_io_destroy = 1;
@@ -443,6 +445,25 @@ pub const timeval = extern struct {
 pub const timezone = extern struct {
     tz_minuteswest: i32,
     tz_dsttime: i32,
+};
+
+pub const mcontext_t = extern struct {
+    fault_address: usize,
+    regs: [31]usize,
+    sp: usize,
+    pc: usize,
+    pstate: usize,
+    // Make sure the field is correctly aligned since this area
+    // holds various FP/vector registers
+    reserved1: [256 * 16]u8 align(16),
+};
+
+pub const ucontext_t = extern struct {
+    flags: usize,
+    link: *ucontext_t,
+    stack: stack_t,
+    sigmask: sigset_t,
+    mcontext: mcontext_t,
 };
 
 pub const Elf_Symndx = u32;

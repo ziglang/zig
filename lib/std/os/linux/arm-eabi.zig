@@ -1,3 +1,5 @@
+usingnamespace @import("../bits.zig");
+
 pub fn syscall0(number: usize) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize)
@@ -92,5 +94,21 @@ pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, a
 pub extern fn getThreadPointer() usize {
     return asm volatile ("mrc p15, 0, %[ret], c13, c0, 3"
         : [ret] "=r" (-> usize)
+    );
+}
+
+pub nakedcc fn restore() void {
+    return asm volatile ("svc #0"
+        :
+        : [number] "{r7}" (usize(SYS_sigreturn))
+        : "memory"
+    );
+}
+
+pub nakedcc fn restore_rt() void {
+    return asm volatile ("svc #0"
+        :
+        : [number] "{r7}" (usize(SYS_rt_sigreturn))
+        : "memory"
     );
 }
