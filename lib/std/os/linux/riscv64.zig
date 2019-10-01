@@ -1,3 +1,5 @@
+usingnamespace @import("../bits.zig");
+
 pub fn syscall0(number: usize) usize {
     return asm volatile ("ecall"
         : [ret] "={x10}" (-> usize)
@@ -84,3 +86,13 @@ pub fn syscall6(
 }
 
 pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+
+pub const restore = restore_rt;
+
+pub nakedcc fn restore_rt() void {
+    return asm volatile ("ecall"
+        :
+        : [number] "{x17}" (usize(SYS_rt_sigreturn))
+        : "memory"
+    );
+}

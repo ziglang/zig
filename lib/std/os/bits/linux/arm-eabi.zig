@@ -1,10 +1,11 @@
 // arm-eabi-specific declarations that are intended to be imported into the POSIX namespace.
-
-const std = @import("../../std.zig");
+const std = @import("../../../std.zig");
 const linux = std.os.linux;
 const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 
 pub const SYS_restart_syscall = 0;
 pub const SYS_exit = 1;
@@ -563,6 +564,39 @@ pub const timeval = extern struct {
 pub const timezone = extern struct {
     tz_minuteswest: i32,
     tz_dsttime: i32,
+};
+
+pub const mcontext_t = extern struct {
+    trap_no: usize,
+    error_code: usize,
+    oldmask: usize,
+    arm_r0: usize,
+    arm_r1: usize,
+    arm_r2: usize,
+    arm_r3: usize,
+    arm_r4: usize,
+    arm_r5: usize,
+    arm_r6: usize,
+    arm_r7: usize,
+    arm_r8: usize,
+    arm_r9: usize,
+    arm_r10: usize,
+    arm_fp: usize,
+    arm_ip: usize,
+    arm_sp: usize,
+    arm_lr: usize,
+    arm_pc: usize,
+    arm_cpsr: usize,
+    fault_address: usize,
+};
+
+pub const ucontext_t = extern struct {
+    flags: usize,
+    link: *ucontext_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+    sigmask: sigset_t,
+    regspace: [64]u64,
 };
 
 pub const Elf_Symndx = u32;

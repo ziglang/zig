@@ -536,60 +536,6 @@ pub const timezone = extern struct {
 
 pub const Elf_Symndx = u32;
 
-pub const sigval = extern union {
-    int: i32,
-    ptr: *c_void,
-};
-
-pub const siginfo_t = extern struct {
-    signo: i32,
-    errno: i32,
-    code: i32,
-    fields: extern union {
-        pad: [128 - 2 * @sizeOf(c_int) - @sizeOf(c_long)]u8,
-        common: extern struct {
-            first: extern union {
-                piduid: extern struct {
-                    pid: pid_t,
-                    uid: uid_t,
-                },
-                timer: extern struct {
-                    timerid: i32,
-                    overrun: i32,
-                },
-            },
-            second: extern union {
-                value: sigval,
-                sigchld: extern struct {
-                    status: i32,
-                    utime: clock_t,
-                    stime: clock_t,
-                },
-            },
-        },
-        sigfault: extern struct {
-            addr: *c_void,
-            addr_lsb: i16,
-            first: extern union {
-                addr_bnd: extern struct {
-                    lower: *c_void,
-                    upper: *c_void,
-                },
-                pkey: u32,
-            },
-        },
-        sigpoll: extern struct {
-            band: isize,
-            fd: i32,
-        },
-        sigsys: extern struct {
-            call_addr: *c_void,
-            syscall: i32,
-            arch: u32,
-        },
-    },
-};
-
 pub const greg_t = usize;
 pub const gregset_t = [23]greg_t;
 pub const fpstate = extern struct {
