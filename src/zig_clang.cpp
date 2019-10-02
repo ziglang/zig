@@ -1346,6 +1346,31 @@ static_assert((clang::ElaboratedTypeKeyword)ZigClangETK_Enum == clang::ETK_Enum,
 static_assert((clang::ElaboratedTypeKeyword)ZigClangETK_Typename == clang::ETK_Typename, "");
 static_assert((clang::ElaboratedTypeKeyword)ZigClangETK_None == clang::ETK_None, "");
 
+void ZigClang_detect_enum_EntityKind(clang::PreprocessedEntity::EntityKind x) {
+    switch (x) {
+        case clang::PreprocessedEntity::InvalidKind:
+        case clang::PreprocessedEntity::MacroExpansionKind:
+        case clang::PreprocessedEntity::MacroDefinitionKind:
+        case clang::PreprocessedEntity::InclusionDirectiveKind:
+            break;
+    }
+}
+static_assert((clang::PreprocessedEntity::EntityKind)ZigClangPreprocessedEntity_InvalidKind == clang::PreprocessedEntity::InvalidKind, "");
+static_assert((clang::PreprocessedEntity::EntityKind)ZigClangPreprocessedEntity_MacroExpansionKind == clang::PreprocessedEntity::MacroExpansionKind, "");
+static_assert((clang::PreprocessedEntity::EntityKind)ZigClangPreprocessedEntity_MacroDefinitionKind == clang::PreprocessedEntity::MacroDefinitionKind, "");
+static_assert((clang::PreprocessedEntity::EntityKind)ZigClangPreprocessedEntity_InclusionDirectiveKind == clang::PreprocessedEntity::InclusionDirectiveKind, "");
+
+
+void ZigClang_detect_enum_ConstExprUsage(clang::Expr::ConstExprUsage x) {
+    switch (x) {
+        case clang::Expr::EvaluateForCodeGen:
+        case clang::Expr::EvaluateForMangling:
+            break;
+    }
+}
+static_assert((clang::Expr::ConstExprUsage)ZigClangExpr_EvaluateForCodeGen == clang::Expr::EvaluateForCodeGen, "");
+static_assert((clang::Expr::ConstExprUsage)ZigClangExpr_EvaluateForMangling == clang::Expr::EvaluateForMangling, "");
+
 
 static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
 
@@ -1406,6 +1431,43 @@ static ZigClangDeclStmt_const_decl_iterator bitcast(clang::DeclStmt::const_decl_
     return dest;
 }
 
+static_assert(sizeof(ZigClangPreprocessingRecord_iterator) == sizeof(clang::PreprocessingRecord::iterator), "");
+static ZigClangPreprocessingRecord_iterator bitcast(clang::PreprocessingRecord::iterator src) {
+    ZigClangPreprocessingRecord_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangPreprocessingRecord_iterator));
+    return dest;
+}
+static clang::PreprocessingRecord::iterator bitcast(ZigClangPreprocessingRecord_iterator src) {
+    clang::PreprocessingRecord::iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangPreprocessingRecord_iterator));
+    return dest;
+}
+
+static_assert(sizeof(ZigClangRecordDecl_field_iterator) == sizeof(clang::RecordDecl::field_iterator), "");
+static ZigClangRecordDecl_field_iterator bitcast(clang::RecordDecl::field_iterator src) {
+    ZigClangRecordDecl_field_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangRecordDecl_field_iterator));
+    return dest;
+}
+static clang::RecordDecl::field_iterator bitcast(ZigClangRecordDecl_field_iterator src) {
+    clang::RecordDecl::field_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangRecordDecl_field_iterator));
+    return dest;
+}
+
+static_assert(sizeof(ZigClangEnumDecl_enumerator_iterator) == sizeof(clang::EnumDecl::enumerator_iterator), "");
+static ZigClangEnumDecl_enumerator_iterator bitcast(clang::EnumDecl::enumerator_iterator src) {
+    ZigClangEnumDecl_enumerator_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangEnumDecl_enumerator_iterator));
+    return dest;
+}
+static clang::EnumDecl::enumerator_iterator bitcast(ZigClangEnumDecl_enumerator_iterator src) {
+    clang::EnumDecl::enumerator_iterator dest;
+    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangEnumDecl_enumerator_iterator));
+    return dest;
+}
+
+
 ZigClangSourceLocation ZigClangSourceManager_getSpellingLoc(const ZigClangSourceManager *self,
         ZigClangSourceLocation Loc)
 {
@@ -1460,6 +1522,28 @@ bool ZigClangASTUnit_visitLocalTopLevelDecls(ZigClangASTUnit *self, void *contex
 {
     return reinterpret_cast<clang::ASTUnit *>(self)->visitLocalTopLevelDecls(context,
             reinterpret_cast<bool (*)(void *, const clang::Decl *)>(Fn));
+}
+
+struct ZigClangPreprocessingRecord_iterator ZigClangASTUnit_getLocalPreprocessingEntities_begin(
+        struct ZigClangASTUnit *self)
+{
+    auto casted = reinterpret_cast<const clang::ASTUnit *>(self);
+    return bitcast(casted->getLocalPreprocessingEntities().begin());
+}
+
+struct ZigClangPreprocessingRecord_iterator ZigClangASTUnit_getLocalPreprocessingEntities_end(
+        struct ZigClangASTUnit *self)
+{
+    auto casted = reinterpret_cast<const clang::ASTUnit *>(self);
+    return bitcast(casted->getLocalPreprocessingEntities().end());
+}
+
+struct ZigClangPreprocessedEntity *ZigClangPreprocessingRecord_iterator_deref(
+        struct ZigClangPreprocessingRecord_iterator self)
+{
+    clang::PreprocessingRecord::iterator casted = bitcast(self);
+    clang::PreprocessedEntity *result = *casted;
+    return reinterpret_cast<ZigClangPreprocessedEntity *>(result);
 }
 
 const ZigClangRecordDecl *ZigClangRecordType_getDecl(const ZigClangRecordType *record_ty) {
@@ -1674,6 +1758,12 @@ const char *ZigClangType_getTypeClassName(const ZigClangType *self) {
     return casted->getTypeClassName();
 }
 
+const ZigClangArrayType *ZigClangType_getAsArrayTypeUnsafe(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    const clang::ArrayType *result = casted->getAsArrayTypeUnsafe();
+    return reinterpret_cast<const ZigClangArrayType *>(result);
+}
+
 ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt *self) {
     auto casted = reinterpret_cast<const clang::Stmt *>(self);
     return bitcast(casted->getBeginLoc());
@@ -1710,6 +1800,29 @@ bool ZigClangExpr_EvaluateAsBooleanCondition(const ZigClangExpr *self, bool *res
     auto casted = reinterpret_cast<const clang::Expr *>(self);
     auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
     return casted->EvaluateAsBooleanCondition(*result, *casted_ctx, in_constant_context);
+}
+
+bool ZigClangExpr_EvaluateAsFloat(const ZigClangExpr *self, ZigClangAPFloat **result,
+        const struct ZigClangASTContext *ctx)
+{
+    llvm::APFloat *ap_float = new llvm::APFloat(0.0f);
+    *result = reinterpret_cast<ZigClangAPFloat *>(ap_float);
+    auto casted = reinterpret_cast<const clang::Expr *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    return casted->EvaluateAsFloat(*ap_float, *casted_ctx);
+}
+
+bool ZigClangExpr_EvaluateAsConstantExpr(const ZigClangExpr *self, ZigClangExprEvalResult *result,
+        ZigClangExpr_ConstExprUsage usage, const struct ZigClangASTContext *ctx)
+{
+    auto casted_self = reinterpret_cast<const clang::Expr *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    clang::Expr::EvalResult eval_result;
+    if (!casted_self->EvaluateAsConstantExpr(eval_result, (clang::Expr::ConstExprUsage)usage, *casted_ctx)) {
+        return false;
+    }
+    *result = bitcast(eval_result);
+    return true;
 }
 
 ZigClangAPValueKind ZigClangAPValue_getKind(const ZigClangAPValue *self) {
@@ -1911,6 +2024,11 @@ struct ZigClangQualType ZigClangVarDecl_getType(const struct ZigClangVarDecl *se
     return bitcast(casted->getType());
 }
 
+struct ZigClangQualType ZigClangVarDecl_getTypeSourceInfo_getType(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return bitcast(casted->getTypeSourceInfo()->getType());
+}
+
 const struct ZigClangExpr *ZigClangVarDecl_getInit(const struct ZigClangVarDecl *self) {
     auto casted = reinterpret_cast<const clang::VarDecl *>(self);
     return reinterpret_cast<const ZigClangExpr *>(casted->getInit());
@@ -1919,6 +2037,32 @@ const struct ZigClangExpr *ZigClangVarDecl_getInit(const struct ZigClangVarDecl 
 enum ZigClangVarDecl_TLSKind ZigClangVarDecl_getTLSKind(const ZigClangVarDecl *self) {
     auto casted = reinterpret_cast<const clang::VarDecl *>(self);
     return (ZigClangVarDecl_TLSKind)casted->getTLSKind();
+}
+
+struct ZigClangSourceLocation ZigClangVarDecl_getLocation(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return bitcast(casted->getLocation());
+}
+
+bool ZigClangVarDecl_hasExternalStorage(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted->hasExternalStorage();
+}
+
+bool ZigClangVarDecl_isFileVarDecl(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted->isFileVarDecl();
+}
+
+bool ZigClangVarDecl_hasInit(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted->hasInit();
+}
+
+const ZigClangAPValue * ZigClangVarDecl_evaluateValue(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    const clang::APValue *result = casted->evaluateValue();
+    return reinterpret_cast<const ZigClangAPValue *>(result);
 }
 
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
@@ -2395,4 +2539,123 @@ const struct ZigClangStmt *ZigClangDefaultStmt_getSubStmt(const struct ZigClangD
 const struct ZigClangExpr *ZigClangParenExpr_getSubExpr(const struct ZigClangParenExpr *self) {
     auto casted = reinterpret_cast<const clang::ParenExpr *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getSubExpr());
+}
+
+enum ZigClangPreprocessedEntity_EntityKind ZigClangPreprocessedEntity_getKind(
+        const struct ZigClangPreprocessedEntity *self)
+{
+    auto casted = reinterpret_cast<const clang::PreprocessedEntity *>(self);
+    return (ZigClangPreprocessedEntity_EntityKind)casted->getKind();
+}
+
+const char *ZigClangMacroDefinitionRecord_getName_getNameStart(const struct ZigClangMacroDefinitionRecord *self) {
+    auto casted = reinterpret_cast<const clang::MacroDefinitionRecord *>(self);
+    return casted->getName()->getNameStart();
+}
+
+struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getBegin(const struct ZigClangMacroDefinitionRecord *self) {
+    auto casted = reinterpret_cast<const clang::MacroDefinitionRecord *>(self);
+    return bitcast(casted->getSourceRange().getBegin());
+}
+
+struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEnd(const struct ZigClangMacroDefinitionRecord *self) {
+    auto casted = reinterpret_cast<const clang::MacroDefinitionRecord *>(self);
+    return bitcast(casted->getSourceRange().getEnd());
+}
+
+ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_begin(const struct ZigClangRecordDecl *self) {
+    auto casted = reinterpret_cast<const clang::RecordDecl *>(self);
+    return bitcast(casted->field_begin());
+}
+
+ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_end(const struct ZigClangRecordDecl *self) {
+    auto casted = reinterpret_cast<const clang::RecordDecl *>(self);
+    return bitcast(casted->field_end());
+}
+
+bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted->isBitField();
+}
+
+ZigClangSourceLocation ZigClangFieldDecl_getLocation(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return bitcast(casted->getLocation());
+}
+
+ZigClangQualType ZigClangFieldDecl_getType(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return bitcast(casted->getType());
+}
+
+ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_iterator_next(
+        struct ZigClangRecordDecl_field_iterator self)
+{
+    clang::RecordDecl::field_iterator casted = bitcast(self);
+    ++casted;
+    return bitcast(casted);
+}
+
+const struct ZigClangFieldDecl * ZigClangRecordDecl_field_iterator_deref(
+        struct ZigClangRecordDecl_field_iterator self)
+{
+    clang::RecordDecl::field_iterator casted = bitcast(self);
+    const clang::FieldDecl *result = *casted;
+    return reinterpret_cast<const ZigClangFieldDecl *>(result);
+}
+
+bool ZigClangRecordDecl_field_iterator_neq(
+        struct ZigClangRecordDecl_field_iterator a,
+        struct ZigClangRecordDecl_field_iterator b)
+{
+    clang::RecordDecl::field_iterator casted_a = bitcast(a);
+    clang::RecordDecl::field_iterator casted_b = bitcast(b);
+    return casted_a != casted_b;
+}
+
+ZigClangEnumDecl_enumerator_iterator ZigClangEnumDecl_enumerator_begin(const struct ZigClangEnumDecl *self) {
+    auto casted = reinterpret_cast<const clang::EnumDecl *>(self);
+    return bitcast(casted->enumerator_begin());
+}
+
+ZigClangEnumDecl_enumerator_iterator ZigClangEnumDecl_enumerator_end(const struct ZigClangEnumDecl *self) {
+    auto casted = reinterpret_cast<const clang::EnumDecl *>(self);
+    return bitcast(casted->enumerator_end());
+}
+
+ZigClangEnumDecl_enumerator_iterator ZigClangEnumDecl_enumerator_iterator_next(
+        struct ZigClangEnumDecl_enumerator_iterator self)
+{
+    clang::EnumDecl::enumerator_iterator casted = bitcast(self);
+    ++casted;
+    return bitcast(casted);
+}
+
+const struct ZigClangEnumConstantDecl * ZigClangEnumDecl_enumerator_iterator_deref(
+        struct ZigClangEnumDecl_enumerator_iterator self)
+{
+    clang::EnumDecl::enumerator_iterator casted = bitcast(self);
+    const clang::EnumConstantDecl *result = *casted;
+    return reinterpret_cast<const ZigClangEnumConstantDecl *>(result);
+}
+
+bool ZigClangEnumDecl_enumerator_iterator_neq(
+        struct ZigClangEnumDecl_enumerator_iterator a,
+        struct ZigClangEnumDecl_enumerator_iterator b)
+{
+    clang::EnumDecl::enumerator_iterator casted_a = bitcast(a);
+    clang::EnumDecl::enumerator_iterator casted_b = bitcast(b);
+    return casted_a != casted_b;
+}
+
+const struct ZigClangExpr *ZigClangEnumConstantDecl_getInitExpr(const struct ZigClangEnumConstantDecl *self) {
+    auto casted = reinterpret_cast<const clang::EnumConstantDecl *>(self);
+    const clang::Expr *result = casted->getInitExpr();
+    return reinterpret_cast<const ZigClangExpr *>(result);
+}
+
+const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct ZigClangEnumConstantDecl *self) {
+    auto casted = reinterpret_cast<const clang::EnumConstantDecl *>(self);
+    const llvm::APSInt *result = &casted->getInitVal();
+    return reinterpret_cast<const ZigClangAPSInt *>(result);
 }

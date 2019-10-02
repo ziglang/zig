@@ -14,19 +14,6 @@
 #include "parser.hpp"
 #include "zig_clang.h"
 
-#if __GNUC__ >= 8
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#endif
-
-#include <clang/Frontend/ASTUnit.h>
-#include <clang/Frontend/CompilerInstance.h>
-#include <clang/AST/Expr.h>
-
-#if __GNUC__ >= 8
-#pragma GCC diagnostic pop
-#endif
-
 #include <string.h>
 
 struct Alias {
@@ -129,37 +116,6 @@ static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigC
         ZigClangSourceLocation source_loc);
 static bool c_is_unsigned_integer(Context *c, ZigClangQualType qt);
 
-static const ZigClangAPSInt *bitcast(const llvm::APSInt *src) {
-    return reinterpret_cast<const ZigClangAPSInt *>(src);
-}
-
-static const ZigClangAPValue *bitcast(const clang::APValue *src) {
-    return reinterpret_cast<const ZigClangAPValue *>(src);
-}
-
-//static const ZigClangStmt *bitcast(const clang::Stmt *src) {
-//    return reinterpret_cast<const ZigClangStmt *>(src);
-//}
-
-static const ZigClangExpr *bitcast(const clang::Expr *src) {
-    return reinterpret_cast<const ZigClangExpr *>(src);
-}
-
-static ZigClangSourceLocation bitcast(clang::SourceLocation src) {
-    ZigClangSourceLocation dest;
-    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangSourceLocation));
-    return dest;
-}
-static ZigClangQualType bitcast(clang::QualType src) {
-    ZigClangQualType dest;
-    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
-    return dest;
-}
-//static clang::QualType bitcast(ZigClangQualType src) {
-//    clang::QualType dest;
-//    memcpy(&dest, static_cast<void *>(&src), sizeof(ZigClangQualType));
-//    return dest;
-//}
 
 ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, ZigClangSourceLocation sl, const char *format, ...) {
@@ -521,10 +477,10 @@ static AstNode *trans_create_node_apint(Context *c, const ZigClangAPSInt *aps_in
     return node;
 }
 
-static AstNode *trans_create_node_apfloat(Context *c, const llvm::APFloat &ap_float) {
+static AstNode *trans_create_node_apfloat(Context *c, const ZigClangAPFloat *ap_float) {
     uint8_t buf[128];
-    size_t written = ap_float.convertToHexString((char *)buf, 0, false,
-                                                 llvm::APFloat::rmNearestTiesToEven);
+    size_t written = ZigClangAPFloat_convertToHexString(ap_float, (char *)buf, 0, false,
+            ZigClangAPFloat_roundingMode_NearestTiesToEven);
     AstNode *node = trans_create_node(c, NodeTypeFloatLiteral);
     node->data.float_literal.bigfloat = allocate<BigFloat>(1);
     if (bigfloat_init_buf(node->data.float_literal.bigfloat, buf, written)) {
@@ -868,13 +824,14 @@ static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             if (record_def == nullptr) {
                 return true;
             }
-            for (auto it = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_begin(),
-                    it_end = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_end();
-                    it != it_end; ++it)
+            for (ZigClangRecordDecl_field_iterator it = ZigClangRecordDecl_field_begin(record_def),
+                    it_end = ZigClangRecordDecl_field_end(record_def);
+                    ZigClangRecordDecl_field_iterator_neq(it, it_end);
+                    it = ZigClangRecordDecl_field_iterator_next(it))
             {
-                const clang::FieldDecl *field_decl = *it;
+                const ZigClangFieldDecl *field_decl = ZigClangRecordDecl_field_iterator_deref(it);
 
-                if (field_decl->isBitField()) {
+                if (ZigClangFieldDecl_isBitField(field_decl)) {
                     return true;
                 }
             }
@@ -1393,8 +1350,8 @@ static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const 
 }
 
 static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const ZigClangFloatingLiteral *stmt) {
-    llvm::APFloat result{0.0f};
-    if (!reinterpret_cast<const clang::FloatingLiteral *>(stmt)->EvaluateAsFloat(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+    ZigClangAPFloat *result;
+    if (!ZigClangExpr_EvaluateAsFloat((const ZigClangExpr *)stmt, &result, c->ctx)) {
         emit_warning(c, ZigClangExpr_getBeginLoc((ZigClangExpr*)stmt), "invalid floating literal");
         return nullptr;
     }
@@ -1434,15 +1391,14 @@ static AstNode *trans_character_literal(Context *c, ResultUsed result_used, cons
 
 static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const ZigClangConstantExpr *expr) {
     const ZigClangExpr *as_expr = reinterpret_cast<const ZigClangExpr *>(expr);
-    clang::Expr::EvalResult result;
-    if (!reinterpret_cast<const clang::ConstantExpr *>(expr)->EvaluateAsConstantExpr(result,
-                clang::Expr::EvaluateForCodeGen,
-                *reinterpret_cast<clang::ASTContext *>(c->ctx)))
+    ZigClangExprEvalResult result;
+    if (!ZigClangExpr_EvaluateAsConstantExpr((const ZigClangExpr *)expr, &result,
+                ZigClangExpr_EvaluateForCodeGen, c->ctx))
     {
         emit_warning(c, ZigClangExpr_getBeginLoc(as_expr), "invalid constant expression");
         return nullptr;
     }
-    AstNode *node = trans_ap_value(c, bitcast(&result.Val), ZigClangExpr_getType(as_expr),
+    AstNode *node = trans_ap_value(c, &result.Val, ZigClangExpr_getType(as_expr),
             ZigClangExpr_getBeginLoc(as_expr));
     return maybe_suppress_result(c, result_used, node);
 }
@@ -2452,16 +2408,18 @@ static int trans_local_declaration(Context *c, TransScope *scope, const ZigClang
     TransScopeBlock *scope_block = trans_scope_block_find(scope);
     assert(scope_block != nullptr);
 
-    for (auto iter = reinterpret_cast<const clang::DeclStmt *>(stmt)->decl_begin();
-            iter != reinterpret_cast<const clang::DeclStmt *>(stmt)->decl_end(); iter++) {
-        ZigClangDecl *decl = reinterpret_cast<ZigClangDecl *>(*iter);
+    for (ZigClangDeclStmt_const_decl_iterator iter = ZigClangDeclStmt_decl_begin(stmt),
+            iter_end = ZigClangDeclStmt_decl_end(stmt);
+        iter != iter_end; ++iter)
+    {
+        ZigClangDecl *decl = *iter;
         switch (ZigClangDecl_getKind(decl)) {
             case ZigClangDeclVar: {
-                clang::VarDecl *var_decl = (clang::VarDecl *)decl;
-                ZigClangQualType qual_type = bitcast(var_decl->getTypeSourceInfo()->getType());
+                ZigClangVarDecl *var_decl = (ZigClangVarDecl *)decl;
+                ZigClangQualType qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
                 AstNode *init_node = nullptr;
-                if (var_decl->hasInit()) {
-                    init_node = trans_expr(c, ResultUsedYes, scope, bitcast(var_decl->getInit()), TransRValue);
+                if (ZigClangVarDecl_hasInit(var_decl)) {
+                    init_node = trans_expr(c, ResultUsedYes, scope, ZigClangVarDecl_getInit(var_decl), TransRValue);
                     if (init_node == nullptr)
                         return ErrorUnexpected;
 
@@ -4317,12 +4275,13 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
 
     bool pure_enum = true;
     uint32_t field_count = 0;
-    for (auto it = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_begin(),
-              it_end = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_end();
-              it != it_end; ++it, field_count += 1)
+    for (ZigClangEnumDecl_enumerator_iterator it = ZigClangEnumDecl_enumerator_begin(enum_def),
+            it_end = ZigClangEnumDecl_enumerator_end(enum_def);
+        ZigClangEnumDecl_enumerator_iterator_neq(it, it_end);
+        it = ZigClangEnumDecl_enumerator_iterator_next(it), field_count += 1)
     {
-        const clang::EnumConstantDecl *enum_const = *it;
-        if (enum_const->getInitExpr()) {
+        const ZigClangEnumConstantDecl *enum_const = ZigClangEnumDecl_enumerator_iterator_deref(it);
+        if (ZigClangEnumConstantDecl_getInitExpr(enum_const)) {
             pure_enum = false;
         }
     }
@@ -4343,11 +4302,12 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
     }
     enum_node->data.container_decl.fields.resize(field_count);
     uint32_t i = 0;
-    for (auto it = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_begin(),
-            it_end = reinterpret_cast<const clang::EnumDecl *>(enum_def)->enumerator_end();
-            it != it_end; ++it, i += 1)
+    for (ZigClangEnumDecl_enumerator_iterator it = ZigClangEnumDecl_enumerator_begin(enum_def),
+            it_end = ZigClangEnumDecl_enumerator_end(enum_def);
+        ZigClangEnumDecl_enumerator_iterator_neq(it, it_end);
+        it = ZigClangEnumDecl_enumerator_iterator_next(it), i += 1)
     {
-        const clang::EnumConstantDecl *enum_const = *it;
+        const ZigClangEnumConstantDecl *enum_const = ZigClangEnumDecl_enumerator_iterator_deref(it);
 
         Buf *enum_val_name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)enum_const));
         Buf *field_name;
@@ -4358,7 +4318,7 @@ static AstNode *resolve_enum_decl(Context *c, const ZigClangEnumDecl *enum_decl)
         }
 
         AstNode *int_node = pure_enum && !is_anonymous ?
-            nullptr : trans_create_node_apint(c, bitcast(&enum_const->getInitVal()));
+            nullptr : trans_create_node_apint(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
         field_node->data.struct_field.name = field_name;
         field_node->data.struct_field.type = nullptr;
@@ -4438,15 +4398,16 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
 
     // count fields and validate
     uint32_t field_count = 0;
-    for (auto it = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_begin(),
-              it_end = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_end();
-              it != it_end; ++it, field_count += 1)
+    for (ZigClangRecordDecl_field_iterator it = ZigClangRecordDecl_field_begin(record_def),
+        it_end = ZigClangRecordDecl_field_end(record_def);
+        ZigClangRecordDecl_field_iterator_neq(it, it_end);
+        it = ZigClangRecordDecl_field_iterator_next(it), field_count += 1)
     {
-        const clang::FieldDecl *field_decl = *it;
+        const ZigClangFieldDecl *field_decl = ZigClangRecordDecl_field_iterator_deref(it);
 
-        if (field_decl->isBitField()) {
-            emit_warning(c, bitcast(field_decl->getLocation()), "%s %s demoted to opaque type - has bitfield",
-                    container_kind_name,
+        if (ZigClangFieldDecl_isBitField(field_decl)) {
+            emit_warning(c, ZigClangFieldDecl_getLocation(field_decl),
+                    "%s %s demoted to opaque type - has bitfield", container_kind_name,
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
             return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
         }
@@ -4468,19 +4429,20 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
     }
 
     uint32_t i = 0;
-    for (auto it = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_begin(),
-              it_end = reinterpret_cast<const clang::RecordDecl *>(record_def)->field_end();
-              it != it_end; ++it, i += 1)
+    for (ZigClangRecordDecl_field_iterator it = ZigClangRecordDecl_field_begin(record_def),
+        it_end = ZigClangRecordDecl_field_end(record_def);
+        ZigClangRecordDecl_field_iterator_neq(it, it_end);
+        it = ZigClangRecordDecl_field_iterator_next(it), i += 1)
     {
-        const clang::FieldDecl *field_decl = *it;
+        const ZigClangFieldDecl *field_decl = ZigClangRecordDecl_field_iterator_deref(it);
 
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
         field_node->data.struct_field.name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)field_decl));
-        field_node->data.struct_field.type = trans_qual_type(c, bitcast(field_decl->getType()),
-                bitcast(field_decl->getLocation()));
+        field_node->data.struct_field.type = trans_qual_type(c, ZigClangFieldDecl_getType(field_decl),
+                ZigClangFieldDecl_getLocation(field_decl));
 
         if (field_node->data.struct_field.type == nullptr) {
-            emit_warning(c, bitcast(field_decl->getLocation()),
+            emit_warning(c, ZigClangFieldDecl_getLocation(field_decl),
                     "%s %s demoted to opaque type - unresolved type",
                     container_kind_name,
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
@@ -4522,8 +4484,8 @@ static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigC
             init_node->data.container_init_expr.type = arr_type_node;
             init_node->data.container_init_expr.kind = ContainerInitKindArray;
 
-            const clang::Type *qt_type = reinterpret_cast<const clang::Type *>(ZigClangQualType_getTypePtr(qt));
-            ZigClangQualType child_qt = bitcast(qt_type->getAsArrayTypeUnsafe()->getElementType());
+            const ZigClangType *qt_type = ZigClangQualType_getTypePtr(qt);
+            ZigClangQualType child_qt = ZigClangArrayType_getElementType(ZigClangType_getAsArrayTypeUnsafe(qt_type));
 
             for (size_t i = 0; i < init_count; i += 1) {
                 const ZigClangAPValue *elem_ap_val = ZigClangAPValue_getArrayInitializedElt(ap_value, i);
@@ -4569,8 +4531,7 @@ static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigC
             if (const ZigClangExpr *expr = ZigClangAPValueLValueBase_dyn_cast_Expr(lval_base)) {
                 return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
             }
-            //const clang::ValueDecl *value_decl = lval_base.get<const clang::ValueDecl *>();
-            emit_warning(c, source_loc, "TODO handle initializer LValue clang::ValueDecl");
+            emit_warning(c, source_loc, "TODO handle initializer LValue ValueDecl");
             return nullptr;
         }
         case ZigClangAPValueFloat:
@@ -4607,43 +4568,43 @@ static AstNode *trans_ap_value(Context *c, const ZigClangAPValue *ap_value, ZigC
     zig_unreachable();
 }
 
-static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
+static void visit_var_decl(Context *c, const ZigClangVarDecl *var_decl) {
     Buf *name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)var_decl));
 
-    switch (var_decl->getTLSKind()) {
-        case clang::VarDecl::TLS_None:
+    switch (ZigClangVarDecl_getTLSKind(var_decl)) {
+        case ZigClangVarDecl_TLSKind_None:
             break;
-        case clang::VarDecl::TLS_Static:
-            emit_warning(c, bitcast(var_decl->getLocation()),
+        case ZigClangVarDecl_TLSKind_Static:
+            emit_warning(c, ZigClangVarDecl_getLocation(var_decl),
                     "ignoring variable '%s' - static thread local storage", buf_ptr(name));
             return;
-        case clang::VarDecl::TLS_Dynamic:
-            emit_warning(c, bitcast(var_decl->getLocation()),
+        case ZigClangVarDecl_TLSKind_Dynamic:
+            emit_warning(c, ZigClangVarDecl_getLocation(var_decl),
                     "ignoring variable '%s' - dynamic thread local storage", buf_ptr(name));
             return;
     }
 
-    ZigClangQualType qt = bitcast(var_decl->getType());
-    AstNode *var_type = trans_qual_type(c, qt, bitcast(var_decl->getLocation()));
+    ZigClangQualType qt = ZigClangVarDecl_getType(var_decl);
+    AstNode *var_type = trans_qual_type(c, qt, ZigClangVarDecl_getLocation(var_decl));
     if (var_type == nullptr) {
-        emit_warning(c, bitcast(var_decl->getLocation()), "ignoring variable '%s' - unresolved type", buf_ptr(name));
+        emit_warning(c, ZigClangVarDecl_getLocation(var_decl), "ignoring variable '%s' - unresolved type", buf_ptr(name));
         return;
     }
 
-    bool is_extern = var_decl->hasExternalStorage();
-    bool is_static = var_decl->isFileVarDecl();
+    bool is_extern = ZigClangVarDecl_hasExternalStorage(var_decl);
+    bool is_static = ZigClangVarDecl_isFileVarDecl(var_decl);
     bool is_const = ZigClangQualType_isConstQualified(qt);
 
     if (is_static && !is_extern) {
         AstNode *init_node;
-        if (var_decl->hasInit()) {
-            const ZigClangAPValue *ap_value = bitcast(var_decl->evaluateValue());
+        if (ZigClangVarDecl_hasInit(var_decl)) {
+            const ZigClangAPValue *ap_value = ZigClangVarDecl_evaluateValue(var_decl);
             if (ap_value == nullptr) {
-                emit_warning(c, bitcast(var_decl->getLocation()),
+                emit_warning(c, ZigClangVarDecl_getLocation(var_decl),
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
                 return;
             }
-            init_node = trans_ap_value(c, ap_value, qt, bitcast(var_decl->getLocation()));
+            init_node = trans_ap_value(c, ap_value, qt, ZigClangVarDecl_getLocation(var_decl));
             if (init_node == nullptr)
                 return;
         } else {
@@ -4662,7 +4623,7 @@ static void visit_var_decl(Context *c, const clang::VarDecl *var_decl) {
         return;
     }
 
-    emit_warning(c, bitcast(var_decl->getLocation()),
+    emit_warning(c, ZigClangVarDecl_getLocation(var_decl),
         "ignoring variable '%s' - non-extern, non-static variable", buf_ptr(name));
     return;
 }
@@ -4684,7 +4645,7 @@ static bool decl_visitor(void *context, const ZigClangDecl *decl) {
             resolve_record_decl(c, reinterpret_cast<const ZigClangRecordDecl *>(decl));
             break;
         case ZigClangDeclVar:
-            visit_var_decl(c, reinterpret_cast<const clang::VarDecl *>(decl));
+            visit_var_decl(c, reinterpret_cast<const ZigClangVarDecl *>(decl));
             break;
         default:
             emit_warning(c, ZigClangDecl_getLocation(decl), "ignoring %s decl", ZigClangDecl_getDeclKindName(decl));
@@ -5114,25 +5075,26 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     c->macro_table.put(name, result_node);
 }
 
-static void process_preprocessor_entities(Context *c, ZigClangASTUnit *zunit) {
-    clang::ASTUnit *unit = reinterpret_cast<clang::ASTUnit *>(zunit);
+static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
     CTokenize ctok = {{0}};
 
     // TODO if we see #undef, delete it from the table
+    for (ZigClangPreprocessingRecord_iterator it = ZigClangASTUnit_getLocalPreprocessingEntities_begin(unit),
+        it_end = ZigClangASTUnit_getLocalPreprocessingEntities_end(unit); it.I != it_end.I; it.I += 1)
+    {
+        ZigClangPreprocessedEntity *entity = ZigClangPreprocessingRecord_iterator_deref(it);
 
-    for (clang::PreprocessedEntity *entity : unit->getLocalPreprocessingEntities()) {
-        switch (entity->getKind()) {
-            case clang::PreprocessedEntity::InvalidKind:
-            case clang::PreprocessedEntity::InclusionDirectiveKind:
-            case clang::PreprocessedEntity::MacroExpansionKind:
+        switch (ZigClangPreprocessedEntity_getKind(entity)) {
+            case ZigClangPreprocessedEntity_InvalidKind:
+            case ZigClangPreprocessedEntity_InclusionDirectiveKind:
+            case ZigClangPreprocessedEntity_MacroExpansionKind:
                 continue;
-            case clang::PreprocessedEntity::MacroDefinitionKind:
+            case ZigClangPreprocessedEntity_MacroDefinitionKind:
                 {
-                    clang::MacroDefinitionRecord *macro = static_cast<clang::MacroDefinitionRecord *>(entity);
-                    const char *raw_name = macro->getName()->getNameStart();
-                    clang::SourceRange range = macro->getSourceRange();
-                    ZigClangSourceLocation begin_loc = bitcast(range.getBegin());
-                    ZigClangSourceLocation end_loc = bitcast(range.getEnd());
+                    ZigClangMacroDefinitionRecord *macro = reinterpret_cast<ZigClangMacroDefinitionRecord *>(entity);
+                    const char *raw_name = ZigClangMacroDefinitionRecord_getName_getNameStart(macro);
+                    ZigClangSourceLocation begin_loc = ZigClangMacroDefinitionRecord_getSourceRange_getBegin(macro);
+                    ZigClangSourceLocation end_loc = ZigClangMacroDefinitionRecord_getSourceRange_getEnd(macro);
 
                     if (ZigClangSourceLocation_eq(begin_loc, end_loc)) {
                         // this means it is a macro without a value
