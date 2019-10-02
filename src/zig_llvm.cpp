@@ -150,7 +150,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 }
 
 unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
-    return unwrap(TD)->getStackAlignment();
+    return unwrap(TD)->getStackAlignment().value();
 }
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
