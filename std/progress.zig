@@ -1,45 +1,40 @@
-const std = @import("std.zig");
+const std = @import("std");
 const testing = std.testing;
 
-pub const Config = struct {
-    milliseconds_until_print: usize = 200,
-    suppress_output: bool = false,
-};
+pub const PrintConfig = struct {
+    /// If the current node (and its children) should
+    /// print to stderr on update()
+    flag: bool = false,
 
-pub var config = Config{};
+    /// If all output should be suppressed instead
+    /// serves the same practical purpose as `flag` but supposed to be used
+    /// by separate parts of the user program.
+    suppress: bool = false,
+};
 
 pub const ProgressNode = struct {
     completed_items: usize = 0,
     total_items: usize,
 
-    /// The node's starting timestamp.
-    timestamp: u64,
+    print_config: PrintConfig,
 
-    /// If we should print the current node to stderr.
-    print_flag: bool,
-
+    // TODO maybe instead of keeping a prefix field, we could
+    // select the proper prefix at the time of update(), and if we're not
+    // in a terminal, we use warn("/r{}", lots_of_whitespace).
     prefix: []const u8,
 
     /// Create a new progress node.
     pub fn start(
         parent_opt: ?ProgressNode,
-        item_count_opt: ?usize,
+        total_items_opt: ?usize,
     ) !ProgressNode {
-        var print_flag = false;
 
-        // if the parent reached its 200ms, then we should
-        // also print ourselves.
+        // inherit the last set print "configuration" from the parent node
+        var print_config = PrintConfig{};
         if (parent_opt) |parent| {
-            print_flag = parent.print_flag;
+            print_config = parent.print_config;
         }
 
-        var item_count: usize = 0;
-        if (item_count_opt) |estimated_count| {
-            item_count = estimated_count;
-        }
-
-        // TODO should we do this at comptime so we remove the possibility
-        // of errors on start()?
         var stderr = try std.io.getStdErr();
         const is_term = std.os.isatty(stderr.handle);
 
@@ -52,31 +47,21 @@ pub const ProgressNode = struct {
             prefix = "\n";
         }
 
-        std.debug.warn("\n");
-
         return ProgressNode{
-            .timestamp = std.time.milliTimestamp(),
-            .total_items = item_count,
-            .print_flag = print_flag,
+            .total_items = total_items_opt orelse 0,
+            .print_config = print_config,
             .prefix = prefix,
         };
     }
 
     /// Signal an update on the progress node.
-    /// This may or may not print to stderr based on how many milliseconds
-    /// passed since the progress node's creation.
+    /// The user of this function is supposed to modify
+    /// ProgressNode.PrintConfig.flag when update() is supposed to print.
     pub fn update(
         self: *ProgressNode,
         current_action: ?[]const u8,
         items_done_opt: ?usize,
     ) void {
-        const cur_time = std.time.milliTimestamp();
-        const delta = cur_time - self.timestamp;
-
-        if (delta >= config.milliseconds_until_print) {
-            self.print_flag = true;
-        }
-
         if (items_done_opt) |items_done| {
             self.completed_items = items_done;
 
@@ -85,7 +70,8 @@ pub const ProgressNode = struct {
             }
         }
 
-        if (self.print_flag and !config.suppress_output and current_action != null) {
+        var cfg = self.print_config;
+        if (cfg.flag and !cfg.suppress and current_action != null) {
             std.debug.warn(
                 "{}[{}/{}] {}",
                 self.prefix,
@@ -97,7 +83,7 @@ pub const ProgressNode = struct {
     }
 
     pub fn end(self: *ProgressNode) void {
-        if (!self.print_flag) return;
+        if (!self.print_config.flag) return;
 
         // TODO emoji?
         std.debug.warn("\n[V] done!");
@@ -106,12 +92,12 @@ pub const ProgressNode = struct {
 
 test "basic functionality" {
     var node = try ProgressNode.start(null, 100);
-    std.time.sleep(200 * std.time.millisecond);
 
     var buf: [100]u8 = undefined;
 
     var i: usize = 0;
     while (i < 100) : (i += 6) {
+        if (i > 50) node.print_config.flag = true;
         const msg = try std.fmt.bufPrint(buf[0..], "action at i={}", i);
         node.update(msg, i);
         std.time.sleep(10 * std.time.millisecond);
