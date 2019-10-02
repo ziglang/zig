@@ -4,7 +4,7 @@ set -x
 set -e
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="llvm+clang-9.0.0-freebsd-x86_64-release"
+CACHE_BASENAME="llvm+clang-10.0.0-freebsd-x86_64-release"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j$(sysctl -n hw.ncpu)"
 
