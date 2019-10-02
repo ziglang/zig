@@ -137,9 +137,9 @@ static const ZigClangAPValue *bitcast(const clang::APValue *src) {
     return reinterpret_cast<const ZigClangAPValue *>(src);
 }
 
-static const ZigClangStmt *bitcast(const clang::Stmt *src) {
-    return reinterpret_cast<const ZigClangStmt *>(src);
-}
+//static const ZigClangStmt *bitcast(const clang::Stmt *src) {
+//    return reinterpret_cast<const ZigClangStmt *>(src);
+//}
 
 static const ZigClangExpr *bitcast(const clang::Expr *src) {
     return reinterpret_cast<const ZigClangExpr *>(src);
@@ -578,7 +578,7 @@ static bool qual_type_is_ptr(ZigClangQualType qt) {
     return ZigClangType_getTypeClass(ty) == ZigClangType_Pointer;
 }
 
-static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType qt, bool *is_ptr) {
+static const ZigClangFunctionProtoType *qual_type_get_fn_proto(ZigClangQualType qt, bool *is_ptr) {
     const ZigClangType *ty = qual_type_canon(qt);
     *is_ptr = false;
 
@@ -589,7 +589,7 @@ static const clang::FunctionProtoType *qual_type_get_fn_proto(ZigClangQualType q
     }
 
     if (ZigClangType_getTypeClass(ty) == ZigClangType_FunctionProto) {
-        return reinterpret_cast<const clang::FunctionProtoType*>(ty);
+        return reinterpret_cast<const ZigClangFunctionProtoType*>(ty);
     }
 
     return nullptr;
@@ -684,13 +684,14 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const ZigClangQualType qt,
 static bool qual_type_child_is_fn_proto(ZigClangQualType qt) {
     const ZigClangType *ty = ZigClangQualType_getTypePtr(qt);
     if (ZigClangType_getTypeClass(ty) == ZigClangType_Paren) {
-        const clang::ParenType *paren_type = reinterpret_cast<const clang::ParenType *>(ty);
-        if (paren_type->getInnerType()->getTypeClass() == clang::Type::FunctionProto) {
+        const ZigClangParenType *paren_type = reinterpret_cast<const ZigClangParenType *>(ty);
+        ZigClangQualType inner_type = ZigClangParenType_getInnerType(paren_type);
+        if (ZigClangQualType_getTypeClass(inner_type) == ZigClangType_FunctionProto) {
             return true;
         }
     } else if (ZigClangType_getTypeClass(ty) == ZigClangType_Attributed) {
-        const clang::AttributedType *attr_type = reinterpret_cast<const clang::AttributedType *>(ty);
-        return qual_type_child_is_fn_proto(bitcast(attr_type->getEquivalentType()));
+        const ZigClangAttributedType *attr_type = reinterpret_cast<const ZigClangAttributedType *>(ty);
+        return qual_type_child_is_fn_proto(ZigClangAttributedType_getEquivalentType(attr_type));
     }
     return false;
 }
@@ -839,8 +840,8 @@ static bool type_is_function(Context *c, const ZigClangType *ty, ZigClangSourceL
         case ZigClangType_FunctionNoProto:
             return true;
         case ZigClangType_Elaborated: {
-            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
-            ZigClangQualType qt = bitcast(elaborated_ty->getNamedType());
+            const ZigClangElaboratedType *elaborated_ty = reinterpret_cast<const ZigClangElaboratedType*>(ty);
+            ZigClangQualType qt = ZigClangElaboratedType_getNamedType(elaborated_ty);
             return type_is_function(c, ZigClangQualType_getTypePtr(qt), source_loc);
         }
         case ZigClangType_Typedef: {
@@ -880,8 +881,8 @@ static bool type_is_opaque(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             return false;
         }
         case ZigClangType_Elaborated: {
-            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
-            ZigClangQualType qt = bitcast(elaborated_ty->getNamedType());
+            const ZigClangElaboratedType *elaborated_ty = reinterpret_cast<const ZigClangElaboratedType*>(ty);
+            ZigClangQualType qt = ZigClangElaboratedType_getNamedType(elaborated_ty);
             return type_is_opaque(c, ZigClangQualType_getTypePtr(qt), source_loc);
         }
         case ZigClangType_Typedef: {
@@ -1078,16 +1079,16 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             }
         case ZigClangType_Elaborated:
             {
-                const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
-                switch (elaborated_ty->getKeyword()) {
-                    case clang::ETK_Struct:
-                    case clang::ETK_Enum:
-                    case clang::ETK_Union:
-                        return trans_qual_type(c, bitcast(elaborated_ty->getNamedType()), source_loc);
-                    case clang::ETK_Interface:
-                    case clang::ETK_Class:
-                    case clang::ETK_Typename:
-                    case clang::ETK_None:
+                const ZigClangElaboratedType *elaborated_ty = reinterpret_cast<const ZigClangElaboratedType*>(ty);
+                switch (ZigClangElaboratedType_getKeyword(elaborated_ty)) {
+                    case ZigClangETK_Struct:
+                    case ZigClangETK_Enum:
+                    case ZigClangETK_Union:
+                        return trans_qual_type(c, ZigClangElaboratedType_getNamedType(elaborated_ty), source_loc);
+                    case ZigClangETK_Interface:
+                    case ZigClangETK_Class:
+                    case ZigClangETK_Typename:
+                    case ZigClangETK_None:
                         emit_warning(c, source_loc, "unsupported elaborated type");
                         return nullptr;
                 }
@@ -1227,35 +1228,37 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
             }
         case ZigClangType_ConstantArray:
             {
-                const clang::ConstantArrayType *const_arr_ty = reinterpret_cast<const clang::ConstantArrayType *>(ty);
-                AstNode *child_type_node = trans_qual_type(c, bitcast(const_arr_ty->getElementType()), source_loc);
+                const ZigClangConstantArrayType *const_arr_ty = reinterpret_cast<const ZigClangConstantArrayType *>(ty);
+                AstNode *child_type_node = trans_qual_type(c,
+                        ZigClangConstantArrayType_getElementType(const_arr_ty), source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
                     return nullptr;
                 }
-                uint64_t size = const_arr_ty->getSize().getLimitedValue();
+                const ZigClangAPInt *size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
+                uint64_t size = ZigClangAPInt_getLimitedValue(size_ap_int, UINT64_MAX);
                 AstNode *size_node = trans_create_node_unsigned(c, size);
                 return trans_create_node_array_type(c, size_node, child_type_node);
             }
         case ZigClangType_Paren:
             {
-                const clang::ParenType *paren_ty = reinterpret_cast<const clang::ParenType *>(ty);
-                return trans_qual_type(c, bitcast(paren_ty->getInnerType()), source_loc);
+                const ZigClangParenType *paren_ty = reinterpret_cast<const ZigClangParenType *>(ty);
+                return trans_qual_type(c, ZigClangParenType_getInnerType(paren_ty), source_loc);
             }
         case ZigClangType_Decayed:
             {
-                const clang::DecayedType *decayed_ty = reinterpret_cast<const clang::DecayedType *>(ty);
-                return trans_qual_type(c, bitcast(decayed_ty->getDecayedType()), source_loc);
+                const ZigClangDecayedType *decayed_ty = reinterpret_cast<const ZigClangDecayedType *>(ty);
+                return trans_qual_type(c, ZigClangDecayedType_getDecayedType(decayed_ty), source_loc);
             }
         case ZigClangType_Attributed:
             {
-                const clang::AttributedType *attributed_ty = reinterpret_cast<const clang::AttributedType *>(ty);
-                return trans_qual_type(c, bitcast(attributed_ty->getEquivalentType()), source_loc);
+                const ZigClangAttributedType *attributed_ty = reinterpret_cast<const ZigClangAttributedType *>(ty);
+                return trans_qual_type(c, ZigClangAttributedType_getEquivalentType(attributed_ty), source_loc);
             }
         case ZigClangType_IncompleteArray:
             {
-                const clang::IncompleteArrayType *incomplete_array_ty = reinterpret_cast<const clang::IncompleteArrayType *>(ty);
-                ZigClangQualType child_qt = bitcast(incomplete_array_ty->getElementType());
+                const ZigClangIncompleteArrayType *incomplete_array_ty = reinterpret_cast<const ZigClangIncompleteArrayType *>(ty);
+                ZigClangQualType child_qt = ZigClangIncompleteArrayType_getElementType(incomplete_array_ty);
                 AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
                 if (child_type_node == nullptr) {
                     emit_warning(c, source_loc, "unresolved array element type");
@@ -1342,9 +1345,9 @@ static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const ZigClan
 }
 
 static AstNode *trans_stmt_expr(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::StmtExpr *stmt, TransScope **out_node_scope)
+        const ZigClangStmtExpr *stmt, TransScope **out_node_scope)
 {
-    AstNode *block = trans_compound_stmt(c, scope, (const ZigClangCompoundStmt *)stmt->getSubStmt(), out_node_scope);
+    AstNode *block = trans_compound_stmt(c, scope, ZigClangStmtExpr_getSubStmt(stmt), out_node_scope);
     if (block == nullptr)
         return block;
     assert(block->type == NodeTypeBlock);
@@ -1366,8 +1369,8 @@ static AstNode *trans_stmt_expr(Context *c, ResultUsed result_used, TransScope *
     return maybe_suppress_result(c, result_used, block);
 }
 
-static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::ReturnStmt *stmt) {
-    const ZigClangExpr *value_expr = bitcast(stmt->getRetValue());
+static AstNode *trans_return_stmt(Context *c, TransScope *scope, const ZigClangReturnStmt *stmt) {
+    const ZigClangExpr *value_expr = ZigClangReturnStmt_getRetValue(stmt);
     if (value_expr == nullptr) {
         return trans_create_node(c, NodeTypeReturnExpr);
     } else {
@@ -1379,76 +1382,79 @@ static AstNode *trans_return_stmt(Context *c, TransScope *scope, const clang::Re
     }
 }
 
-static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const clang::IntegerLiteral *stmt) {
-    clang::Expr::EvalResult result;
-    if (!stmt->EvaluateAsInt(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
-        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid integer literal");
+static AstNode *trans_integer_literal(Context *c, ResultUsed result_used, const ZigClangIntegerLiteral *stmt) {
+    ZigClangExprEvalResult result;
+    if (!ZigClangIntegerLiteral_EvaluateAsInt(stmt, &result, c->ctx)) {
+        emit_warning(c, ZigClangExpr_getBeginLoc((ZigClangExpr*)stmt), "invalid integer literal");
         return nullptr;
     }
-    AstNode *node = trans_create_node_apint(c, bitcast(&result.Val.getInt()));
+    AstNode *node = trans_create_node_apint(c, ZigClangAPValue_getInt(&result.Val));
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const clang::FloatingLiteral *stmt) {
+static AstNode *trans_floating_literal(Context *c, ResultUsed result_used, const ZigClangFloatingLiteral *stmt) {
     llvm::APFloat result{0.0f};
-    if (!stmt->EvaluateAsFloat(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
-        emit_warning(c, bitcast(stmt->getBeginLoc()), "invalid floating literal");
+    if (!reinterpret_cast<const clang::FloatingLiteral *>(stmt)->EvaluateAsFloat(result, *reinterpret_cast<clang::ASTContext *>(c->ctx))) {
+        emit_warning(c, ZigClangExpr_getBeginLoc((ZigClangExpr*)stmt), "invalid floating literal");
         return nullptr;
     }
     AstNode *node = trans_create_node_apfloat(c, result);
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_character_literal(Context *c, ResultUsed result_used, const clang::CharacterLiteral *stmt) {
-    switch (stmt->getKind()) {
-        case clang::CharacterLiteral::CharacterKind::Ascii:
+static AstNode *trans_character_literal(Context *c, ResultUsed result_used, const ZigClangCharacterLiteral *stmt) {
+    switch (ZigClangCharacterLiteral_getKind(stmt)) {
+        case ZigClangCharacterLiteral_CharacterKind_Ascii:
             {
-                unsigned val = stmt->getValue();
+                unsigned val = ZigClangCharacterLiteral_getValue(stmt);
                 // C has a somewhat obscure feature called multi-character character
                 // constant
                 if (val > 255)
                     return trans_create_node_unsigned(c, val);
             }
             // fallthrough
-        case clang::CharacterLiteral::CharacterKind::UTF8:
+        case ZigClangCharacterLiteral_CharacterKind_UTF8:
             {
                 AstNode *node = trans_create_node(c, NodeTypeCharLiteral);
-                node->data.char_literal.value = stmt->getValue();
+                node->data.char_literal.value = ZigClangCharacterLiteral_getValue(stmt);
                 return maybe_suppress_result(c, result_used, node);
             }
-        case clang::CharacterLiteral::CharacterKind::UTF16:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF16 character literals");
+        case ZigClangCharacterLiteral_CharacterKind_UTF16:
+            emit_warning(c, ZigClangCharacterLiteral_getBeginLoc(stmt), "TODO support UTF16 character literals");
             return nullptr;
-        case clang::CharacterLiteral::CharacterKind::UTF32:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support UTF32 character literals");
+        case ZigClangCharacterLiteral_CharacterKind_UTF32:
+            emit_warning(c, ZigClangCharacterLiteral_getBeginLoc(stmt), "TODO support UTF32 character literals");
             return nullptr;
-        case clang::CharacterLiteral::CharacterKind::Wide:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support wide character literals");
+        case ZigClangCharacterLiteral_CharacterKind_Wide:
+            emit_warning(c, ZigClangCharacterLiteral_getBeginLoc(stmt), "TODO support wide character literals");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const clang::ConstantExpr *expr) {
+static AstNode *trans_constant_expr(Context *c, ResultUsed result_used, const ZigClangConstantExpr *expr) {
+    const ZigClangExpr *as_expr = reinterpret_cast<const ZigClangExpr *>(expr);
     clang::Expr::EvalResult result;
-    if (!expr->EvaluateAsConstantExpr(result, clang::Expr::EvaluateForCodeGen,
+    if (!reinterpret_cast<const clang::ConstantExpr *>(expr)->EvaluateAsConstantExpr(result,
+                clang::Expr::EvaluateForCodeGen,
                 *reinterpret_cast<clang::ASTContext *>(c->ctx)))
     {
-        emit_warning(c, bitcast(expr->getBeginLoc()), "invalid constant expression");
+        emit_warning(c, ZigClangExpr_getBeginLoc(as_expr), "invalid constant expression");
         return nullptr;
     }
-    AstNode *node = trans_ap_value(c, bitcast(&result.Val), bitcast(expr->getType()), bitcast(expr->getBeginLoc()));
+    AstNode *node = trans_ap_value(c, bitcast(&result.Val), ZigClangExpr_getType(as_expr),
+            ZigClangExpr_getBeginLoc(as_expr));
     return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::ConditionalOperator *stmt)
+        const ZigClangConditionalOperator *stmt)
 {
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
-    const ZigClangExpr *true_expr = bitcast(stmt->getTrueExpr());
-    const ZigClangExpr *false_expr = bitcast(stmt->getFalseExpr());
+    const ZigClangExpr *cond_expr = ZigClangConditionalOperator_getCond(stmt);
+    const ZigClangExpr *true_expr = ZigClangConditionalOperator_getTrueExpr(stmt);
+    const ZigClangExpr *false_expr = ZigClangConditionalOperator_getFalseExpr(stmt);
 
     node->data.if_bool_expr.condition = trans_expr(c, ResultUsedYes, scope, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
@@ -1570,133 +1576,135 @@ static AstNode *trans_create_shift_op(Context *c, TransScope *scope, ZigClangQua
     return trans_create_node_bin_op(c, lhs, bin_op, coerced_rhs);
 }
 
-static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::BinaryOperator *stmt) {
-    switch (stmt->getOpcode()) {
-        case clang::BO_PtrMemD:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C binary operators: BO_PtrMemD");
+static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangBinaryOperator *stmt)
+{
+    switch (ZigClangBinaryOperator_getOpcode(stmt)) {
+        case ZigClangBO_PtrMemD:
+            emit_warning(c, ZigClangBinaryOperator_getBeginLoc(stmt), "TODO handle more C binary operators: BO_PtrMemD");
             return nullptr;
-        case clang::BO_PtrMemI:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C binary operators: BO_PtrMemI");
+        case ZigClangBO_PtrMemI:
+            emit_warning(c, ZigClangBinaryOperator_getBeginLoc(stmt), "TODO handle more C binary operators: BO_PtrMemI");
             return nullptr;
-        case clang::BO_Cmp:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C binary operators: BO_Cmp");
+        case ZigClangBO_Cmp:
+            emit_warning(c, ZigClangBinaryOperator_getBeginLoc(stmt), "TODO handle more C binary operators: BO_Cmp");
             return nullptr;
-        case clang::BO_Mul: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
-                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeMultWrap : BinOpTypeMult,
-                bitcast(stmt->getRHS()));
+        case ZigClangBO_Mul: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt),
+                qual_type_has_wrapping_overflow(c, ZigClangBinaryOperator_getType(stmt)) ? BinOpTypeMultWrap : BinOpTypeMult,
+                ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Div:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
+        case ZigClangBO_Div:
+            if (qual_type_has_wrapping_overflow(c, ZigClangBinaryOperator_getType(stmt))) {
                 // unsigned/float division uses the operator
-                AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeDiv, bitcast(stmt->getRHS()));
+                AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeDiv, ZigClangBinaryOperator_getRHS(stmt));
                 return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @divTrunc
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
-                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, ZigClangBinaryOperator_getLHS(stmt), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, ZigClangBinaryOperator_getRHS(stmt), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return maybe_suppress_result(c, result_used, fn_call);
             }
-        case clang::BO_Rem:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType()))) {
+        case ZigClangBO_Rem:
+            if (qual_type_has_wrapping_overflow(c, ZigClangBinaryOperator_getType(stmt))) {
                 // unsigned/float division uses the operator
-                AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeMod, bitcast(stmt->getRHS()));
+                AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeMod, ZigClangBinaryOperator_getRHS(stmt));
                 return maybe_suppress_result(c, result_used, node);
             } else {
                 // signed integer division uses @rem
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
-                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, ZigClangBinaryOperator_getLHS(stmt), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, ZigClangBinaryOperator_getRHS(stmt), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return maybe_suppress_result(c, result_used, fn_call);
             }
-        case clang::BO_Add: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
-                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeAddWrap : BinOpTypeAdd,
-                bitcast(stmt->getRHS()));
+        case ZigClangBO_Add: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt),
+                qual_type_has_wrapping_overflow(c, ZigClangBinaryOperator_getType(stmt)) ? BinOpTypeAddWrap : BinOpTypeAdd,
+                ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Sub: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()),
-                qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())) ? BinOpTypeSubWrap : BinOpTypeSub,
-                bitcast(stmt->getRHS()));
+        case ZigClangBO_Sub: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt),
+                qual_type_has_wrapping_overflow(c, ZigClangBinaryOperator_getType(stmt)) ? BinOpTypeSubWrap : BinOpTypeSub,
+                ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Shl: {
-            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), bitcast(stmt->getLHS()), BinOpTypeBitShiftLeft, bitcast(stmt->getRHS()));
+        case ZigClangBO_Shl: {
+            AstNode *node = trans_create_shift_op(c, scope, ZigClangBinaryOperator_getType(stmt), ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBitShiftLeft, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Shr: {
-            AstNode *node = trans_create_shift_op(c, scope, bitcast(stmt->getType()), bitcast(stmt->getLHS()), BinOpTypeBitShiftRight, bitcast(stmt->getRHS()));
+        case ZigClangBO_Shr: {
+            AstNode *node = trans_create_shift_op(c, scope, ZigClangBinaryOperator_getType(stmt), ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBitShiftRight, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_LT: {
-            AstNode *node =trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpLessThan, bitcast(stmt->getRHS()));
+        case ZigClangBO_LT: {
+            AstNode *node =trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpLessThan, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_GT: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpGreaterThan, bitcast(stmt->getRHS()));
+        case ZigClangBO_GT: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpGreaterThan, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_LE: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpLessOrEq, bitcast(stmt->getRHS()));
+        case ZigClangBO_LE: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpLessOrEq, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_GE: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpGreaterOrEq, bitcast(stmt->getRHS()));
+        case ZigClangBO_GE: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpGreaterOrEq, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_EQ: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpEq, bitcast(stmt->getRHS()));
+        case ZigClangBO_EQ: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpEq, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_NE: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeCmpNotEq, bitcast(stmt->getRHS()));
+        case ZigClangBO_NE: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeCmpNotEq, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_And: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinAnd, bitcast(stmt->getRHS()));
+        case ZigClangBO_And: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBinAnd, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Xor: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinXor, bitcast(stmt->getRHS()));
+        case ZigClangBO_Xor: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBinXor, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Or: {
-            AstNode *node = trans_create_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBinOr, bitcast(stmt->getRHS()));
+        case ZigClangBO_Or: {
+            AstNode *node = trans_create_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBinOr, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_LAnd: {
-            AstNode *node = trans_create_bool_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBoolAnd, bitcast(stmt->getRHS()));
+        case ZigClangBO_LAnd: {
+            AstNode *node = trans_create_bool_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBoolAnd, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_LOr: {
-            AstNode *node = trans_create_bool_bin_op(c, scope, bitcast(stmt->getLHS()), BinOpTypeBoolOr, bitcast(stmt->getRHS()));
+        case ZigClangBO_LOr: {
+            AstNode *node = trans_create_bool_bin_op(c, scope, ZigClangBinaryOperator_getLHS(stmt), BinOpTypeBoolOr, ZigClangBinaryOperator_getRHS(stmt));
             return maybe_suppress_result(c, result_used, node);
         }
-        case clang::BO_Assign:
-            return trans_create_assign(c, result_used, scope, bitcast(stmt->getLHS()), bitcast(stmt->getRHS()));
-        case clang::BO_Comma:
+        case ZigClangBO_Assign:
+            return trans_create_assign(c, result_used, scope, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt));
+        case ZigClangBO_Comma:
             {
                 TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
                 Buf *label_name = buf_create_from_str("x");
                 scope_block->node->data.block.name = label_name;
 
-                AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, bitcast(stmt->getLHS()), TransRValue);
+                AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, ZigClangBinaryOperator_getLHS(stmt), TransRValue);
                 if (lhs == nullptr)
                     return nullptr;
                 scope_block->node->data.block.statements.append(lhs);
 
-                AstNode *rhs = trans_expr(c, ResultUsedYes, &scope_block->base, bitcast(stmt->getRHS()), TransRValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, &scope_block->base, ZigClangBinaryOperator_getRHS(stmt), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
 
@@ -1704,16 +1712,16 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 scope_block->node->data.block.statements.append(rhs);
                 return maybe_suppress_result(c, result_used, scope_block->node);
             }
-        case clang::BO_MulAssign:
-        case clang::BO_DivAssign:
-        case clang::BO_RemAssign:
-        case clang::BO_AddAssign:
-        case clang::BO_SubAssign:
-        case clang::BO_ShlAssign:
-        case clang::BO_ShrAssign:
-        case clang::BO_AndAssign:
-        case clang::BO_XorAssign:
-        case clang::BO_OrAssign:
+        case ZigClangBO_MulAssign:
+        case ZigClangBO_DivAssign:
+        case ZigClangBO_RemAssign:
+        case ZigClangBO_AddAssign:
+        case ZigClangBO_SubAssign:
+        case ZigClangBO_ShlAssign:
+        case ZigClangBO_ShrAssign:
+        case ZigClangBO_AndAssign:
+        case ZigClangBO_XorAssign:
+        case ZigClangBO_OrAssign:
             zig_unreachable();
     }
 
@@ -1721,19 +1729,22 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
 }
 
 static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+        const ZigClangCompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
-    ZigClangSourceLocation rhs_location = bitcast(stmt->getRHS()->getBeginLoc());
-    AstNode *rhs_type = qual_type_to_log2_int_ref(c, bitcast(stmt->getComputationLHSType()), rhs_location);
+    ZigClangSourceLocation rhs_location = ZigClangExpr_getBeginLoc(ZigClangCompoundAssignOperator_getRHS(stmt));
+    ZigClangQualType computation_lhs_type = ZigClangCompoundAssignOperator_getComputationLHSType(stmt);
+    AstNode *rhs_type = qual_type_to_log2_int_ref(c, computation_lhs_type, rhs_location);
+    ZigClangQualType computation_result_type = ZigClangCompoundAssignOperator_getComputationResultType(stmt);
 
-    bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
+    bool use_intermediate_casts = ZigClangQualType_getTypePtr(computation_lhs_type) !=
+        ZigClangQualType_getTypePtr(computation_result_type);
     if (!use_intermediate_casts && result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs >>= rhs
-        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, ZigClangCompoundAssignOperator_getLHS(stmt), TransLValue);
         if (lhs == nullptr) return nullptr;
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
@@ -1753,7 +1764,8 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getLHS()), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base,
+                ZigClangCompoundAssignOperator_getLHS(stmt), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
@@ -1763,20 +1775,20 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getRHS()), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
         // operation_type(*_ref)
         AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
-            bitcast(stmt->getComputationLHSType()),
-            bitcast(stmt->getLHS()->getType()),
+            computation_lhs_type,
+            ZigClangExpr_getType(ZigClangCompoundAssignOperator_getLHS(stmt)),
             trans_create_node_ptr_deref(c, trans_create_node_symbol(c, tmp_var_name)));
 
         // result_type(... >> u5(rhs))
         AstNode *result_type_cast = trans_c_cast(c, rhs_location,
-            bitcast(stmt->getComputationResultType()),
-            bitcast(stmt->getComputationLHSType()),
+            computation_result_type,
+            computation_lhs_type,
             trans_create_node_bin_op(c,
                 operation_type_cast,
                 bin_op,
@@ -1803,14 +1815,14 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 }
 
 static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+        const ZigClangCompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
 {
     if (result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs += rhs
-        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getLHS()), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, ZigClangCompoundAssignOperator_getLHS(stmt), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getRHS()), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
         return trans_create_node_bin_op(c, lhs, assign_op, rhs);
     } else {
@@ -1827,7 +1839,8 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
         child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getLHS()), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base,
+                ZigClangCompoundAssignOperator_getLHS(stmt), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, lhs);
         // TODO: avoid name collisions with generated variable names
@@ -1837,7 +1850,8 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
 
         // *_ref = *_ref + rhs;
 
-        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, bitcast(stmt->getRHS()), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base,
+                ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
 
         AstNode *assign_statement = trans_create_node_bin_op(c,
@@ -1863,65 +1877,65 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
 
 
 static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::CompoundAssignOperator *stmt)
+        const ZigClangCompoundAssignOperator *stmt)
 {
-    switch (stmt->getOpcode()) {
-        case clang::BO_MulAssign:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+    switch (ZigClangCompoundAssignOperator_getOpcode(stmt)) {
+        case ZigClangBO_MulAssign:
+            if (qual_type_has_wrapping_overflow(c, ZigClangCompoundAssignOperator_getType(stmt)))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
-        case clang::BO_DivAssign:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C compound assign operators: BO_DivAssign");
+        case ZigClangBO_DivAssign:
+            emit_warning(c, ZigClangCompoundAssignOperator_getBeginLoc(stmt), "TODO handle more C compound assign operators: BO_DivAssign");
             return nullptr;
-        case clang::BO_RemAssign:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C compound assign operators: BO_RemAssign");
+        case ZigClangBO_RemAssign:
+            emit_warning(c, ZigClangCompoundAssignOperator_getBeginLoc(stmt), "TODO handle more C compound assign operators: BO_RemAssign");
             return nullptr;
-        case clang::BO_Cmp:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle more C compound assign operators: BO_Cmp");
+        case ZigClangBO_Cmp:
+            emit_warning(c, ZigClangCompoundAssignOperator_getBeginLoc(stmt), "TODO handle more C compound assign operators: BO_Cmp");
             return nullptr;
-        case clang::BO_AddAssign:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+        case ZigClangBO_AddAssign:
+            if (qual_type_has_wrapping_overflow(c, ZigClangCompoundAssignOperator_getType(stmt)))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
-        case clang::BO_SubAssign:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+        case ZigClangBO_SubAssign:
+            if (qual_type_has_wrapping_overflow(c, ZigClangCompoundAssignOperator_getType(stmt)))
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
             else
                 return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
-        case clang::BO_ShlAssign:
+        case ZigClangBO_ShlAssign:
             return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftLeft, BinOpTypeBitShiftLeft);
-        case clang::BO_ShrAssign:
+        case ZigClangBO_ShrAssign:
             return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftRight, BinOpTypeBitShiftRight);
-        case clang::BO_AndAssign:
+        case ZigClangBO_AndAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitAnd, BinOpTypeBinAnd);
-        case clang::BO_XorAssign:
+        case ZigClangBO_XorAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitXor, BinOpTypeBinXor);
-        case clang::BO_OrAssign:
+        case ZigClangBO_OrAssign:
             return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitOr, BinOpTypeBinOr);
-        case clang::BO_PtrMemD:
-        case clang::BO_PtrMemI:
-        case clang::BO_Assign:
-        case clang::BO_Mul:
-        case clang::BO_Div:
-        case clang::BO_Rem:
-        case clang::BO_Add:
-        case clang::BO_Sub:
-        case clang::BO_Shl:
-        case clang::BO_Shr:
-        case clang::BO_LT:
-        case clang::BO_GT:
-        case clang::BO_LE:
-        case clang::BO_GE:
-        case clang::BO_EQ:
-        case clang::BO_NE:
-        case clang::BO_And:
-        case clang::BO_Xor:
-        case clang::BO_Or:
-        case clang::BO_LAnd:
-        case clang::BO_LOr:
-        case clang::BO_Comma:
+        case ZigClangBO_PtrMemD:
+        case ZigClangBO_PtrMemI:
+        case ZigClangBO_Assign:
+        case ZigClangBO_Mul:
+        case ZigClangBO_Div:
+        case ZigClangBO_Rem:
+        case ZigClangBO_Add:
+        case ZigClangBO_Sub:
+        case ZigClangBO_Shl:
+        case ZigClangBO_Shr:
+        case ZigClangBO_LT:
+        case ZigClangBO_GT:
+        case ZigClangBO_LE:
+        case ZigClangBO_GE:
+        case ZigClangBO_EQ:
+        case ZigClangBO_NE:
+        case ZigClangBO_And:
+        case ZigClangBO_Xor:
+        case ZigClangBO_Or:
+        case ZigClangBO_LAnd:
+        case ZigClangBO_LOr:
+        case ZigClangBO_Comma:
             zig_unreachable();
     }
 
@@ -2207,8 +2221,8 @@ static AstNode *trans_implicit_cast_expr(Context *c, ResultUsed result_used, Tra
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const clang::DeclRefExpr *stmt, TransLRValue lrval) {
-    const clang::ValueDecl *value_decl = stmt->getDecl();
+static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const ZigClangDeclRefExpr *stmt, TransLRValue lrval) {
+    const ZigClangValueDecl *value_decl = ZigClangDeclRefExpr_getDecl(stmt);
     Buf *c_symbol_name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)value_decl));
     Buf *zig_symbol_name = trans_lookup_zig_symbol(c, scope, c_symbol_name);
     if (lrval == TransLValue) {
@@ -2218,9 +2232,9 @@ static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const clang::
 }
 
 static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::UnaryOperator *stmt, BinOpType assign_op)
+        const ZigClangUnaryOperator *stmt, BinOpType assign_op)
 {
-    const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+    const ZigClangExpr *op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -2274,9 +2288,9 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
 }
 
 static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::UnaryOperator *stmt, BinOpType assign_op)
+        const ZigClangUnaryOperator *stmt, BinOpType assign_op)
 {
-    const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+    const ZigClangExpr *op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
 
     if (result_used == ResultUsedNo) {
         // common case
@@ -2323,52 +2337,54 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     return trans_create_node_grouped_expr(c, child_scope->node);
 }
 
-static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const clang::UnaryOperator *stmt) {
-    switch (stmt->getOpcode()) {
-        case clang::UO_PostInc:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangUnaryOperator *stmt)
+{
+    switch (ZigClangUnaryOperator_getOpcode(stmt)) {
+        case ZigClangUO_PostInc:
+            if (qual_type_has_wrapping_overflow(c, ZigClangUnaryOperator_getType(stmt)))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
-        case clang::UO_PostDec:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+        case ZigClangUO_PostDec:
+            if (qual_type_has_wrapping_overflow(c, ZigClangUnaryOperator_getType(stmt)))
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
-        case clang::UO_PreInc:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+        case ZigClangUO_PreInc:
+            if (qual_type_has_wrapping_overflow(c, ZigClangUnaryOperator_getType(stmt)))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
-        case clang::UO_PreDec:
-            if (qual_type_has_wrapping_overflow(c, bitcast(stmt->getType())))
+        case ZigClangUO_PreDec:
+            if (qual_type_has_wrapping_overflow(c, ZigClangUnaryOperator_getType(stmt)))
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
                 return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
-        case clang::UO_AddrOf:
+        case ZigClangUO_AddrOf:
             {
-                AstNode *value_node = trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransLValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, ZigClangUnaryOperator_getSubExpr(stmt), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
                 return trans_create_node_addr_of(c, value_node);
             }
-        case clang::UO_Deref:
+        case ZigClangUO_Deref:
             {
-                AstNode *value_node = trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransRValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, ZigClangUnaryOperator_getSubExpr(stmt), TransRValue);
                 if (value_node == nullptr)
                     return nullptr;
-                bool is_fn_ptr = qual_type_is_fn_ptr(bitcast(stmt->getSubExpr()->getType()));
+                bool is_fn_ptr = qual_type_is_fn_ptr(ZigClangExpr_getType(ZigClangUnaryOperator_getSubExpr(stmt)));
                 if (is_fn_ptr)
                     return value_node;
                 AstNode *unwrapped = trans_create_node_unwrap_null(c, value_node);
                 return trans_create_node_ptr_deref(c, unwrapped);
             }
-        case clang::UO_Plus:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Plus");
+        case ZigClangUO_Plus:
+            emit_warning(c, ZigClangUnaryOperator_getBeginLoc(stmt), "TODO handle C translation UO_Plus");
             return nullptr;
-        case clang::UO_Minus:
+        case ZigClangUO_Minus:
             {
-                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+                const ZigClangExpr *op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
                 if (!qual_type_has_wrapping_overflow(c, ZigClangExpr_getType(op_expr))) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
@@ -2390,44 +2406,44 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                     node->data.bin_op_expr.bin_op = BinOpTypeSubWrap;
                     return node;
                 } else {
-                    emit_warning(c, bitcast(stmt->getBeginLoc()), "C negation with non float non integer");
+                    emit_warning(c, ZigClangUnaryOperator_getBeginLoc(stmt), "C negation with non float non integer");
                     return nullptr;
                 }
             }
-        case clang::UO_Not:
+        case ZigClangUO_Not:
             {
-                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+                const ZigClangExpr *op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
                 AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
 
                 return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
             }
-        case clang::UO_LNot:
+        case ZigClangUO_LNot:
             {
-                const ZigClangExpr *op_expr = bitcast(stmt->getSubExpr());
+                const ZigClangExpr *op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
                 AstNode *sub_node = trans_bool_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
 
                 return trans_create_node_prefix_op(c, PrefixOpBoolNot, sub_node);
             }
-        case clang::UO_Real:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Real");
+        case ZigClangUO_Real:
+            emit_warning(c, ZigClangUnaryOperator_getBeginLoc(stmt), "TODO handle C translation UO_Real");
             return nullptr;
-        case clang::UO_Imag:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Imag");
+        case ZigClangUO_Imag:
+            emit_warning(c, ZigClangUnaryOperator_getBeginLoc(stmt), "TODO handle C translation UO_Imag");
             return nullptr;
-        case clang::UO_Extension:
-            return trans_expr(c, result_used, scope, bitcast(stmt->getSubExpr()), TransLValue);
-        case clang::UO_Coawait:
-            emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C translation UO_Coawait");
+        case ZigClangUO_Extension:
+            return trans_expr(c, result_used, scope, ZigClangUnaryOperator_getSubExpr(stmt), TransLValue);
+        case ZigClangUO_Coawait:
+            emit_warning(c, ZigClangUnaryOperator_getBeginLoc(stmt), "TODO handle C translation UO_Coawait");
             return nullptr;
     }
     zig_unreachable();
 }
 
-static int trans_local_declaration(Context *c, TransScope *scope, const clang::DeclStmt *stmt,
+static int trans_local_declaration(Context *c, TransScope *scope, const ZigClangDeclStmt *stmt,
         AstNode **out_node, TransScope **out_scope)
 {
     // declarations are added via the scope
@@ -2436,10 +2452,11 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
     TransScopeBlock *scope_block = trans_scope_block_find(scope);
     assert(scope_block != nullptr);
 
-    for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
-        clang::Decl *decl = *iter;
-        switch (decl->getKind()) {
-            case clang::Decl::Var: {
+    for (auto iter = reinterpret_cast<const clang::DeclStmt *>(stmt)->decl_begin();
+            iter != reinterpret_cast<const clang::DeclStmt *>(stmt)->decl_end(); iter++) {
+        ZigClangDecl *decl = reinterpret_cast<ZigClangDecl *>(*iter);
+        switch (ZigClangDecl_getKind(decl)) {
+            case ZigClangDeclVar: {
                 clang::VarDecl *var_decl = (clang::VarDecl *)decl;
                 ZigClangQualType qual_type = bitcast(var_decl->getTypeSourceInfo()->getType());
                 AstNode *init_node = nullptr;
@@ -2451,7 +2468,7 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 } else {
                     init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                 }
-                AstNode *type_node = trans_qual_type(c, qual_type, bitcast(stmt->getBeginLoc()));
+                AstNode *type_node = trans_qual_type(c, qual_type, ZigClangDeclStmt_getBeginLoc(stmt));
                 if (type_node == nullptr)
                     return ErrorUnexpected;
 
@@ -2467,233 +2484,233 @@ static int trans_local_declaration(Context *c, TransScope *scope, const clang::D
                 scope_block->node->data.block.statements.append(node);
                 continue;
             }
-            case clang::Decl::AccessSpec:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle decl kind AccessSpec");
+            case ZigClangDeclAccessSpec:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle decl kind AccessSpec");
                 return ErrorUnexpected;
-            case clang::Decl::Block:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Block");
+            case ZigClangDeclBlock:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Block");
                 return ErrorUnexpected;
-            case clang::Decl::Captured:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Captured");
+            case ZigClangDeclCaptured:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Captured");
                 return ErrorUnexpected;
-            case clang::Decl::ClassScopeFunctionSpecialization:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ClassScopeFunctionSpecialization");
+            case ZigClangDeclClassScopeFunctionSpecialization:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ClassScopeFunctionSpecialization");
                 return ErrorUnexpected;
-            case clang::Decl::Empty:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Empty");
+            case ZigClangDeclEmpty:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Empty");
                 return ErrorUnexpected;
-            case clang::Decl::Export:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Export");
+            case ZigClangDeclExport:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Export");
                 return ErrorUnexpected;
-            case clang::Decl::ExternCContext:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ExternCContext");
+            case ZigClangDeclExternCContext:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ExternCContext");
                 return ErrorUnexpected;
-            case clang::Decl::FileScopeAsm:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FileScopeAsm");
+            case ZigClangDeclFileScopeAsm:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C FileScopeAsm");
                 return ErrorUnexpected;
-            case clang::Decl::Friend:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Friend");
+            case ZigClangDeclFriend:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Friend");
                 return ErrorUnexpected;
-            case clang::Decl::FriendTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FriendTemplate");
+            case ZigClangDeclFriendTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C FriendTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::Import:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Import");
+            case ZigClangDeclImport:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Import");
                 return ErrorUnexpected;
-            case clang::Decl::LinkageSpec:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C LinkageSpec");
+            case ZigClangDeclLinkageSpec:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C LinkageSpec");
                 return ErrorUnexpected;
-            case clang::Decl::Label:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Label");
+            case ZigClangDeclLabel:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Label");
                 return ErrorUnexpected;
-            case clang::Decl::Namespace:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Namespace");
+            case ZigClangDeclNamespace:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Namespace");
                 return ErrorUnexpected;
-            case clang::Decl::NamespaceAlias:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C NamespaceAlias");
+            case ZigClangDeclNamespaceAlias:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C NamespaceAlias");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCCompatibleAlias:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCCompatibleAlias");
+            case ZigClangDeclObjCCompatibleAlias:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCCompatibleAlias");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCCategory:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCCategory");
+            case ZigClangDeclObjCCategory:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCCategory");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCCategoryImpl:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCCategoryImpl");
+            case ZigClangDeclObjCCategoryImpl:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCCategoryImpl");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCImplementation:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCImplementation");
+            case ZigClangDeclObjCImplementation:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCImplementation");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCInterface:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCInterface");
+            case ZigClangDeclObjCInterface:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCInterface");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCProtocol:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCProtocol");
+            case ZigClangDeclObjCProtocol:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCProtocol");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCMethod:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCMethod");
+            case ZigClangDeclObjCMethod:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCMethod");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCProperty:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCProperty");
+            case ZigClangDeclObjCProperty:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCProperty");
                 return ErrorUnexpected;
-            case clang::Decl::BuiltinTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C BuiltinTemplate");
+            case ZigClangDeclBuiltinTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C BuiltinTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::ClassTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ClassTemplate");
+            case ZigClangDeclClassTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ClassTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::FunctionTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C FunctionTemplate");
+            case ZigClangDeclFunctionTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C FunctionTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::TypeAliasTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TypeAliasTemplate");
+            case ZigClangDeclTypeAliasTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C TypeAliasTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::VarTemplate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C VarTemplate");
+            case ZigClangDeclVarTemplate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C VarTemplate");
                 return ErrorUnexpected;
-            case clang::Decl::TemplateTemplateParm:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TemplateTemplateParm");
+            case ZigClangDeclTemplateTemplateParm:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C TemplateTemplateParm");
                 return ErrorUnexpected;
-            case clang::Decl::Enum:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Enum");
+            case ZigClangDeclEnum:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Enum");
                 return ErrorUnexpected;
-            case clang::Decl::Record:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Record");
+            case ZigClangDeclRecord:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Record");
                 return ErrorUnexpected;
-            case clang::Decl::CXXRecord:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXRecord");
+            case ZigClangDeclCXXRecord:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXRecord");
                 return ErrorUnexpected;
-            case clang::Decl::ClassTemplateSpecialization:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ClassTemplateSpecialization");
+            case ZigClangDeclClassTemplateSpecialization:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ClassTemplateSpecialization");
                 return ErrorUnexpected;
-            case clang::Decl::ClassTemplatePartialSpecialization:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ClassTemplatePartialSpecialization");
+            case ZigClangDeclClassTemplatePartialSpecialization:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ClassTemplatePartialSpecialization");
                 return ErrorUnexpected;
-            case clang::Decl::TemplateTypeParm:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TemplateTypeParm");
+            case ZigClangDeclTemplateTypeParm:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C TemplateTypeParm");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCTypeParam:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCTypeParam");
+            case ZigClangDeclObjCTypeParam:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCTypeParam");
                 return ErrorUnexpected;
-            case clang::Decl::TypeAlias:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TypeAlias");
+            case ZigClangDeclTypeAlias:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C TypeAlias");
                 return ErrorUnexpected;
-            case clang::Decl::Typedef:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Typedef");
+            case ZigClangDeclTypedef:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Typedef");
                 return ErrorUnexpected;
-            case clang::Decl::UnresolvedUsingTypename:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UnresolvedUsingTypename");
+            case ZigClangDeclUnresolvedUsingTypename:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C UnresolvedUsingTypename");
                 return ErrorUnexpected;
-            case clang::Decl::Using:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Using");
+            case ZigClangDeclUsing:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Using");
                 return ErrorUnexpected;
-            case clang::Decl::UsingDirective:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UsingDirective");
+            case ZigClangDeclUsingDirective:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C UsingDirective");
                 return ErrorUnexpected;
-            case clang::Decl::UsingPack:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UsingPack");
+            case ZigClangDeclUsingPack:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C UsingPack");
                 return ErrorUnexpected;
-            case clang::Decl::UsingShadow:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UsingShadow");
+            case ZigClangDeclUsingShadow:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C UsingShadow");
                 return ErrorUnexpected;
-            case clang::Decl::ConstructorUsingShadow:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ConstructorUsingShadow");
+            case ZigClangDeclConstructorUsingShadow:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ConstructorUsingShadow");
                 return ErrorUnexpected;
-            case clang::Decl::Binding:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Binding");
+            case ZigClangDeclBinding:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Binding");
                 return ErrorUnexpected;
-            case clang::Decl::Field:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Field");
+            case ZigClangDeclField:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Field");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCAtDefsField:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCAtDefsField");
+            case ZigClangDeclObjCAtDefsField:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCAtDefsField");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCIvar:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCIvar");
+            case ZigClangDeclObjCIvar:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCIvar");
                 return ErrorUnexpected;
-            case clang::Decl::Function:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Function");
+            case ZigClangDeclFunction:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Function");
                 return ErrorUnexpected;
-            case clang::Decl::CXXDeductionGuide:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDeductionGuide");
+            case ZigClangDeclCXXDeductionGuide:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXDeductionGuide");
                 return ErrorUnexpected;
-            case clang::Decl::CXXMethod:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXMethod");
+            case ZigClangDeclCXXMethod:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXMethod");
                 return ErrorUnexpected;
-            case clang::Decl::CXXConstructor:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXConstructor");
+            case ZigClangDeclCXXConstructor:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXConstructor");
                 return ErrorUnexpected;
-            case clang::Decl::CXXConversion:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXConversion");
+            case ZigClangDeclCXXConversion:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXConversion");
                 return ErrorUnexpected;
-            case clang::Decl::CXXDestructor:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C CXXDestructor");
+            case ZigClangDeclCXXDestructor:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C CXXDestructor");
                 return ErrorUnexpected;
-            case clang::Decl::MSProperty:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C MSProperty");
+            case ZigClangDeclMSProperty:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C MSProperty");
                 return ErrorUnexpected;
-            case clang::Decl::NonTypeTemplateParm:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C NonTypeTemplateParm");
+            case ZigClangDeclNonTypeTemplateParm:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C NonTypeTemplateParm");
                 return ErrorUnexpected;
-            case clang::Decl::Decomposition:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Decomposition");
+            case ZigClangDeclDecomposition:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Decomposition");
                 return ErrorUnexpected;
-            case clang::Decl::ImplicitParam:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ImplicitParam");
+            case ZigClangDeclImplicitParam:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ImplicitParam");
                 return ErrorUnexpected;
-            case clang::Decl::OMPCapturedExpr:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPCapturedExpr");
+            case ZigClangDeclOMPCapturedExpr:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPCapturedExpr");
                 return ErrorUnexpected;
-            case clang::Decl::ParmVar:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ParmVar");
+            case ZigClangDeclParmVar:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ParmVar");
                 return ErrorUnexpected;
-            case clang::Decl::VarTemplateSpecialization:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C VarTemplateSpecialization");
+            case ZigClangDeclVarTemplateSpecialization:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C VarTemplateSpecialization");
                 return ErrorUnexpected;
-            case clang::Decl::VarTemplatePartialSpecialization:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C VarTemplatePartialSpecialization");
+            case ZigClangDeclVarTemplatePartialSpecialization:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C VarTemplatePartialSpecialization");
                 return ErrorUnexpected;
-            case clang::Decl::EnumConstant:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C EnumConstant");
+            case ZigClangDeclEnumConstant:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C EnumConstant");
                 return ErrorUnexpected;
-            case clang::Decl::IndirectField:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C IndirectField");
+            case ZigClangDeclIndirectField:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C IndirectField");
                 return ErrorUnexpected;
-            case clang::Decl::OMPDeclareReduction:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDeclareReduction");
+            case ZigClangDeclOMPDeclareReduction:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPDeclareReduction");
                 return ErrorUnexpected;
-            case clang::Decl::UnresolvedUsingValue:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C UnresolvedUsingValue");
+            case ZigClangDeclUnresolvedUsingValue:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C UnresolvedUsingValue");
                 return ErrorUnexpected;
-            case clang::Decl::OMPRequires:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPRequires");
+            case ZigClangDeclOMPRequires:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPRequires");
                 return ErrorUnexpected;
-            case clang::Decl::OMPThreadPrivate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPThreadPrivate");
+            case ZigClangDeclOMPThreadPrivate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPThreadPrivate");
                 return ErrorUnexpected;
-            case clang::Decl::ObjCPropertyImpl:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C ObjCPropertyImpl");
+            case ZigClangDeclObjCPropertyImpl:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C ObjCPropertyImpl");
                 return ErrorUnexpected;
-            case clang::Decl::PragmaComment:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C PragmaComment");
+            case ZigClangDeclPragmaComment:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C PragmaComment");
                 return ErrorUnexpected;
-            case clang::Decl::PragmaDetectMismatch:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C PragmaDetectMismatch");
+            case ZigClangDeclPragmaDetectMismatch:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C PragmaDetectMismatch");
                 return ErrorUnexpected;
-            case clang::Decl::StaticAssert:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C StaticAssert");
+            case ZigClangDeclStaticAssert:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C StaticAssert");
                 return ErrorUnexpected;
-            case clang::Decl::TranslationUnit:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C TranslationUnit");
+            case ZigClangDeclTranslationUnit:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C TranslationUnit");
                 return ErrorUnexpected;
-            case clang::Decl::Concept:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C Concept");
+            case ZigClangDeclConcept:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C Concept");
                 return ErrorUnexpected;
-            case clang::Decl::OMPDeclareMapper:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPDeclareMapper");
+            case ZigClangDeclOMPDeclareMapper:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPDeclareMapper");
                 return ErrorUnexpected;
-            case clang::Decl::OMPAllocate:
-                emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO handle C OMPAllocate");
+            case ZigClangDeclOMPAllocate:
+                emit_warning(c, ZigClangDeclStmt_getBeginLoc(stmt), "TODO handle C OMPAllocate");
                 return ErrorUnexpected;
         }
         zig_unreachable();
@@ -2911,19 +2928,19 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
 
         case ZigClangType_Elaborated:
         {
-            const clang::ElaboratedType *elaborated_ty = reinterpret_cast<const clang::ElaboratedType*>(ty);
-            switch (elaborated_ty->getKeyword()) {
-                case clang::ETK_Enum: {
-                    AstNode *enum_type = trans_qual_type(c, bitcast(elaborated_ty->getNamedType()),
+            const ZigClangElaboratedType *elaborated_ty = reinterpret_cast<const ZigClangElaboratedType*>(ty);
+            switch (ZigClangElaboratedType_getKeyword(elaborated_ty)) {
+                case ZigClangETK_Enum: {
+                    AstNode *enum_type = trans_qual_type(c, ZigClangElaboratedType_getNamedType(elaborated_ty),
                             ZigClangExpr_getBeginLoc(expr));
                     return to_enum_zero_cmp(c, res, enum_type);
                 }
-                case clang::ETK_Struct:
-                case clang::ETK_Union:
-                case clang::ETK_Interface:
-                case clang::ETK_Class:
-                case clang::ETK_Typename:
-                case clang::ETK_None:
+                case ZigClangETK_Struct:
+                case ZigClangETK_Union:
+                case ZigClangETK_Interface:
+                case ZigClangETK_Class:
+                case ZigClangETK_Typename:
+                case ZigClangETK_None:
                     return res;
             }
         }
@@ -2976,15 +2993,15 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
     zig_unreachable();
 }
 
-static AstNode *trans_while_loop(Context *c, TransScope *scope, const clang::WhileStmt *stmt) {
+static AstNode *trans_while_loop(Context *c, TransScope *scope, const ZigClangWhileStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, scope);
 
     while_scope->node->data.while_expr.condition = trans_bool_expr(c, ResultUsedYes, scope,
-            bitcast(stmt->getCond()), TransRValue);
+            ZigClangWhileStmt_getCond(stmt), TransRValue);
     if (while_scope->node->data.while_expr.condition == nullptr)
         return nullptr;
 
-    TransScope *body_scope = trans_stmt(c, &while_scope->base, bitcast(stmt->getBody()),
+    TransScope *body_scope = trans_stmt(c, &while_scope->base, ZigClangWhileStmt_getBody(stmt),
             &while_scope->node->data.while_expr.body);
     if (body_scope == nullptr)
         return nullptr;
@@ -2992,22 +3009,22 @@ static AstNode *trans_while_loop(Context *c, TransScope *scope, const clang::Whi
     return while_scope->node;
 }
 
-static AstNode *trans_if_statement(Context *c, TransScope *scope, const clang::IfStmt *stmt) {
+static AstNode *trans_if_statement(Context *c, TransScope *scope, const ZigClangIfStmt *stmt) {
     // if (c) t
     // if (c) t else e
     AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    TransScope *then_scope = trans_stmt(c, scope, bitcast(stmt->getThen()), &if_node->data.if_bool_expr.then_block);
+    TransScope *then_scope = trans_stmt(c, scope, ZigClangIfStmt_getThen(stmt), &if_node->data.if_bool_expr.then_block);
     if (then_scope == nullptr)
         return nullptr;
 
-    if (stmt->getElse() != nullptr) {
-        TransScope *else_scope = trans_stmt(c, scope, bitcast(stmt->getElse()), &if_node->data.if_bool_expr.else_node);
+    if (ZigClangIfStmt_getElse(stmt) != nullptr) {
+        TransScope *else_scope = trans_stmt(c, scope, ZigClangIfStmt_getElse(stmt), &if_node->data.if_bool_expr.else_node);
         if (else_scope == nullptr)
             return nullptr;
     }
 
-    if_node->data.if_bool_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, bitcast(stmt->getCond()),
+    if_node->data.if_bool_expr.condition = trans_bool_expr(c, ResultUsedYes, scope, ZigClangIfStmt_getCond(stmt),
             TransRValue);
     if (if_node->data.if_bool_expr.condition == nullptr)
         return nullptr;
@@ -3015,24 +3032,27 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const clang::I
     return if_node;
 }
 
-static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::CallExpr *stmt) {
+static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangCallExpr *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
 
-    AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getCallee()), TransRValue);
+    AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, ZigClangCallExpr_getCallee(stmt), TransRValue);
     if (callee_raw_node == nullptr)
         return nullptr;
 
     bool is_ptr = false;
-    const clang::FunctionProtoType *fn_ty = qual_type_get_fn_proto(bitcast(stmt->getCallee()->getType()), &is_ptr);
+    const ZigClangFunctionProtoType *fn_ty = qual_type_get_fn_proto(
+            ZigClangExpr_getType(ZigClangCallExpr_getCallee(stmt)), &is_ptr);
     AstNode *callee_node = nullptr;
     if (is_ptr && fn_ty) {
-        if ((ZigClangStmtClass)stmt->getCallee()->getStmtClass() == ZigClangStmt_ImplicitCastExprClass) {
-            const clang::ImplicitCastExpr *implicit_cast = static_cast<const clang::ImplicitCastExpr *>(stmt->getCallee());
-            if ((ZigClangCK)implicit_cast->getCastKind() == ZigClangCK_FunctionToPointerDecay) {
-                if ((ZigClangStmtClass)implicit_cast->getSubExpr()->getStmtClass() == ZigClangStmt_DeclRefExprClass) {
-                    const clang::DeclRefExpr *decl_ref = static_cast<const clang::DeclRefExpr *>(implicit_cast->getSubExpr());
-                    const clang::Decl *decl = decl_ref->getFoundDecl();
-                    if (decl->getKind() == clang::Decl::Function) {
+        if (ZigClangExpr_getStmtClass(ZigClangCallExpr_getCallee(stmt)) == ZigClangStmt_ImplicitCastExprClass) {
+            const ZigClangImplicitCastExpr *implicit_cast = reinterpret_cast<const ZigClangImplicitCastExpr *>(
+                    ZigClangCallExpr_getCallee(stmt));
+            if (ZigClangImplicitCastExpr_getCastKind(implicit_cast) == ZigClangCK_FunctionToPointerDecay) {
+                const ZigClangExpr *subexpr = ZigClangImplicitCastExpr_getSubExpr(implicit_cast);
+                if (ZigClangExpr_getStmtClass(subexpr) == ZigClangStmt_DeclRefExprClass) {
+                    const ZigClangDeclRefExpr *decl_ref = reinterpret_cast<const ZigClangDeclRefExpr *>(subexpr);
+                    const ZigClangNamedDecl *named_decl = ZigClangDeclRefExpr_getFoundDecl(decl_ref);
+                    if (ZigClangDecl_getKind((const ZigClangDecl *)named_decl) == ZigClangDeclFunction) {
                         callee_node = callee_raw_node;
                     }
                 }
@@ -3047,8 +3067,8 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
 
     node->data.fn_call_expr.fn_ref_expr = callee_node;
 
-    unsigned num_args = stmt->getNumArgs();
-    const ZigClangExpr * const* args = reinterpret_cast<const ZigClangExpr * const*>(stmt->getArgs());
+    unsigned num_args = ZigClangCallExpr_getNumArgs(stmt);
+    const ZigClangExpr * const* args = ZigClangCallExpr_getArgs(stmt);
     for (unsigned i = 0; i < num_args; i += 1) {
         AstNode *arg_node = trans_expr(c, ResultUsedYes, scope, args[i], TransRValue);
         if (arg_node == nullptr)
@@ -3058,7 +3078,7 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     }
 
     if (result_used == ResultUsedNo && fn_ty &&
-        !ZigClangType_isVoidType(qual_type_canon(bitcast(fn_ty->getReturnType()))))
+        !ZigClangType_isVoidType(qual_type_canon(ZigClangFunctionProtoType_getReturnType(fn_ty))))
     {
         node = trans_create_node_bin_op(c, trans_create_node_symbol_str(c, "_"), BinOpTypeAssign, node);
     }
@@ -3067,28 +3087,31 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
 }
 
 static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope *scope,
-    const clang::MemberExpr *stmt)
+    const ZigClangMemberExpr *stmt)
 {
-    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getBase()), TransRValue);
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, ZigClangMemberExpr_getBase(stmt), TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
-    if (stmt->isArrow()) {
+    if (ZigClangMemberExpr_isArrow(stmt)) {
         container_node = trans_create_node_unwrap_null(c, container_node);
     }
 
-    const char *name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)stmt->getMemberDecl());
+    const char *name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)ZigClangMemberExpr_getMemberDecl(stmt));
 
     AstNode *node = trans_create_node_field_access_str(c, container_node, name);
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, TransScope *scope, const clang::ArraySubscriptExpr *stmt) {
-    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getBase()), TransRValue);
+static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangArraySubscriptExpr *stmt)
+{
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, ZigClangArraySubscriptExpr_getBase(stmt),
+            TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
-    AstNode *idx_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getIdx()), TransRValue);
+    AstNode *idx_node = trans_expr(c, ResultUsedYes, scope, ZigClangArraySubscriptExpr_getIdx(stmt), TransRValue);
     if (idx_node == nullptr)
         return nullptr;
 
@@ -3100,14 +3123,14 @@ static AstNode *trans_array_subscript_expr(Context *c, ResultUsed result_used, T
 }
 
 static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
-        const clang::CStyleCastExpr *stmt, TransLRValue lrvalue)
+        const ZigClangCStyleCastExpr *stmt, TransLRValue lrvalue)
 {
-    AstNode *sub_expr_node = trans_expr(c, ResultUsedYes, scope, bitcast(stmt->getSubExpr()), lrvalue);
+    AstNode *sub_expr_node = trans_expr(c, ResultUsedYes, scope, ZigClangCStyleCastExpr_getSubExpr(stmt), lrvalue);
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    AstNode *cast = trans_c_cast(c, bitcast(stmt->getBeginLoc()), bitcast(stmt->getType()),
-            bitcast(stmt->getSubExpr()->getType()), sub_expr_node);
+    AstNode *cast = trans_c_cast(c, ZigClangCStyleCastExpr_getBeginLoc(stmt), ZigClangCStyleCastExpr_getType(stmt),
+            ZigClangExpr_getType(ZigClangCStyleCastExpr_getSubExpr(stmt)), sub_expr_node);
     if (cast == nullptr)
         return nullptr;
 
@@ -3115,9 +3138,10 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
 }
 
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed result_used,
-        TransScope *scope, const clang::UnaryExprOrTypeTraitExpr *stmt)
+        TransScope *scope, const ZigClangUnaryExprOrTypeTraitExpr *stmt)
 {
-    AstNode *type_node = trans_qual_type(c, bitcast(stmt->getTypeOfArgument()), bitcast(stmt->getBeginLoc()));
+    AstNode *type_node = trans_qual_type(c, ZigClangUnaryExprOrTypeTraitExpr_getTypeOfArgument(stmt),
+            ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(stmt));
     if (type_node == nullptr)
         return nullptr;
 
@@ -3126,14 +3150,14 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, ResultUsed resul
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang::DoStmt *stmt) {
+static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const ZigClangDoStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
 
     while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
 
     AstNode *body_node;
     TransScope *child_scope;
-    if ((ZigClangStmtClass)stmt->getBody()->getStmtClass() == ZigClangStmt_CompoundStmtClass) {
+    if (ZigClangStmt_getStmtClass(ZigClangDoStmt_getBody(stmt)) == ZigClangStmt_CompoundStmtClass) {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
         // c:   a;
@@ -3146,8 +3170,8 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
         // zig: }
 
         // We call the low level function so that we can set child_scope to the scope of the generated block.
-        if (trans_stmt_extra(c, &while_scope->base, bitcast(stmt->getBody()), ResultUsedNo, TransRValue, &body_node,
-            nullptr, &child_scope))
+        if (trans_stmt_extra(c, &while_scope->base, ZigClangDoStmt_getBody(stmt), ResultUsedNo, TransRValue,
+                    &body_node, nullptr, &child_scope))
         {
             return nullptr;
         }
@@ -3164,7 +3188,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
         TransScopeBlock *child_block_scope = trans_scope_block_create(c, &while_scope->base);
         body_node = child_block_scope->node;
         AstNode *child_statement;
-        child_scope = trans_stmt(c, &child_block_scope->base, bitcast(stmt->getBody()), &child_statement);
+        child_scope = trans_stmt(c, &child_block_scope->base, ZigClangDoStmt_getBody(stmt), &child_statement);
         if (child_scope == nullptr) return nullptr;
         if (child_statement != nullptr) {
             body_node->data.block.statements.append(child_statement);
@@ -3172,7 +3196,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
     }
 
     // if (!cond) break;
-    AstNode *condition_node = trans_expr(c, ResultUsedYes, child_scope, bitcast(stmt->getCond()), TransRValue);
+    AstNode *condition_node = trans_expr(c, ResultUsedYes, child_scope, ZigClangDoStmt_getCond(stmt), TransRValue);
     if (condition_node == nullptr) return nullptr;
     AstNode *terminator_node = trans_create_node(c, NodeTypeIfBoolExpr);
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
@@ -3186,11 +3210,11 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const clang:
     return while_scope->node;
 }
 
-static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang::ForStmt *stmt) {
+static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ZigClangForStmt *stmt) {
     AstNode *loop_block_node;
     TransScopeWhile *while_scope;
     TransScope *cond_scope;
-    const ZigClangStmt *init_stmt = bitcast(stmt->getInit());
+    const ZigClangStmt *init_stmt = ZigClangForStmt_getInit(stmt);
     if (init_stmt == nullptr) {
         while_scope = trans_scope_while_create(c, parent_scope);
         loop_block_node = while_scope->node;
@@ -3211,7 +3235,7 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
         child_scope->node->data.block.statements.append(while_scope->node);
     }
 
-    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
+    const ZigClangExpr *cond_expr = ZigClangForStmt_getCond(stmt);
     if (cond_expr == nullptr) {
         while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
     } else {
@@ -3222,7 +3246,7 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
             return nullptr;
     }
 
-    const ZigClangExpr *inc_expr = bitcast(stmt->getInc());
+    const ZigClangExpr *inc_expr = ZigClangForStmt_getInc(stmt);
     if (inc_expr != nullptr) {
         AstNode *inc_node = trans_expr(c, ResultUsedNo, cond_scope, inc_expr, TransRValue);
         if (inc_node == nullptr)
@@ -3231,7 +3255,7 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
     }
 
     AstNode *body_statement;
-    TransScope *body_scope = trans_stmt(c, &while_scope->base, bitcast(stmt->getBody()), &body_statement);
+    TransScope *body_scope = trans_stmt(c, &while_scope->base, ZigClangForStmt_getBody(stmt), &body_statement);
     if (body_scope == nullptr)
         return nullptr;
 
@@ -3244,12 +3268,12 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const clang
     return loop_block_node;
 }
 
-static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const clang::SwitchStmt *stmt) {
+static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const ZigClangSwitchStmt *stmt) {
     TransScopeBlock *block_scope = trans_scope_block_create(c, parent_scope);
 
     TransScopeSwitch *switch_scope;
 
-    const clang::DeclStmt *var_decl_stmt = stmt->getConditionVariableDeclStmt();
+    const ZigClangDeclStmt *var_decl_stmt = ZigClangSwitchStmt_getConditionVariableDeclStmt(stmt);
     if (var_decl_stmt == nullptr) {
         switch_scope = trans_scope_switch_create(c, &block_scope->base);
     } else {
@@ -3268,7 +3292,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
     switch_scope->end_label_name = end_label_name;
     block_scope->node->data.block.name = end_label_name;
 
-    const ZigClangExpr *cond_expr = bitcast(stmt->getCond());
+    const ZigClangExpr *cond_expr = ZigClangSwitchStmt_getCond(stmt);
     assert(cond_expr != nullptr);
 
     AstNode *expr_node = trans_expr(c, ResultUsedYes, &block_scope->base, cond_expr, TransRValue);
@@ -3277,7 +3301,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
     switch_scope->switch_node->data.switch_expr.expr = expr_node;
 
     AstNode *body_node;
-    const ZigClangStmt *body_stmt = bitcast(stmt->getBody());
+    const ZigClangStmt *body_stmt = ZigClangSwitchStmt_getBody(stmt);
     if (ZigClangStmt_getStmtClass(body_stmt) == ZigClangStmt_CompoundStmtClass) {
         if (trans_compound_stmt_inline(c, &switch_scope->base, (const ZigClangCompoundStmt *)body_stmt,
                                        block_scope->node, nullptr))
@@ -3292,7 +3316,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const cl
             block_scope->node->data.block.statements.append(body_node);
     }
 
-    if (!switch_scope->found_default && !stmt->isAllEnumCasesCovered()) {
+    if (!switch_scope->found_default && !ZigClangSwitchStmt_isAllEnumCasesCovered(stmt)) {
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
         prong_node->data.switch_prong.expr = trans_create_node_break(c, end_label_name, nullptr);
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
@@ -3311,12 +3335,12 @@ static TransScopeSwitch *trans_scope_switch_find(TransScope *scope) {
     return nullptr;
 }
 
-static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::CaseStmt *stmt, AstNode **out_node,
+static int trans_switch_case(Context *c, TransScope *parent_scope, const ZigClangCaseStmt *stmt, AstNode **out_node,
                              TransScope **out_scope) {
     *out_node = nullptr;
 
-    if (stmt->getRHS() != nullptr) {
-        emit_warning(c, bitcast(stmt->getBeginLoc()), "TODO support GNU switch case a ... b extension");
+    if (ZigClangCaseStmt_getRHS(stmt) != nullptr) {
+        emit_warning(c, ZigClangCaseStmt_getBeginLoc(stmt), "TODO support GNU switch case a ... b extension");
         return ErrorUnexpected;
     }
 
@@ -3329,7 +3353,8 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::
     {
         // Add the prong
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        AstNode *item_node = trans_expr(c, ResultUsedYes, &switch_scope->base, bitcast(stmt->getLHS()), TransRValue);
+        AstNode *item_node = trans_expr(c, ResultUsedYes, &switch_scope->base, ZigClangCaseStmt_getLHS(stmt),
+                TransRValue);
         if (item_node == nullptr)
             return ErrorUnexpected;
         prong_node->data.switch_prong.items.append(item_node);
@@ -3346,7 +3371,7 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::
     scope_block->node->data.block.statements.append(case_block);
 
     AstNode *sub_stmt_node;
-    TransScope *new_scope = trans_stmt(c, parent_scope, bitcast(stmt->getSubStmt()), &sub_stmt_node);
+    TransScope *new_scope = trans_stmt(c, parent_scope, ZigClangCaseStmt_getSubStmt(stmt), &sub_stmt_node);
     if (new_scope == nullptr)
         return ErrorUnexpected;
     if (sub_stmt_node != nullptr)
@@ -3356,8 +3381,8 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const clang::
     return ErrorNone;
 }
 
-static int trans_switch_default(Context *c, TransScope *parent_scope, const clang::DefaultStmt *stmt, AstNode **out_node,
-                                TransScope **out_scope)
+static int trans_switch_default(Context *c, TransScope *parent_scope, const ZigClangDefaultStmt *stmt,
+        AstNode **out_node, TransScope **out_scope)
 {
     *out_node = nullptr;
 
@@ -3383,7 +3408,7 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const clan
     scope_block->node->data.block.statements.append(case_block);
 
     AstNode *sub_stmt_node;
-    TransScope *new_scope = trans_stmt(c, parent_scope, bitcast(stmt->getSubStmt()), &sub_stmt_node);
+    TransScope *new_scope = trans_stmt(c, parent_scope, ZigClangDefaultStmt_getSubStmt(stmt), &sub_stmt_node);
     if (new_scope == nullptr)
         return ErrorUnexpected;
     if (sub_stmt_node != nullptr)
@@ -3393,7 +3418,9 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const clan
     return ErrorNone;
 }
 
-static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransScope *scope, const ZigClangStringLiteral *stmt) {
+static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransScope *scope,
+        const ZigClangStringLiteral *stmt)
+{
     switch (ZigClangStringLiteral_getKind(stmt)) {
         case ZigClangStringLiteral_StringKind_Ascii:
         case ZigClangStringLiteral_StringKind_UTF8: {
@@ -3415,7 +3442,7 @@ static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransSc
     zig_unreachable();
 }
 
-static AstNode *trans_break_stmt(Context *c, TransScope *scope, const clang::BreakStmt *stmt) {
+static AstNode *trans_break_stmt(Context *c, TransScope *scope, const ZigClangBreakStmt *stmt) {
     TransScope *cur_scope = scope;
     while (cur_scope != nullptr) {
         if (cur_scope->id == TransScopeIdWhile) {
@@ -3457,38 +3484,38 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
     switch (sc) {
         case ZigClangStmt_ReturnStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_return_stmt(c, scope, (const clang::ReturnStmt *)stmt));
+                    trans_return_stmt(c, scope, (const ZigClangReturnStmt *)stmt));
         case ZigClangStmt_CompoundStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_compound_stmt(c, scope, (const ZigClangCompoundStmt *)stmt, out_node_scope));
         case ZigClangStmt_IntegerLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_integer_literal(c, result_used, (const clang::IntegerLiteral *)stmt));
+                    trans_integer_literal(c, result_used, (const ZigClangIntegerLiteral *)stmt));
         case ZigClangStmt_ConditionalOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_conditional_operator(c, result_used, scope, (const clang::ConditionalOperator *)stmt));
+                    trans_conditional_operator(c, result_used, scope, (const ZigClangConditionalOperator *)stmt));
         case ZigClangStmt_BinaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_binary_operator(c, result_used, scope, (const clang::BinaryOperator *)stmt));
+                    trans_binary_operator(c, result_used, scope, (const ZigClangBinaryOperator *)stmt));
         case ZigClangStmt_CompoundAssignOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_compound_assign_operator(c, result_used, scope, (const clang::CompoundAssignOperator *)stmt));
+                    trans_compound_assign_operator(c, result_used, scope, (const ZigClangCompoundAssignOperator *)stmt));
         case ZigClangStmt_ImplicitCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_implicit_cast_expr(c, result_used, scope, (const ZigClangImplicitCastExpr *)stmt));
         case ZigClangStmt_DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_decl_ref_expr(c, scope, (const clang::DeclRefExpr *)stmt, lrvalue));
+                    trans_decl_ref_expr(c, scope, (const ZigClangDeclRefExpr *)stmt, lrvalue));
         case ZigClangStmt_UnaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_unary_operator(c, result_used, scope, (const clang::UnaryOperator *)stmt));
+                    trans_unary_operator(c, result_used, scope, (const ZigClangUnaryOperator *)stmt));
         case ZigClangStmt_DeclStmtClass:
-            return trans_local_declaration(c, scope, (const clang::DeclStmt *)stmt, out_node, out_child_scope);
+            return trans_local_declaration(c, scope, (const ZigClangDeclStmt *)stmt, out_node, out_child_scope);
         case ZigClangStmt_DoStmtClass:
         case ZigClangStmt_WhileStmtClass: {
             AstNode *while_node = sc == ZigClangStmt_DoStmtClass
-                ? trans_do_loop(c, scope, (const clang::DoStmt *)stmt)
-                : trans_while_loop(c, scope, (const clang::WhileStmt *)stmt);
+                ? trans_do_loop(c, scope, (const ZigClangDoStmt *)stmt)
+                : trans_while_loop(c, scope, (const ZigClangWhileStmt *)stmt);
 
             if (while_node == nullptr)
                 return ErrorUnexpected;
@@ -3501,28 +3528,28 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
         }
         case ZigClangStmt_IfStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_if_statement(c, scope, (const clang::IfStmt *)stmt));
+                    trans_if_statement(c, scope, (const ZigClangIfStmt *)stmt));
         case ZigClangStmt_CallExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_call_expr(c, result_used, scope, (const clang::CallExpr *)stmt));
+                    trans_call_expr(c, result_used, scope, (const ZigClangCallExpr *)stmt));
         case ZigClangStmt_NullStmtClass:
             *out_node = trans_create_node(c, NodeTypeBlock);
             *out_child_scope = scope;
             return ErrorNone;
         case ZigClangStmt_MemberExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_member_expr(c, result_used, scope, (const clang::MemberExpr *)stmt));
+                    trans_member_expr(c, result_used, scope, (const ZigClangMemberExpr *)stmt));
         case ZigClangStmt_ArraySubscriptExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_array_subscript_expr(c, result_used, scope, (const clang::ArraySubscriptExpr *)stmt));
+                    trans_array_subscript_expr(c, result_used, scope, (const ZigClangArraySubscriptExpr *)stmt));
         case ZigClangStmt_CStyleCastExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_c_style_cast_expr(c, result_used, scope, (const clang::CStyleCastExpr *)stmt, lrvalue));
+                    trans_c_style_cast_expr(c, result_used, scope, (const ZigClangCStyleCastExpr *)stmt, lrvalue));
         case ZigClangStmt_UnaryExprOrTypeTraitExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_unary_expr_or_type_trait_expr(c, result_used, scope, (const clang::UnaryExprOrTypeTraitExpr *)stmt));
+                    trans_unary_expr_or_type_trait_expr(c, result_used, scope, (const ZigClangUnaryExprOrTypeTraitExpr *)stmt));
         case ZigClangStmt_ForStmtClass: {
-            AstNode *node = trans_for_loop(c, scope, (const clang::ForStmt *)stmt);
+            AstNode *node = trans_for_loop(c, scope, (const ZigClangForStmt *)stmt);
             return wrap_stmt(out_node, out_child_scope, scope, node);
         }
         case ZigClangStmt_StringLiteralClass:
@@ -3530,30 +3557,30 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
                     trans_string_literal(c, result_used, scope, (const ZigClangStringLiteral *)stmt));
         case ZigClangStmt_BreakStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_break_stmt(c, scope, (const clang::BreakStmt *)stmt));
+                    trans_break_stmt(c, scope, (const ZigClangBreakStmt *)stmt));
         case ZigClangStmt_ContinueStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_continue_stmt(c, scope, (const ZigClangContinueStmt *)stmt));
         case ZigClangStmt_ParenExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_expr(c, result_used, scope,
-                        bitcast(((const clang::ParenExpr*)stmt)->getSubExpr()), lrvalue));
+                        ZigClangParenExpr_getSubExpr((const ZigClangParenExpr *)stmt), lrvalue));
         case ZigClangStmt_SwitchStmtClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                             trans_switch_stmt(c, scope, (const clang::SwitchStmt *)stmt));
+                             trans_switch_stmt(c, scope, (const ZigClangSwitchStmt *)stmt));
         case ZigClangStmt_CaseStmtClass:
-            return trans_switch_case(c, scope, (const clang::CaseStmt *)stmt, out_node, out_child_scope);
+            return trans_switch_case(c, scope, (const ZigClangCaseStmt *)stmt, out_node, out_child_scope);
         case ZigClangStmt_DefaultStmtClass:
-            return trans_switch_default(c, scope, (const clang::DefaultStmt *)stmt, out_node, out_child_scope);
+            return trans_switch_default(c, scope, (const ZigClangDefaultStmt *)stmt, out_node, out_child_scope);
         case ZigClangStmt_ConstantExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_constant_expr(c, result_used, (const clang::ConstantExpr *)stmt));
+                    trans_constant_expr(c, result_used, (const ZigClangConstantExpr *)stmt));
         case ZigClangStmt_PredefinedExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                              trans_predefined_expr(c, result_used, scope, (const ZigClangPredefinedExpr *)stmt));
         case ZigClangStmt_StmtExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_stmt_expr(c, result_used, scope, (const clang::StmtExpr *)stmt, out_node_scope));
+                    trans_stmt_expr(c, result_used, scope, (const ZigClangStmtExpr *)stmt, out_node_scope));
         case ZigClangStmt_NoStmtClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
@@ -3703,7 +3730,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             return ErrorUnexpected;
         case ZigClangStmt_CharacterLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_character_literal(c, result_used, (const clang::CharacterLiteral *)stmt));
+                    trans_character_literal(c, result_used, (const ZigClangCharacterLiteral *)stmt));
             return ErrorUnexpected;
         case ZigClangStmt_ChooseExprClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ChooseExprClass");
@@ -3743,7 +3770,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
             return ErrorUnexpected;
         case ZigClangStmt_FloatingLiteralClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_floating_literal(c, result_used, (const clang::FloatingLiteral *)stmt));
+                    trans_floating_literal(c, result_used, (const ZigClangFloatingLiteral *)stmt));
         case ZigClangStmt_ExprWithCleanupsClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C ExprWithCleanupsClass");
             return ErrorUnexpected;
