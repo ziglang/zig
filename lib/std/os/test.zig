@@ -219,3 +219,16 @@ test "gethostname" {
     const hostname = try os.gethostname(&buf);
     expect(hostname.len != 0);
 }
+
+test "pipe" {
+    if (os.windows.is_the_target)
+        return error.SkipZigTest;
+
+    var fds = try os.pipe();
+    try os.write(fds[1], "hello");
+    var buf: [16]u8 = undefined;
+    expect((try os.read(fds[0], buf[0..])) == 5);
+    testing.expectEqualSlices(u8, buf[0..5], "hello");
+    os.close(fds[1]);
+    os.close(fds[0]);
+}

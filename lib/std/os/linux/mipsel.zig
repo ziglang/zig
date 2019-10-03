@@ -12,6 +12,25 @@ pub fn syscall0(number: usize) usize {
     );
 }
 
+pub fn syscall_pipe(fd: *[2]i32) usize {
+    return asm volatile (
+        \\ .set noat
+        \\ .set noreorder
+        \\ syscall
+        \\ blez $7, 1f
+        \\ nop
+        \\ b 2f
+        \\ subu $2, $0, $2
+        \\ 1:
+        \\ sw $2, 0($4)
+        \\ sw $3, 4($4)
+        \\ 2:
+        : [ret] "={$2}" (-> usize)
+        : [number] "{$2}" (usize(SYS_pipe))
+        : "memory", "cc", "$7"
+    );
+}
+
 pub fn syscall1(number: usize, arg1: usize) usize {
     return asm volatile (
         \\ syscall
