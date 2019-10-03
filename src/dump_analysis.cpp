@@ -482,6 +482,18 @@ static void anal_dump_decl_ref(AnalDumpCtx *ctx, Tld *tld) {
 
 static void anal_dump_pkg(AnalDumpCtx *ctx, ZigPackage *pkg) {
     JsonWriter *jw = &ctx->jw;
+
+    Buf full_path_buf = BUF_INIT;
+    os_path_join(&pkg->root_src_dir, &pkg->root_src_path, &full_path_buf);
+    Buf *resolve_paths[] = { &full_path_buf, };
+    Buf *resolved_path = buf_alloc();
+    *resolved_path = os_path_resolve(resolve_paths, 1);
+
+    auto import_entry = ctx->g->import_table.maybe_get(resolved_path);
+    if (!import_entry) {
+        return;
+    }
+
     jw_array_elem(jw);
     jw_begin_object(jw);
 
@@ -489,18 +501,8 @@ static void anal_dump_pkg(AnalDumpCtx *ctx, ZigPackage *pkg) {
     jw_string(jw, buf_ptr(&pkg->pkg_path));
 
     jw_object_field(jw, "file");
-    Buf full_path_buf = BUF_INIT;
-    os_path_join(&pkg->root_src_dir, &pkg->root_src_path, &full_path_buf);
-    Buf *resolve_paths[] = { &full_path_buf, };
-    Buf *resolved_path = buf_alloc();
-    *resolved_path = os_path_resolve(resolve_paths, 1);
     anal_dump_file_ref(ctx, resolved_path);
 
-    auto import_entry = ctx->g->import_table.maybe_get(resolved_path);
-    if (!import_entry) {
-        fprintf(stderr, "due to a race condition or bug, files moved around during analysis\n");
-        exit(1);
-    }
     jw_object_field(jw, "main");
     anal_dump_type_ref(ctx, import_entry->value);
 
