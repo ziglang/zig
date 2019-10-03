@@ -1163,10 +1163,15 @@ pub const Target = union(enum) {
     }
 
     pub fn exeFileExt(self: Target) []const u8 {
-        return switch (self.getOs()) {
-            .windows => ".exe",
-            else => "",
-        };
+        if (self.isWindows()) {
+            return ".exe";
+        } else if (self.isUefi()) {
+            return ".efi";
+        } else if (self.isWasm()) {
+            return ".wasm";
+        } else {
+            return "";
+        }
     }
 
     pub fn staticLibSuffix(self: Target) []const u8 {
