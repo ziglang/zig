@@ -261,3 +261,25 @@ export fn zig_big_struct_both(x: BigStruct) BigStruct {
     };
     return s;
 }
+
+extern fn c_16_vector(@Vector(4, u32)) @Vector(4, u32);
+
+test "C ABI vectors" {
+    {
+      var s: @Vector(4, u32) = [_]u32{0, 1, 2, 3};
+      var y = c_16_vector(s);
+      expect(y[0] == 10);
+      expect(y[1] == 11);
+      expect(y[2] == 12);
+      expect(y[3] == 13);
+    }
+}
+
+export fn zig_16_vector(x: @Vector(4, u32)) @Vector(4, u32) {
+    expect(x[0] == 10);
+    expect(x[1] == 11);
+    expect(x[2] == 12);
+    expect(x[3] == 13);
+    var s: @Vector(4, u32) = [_]u32{11, 12, 13, 14};
+    return s;
+}

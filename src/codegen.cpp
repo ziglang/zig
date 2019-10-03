@@ -2590,7 +2590,8 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             return nullptr;
         }
         assert(g->cur_ret_ptr);
-        ir_assert(instruction->operand->value.special != ConstValSpecialRuntime, &instruction->base);
+        src_assert(instruction->operand->value.special != ConstValSpecialRuntime,
+                instruction->base.source_node);
         LLVMValueRef value = ir_llvm_value(g, instruction->operand);
         ZigType *return_type = instruction->operand->value.type;
         gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);

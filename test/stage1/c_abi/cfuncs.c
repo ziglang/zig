@@ -63,6 +63,9 @@ void zig_split_struct_ints(struct SplitStructInts);
 
 struct BigStruct zig_big_struct_both(struct BigStruct);
 
+typedef unsigned v4u32 __attribute__ ((vector_size (16)));
+v4u32 zig_16_vector(v4u32);
+
 void run_c_tests(void) {
     zig_u8(0xff);
     zig_u16(0xfffe);
@@ -109,6 +112,14 @@ void run_c_tests(void) {
         assert_or_panic(res.c == 22);
         assert_or_panic(res.d == 23);
         assert_or_panic(res.e == 24);
+    }
+    {
+        v4u32 s = {10, 11, 12, 13};
+        v4u32 res = zig_16_vector(s);
+        assert_or_panic(res[0] == 11);
+        assert_or_panic(res[1] == 12);
+        assert_or_panic(res[2] == 13);
+        assert_or_panic(res[3] == 14);
     }
 }
 
@@ -224,5 +235,14 @@ struct BigStruct c_big_struct_both(struct BigStruct x) {
     assert_or_panic(x.d == 4);
     assert_or_panic(x.e == 5);
     struct BigStruct y = {10, 11, 12, 13, 14};
+    return y;
+}
+
+v4u32 c_16_vector(v4u32 x) {
+    assert_or_panic(x[0] == 0);
+    assert_or_panic(x[1] == 1);
+    assert_or_panic(x[2] == 2);
+    assert_or_panic(x[3] == 3);
+    v4u32 y = {10, 11, 12, 13};
     return y;
 }
