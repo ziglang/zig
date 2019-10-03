@@ -5,12 +5,13 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef ZIG_STACK_REPORT_HPP
-#define ZIG_STACK_REPORT_HPP
+#ifndef ZIG_DUMP_ANALYSIS_HPP
+#define ZIG_DUMP_ANALYSIS_HPP
 
 #include "all_types.hpp"
 #include <stdio.h>
 
 void zig_print_stack_report(CodeGen *g, FILE *f);
+void zig_print_analysis_dump(CodeGen *g, FILE *f);
 
 #endif

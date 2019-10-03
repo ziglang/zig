@@ -1300,6 +1300,12 @@ struct ZigTypeEnum {
 uint32_t type_ptr_hash(const ZigType *ptr);
 bool type_ptr_eql(const ZigType *a, const ZigType *b);
 
+uint32_t pkg_ptr_hash(const ZigPackage *ptr);
+bool pkg_ptr_eql(const ZigPackage *a, const ZigPackage *b);
+
+uint32_t tld_ptr_hash(const Tld *ptr);
+bool tld_ptr_eql(const Tld *a, const Tld *b);
+
 struct ZigTypeUnion {
     AstNode *decl_node;
     TypeUnionField *fields;
@@ -2056,6 +2062,7 @@ struct CodeGen {
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
     bool function_sections;
+    bool enable_dump_analysis;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

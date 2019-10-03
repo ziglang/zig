@@ -7303,6 +7303,22 @@ bool type_ptr_eql(const ZigType *a, const ZigType *b) {
     return a == b;
 }
 
+uint32_t pkg_ptr_hash(const ZigPackage *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool pkg_ptr_eql(const ZigPackage *a, const ZigPackage *b) {
+    return a == b;
+}
+
+uint32_t tld_ptr_hash(const Tld *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool tld_ptr_eql(const Tld *a, const Tld *b) {
+    return a == b;
+}
+
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
     resolve_top_level_decl(codegen, tld, nullptr, false);
