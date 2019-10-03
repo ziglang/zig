@@ -20,6 +20,7 @@
 #include "util.hpp"
 #include "zig_llvm.h"
 #include "userland.h"
+#include "dump_analysis.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -1724,7 +1725,7 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
 }
 
 ATTRIBUTE_NORETURN
-static void report_errors_and_exit(CodeGen *g) {
+void codegen_report_errors_and_exit(CodeGen *g) {
     assert(g->errors.length != 0);
     for (size_t i = 0; i < g->errors.length; i += 1) {
         ErrorMsg *err = g->errors.at(i);
@@ -1735,7 +1736,7 @@ static void report_errors_and_exit(CodeGen *g) {
 
 static void report_errors_and_maybe_exit(CodeGen *g) {
     if (g->errors.length != 0) {
-        report_errors_and_exit(g);
+        codegen_report_errors_and_exit(g);
     }
 }
 
@@ -1745,7 +1746,7 @@ static void give_up_with_c_abi_error(CodeGen *g, AstNode *source_node) {
             buf_sprintf("TODO: support C ABI for more targets. https://github.com/ziglang/zig/issues/1481"));
     add_error_note(g, msg, source_node,
         buf_sprintf("pointers, integers, floats, bools, and enums work on all targets"));
-    report_errors_and_exit(g);
+    codegen_report_errors_and_exit(g);
 }
 
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment) {
@@ -3456,7 +3457,7 @@ static bool value_is_all_undef(CodeGen *g, ConstExprValue *const_val) {
     Error err;
     if (const_val->special == ConstValSpecialLazy &&
         (err = ir_resolve_lazy(g, nullptr, const_val)))
-        report_errors_and_exit(g);
+        codegen_report_errors_and_exit(g);
 
     switch (const_val->special) {
         case ConstValSpecialLazy:
@@ -4253,7 +4254,7 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     ZigType *struct_type = (struct_ptr_type->id == ZigTypeIdPointer) ?
         struct_ptr_type->data.pointer.child_type : struct_ptr_type;
     if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
-        report_errors_and_exit(g);
+        codegen_report_errors_and_exit(g);
 
     assert(field->gen_index != SIZE_MAX);
     return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
@@ -6625,7 +6626,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
 check: switch (const_val->special) {
         case ConstValSpecialLazy:
             if ((err = ir_resolve_lazy(g, nullptr, const_val))) {
-                report_errors_and_exit(g);
+                codegen_report_errors_and_exit(g);
             }
             goto check;
         case ConstValSpecialRuntime:
@@ -10157,6 +10158,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->have_stack_probing);
     cache_bool(ch, g->is_dummy_so);
     cache_bool(ch, g->function_sections);
+    cache_bool(ch, g->enable_dump_analysis);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -10337,6 +10339,21 @@ void codegen_build_and_link(CodeGen *g) {
                 codegen_add_time_event(g, "Generate .h");
                 gen_h_file(g);
             }
+        }
+        if (g->enable_dump_analysis) {
+            const char *analysis_json_filename = buf_ptr(buf_sprintf("%s" OS_SEP "%s-analysis.json",
+                        buf_ptr(g->output_dir), buf_ptr(g->root_out_name)));
+            FILE *f = fopen(analysis_json_filename, "wb");
+            if (f == nullptr) {
+                fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
+                exit(1);
+            }
+            zig_print_analysis_dump(g, f);
+            if (fclose(f) != 0) {
+                fprintf(stderr, "Unable to write '%s': %s\n", analysis_json_filename, strerror(errno));
+                exit(1);
+            }
+
         }
 
         // If we're outputting assembly or llvm IR we skip linking.

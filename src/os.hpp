@@ -47,6 +47,7 @@ extern const char *possible_ld_names[];
 
 #if defined(ZIG_OS_WINDOWS)
 #define ZIG_PRI_usize "I64u"
+#define ZIG_PRI_i64 "I64d"
 #define ZIG_PRI_u64 "I64u"
 #define ZIG_PRI_llu "I64u"
 #define ZIG_PRI_x64 "I64x"
@@ -54,6 +55,7 @@ extern const char *possible_ld_names[];
 #define ZIG_OS_SEP_CHAR '\\'
 #else
 #define ZIG_PRI_usize "zu"
+#define ZIG_PRI_i64 PRId64
 #define ZIG_PRI_u64 PRIu64
 #define ZIG_PRI_llu "llu"
 #define ZIG_PRI_x64 PRIx64
