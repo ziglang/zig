@@ -799,6 +799,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
     return IrInstructionIdAlignOf;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionExpect *) {
+    return IrInstructionIdExpect;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionOverflowOp *) {
     return IrInstructionIdOverflowOp;
 }
@@ -2514,6 +2518,19 @@ static IrInstruction *ir_build_frame_size_gen(IrBuilder *irb, Scope *scope, AstN
     instruction->fn = fn;
 
     ir_ref_instruction(fn, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_expect(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value, IrInstruction *expected)
+{
+    IrInstructionExpect *instruction = ir_build_instruction<IrInstructionExpect>(irb, scope, source_node);
+    instruction->value = value;
+    instruction->expected = expected;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+    ir_ref_instruction(expected, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5264,6 +5281,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *align_of = ir_build_align_of(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, align_of, lval, result_loc);
+            }
+        case BuiltinFnIdExpect:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *expect = ir_build_expect(irb, scope, node, arg0_value, arg1_value);
+                return ir_lval_wrap(irb, scope, expect, lval, result_loc);
             }
         case BuiltinFnIdAddWithOverflow:
             return ir_lval_wrap(irb, scope, ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd), lval, result_loc);
@@ -23420,6 +23452,82 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
     return result;
 }
 
+static IrInstruction *ir_analyze_instruction_expect(IrAnalyze *ira, IrInstructionExpect *instruction) {
+    IrInstruction *value = instruction->value->child;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *value_type = value->value.type;
+
+    IrInstruction *expect_instr = instruction->expected->child;
+    if (type_is_invalid(expect_instr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    switch (value_type->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdFloat:
+        case ZigTypeIdArray:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdVector:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion:
+        case ZigTypeIdEnumLiteral:
+            {
+                ErrorMsg *msg = ir_add_error(ira, value,
+                    buf_sprintf("type %s not allowed as value to @expect. Allowed types are bool, enum, int, ...",
+                        buf_ptr(&value_type->name)));
+                if (value_type->id == ZigTypeIdEnumLiteral && expect_instr->value.type->id == ZigTypeIdEnum) {
+                    add_error_note(ira->codegen, msg, value->source_node,
+                        buf_sprintf("did you reverse the arguments?"));
+                }
+                return ira->codegen->invalid_instruction;
+            }
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdFn:
+        case ZigTypeIdPointer:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+            zig_panic("TODO. more types for @expect()");
+        case ZigTypeIdEnum:
+        case ZigTypeIdInt:
+        case ZigTypeIdBool:
+            ; // pass
+    }
+
+    IrInstruction *casted_expect = ir_implicit_cast(ira, expect_instr, value_type);
+    if (casted_expect == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    ConstExprValue *expect = ir_resolve_const(ira, casted_expect, UndefOk);
+    if (expect == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    if (expect->special == ConstValSpecialUndef) {
+        return value; // It is a bad idea to error on this, and there is no reason to
+    }
+
+    if (instr_is_comptime(value)) {
+        return value; // Does nothing at comptime, but we want the above errors
+    }
+
+    IrInstruction *result = ir_build_expect(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+        value, casted_expect);
+    result->value.type = value_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
     Error err;
 
@@ -26153,6 +26261,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_frame_size(ira, (IrInstructionFrameSizeSrc *)instruction);
         case IrInstructionIdAlignOf:
             return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
+        case IrInstructionIdExpect:
+            return ir_analyze_instruction_expect(ira, (IrInstructionExpect *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErrSrc:
@@ -26425,6 +26535,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSpillBegin:
             return true;
 
+        case IrInstructionIdExpect:
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
         case IrInstructionIdBinOp:

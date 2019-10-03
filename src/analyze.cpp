@@ -6992,6 +6992,8 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
                 ((uint32_t)(x.data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820) +
                 x.data.overflow_arithmetic.vector_len * 1435156945;
+        case ZigLLVMFnIdExpect:
+            return ((uint32_t)(x.data.expect.int_size + 0x12345678));
     }
     zig_unreachable();
 }
@@ -7023,6 +7025,8 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
                 (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed) &&
                 (a.data.overflow_arithmetic.vector_len == b.data.overflow_arithmetic.vector_len);
+        case ZigLLVMFnIdExpect:
+            return (a.data.expect.int_size == b.data.expect.int_size);
     }
     zig_unreachable();
 }

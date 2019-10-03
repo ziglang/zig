@@ -1585,6 +1585,7 @@ enum BuiltinFnId {
     BuiltinFnIdType,
     BuiltinFnIdHasField,
     BuiltinFnIdTypeof,
+    BuiltinFnIdExpect,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
@@ -1769,6 +1770,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdFloatOp,
     ZigLLVMFnIdBswap,
     ZigLLVMFnIdBitReverse,
+    ZigLLVMFnIdExpect,
 };
 
 // There are a bunch of places in code that rely on these values being in
@@ -1810,6 +1812,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } bit_reverse;
+        struct {
+            uint32_t int_size;
+        } expect;
     } data;
 };
 
@@ -2401,6 +2406,7 @@ enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdDeclVarSrc,
     IrInstructionIdDeclVarGen,
+    IrInstructionIdExpect,
     IrInstructionIdBr,
     IrInstructionIdCondBr,
     IrInstructionIdSwitchBr,
@@ -2602,6 +2608,13 @@ struct IrInstructionDeclVarGen {
 
     ZigVar *var;
     IrInstruction *var_ptr;
+};
+
+struct IrInstructionExpect {
+    IrInstruction base;
+
+    IrInstruction *value;
+    IrInstruction *expected;
 };
 
 struct IrInstructionCondBr {

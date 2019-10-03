@@ -222,6 +222,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "FrameSizeGen";
         case IrInstructionIdAlignOf:
             return "AlignOf";
+        case IrInstructionIdExpect:
+            return "Expect";
         case IrInstructionIdOverflowOp:
             return "OverflowOp";
         case IrInstructionIdTestErrSrc:
@@ -1358,6 +1360,14 @@ static void ir_print_align_of(IrPrint *irp, IrInstructionAlignOf *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_expect(IrPrint *irp, IrInstructionExpect *instruction) {
+    fprintf(irp->f, "@expect(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->expected);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_overflow_op(IrPrint *irp, IrInstructionOverflowOp *instruction) {
     switch (instruction->op) {
         case IrOverflowOpAdd:
@@ -2243,6 +2253,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdAlignOf:
             ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);
+            break;
+        case IrInstructionIdExpect:
+            ir_print_expect(irp, (IrInstructionExpect *)instruction);
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);

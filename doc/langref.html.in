@@ -7003,6 +7003,16 @@ test "main" {
       </p>
       {#header_close#}
 
+      {#header_open|@expect#}
+      <pre>{#syntax#}@expect(value: var, comptime expected: @typeOf(value)) @typeOf(value){#endsyntax#}</pre>
+      <p>
+      Provide optimization hint to the compiler. Can be used on {#link|integers|Integers#}, {#syntax#}bools{#endsyntax#}, and {#link|enums|enum#}.
+      </p>
+      <p>
+      Tell the compiler that {#syntax#}value{#endsyntax#} is very likely to be {#syntax#}expected{#endsyntax#}. The compiler may ignore this. This may override the branch predictor rather than just provide its default state, and can result in reduced performance (PowerPC disabled branch prediction override by default due to misuse of such hints).
+      </p>
+      {#header_close#}
+
       {#header_open|@export#}
       <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) void{#endsyntax#}</pre>
       <p>

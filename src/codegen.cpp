@@ -741,6 +741,31 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, ZigType *operand_type, AddSu
     return fn_val;
 }
 
+
+static LLVMValueRef get_expect_fn(CodeGen *g, uint32_t int_size) {
+    ZigLLVMFnKey key = {};
+    key.id = ZigLLVMFnIdExpect;
+    key.data.expect.int_size = int_size;
+
+    auto existing_entry = g->llvm_fn_table.maybe_get(key);
+    if (existing_entry)
+        return existing_entry->value;
+
+    char fn_name[64];
+    sprintf(fn_name, "llvm.expect.i%" PRIu32, int_size);
+    LLVMTypeRef param_types[2] = {
+        LLVMIntType(int_size),
+        LLVMIntType(int_size),
+    };
+    LLVMTypeRef return_type = LLVMIntType(int_size);
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type, param_types, 2, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
+    assert(LLVMGetIntrinsicID(fn_val));
+
+    g->llvm_fn_table.put(key, fn_val);
+    return fn_val;
+}
+
 static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn_id, BuiltinFnId op) {
     assert(type_entry->id == ZigTypeIdFloat ||
            type_entry->id == ZigTypeIdVector);
@@ -5326,6 +5351,67 @@ static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp
     return overflow_bit;
 }
 
+static LLVMValueRef ir_render_expect(CodeGen *g, IrExecutable *executable, IrInstructionExpect *instruction) {
+    uint32_t int_size;
+    ZigType *type = instruction->base.value.type;
+
+    switch (type->id) {
+        case ZigTypeIdInvalid:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdFloat:
+        case ZigTypeIdArray:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdArgTuple:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdVector:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion:
+        case ZigTypeIdEnumLiteral: // This is supported in the expected value side
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull: // as are these
+            zig_unreachable();
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdFn:
+        case ZigTypeIdPointer:
+            int_size = g->builtin_types.entry_usize->data.integral.bit_count;
+            break;
+        case ZigTypeIdEnum:
+            int_size = type->data.enumeration.tag_int_type->data.integral.bit_count;
+            break;
+        case ZigTypeIdOptional:
+            int_size = 1;
+            break;
+        case ZigTypeIdErrorUnion:
+            zig_panic("TODO Error Union with @expect()");
+            break;
+        case ZigTypeIdInt:
+            int_size = type->data.integral.bit_count;
+            break;
+        case ZigTypeIdBool:
+            int_size = 1;
+            break;
+    }
+
+    LLVMValueRef fn_val = get_expect_fn(g, int_size);
+
+
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->value);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->expected);
+
+    LLVMValueRef params[] = {
+        op1,
+        op2,
+    };
+
+    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+}
+
 static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, IrInstructionOverflowOp *instruction) {
     AddSubMul add_sub_mul;
     switch (instruction->op) {
@@ -6151,6 +6237,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
         case IrInstructionIdFrameHandle:
             return ir_render_handle(g, executable, (IrInstructionFrameHandle *)instruction);
+        case IrInstructionIdExpect:
+            return ir_render_expect(g, executable, (IrInstructionExpect *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErrGen:
@@ -7925,6 +8013,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdType, "Type", 1);
     create_builtin_fn(g, BuiltinFnIdHasField, "hasField", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
+    create_builtin_fn(g, BuiltinFnIdExpect, "expect", 2);
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdMulWithOverflow, "mulWithOverflow", 4);
