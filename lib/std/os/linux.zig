@@ -328,7 +328,9 @@ pub fn faccessat(dirfd: i32, path: [*]const u8, mode: u32, flags: u32) usize {
 }
 
 pub fn pipe(fd: *[2]i32) usize {
-    if (@hasDecl(@This(), "SYS_pipe")) {
+    if (builtin.arch == .mipsel) {
+        return syscall_pipe(fd);
+    } else if (@hasDecl(@This(), "SYS_pipe")) {
         return syscall1(SYS_pipe, @ptrToInt(fd));
     } else {
         return syscall2(SYS_pipe2, @ptrToInt(fd), 0);
