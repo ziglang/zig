@@ -1724,7 +1724,6 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     return instruction->llvm_value;
 }
 
-ATTRIBUTE_NORETURN
 void codegen_report_errors_and_exit(CodeGen *g) {
     assert(g->errors.length != 0);
     for (size_t i = 0; i < g->errors.length; i += 1) {
