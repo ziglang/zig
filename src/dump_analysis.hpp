@@ -12,6 +12,6 @@
 #include <stdio.h>
 
 void zig_print_stack_report(CodeGen *g, FILE *f);
-void zig_print_analysis_dump(CodeGen *g, FILE *f);
+void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const char *nl);
 
 #endif

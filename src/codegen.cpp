@@ -10158,6 +10158,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->is_dummy_so);
     cache_bool(ch, g->function_sections);
     cache_bool(ch, g->enable_dump_analysis);
+    cache_bool(ch, g->enable_doc_generation);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -10347,12 +10348,48 @@ void codegen_build_and_link(CodeGen *g) {
                 fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
                 exit(1);
             }
-            zig_print_analysis_dump(g, f);
+            zig_print_analysis_dump(g, f, " ", "\n");
             if (fclose(f) != 0) {
                 fprintf(stderr, "Unable to write '%s': %s\n", analysis_json_filename, strerror(errno));
                 exit(1);
             }
+        }
+        if (g->enable_doc_generation) {
+            Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "doc", buf_ptr(g->output_dir));
+            if ((err = os_make_path(doc_dir_path))) {
+                fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
+                exit(1);
+            }
+            Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "doc" OS_SEP "index.html",
+                    buf_ptr(g->zig_std_dir));
+            Buf *index_html_dest_path = buf_sprintf("%s" OS_SEP "index.html", buf_ptr(doc_dir_path));
+            Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "doc" OS_SEP "main.js",
+                    buf_ptr(g->zig_std_dir));
+            Buf *main_js_dest_path = buf_sprintf("%s" OS_SEP "main.js", buf_ptr(doc_dir_path));
 
+            if ((err = os_copy_file(index_html_src_path, index_html_dest_path))) {
+                fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(index_html_src_path),
+                        buf_ptr(index_html_dest_path), err_str(err));
+                exit(1);
+            }
+            if ((err = os_copy_file(main_js_src_path, main_js_dest_path))) {
+                fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(main_js_src_path),
+                        buf_ptr(main_js_dest_path), err_str(err));
+                exit(1);
+            }
+            const char *data_js_filename = buf_ptr(buf_sprintf("%s" OS_SEP "data.js", buf_ptr(doc_dir_path)));
+            FILE *f = fopen(data_js_filename, "wb");
+            if (f == nullptr) {
+                fprintf(stderr, "Unable to open '%s': %s\n", data_js_filename, strerror(errno));
+                exit(1);
+            }
+            fprintf(f, "zigAnalysis=");
+            zig_print_analysis_dump(g, f, "", "");
+            fprintf(f, ";");
+            if (fclose(f) != 0) {
+                fprintf(stderr, "Unable to write '%s': %s\n", data_js_filename, strerror(errno));
+                exit(1);
+            }
         }
 
         // If we're outputting assembly or llvm IR we skip linking.

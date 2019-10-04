@@ -688,12 +688,12 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     jw_end_object(jw);
 }
 
-void zig_print_analysis_dump(CodeGen *g, FILE *f) {
+void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const char *nl) {
     Error err;
     AnalDumpCtx ctx = {};
     ctx.g = g;
     JsonWriter *jw = &ctx.jw;
-    jw_init(jw, f, " ", "\n");
+    jw_init(jw, f, one_indent, nl);
     ctx.type_map.init(16);
     ctx.pkg_map.init(16);
     ctx.file_map.init(16);
@@ -728,6 +728,9 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f) {
         Buf triple_buf = BUF_INIT;
         target_triple_zig(&triple_buf, g->zig_target);
         jw_string(jw, buf_ptr(&triple_buf));
+
+        jw_object_field(jw, "rootName");
+        jw_string(jw, buf_ptr(g->root_out_name));
     }
     jw_end_object(jw);
 
