@@ -44,7 +44,7 @@ static void jw_nl_indent(JsonWriter *jw) {
     assert(jw->state_index >= 1);
     fprintf(jw->f, "%s", jw->nl);
     for (size_t i = 0; i < jw->state_index - 1; i += 1) {
-        fprintf(jw->f, jw->one_indent);
+        fprintf(jw->f, "%s", jw->one_indent);
     }
 }
 
