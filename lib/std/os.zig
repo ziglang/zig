@@ -2726,6 +2726,38 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     @compileError("TODO implement gethostname for this OS");
 }
 
+pub fn getNProcs() u32 {
+    return getNProcsReal() catch return 2; // This is what glibc returns if it doesn't know.
+}
+
+pub fn getNProcsReal() !u32 {
+    switch (builtin.os) {
+    .linux => {
+        var buf: [512]u8 = undefined;
+        var file = try std.fs.File.openReadC(c"/sys/devices/system/cpu/online");
+        var size = try file.read(buf[0..]);
+        var start: u32 = 0;
+        var cur: []u8 = buf[0..];
+        while (cur[0] >= '0' and cur[0] <= '9') : (cur = cur[1..]) {
+            start *= 10;
+            start += cur[0] - '0';
+        }
+        if (cur[0] != '-') return error.Unexpected;
+        cur = cur[1..];
+        var end: u32 = 0;
+        while (cur[0] >= '0' and cur[0] <= '9') : (cur = cur[1..]) {
+            end *= 10;
+            end += cur[0] - '0';
+        }
+        if (cur[0] != '\n') return error.Unexpected;
+        var nprocs: u32 = if (end < start) 0 else end - start + 1;
+        if (nprocs > 0) return nprocs;
+    },
+    else => {},
+    }
+    return error.Unknown;
+}
+
 test "" {
     _ = @import("os/darwin.zig");
     _ = @import("os/freebsd.zig");
