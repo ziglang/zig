@@ -5,22 +5,52 @@
     <title>Documentation - Zig</title>
     <link rel="icon" href="favicon.png">
     <style type="text/css">
-      .hidden {
-          display: none;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        body{
-            background-color: #111;
-            color: #bbb;
+        body {
+            font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        }
+        .hidden {
+            display: none;
         }
         a {
-            color: #88f;
+            color: #2A6286;
         }
-      }
+        #listNav {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #333;
+        }
+        #listNav li {
+            float:left;
+        }
+        #listNav li a {
+            display: block;
+            color: #fff;
+            text-align: center;
+            padding: .8em .8em;
+            text-decoration: none;
+        }
+        #listNav li a:hover {
+            background-color: #111;
+        }
+        #listNav li a.active {
+            background-color: #4CAF50;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body{
+                background-color: #111;
+                color: #bbb;
+            }
+            a {
+                color: #88f;
+            }
+        }
     </style>
   </head>
   <body>
+    <div id="sectNav"><ul id="listNav"></ul></div>
     <p id="status">Loading...</p>
     <div id="sectPkgs" class="hidden">
         <h2>Packages</h2>
@@ -30,6 +60,11 @@
     <div id="sectTypes" class="hidden">
         <h2>Types</h2>
         <ul id="listTypes">
+        </ul>
+    </div>
+    <div id="sectFns" class="hidden">
+        <h2>Functions</h2>
+        <ul id="listFns">
         </ul>
     </div>
     <script src="data.js"></script>
