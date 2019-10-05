@@ -17673,8 +17673,7 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     if (!is_slice(bare_struct_type)) {
         ScopeDecls *container_scope = get_container_scope(bare_struct_type);
         assert(container_scope != nullptr);
-        auto entry = container_scope->decl_table.maybe_get(field_name);
-        Tld *tld = entry ? entry->value : nullptr;
+        auto tld = find_container_decl(ira->codegen, container_scope, field_name);
         if (tld) {
             if (tld->id == TldIdFn) {
                 resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
