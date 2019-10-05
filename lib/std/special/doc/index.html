@@ -14,6 +14,12 @@
         a {
             color: #2A6286;
         }
+        pre{
+            font-family:"Source Code Pro",monospace;
+            font-size:1em;
+            background-color:#F5F5F5;
+            padding:1em;
+        }
         #listNav {
             list-style-type: none;
             margin: 0;
@@ -46,12 +52,18 @@
             a {
                 color: #88f;
             }
+            pre{
+                background-color:#2A2A2A;
+            }
         }
     </style>
   </head>
   <body>
-    <div id="sectNav"><ul id="listNav"></ul></div>
     <p id="status">Loading...</p>
+    <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
+    <div id="fnProto" class="hidden">
+      <pre id="fnProtoCode"></pre>
+    </div>
     <div id="sectPkgs" class="hidden">
         <h2>Packages</h2>
         <ul id="listPkgs">
