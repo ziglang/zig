@@ -650,22 +650,46 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
                 // TODO
                 break;
             }
-            jw_object_field(jw, "decls");
-            jw_begin_array(jw);
 
-            ScopeDecls *decls_scope = ty->data.structure.decls_scope;
-            auto it = decls_scope->decl_table.entry_iterator();
-            for (;;) {
-                auto *entry = it.next();
-                if (!entry)
-                    break;
+            {
+                jw_object_field(jw, "pubDecls");
+                jw_begin_array(jw);
 
-                Tld *tld = entry->value;
+                ScopeDecls *decls_scope = ty->data.structure.decls_scope;
+                auto it = decls_scope->decl_table.entry_iterator();
+                for (;;) {
+                    auto *entry = it.next();
+                    if (!entry)
+                        break;
 
-                jw_array_elem(jw);
-                anal_dump_decl_ref(ctx, tld);
+                    Tld *tld = entry->value;
+                    if (tld->visib_mod == VisibModPub) {
+                        jw_array_elem(jw);
+                        anal_dump_decl_ref(ctx, tld);
+                    }
+                }
+                jw_end_array(jw);
             }
-            jw_end_array(jw);
+
+            {
+                jw_object_field(jw, "privDecls");
+                jw_begin_array(jw);
+
+                ScopeDecls *decls_scope = ty->data.structure.decls_scope;
+                auto it = decls_scope->decl_table.entry_iterator();
+                for (;;) {
+                    auto *entry = it.next();
+                    if (!entry)
+                        break;
+
+                    Tld *tld = entry->value;
+                    if (tld->visib_mod == VisibModPrivate) {
+                        jw_array_elem(jw);
+                        anal_dump_decl_ref(ctx, tld);
+                    }
+                }
+                jw_end_array(jw);
+            }
 
             if (ty->data.structure.root_struct != nullptr) {
                 Buf *path_buf = ty->data.structure.root_struct->path;
