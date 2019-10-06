@@ -115,6 +115,25 @@ pub var tls_image: ?TLSImage = null;
 
 pub fn setThreadPointer(addr: usize) void {
     switch (builtin.arch) {
+        .i386 => {
+            const desc = std.os.linux.UserDesc{
+                .base_addr = addr,
+                .limit = 4096,
+                .seg_32bit = 1,
+                .contents = 0,
+                .read_exec_only = 0,
+                .limit_in_pages = 1,
+                .seg_not_present = 0,
+                .useable = 1,
+                .entry_num = @bitCast(u32, i32(-1)),
+            };
+            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_thread_area, @ptrToInt(&desc));
+            assert(rc == 0);
+            asm volatile ("movl %[entry_num], %%fs"
+                :
+                : [entry_num] "r" (desc.entry_num)
+            );
+        },
         .x86_64 => {
             const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, std.os.linux.ARCH_SET_FS, addr);
             assert(rc == 0);
