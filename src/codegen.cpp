@@ -10355,15 +10355,15 @@ void codegen_build_and_link(CodeGen *g) {
             }
         }
         if (g->enable_doc_generation) {
-            Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "doc", buf_ptr(g->output_dir));
+            Buf *doc_dir_path = buf_sprintf("%s" OS_SEP "docs", buf_ptr(g->output_dir));
             if ((err = os_make_path(doc_dir_path))) {
                 fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
                 exit(1);
             }
-            Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "doc" OS_SEP "index.html",
+            Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "index.html",
                     buf_ptr(g->zig_std_dir));
             Buf *index_html_dest_path = buf_sprintf("%s" OS_SEP "index.html", buf_ptr(doc_dir_path));
-            Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "doc" OS_SEP "main.js",
+            Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "special" OS_SEP "docs" OS_SEP "main.js",
                     buf_ptr(g->zig_std_dir));
             Buf *main_js_dest_path = buf_sprintf("%s" OS_SEP "main.js", buf_ptr(doc_dir_path));
 

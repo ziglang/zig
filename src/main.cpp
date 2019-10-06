@@ -65,7 +65,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -ftime-report                print timing diagnostics\n"
         "  -fstack-report               print stack size diagnostics\n"
         "  -fdump-analysis              write analysis.json file with type information\n"
-        "  -fgenerate-docs              create a doc/ dir with html documentation\n"
+        "  -fgenerate-docs              create a docs/ dir with html documentation\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
