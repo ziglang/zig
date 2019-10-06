@@ -1,10 +1,22 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
 export var _tls_start: u8 linksection(".tls") = 0;
 export var _tls_end: u8 linksection(".tls$ZZZ") = 0;
 export var __xl_a: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = null;
 export var __xl_z: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
+
+comptime {
+    if (builtin.arch == .i386) {
+        // The __tls_array is the offset of the ThreadLocalStoragePointer field
+        // in the TEB block whose base address held in the %fs segment.
+        asm (
+            \\ .global __tls_array
+            \\ __tls_array = 0x2C
+        );
+    }
+}
 
 // TODO this is how I would like it to be expressed
 // TODO also note, ReactOS has a +1 on StartAddressOfRawData and AddressOfCallBacks. Investigate

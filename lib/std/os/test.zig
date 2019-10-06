@@ -116,7 +116,6 @@ test "AtomicFile" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
-    if (builtin.os == .windows) return error.SkipZigTest;
     const thread1 = try Thread.spawn({}, testTls);
     const thread2 = try Thread.spawn({}, testTls);
     testTls({});
