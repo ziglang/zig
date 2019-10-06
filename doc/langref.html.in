@@ -552,8 +552,7 @@ pub fn main() void {
       <p>
       Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
-      and character literals. Once https://github.com/ziglang/zig/issues/2097 is implemented,
-      character literals will be allowed to have a single UTF-8 encoded codepoint.
+      and character literals.
       </p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
@@ -567,6 +566,7 @@ test "string literals" {
     assert(normal_bytes[1] == 'e');
     assert('e' == '\x65');
     assert('\u{1f4a9}' == 128169);
+    assert('💯' == 128175);
     assert(mem.eql(u8, "hello", "h\x65llo"));
 
     // A C string literal is a null terminated pointer.

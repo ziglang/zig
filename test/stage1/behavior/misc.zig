@@ -699,6 +699,10 @@ test "unicode escape in character literal" {
     expect(a == 128169);
 }
 
+test "unicode character in character literal" {
+    expect('💩' == 128169);
+}
+
 test "result location zero sized array inside struct field implicit cast to slice" {
     const E = struct {
         entries: []u32,

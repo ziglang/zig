@@ -371,6 +371,7 @@ pub const Tokenizer = struct {
         CharLiteralUnicodeEscapeSawU,
         CharLiteralUnicodeEscape,
         CharLiteralUnicodeInvalid,
+        CharLiteralUnicode,
         CharLiteralEnd,
         Backslash,
         Equal,
@@ -427,6 +428,7 @@ pub const Tokenizer = struct {
             .end = undefined,
         };
         var seen_escape_digits: usize = undefined;
+        var remaining_code_units: usize = undefined;
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
@@ -774,16 +776,23 @@ pub const Tokenizer = struct {
                     '\\' => {
                         state = State.CharLiteralBackslash;
                     },
-                    '\'' => {
+                    '\'', 0x80...0xbf, 0xf8...0xff => {
                         result.id = Token.Id.Invalid;
                         break;
                     },
+                    0xc0...0xdf => { // 110xxxxx
+                        remaining_code_units = 1;
+                        state = State.CharLiteralUnicode;
+                    },
+                    0xe0...0xef => { // 1110xxxx
+                        remaining_code_units = 2;
+                        state = State.CharLiteralUnicode;
+                    },
+                    0xf0...0xf7 => { // 11110xxx
+                        remaining_code_units = 3;
+                        state = State.CharLiteralUnicode;
+                    },
                     else => {
-                        if (c < 0x20 or c == 0x7f) {
-                            result.id = Token.Id.Invalid;
-                            break;
-                        }
-
                         state = State.CharLiteralEnd;
                     },
                 },
@@ -860,6 +869,19 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.CharLiteral;
                         self.index += 1;
                         break;
+                    },
+                    else => {
+                        result.id = Token.Id.Invalid;
+                        break;
+                    },
+                },
+
+                State.CharLiteralUnicode => switch (c) {
+                    0x80...0xbf => {
+                        remaining_code_units -= 1;
+                        if (remaining_code_units == 0) {
+                            state = State.CharLiteralEnd;
+                        }
                     },
                     else => {
                         result.id = Token.Id.Invalid;
@@ -1220,6 +1242,7 @@ pub const Tokenizer = struct {
                 State.CharLiteralUnicodeEscape,
                 State.CharLiteralUnicodeInvalid,
                 State.CharLiteralEnd,
+                State.CharLiteralUnicode,
                 State.StringLiteralBackslash,
                 State.LBracketStar,
                 State.LBracketStarC,
@@ -1426,6 +1449,12 @@ test "tokenizer - char literal with unicode escapes" {
     testTokenize(
         \\'\U0333'
     , [_]Token.Id{ .Invalid, .IntegerLiteral, .Invalid });
+}
+
+test "tokenizer - char literal with unicode code point" {
+    testTokenize(
+        \\'💩'
+    , [_]Token.Id{.CharLiteral});
 }
 
 test "tokenizer - float literal e exponent" {
