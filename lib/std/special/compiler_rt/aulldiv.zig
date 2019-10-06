@@ -1,55 +1,76 @@
+const builtin = @import("builtin");
+
+pub extern stdcallcc fn _alldiv(a: i64, b: i64) i64 {
+    @setRuntimeSafety(builtin.is_test);
+    const s_a = a >> (i64.bit_count - 1);
+    const s_b = b >> (i64.bit_count - 1);
+
+    const an = (a ^ s_a) -% s_a;
+    const bn = (b ^ s_b) -% s_b;
+
+    const r = @bitCast(u64, an) / @bitCast(u64, bn);
+    const s = s_a ^ s_b;
+    return (@bitCast(i64, r) ^ s) -% s;
+}
+
 pub nakedcc fn _aulldiv() void {
     @setRuntimeSafety(false);
+
+    // The stack layout is:
+    // ESP+16 divisor (hi)
+    // ESP+12 divisor (low)
+    // ESP+8 dividend (hi)
+    // ESP+4 dividend (low)
+    // ESP   return address
+
     asm volatile (
-        \\.intel_syntax noprefix
-        \\
-        \\         push        ebx
-        \\         push        esi
-        \\         mov         eax,dword ptr [esp+18h]
-        \\         or          eax,eax
-        \\         jne         L1
-        \\         mov         ecx,dword ptr [esp+14h]
-        \\         mov         eax,dword ptr [esp+10h]
-        \\         xor         edx,edx
-        \\         div         ecx
-        \\         mov         ebx,eax
-        \\         mov         eax,dword ptr [esp+0Ch]
-        \\         div         ecx
-        \\         mov         edx,ebx
-        \\         jmp         L2
-        \\ L1:
-        \\         mov         ecx,eax
-        \\         mov         ebx,dword ptr [esp+14h]
-        \\         mov         edx,dword ptr [esp+10h]
-        \\         mov         eax,dword ptr [esp+0Ch]
-        \\ L3:
-        \\         shr         ecx,1
-        \\         rcr         ebx,1
-        \\         shr         edx,1
-        \\         rcr         eax,1
-        \\         or          ecx,ecx
-        \\         jne         L3
-        \\         div         ebx
-        \\         mov         esi,eax
-        \\         mul         dword ptr [esp+18h]
-        \\         mov         ecx,eax
-        \\         mov         eax,dword ptr [esp+14h]
-        \\         mul         esi
-        \\         add         edx,ecx
-        \\         jb          L4
-        \\         cmp         edx,dword ptr [esp+10h]
-        \\         ja          L4
-        \\         jb          L5
-        \\         cmp         eax,dword ptr [esp+0Ch]
-        \\         jbe         L5
-        \\ L4:
-        \\         dec         esi
-        \\ L5:
-        \\         xor         edx,edx
-        \\         mov         eax,esi
-        \\ L2:
-        \\         pop         esi
-        \\         pop         ebx
-        \\         ret         10h
+        \\  push   %%ebx
+        \\  push   %%esi
+        \\  mov    0x18(%%esp),%%eax
+        \\  or     %%eax,%%eax
+        \\  jne    1f
+        \\  mov    0x14(%%esp),%%ecx
+        \\  mov    0x10(%%esp),%%eax
+        \\  xor    %%edx,%%edx
+        \\  div    %%ecx
+        \\  mov    %%eax,%%ebx
+        \\  mov    0xc(%%esp),%%eax
+        \\  div    %%ecx
+        \\  mov    %%ebx,%%edx
+        \\  jmp    5f
+        \\ 1:
+        \\  mov    %%eax,%%ecx
+        \\  mov    0x14(%%esp),%%ebx
+        \\  mov    0x10(%%esp),%%edx
+        \\  mov    0xc(%%esp),%%eax
+        \\ 2:
+        \\  shr    %%ecx
+        \\  rcr    %%ebx
+        \\  shr    %%edx
+        \\  rcr    %%eax
+        \\  or     %%ecx,%%ecx
+        \\  jne    2b
+        \\  div    %%ebx
+        \\  mov    %%eax,%%esi
+        \\  mull   0x18(%%esp)
+        \\  mov    %%eax,%%ecx
+        \\  mov    0x14(%%esp),%%eax
+        \\  mul    %%esi
+        \\  add    %%ecx,%%edx
+        \\  jb     3f
+        \\  cmp    0x10(%%esp),%%edx
+        \\  ja     3f
+        \\  jb     4f
+        \\  cmp    0xc(%%esp),%%eax
+        \\  jbe    4f
+        \\ 3:
+        \\  dec    %%esi
+        \\ 4:
+        \\  xor    %%edx,%%edx
+        \\  mov    %%esi,%%eax
+        \\ 5:
+        \\  pop    %%esi
+        \\  pop    %%ebx
+        \\  ret    $0x10
     );
 }

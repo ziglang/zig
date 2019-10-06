@@ -8727,6 +8727,9 @@ static void init(CodeGen *g) {
         // Be aware of https://github.com/ziglang/zig/issues/3275
         target_specific_cpu_args = "";
         target_specific_features = riscv_default_features;
+    } else if (g->zig_target->arch == ZigLLVM_x86) {
+        target_specific_cpu_args = "pentium4";
+        target_specific_features = "";
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";

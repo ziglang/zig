@@ -687,6 +687,9 @@ fn getNull() ?*i32 {
 }
 
 test "thread local variable" {
+    if (builtin.os == .windows and builtin.arch == .i386)
+        return error.SkipZigTest;
+
     const S = struct {
         threadlocal var t: i32 = 1234;
     };

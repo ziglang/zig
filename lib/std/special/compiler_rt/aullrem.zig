@@ -1,56 +1,77 @@
+const builtin = @import("builtin");
+
+pub extern stdcallcc fn _allrem(a: i64, b: i64) i64 {
+    @setRuntimeSafety(builtin.is_test);
+    const s_a = a >> (i64.bit_count - 1);
+    const s_b = b >> (i64.bit_count - 1);
+
+    const an = (a ^ s_a) -% s_a;
+    const bn = (b ^ s_b) -% s_b;
+
+    const r = @bitCast(u64, an) % @bitCast(u64, bn);
+    const s = s_a ^ s_b;
+    return (@bitCast(i64, r) ^ s) -% s;
+}
+
 pub nakedcc fn _aullrem() void {
     @setRuntimeSafety(false);
+
+    // The stack layout is:
+    // ESP+16 divisor (hi)
+    // ESP+12 divisor (low)
+    // ESP+8 dividend (hi)
+    // ESP+4 dividend (low)
+    // ESP   return address
+
     asm volatile (
-        \\.intel_syntax noprefix
-        \\
-        \\         push        ebx
-        \\         mov         eax,dword ptr [esp+14h]
-        \\         or          eax,eax
-        \\         jne         L1a
-        \\         mov         ecx,dword ptr [esp+10h]
-        \\         mov         eax,dword ptr [esp+0Ch]
-        \\         xor         edx,edx
-        \\         div         ecx
-        \\         mov         eax,dword ptr [esp+8]
-        \\         div         ecx
-        \\         mov         eax,edx
-        \\         xor         edx,edx
-        \\         jmp         L2a
-        \\ L1a:
-        \\         mov         ecx,eax
-        \\         mov         ebx,dword ptr [esp+10h]
-        \\         mov         edx,dword ptr [esp+0Ch]
-        \\         mov         eax,dword ptr [esp+8]
-        \\ L3a:
-        \\         shr         ecx,1
-        \\         rcr         ebx,1
-        \\         shr         edx,1
-        \\         rcr         eax,1
-        \\         or          ecx,ecx
-        \\         jne         L3a
-        \\         div         ebx
-        \\         mov         ecx,eax
-        \\         mul         dword ptr [esp+14h]
-        \\         xchg        eax,ecx
-        \\         mul         dword ptr [esp+10h]
-        \\         add         edx,ecx
-        \\         jb          L4a
-        \\         cmp         edx,dword ptr [esp+0Ch]
-        \\         ja          L4a
-        \\         jb          L5a
-        \\         cmp         eax,dword ptr [esp+8]
-        \\         jbe         L5a
-        \\ L4a:
-        \\         sub         eax,dword ptr [esp+10h]
-        \\         sbb         edx,dword ptr [esp+14h]
-        \\ L5a:
-        \\         sub         eax,dword ptr [esp+8]
-        \\         sbb         edx,dword ptr [esp+0Ch]
-        \\         neg         edx
-        \\         neg         eax
-        \\         sbb         edx,0
-        \\ L2a:
-        \\         pop         ebx
-        \\         ret         10h
+        \\  push   %%ebx
+        \\  mov    0x14(%%esp),%%eax
+        \\  or     %%eax,%%eax
+        \\  jne    1f
+        \\  mov    0x10(%%esp),%%ecx
+        \\  mov    0xc(%%esp),%%eax
+        \\  xor    %%edx,%%edx
+        \\  div    %%ecx
+        \\  mov    0x8(%%esp),%%eax
+        \\  div    %%ecx
+        \\  mov    %%edx,%%eax
+        \\  xor    %%edx,%%edx
+        \\  jmp    6f
+        \\ 1:
+        \\  mov    %%eax,%%ecx
+        \\  mov    0x10(%%esp),%%ebx
+        \\  mov    0xc(%%esp),%%edx
+        \\  mov    0x8(%%esp),%%eax
+        \\ 2:
+        \\  shr    %%ecx
+        \\  rcr    %%ebx
+        \\  shr    %%edx
+        \\  rcr    %%eax
+        \\  or     %%ecx,%%ecx
+        \\  jne    2b
+        \\  div    %%ebx
+        \\  mov    %%eax,%%ecx
+        \\  mull   0x14(%%esp)
+        \\  xchg   %%eax,%%ecx
+        \\  mull   0x10(%%esp)
+        \\  add    %%ecx,%%edx
+        \\  jb     3f
+        \\  cmp    0xc(%%esp),%%edx
+        \\  ja     3f
+        \\  jb     4f
+        \\  cmp    0x8(%%esp),%%eax
+        \\  jbe    4f
+        \\ 3:
+        \\  sub    0x10(%%esp),%%eax
+        \\  sbb    0x14(%%esp),%%edx
+        \\ 4:
+        \\  sub    0x8(%%esp),%%eax
+        \\  sbb    0xc(%%esp),%%edx
+        \\  neg    %%edx
+        \\  neg    %%eax
+        \\  sbb    $0x0,%%edx
+        \\ 6:
+        \\  pop    %%ebx
+        \\  ret    $0x10
     );
 }
