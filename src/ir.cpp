@@ -7945,7 +7945,15 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(irb->codegen->errors_by_index.length + err_count);
 
     for (uint32_t i = 0; i < err_count; i += 1) {
-        AstNode *symbol_node = node->data.err_set_decl.decls.at(i);
+        AstNode *field_node = node->data.err_set_decl.decls.at(i);
+        AstNode *symbol_node;
+        if (field_node->type == NodeTypeSymbol) {
+            symbol_node = field_node;
+        } else if (field_node->type == NodeTypeErrorSetField) {
+            symbol_node = field_node->data.err_set_field.field_name;
+        } else {
+            zig_unreachable();
+        }
         assert(symbol_node->type == NodeTypeSymbol);
         Buf *err_name = symbol_node->data.symbol_expr.symbol;
         ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
@@ -8116,6 +8124,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeStructField:
+        case NodeTypeErrorSetField:
         case NodeTypeFnDef:
         case NodeTypeTestDecl:
             zig_unreachable();

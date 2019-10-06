@@ -10097,7 +10097,7 @@ TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 TopLevelDecl
     &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
-     / KEYWORD_use Expr SEMICOLON
+     / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
 

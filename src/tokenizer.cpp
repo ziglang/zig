@@ -196,6 +196,8 @@ enum TokenizeState {
     TokenizeStateSawStar,
     TokenizeStateSawStarPercent,
     TokenizeStateSawSlash,
+    TokenizeStateSawSlash2,
+    TokenizeStateSawSlash3,
     TokenizeStateSawBackslash,
     TokenizeStateSawPercent,
     TokenizeStateSawPlus,
@@ -206,6 +208,7 @@ enum TokenizeState {
     TokenizeStateSawCaret,
     TokenizeStateSawBar,
     TokenizeStateSawBarBar,
+    TokenizeStateDocComment,
     TokenizeStateLineComment,
     TokenizeStateLineString,
     TokenizeStateLineStringEnd,
@@ -910,8 +913,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             case TokenizeStateSawSlash:
                 switch (c) {
                     case '/':
-                        cancel_token(&t);
-                        t.state = TokenizeStateLineComment;
+                        t.state = TokenizeStateSawSlash2;
                         break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdDivEq);
@@ -923,6 +925,38 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         continue;
+                }
+                break;
+            case TokenizeStateSawSlash2:
+                switch (c) {
+                    case '/':
+                        t.state = TokenizeStateSawSlash3;
+                        break;
+                    case '\n':
+                        cancel_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        cancel_token(&t);
+                        t.state = TokenizeStateLineComment;
+                        break;
+                }
+                break;
+            case TokenizeStateSawSlash3:
+                switch (c) {
+                    case '/':
+                        cancel_token(&t);
+                        t.state = TokenizeStateLineComment;
+                        break;
+                    case '\n':
+                        set_token_id(&t, t.cur_tok, TokenIdDocComment);
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        set_token_id(&t, t.cur_tok, TokenIdDocComment);
+                        t.state = TokenizeStateDocComment;
+                        break;
                 }
                 break;
             case TokenizeStateSawBackslash:
@@ -997,6 +1031,17 @@ void tokenize(Buf *buf, Tokenization *out) {
             case TokenizeStateLineComment:
                 switch (c) {
                     case '\n':
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        // do nothing
+                        break;
+                }
+                break;
+            case TokenizeStateDocComment:
+                switch (c) {
+                    case '\n':
+                        end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
                     default:
@@ -1466,6 +1511,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateLineStringEnd:
         case TokenizeStateSawBarBar:
         case TokenizeStateLBracket:
+        case TokenizeStateDocComment:
             end_token(&t);
             break;
         case TokenizeStateSawDotDot:
@@ -1478,6 +1524,8 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
+        case TokenizeStateSawSlash2:
+        case TokenizeStateSawSlash3:
             break;
     }
     if (t.state != TokenizeStateError) {
@@ -1524,6 +1572,7 @@ const char * token_name(TokenId id) {
         case TokenIdComma: return ",";
         case TokenIdDash: return "-";
         case TokenIdDivEq: return "/=";
+        case TokenIdDocComment: return "DocComment";
         case TokenIdDot: return ".";
         case TokenIdEllipsis2: return "..";
         case TokenIdEllipsis3: return "...";

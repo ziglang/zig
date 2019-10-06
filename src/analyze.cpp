@@ -3572,6 +3572,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSuspend:
         case NodeTypeEnumLiteral:
         case NodeTypeAnyFrameType:
+        case NodeTypeErrorSetField:
             zig_unreachable();
     }
 }

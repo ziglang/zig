@@ -266,6 +266,8 @@ static const char *node_type_str(NodeType node_type) {
             return "AnyFrameType";
         case NodeTypeEnumLiteral:
             return "EnumLiteral";
+        case NodeTypeErrorSetField:
+            return "ErrorSetField";
     }
     zig_unreachable();
 }
@@ -1177,6 +1179,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeTestDecl:
         case NodeTypeStructField:
         case NodeTypeUsingNamespace:
+        case NodeTypeErrorSetField:
             zig_panic("TODO more ast rendering");
     }
 }

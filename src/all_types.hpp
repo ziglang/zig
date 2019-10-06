@@ -589,6 +589,7 @@ enum NodeType {
     NodeTypeIfErrorExpr,
     NodeTypeIfOptional,
     NodeTypeErrorSetDecl,
+    NodeTypeErrorSetField,
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
@@ -612,16 +613,10 @@ enum FnInline {
 };
 
 struct AstNodeFnProto {
-    VisibMod visib_mod;
     Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
     Token *return_var_token;
-    bool is_var_args;
-    bool is_extern;
-    bool is_export;
-    FnInline fn_inline;
-    CallingConvention cc;
     AstNode *fn_def_node;
     // populated if this is an extern declaration
     Buf *lib_name;
@@ -629,8 +624,16 @@ struct AstNodeFnProto {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+    Buf doc_comments;
 
+    FnInline fn_inline;
+    CallingConvention cc;
+
+    VisibMod visib_mod;
     bool auto_err_set;
+    bool is_var_args;
+    bool is_extern;
+    bool is_export;
 };
 
 struct AstNodeFnDef {
@@ -642,6 +645,7 @@ struct AstNodeParamDecl {
     Buf *name;
     AstNode *type;
     Token *var_token;
+    Buf doc_comments;
     bool is_noalias;
     bool is_comptime;
     bool is_var_args;
@@ -684,6 +688,7 @@ struct AstNodeVariableDeclaration {
     // populated if the "section(S)" is present
     AstNode *section_expr;
     Token *threadlocal_tok;
+    Buf doc_comments;
 
     VisibMod visib_mod;
     bool is_const;
@@ -957,25 +962,35 @@ enum ContainerLayout {
 };
 
 struct AstNodeContainerDecl {
-    ContainerKind kind;
+    AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
+
+    ContainerKind kind;
     ContainerLayout layout;
-    AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
+
     bool auto_enum, is_root; // union(enum)
 };
 
+struct AstNodeErrorSetField {
+    Buf doc_comments;
+    AstNode *field_name;
+};
+
 struct AstNodeErrorSetDecl {
+    // Each AstNode could be AstNodeErrorSetField or just AstNodeSymbolExpr to save memory
     ZigList<AstNode *> decls;
 };
 
 struct AstNodeStructField {
-    VisibMod visib_mod;
     Buf *name;
     AstNode *type;
     AstNode *value;
     // populated if the "align(A)" is present
     AstNode *align_expr;
+    Buf doc_comments;
+
+    VisibMod visib_mod;
 };
 
 struct AstNodeStringLiteral {
@@ -1126,6 +1141,7 @@ struct AstNode {
         AstNodeInferredArrayType inferred_array_type;
         AstNodeErrorType error_type;
         AstNodeErrorSetDecl err_set_decl;
+        AstNodeErrorSetField err_set_field;
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;

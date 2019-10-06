@@ -42,6 +42,7 @@ enum TokenId {
     TokenIdComma,
     TokenIdDash,
     TokenIdDivEq,
+    TokenIdDocComment,
     TokenIdDot,
     TokenIdEllipsis2,
     TokenIdEllipsis3,
