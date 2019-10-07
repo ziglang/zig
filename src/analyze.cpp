@@ -7320,6 +7320,14 @@ bool tld_ptr_eql(const Tld *a, const Tld *b) {
     return a == b;
 }
 
+uint32_t node_ptr_hash(const AstNode *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool node_ptr_eql(const AstNode *a, const AstNode *b) {
+    return a == b;
+}
+
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
     resolve_top_level_decl(codegen, tld, nullptr, false);

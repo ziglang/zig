@@ -1322,6 +1322,9 @@ bool pkg_ptr_eql(const ZigPackage *a, const ZigPackage *b);
 uint32_t tld_ptr_hash(const Tld *ptr);
 bool tld_ptr_eql(const Tld *a, const Tld *b);
 
+uint32_t node_ptr_hash(const AstNode *ptr);
+bool node_ptr_eql(const AstNode *a, const AstNode *b);
+
 struct ZigTypeUnion {
     AstNode *decl_node;
     TypeUnionField *fields;

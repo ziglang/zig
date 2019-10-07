@@ -503,9 +503,9 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
         if (buf->list.length == 0) {
             buf_resize(buf, 0);
         }
-        // chops off '///' and '\n'
+        // chops off '///' but leaves '\n'
         buf_append_mem(buf, buf_ptr(pc->buf) + doc_token->start_pos + 3,
-                doc_token->end_pos - doc_token->start_pos - 4);
+                doc_token->end_pos - doc_token->start_pos - 3);
     }
     return doc_token;
 }

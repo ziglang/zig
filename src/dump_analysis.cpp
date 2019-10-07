@@ -351,6 +351,9 @@ struct AnalDumpCtx {
 
     ZigList<Tld *> decl_list;
     HashMap<const Tld *, uint32_t, tld_ptr_hash, tld_ptr_eql> decl_map;
+
+    ZigList<AstNode *> node_list;
+    HashMap<const AstNode *, uint32_t, node_ptr_hash, node_ptr_eql> node_map;
 };
 
 static uint32_t anal_dump_get_type_id(AnalDumpCtx *ctx, ZigType *ty);
@@ -416,6 +419,17 @@ static uint32_t anal_dump_get_file_id(AnalDumpCtx *ctx, Buf *file) {
     return file_id;
 }
 
+static uint32_t anal_dump_get_node_id(AnalDumpCtx *ctx, AstNode *node) {
+    uint32_t node_id = ctx->node_list.length;
+    auto existing_entry = ctx->node_map.put_unique(node, node_id);
+    if (existing_entry == nullptr) {
+        ctx->node_list.append(node);
+    } else {
+        node_id = existing_entry->value;
+    }
+    return node_id;
+}
+
 static uint32_t anal_dump_get_decl_id(AnalDumpCtx *ctx, Tld *tld) {
     uint32_t decl_id = ctx->decl_list.length;
     auto existing_entry = ctx->decl_map.put_unique(tld, decl_id);
@@ -473,6 +487,11 @@ static void anal_dump_pkg_ref(AnalDumpCtx *ctx, ZigPackage *pkg) {
 static void anal_dump_file_ref(AnalDumpCtx *ctx, Buf *file) {
     uint32_t file_id = anal_dump_get_file_id(ctx, file);
     jw_int(&ctx->jw, file_id);
+}
+
+static void anal_dump_node_ref(AnalDumpCtx *ctx, AstNode *node) {
+    uint32_t node_id = anal_dump_get_node_id(ctx, node);
+    jw_int(&ctx->jw, node_id);
 }
 
 static void anal_dump_decl_ref(AnalDumpCtx *ctx, Tld *tld) {
@@ -536,11 +555,8 @@ static void anal_dump_decl(AnalDumpCtx *ctx, Tld *tld) {
         jw_object_field(jw, "import");
         anal_dump_type_ref(ctx, tld->import);
 
-        jw_object_field(jw, "line");
-        jw_int(jw, tld->source_node->line);
-
-        jw_object_field(jw, "col");
-        jw_int(jw, tld->source_node->column);
+        jw_object_field(jw, "src");
+        anal_dump_node_ref(ctx, tld->source_node);
 
         jw_object_field(jw, "name");
         jw_string(jw, buf_ptr(tld->name));
@@ -712,6 +728,50 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     jw_end_object(jw);
 }
 
+void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
+    JsonWriter *jw = &ctx->jw;
+
+    jw_begin_object(jw);
+
+    jw_object_field(jw, "file");
+    anal_dump_file_ref(ctx, node->owner->data.structure.root_struct->path);
+
+    jw_object_field(jw, "line");
+    jw_int(jw, node->line);
+
+    jw_object_field(jw, "col");
+    jw_int(jw, node->column);
+
+    const Buf *doc_comments_buf;
+    switch (node->type) {
+        case NodeTypeParamDecl:
+            doc_comments_buf = &node->data.param_decl.doc_comments;
+            break;
+        case NodeTypeFnProto:
+            doc_comments_buf = &node->data.fn_proto.doc_comments;
+            break;
+        case NodeTypeVariableDeclaration:
+            doc_comments_buf = &node->data.variable_declaration.doc_comments;
+            break;
+        case NodeTypeErrorSetField:
+            doc_comments_buf = &node->data.err_set_field.doc_comments;
+            break;
+        case NodeTypeStructField:
+            doc_comments_buf = &node->data.struct_field.doc_comments;
+            break;
+        default:
+            doc_comments_buf = nullptr;
+            break;
+    }
+    if (doc_comments_buf->list.length != 0) {
+        jw_object_field(jw, "docs");
+        jw_string(jw, buf_ptr(doc_comments_buf));
+    }
+
+    jw_end_object(jw);
+}
+
+
 void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const char *nl) {
     Error err;
     AnalDumpCtx ctx = {};
@@ -722,6 +782,7 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     ctx.pkg_map.init(16);
     ctx.file_map.init(16);
     ctx.decl_map.init(16);
+    ctx.node_map.init(16);
 
     jw_begin_object(jw);
 
@@ -791,6 +852,15 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
         Buf *file = ctx.file_list.at(i);
         jw_array_elem(jw);
         anal_dump_file(&ctx, file);
+    }
+    jw_end_array(jw);
+
+    jw_object_field(jw, "astNodes");
+    jw_begin_array(jw);
+    for (uint32_t i = 0; i < ctx.node_list.length; i += 1) {
+        const AstNode *node = ctx.node_list.at(i);
+        jw_array_elem(jw);
+        anal_dump_node(&ctx, node);
     }
     jw_end_array(jw);
 
