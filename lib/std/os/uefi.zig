@@ -2,6 +2,8 @@ pub const protocols = @import("uefi/protocols.zig");
 pub const status = @import("uefi/status.zig");
 pub const tables = @import("uefi/tables.zig");
 
+const fmt = @import("std").fmt;
+
 const builtin = @import("builtin");
 pub const is_the_target = builtin.os == .uefi;
 
@@ -17,6 +19,21 @@ pub const Guid = extern struct {
     clock_seq_high_and_reserved: u8,
     clock_seq_low: u8,
     node: [6]u8,
+
+    pub fn format(
+        self: @This(),
+        comptime f: []const u8,
+        options: fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@typeOf(context), []const u8) Errors!void,
+    ) Errors!void {
+        if (f.len == 0) {
+            return fmt.format(context, Errors, output, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", self.time_low, self.time_mid, self.time_high_and_version, self.clock_seq_high_and_reserved, self.clock_seq_low, self.node);
+        } else {
+            @compileError("Unknown format character: '" ++ f ++ "'");
+        }
+    }
 };
 pub const Handle = *@OpaqueType();
 pub const Time = extern struct {
