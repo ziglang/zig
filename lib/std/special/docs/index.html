@@ -20,6 +20,7 @@
             font-size:1em;
             background-color:#F5F5F5;
             padding:1em;
+            overflow-x: auto;
         }
         #listNav {
             list-style-type: none;
@@ -45,6 +46,16 @@
             background-color: #4CAF50;
         }
 
+        #logo {
+            width: 5em;
+            float: left;
+            padding: 0 1em 0 0;
+        }
+
+        #search {
+            width: 90%;
+        }
+
         @media (prefers-color-scheme: dark) {
             body{
                 background-color: #111;
@@ -60,12 +71,16 @@
     </style>
   </head>
   <body>
+    <img alt="ZIG" id="logo" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCAxNTAgMTAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiNmN2E0MWQiPjxwYXRoIGQ9Im0wIDEwdjgwaDE5bDYtMTAgMTItMTBoLTE3di00MGgxNXYtMjB6bTQwIDB2MjBoNjJ2LTIwem05MSAwLTYgMTAtMTIgMTBoMTd2NDBoLTE1djIwaDM1di04MHptLTgzIDYwdjIwaDYydi0yMHoiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwYXRoIGQ9Im0zNyA3MC0xOCAyMHYtMTV6Ii8+PHBhdGggZD0ibTExMyAzMCAxOC0yMHYxNXoiLz48cGF0aCBkPSJtOTYuOTggMTAuNjMgMzYuMjgtMTAuNC04MC4yOSA4OS4xNy0zNi4yOCAxMC40eiIvPjwvZz48L3N2Zz4K"></img>
+    <input type="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
     <p id="status">Loading...</p>
     <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
     <div id="fnProto" class="hidden">
       <pre id="fnProtoCode"></pre>
     </div>
     <div id="fnDocs" class="hidden"></div>
+    <div id="sectSearchResults" class="hidden"><ul id="listSearchResults"></ul></div>
+    <div id="sectSearchNoResults" class="hidden"><p>No search results.</p></div>
     <div id="sectPkgs" class="hidden">
         <h2>Packages</h2>
         <ul id="listPkgs">
