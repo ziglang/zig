@@ -5,118 +5,127 @@
     <title>Documentation - Zig</title>
     <link rel="icon" href="favicon.png">
     <style type="text/css">
-        body {
-            font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
-            max-width: 60em;
-        }
-        .hidden {
-            display: none;
+      body {
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        max-width: 60em;
+      }
+      .hidden {
+        display: none;
+      }
+      a {
+        color: #2A6286;
+      }
+      pre{
+        font-family:"Source Code Pro",monospace;
+        font-size:1em;
+        background-color:#F5F5F5;
+        padding:1em;
+        overflow-x: auto;
+      }
+      nav {
+        width: 10em;
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+      }
+      nav h2 {
+        font-size: 1.2em;
+        text-decoration: underline;
+        margin: 0;
+        padding: 0.5em 0;
+        text-align: center;
+      }
+      nav p {
+        margin: 0;
+        padding: 0;
+        text-align: center;
+      }
+      section {
+        margin-left: 10em;
+      }
+      section h1 {
+        border-bottom: 1px dashed;
+      }
+      section h2 {
+        font-size: 1.3em;
+        margin: 0.5em 0;
+        padding: 0;
+        border-bottom: 1px solid;
+      }
+      #listNav {
+        list-style-type: none;
+        margin: 0.5em 0 0 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #333;
+      }
+      #listNav li {
+        float:left;
+      }
+      #listNav li a {
+        display: block;
+        color: #fff;
+        text-align: center;
+        padding: .5em .8em;
+        text-decoration: none;
+      }
+      #listNav li a:hover {
+        background-color: #111;
+      }
+      #listNav li a.active {
+        background-color: #4CAF50;
+      }
+
+      #listPkgs {
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+        background-color: #f1f1f1;
+      }
+      #listPkgs li a {
+        display: block;
+        color: #000;
+        padding: 8px 16px;
+        text-decoration: none;
+      }
+      #listPkgs li a:hover {
+        background-color: #555;
+        color: #fff;
+      }
+
+      #logo {
+        width: 8em;
+        padding: 0.5em 1em;
+      }
+
+      #search {
+        width: 100%;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body{
+          background-color: #111;
+          color: #bbb;
         }
         a {
-            color: #2A6286;
+          color: #88f;
         }
         pre{
-            font-family:"Source Code Pro",monospace;
-            font-size:1em;
-            background-color:#F5F5F5;
-            padding:1em;
-            overflow-x: auto;
+          background-color:#2A2A2A;
         }
-        nav {
-            width: 10em;
-            position: fixed;
-            left: 0;
-            top: 0;
-            height: 100vh;
-            overflow: auto;
-        }
-        nav h2 {
-            font-size: 1.2em;
-            text-decoration: underline;
-            margin: 0;
-            padding: 0.5em 0;
-            text-align: center;
-        }
-        nav p {
-            margin: 0;
-            padding: 0;
-            text-align: center;
-        }
-        section {
-            margin-left: 10em;
-        }
-        #listNav {
-            list-style-type: none;
-            margin: 0.5em 0 0 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: #333;
-        }
-        #listNav li {
-            float:left;
-        }
-        #listNav li a {
-            display: block;
-            color: #fff;
-            text-align: center;
-            padding: .5em .8em;
-            text-decoration: none;
-        }
-        #listNav li a:hover {
-            background-color: #111;
-        }
-        #listNav li a.active {
-            background-color: #4CAF50;
-        }
-
         #listPkgs {
-            list-style-type: none;
-            margin: 0;
-            padding: 0;
-            background-color: #f1f1f1;
+          background-color: #333;
         }
         #listPkgs li a {
-            display: block;
-            color: #000;
-            padding: 8px 16px;
-            text-decoration: none;
+          color: #fff;
         }
         #listPkgs li a:hover {
-            background-color: #555;
-            color: #fff;
+          background-color: #555;
+          color: #fff;
         }
-
-        #logo {
-            width: 8em;
-            padding: 0.5em 1em;
-        }
-
-        #search {
-            width: 100%;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body{
-                background-color: #111;
-                color: #bbb;
-            }
-            a {
-                color: #88f;
-            }
-            pre{
-                background-color:#2A2A2A;
-            }
-            #listPkgs {
-                background-color: #333;
-            }
-            #listPkgs li a {
-                color: #fff;
-            }
-            #listPkgs li a:hover {
-                background-color: #555;
-                color: #fff;
-            }
-        }
+      }
     </style>
   </head>
   <body>
@@ -141,18 +150,25 @@
     <div id="fnProto" class="hidden">
       <pre id="fnProtoCode"></pre>
     </div>
+    <h1 id="hdrName" class="hidden"></h1>
     <div id="fnDocs" class="hidden"></div>
-    <div id="sectSearchResults" class="hidden"><ul id="listSearchResults"></ul></div>
-    <div id="sectSearchNoResults" class="hidden"><p>No search results.</p></div>
+    <div id="sectSearchResults" class="hidden">
+      <h2>Search Results</h2>
+      <ul id="listSearchResults"></ul>
+    </div>
+    <div id="sectSearchNoResults" class="hidden">
+      <h2>No Results Found</h2>
+      <p>Press escape to exit search and then '?' to see more options.</p>
+    </div>
     <div id="sectTypes" class="hidden">
-        <h2>Types</h2>
-        <ul id="listTypes">
-        </ul>
+      <h2>Types</h2>
+      <ul id="listTypes">
+      </ul>
     </div>
     <div id="sectFns" class="hidden">
-        <h2>Functions</h2>
-        <ul id="listFns">
-        </ul>
+      <h2>Functions</h2>
+      <ul id="listFns">
+      </ul>
     </div>
     </section>
     <script src="data.js"></script>
