@@ -22,9 +22,32 @@
             padding:1em;
             overflow-x: auto;
         }
+        nav {
+            width: 10em;
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+        }
+        nav h2 {
+            font-size: 1.2em;
+            text-decoration: underline;
+            margin: 0;
+            padding: 0.5em 0;
+            text-align: center;
+        }
+        nav p {
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+        section {
+            margin-left: 10em;
+        }
         #listNav {
             list-style-type: none;
-            margin: 0;
+            margin: 0.5em 0 0 0;
             padding: 0;
             overflow: hidden;
             background-color: #333;
@@ -36,7 +59,7 @@
             display: block;
             color: #fff;
             text-align: center;
-            padding: .8em .8em;
+            padding: .5em .8em;
             text-decoration: none;
         }
         #listNav li a:hover {
@@ -46,14 +69,30 @@
             background-color: #4CAF50;
         }
 
+        #listPkgs {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            background-color: #f1f1f1;
+        }
+        #listPkgs li a {
+            display: block;
+            color: #000;
+            padding: 8px 16px;
+            text-decoration: none;
+        }
+        #listPkgs li a:hover {
+            background-color: #555;
+            color: #fff;
+        }
+
         #logo {
-            width: 5em;
-            float: left;
-            padding: 0 1em 0 0;
+            width: 8em;
+            padding: 0.5em 1em;
         }
 
         #search {
-            width: 90%;
+            width: 100%;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -67,11 +106,35 @@
             pre{
                 background-color:#2A2A2A;
             }
+            #listPkgs {
+                background-color: #333;
+            }
+            #listPkgs li a {
+                color: #fff;
+            }
+            #listPkgs li a:hover {
+                background-color: #555;
+                color: #fff;
+            }
         }
     </style>
   </head>
   <body>
-    <img alt="ZIG" id="logo" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCAxNTAgMTAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiNmN2E0MWQiPjxwYXRoIGQ9Im0wIDEwdjgwaDE5bDYtMTAgMTItMTBoLTE3di00MGgxNXYtMjB6bTQwIDB2MjBoNjJ2LTIwem05MSAwLTYgMTAtMTIgMTBoMTd2NDBoLTE1djIwaDM1di04MHptLTgzIDYwdjIwaDYydi0yMHoiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwYXRoIGQ9Im0zNyA3MC0xOCAyMHYtMTV6Ii8+PHBhdGggZD0ibTExMyAzMCAxOC0yMHYxNXoiLz48cGF0aCBkPSJtOTYuOTggMTAuNjMgMzYuMjgtMTAuNC04MC4yOSA4OS4xNy0zNi4yOCAxMC40eiIvPjwvZz48L3N2Zz4K"></img>
+    <nav>
+      <img alt="ZIG" id="logo" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCAxNTAgMTAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiNmN2E0MWQiPjxwYXRoIGQ9Im0wIDEwdjgwaDE5bDYtMTAgMTItMTBoLTE3di00MGgxNXYtMjB6bTQwIDB2MjBoNjJ2LTIwem05MSAwLTYgMTAtMTIgMTBoMTd2NDBoLTE1djIwaDM1di04MHptLTgzIDYwdjIwaDYydi0yMHoiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwYXRoIGQ9Im0zNyA3MC0xOCAyMHYtMTV6Ii8+PHBhdGggZD0ibTExMyAzMCAxOC0yMHYxNXoiLz48cGF0aCBkPSJtOTYuOTggMTAuNjMgMzYuMjgtMTAuNC04MC4yOSA4OS4xNy0zNi4yOCAxMC40eiIvPjwvZz48L3N2Zz4K"></img>
+      <div id="sectPkgs" class="hidden">
+        <h2>Packages</h2>
+        <ul id="listPkgs">
+        </ul>
+      </div>
+      <div id="sectInfo" class="hidden">
+        <h2>Zig Version</h2>
+        <p id="tdZigVer"></p>
+        <h2>Target</h2>
+        <p id="tdTarget"></p>
+      </div>
+    </nav>
+    <section>
     <input type="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
     <p id="status">Loading...</p>
     <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
@@ -81,11 +144,6 @@
     <div id="fnDocs" class="hidden"></div>
     <div id="sectSearchResults" class="hidden"><ul id="listSearchResults"></ul></div>
     <div id="sectSearchNoResults" class="hidden"><p>No search results.</p></div>
-    <div id="sectPkgs" class="hidden">
-        <h2>Packages</h2>
-        <ul id="listPkgs">
-        </ul>
-    </div>
     <div id="sectTypes" class="hidden">
         <h2>Types</h2>
         <ul id="listTypes">
@@ -96,6 +154,7 @@
         <ul id="listFns">
         </ul>
     </div>
+    </section>
     <script src="data.js"></script>
     <script src="main.js"></script>
   </body>
