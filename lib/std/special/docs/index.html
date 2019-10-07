@@ -139,6 +139,10 @@
         cursor: default;
       }
 
+      #listSearchResults li.selected {
+        background-color: #93e196;
+      }
+
       @media (prefers-color-scheme: dark) {
         body{
           background-color: #111;
@@ -150,6 +154,12 @@
         pre{
           background-color:#2A2A2A;
         }
+        #listNav li a:hover {
+          background-color: #000;
+        }
+        #listNav li a.active {
+          background-color: #4CAF50;
+        }
         #listPkgs {
           background-color: #333;
         }
@@ -158,6 +168,12 @@
         }
         #listPkgs li a:hover {
           background-color: #555;
+          color: #fff;
+        }
+        #listSearchResults li.selected {
+          background-color: #000;
+        }
+        #listSearchResults li.selected a {
           color: #fff;
         }
       }
