@@ -1488,6 +1488,9 @@ pub const LibExeObjStep = struct {
 
     dynamic_linker: ?[]const u8 = null,
 
+    /// Position Independent Code
+    force_pic: ?bool = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -2312,6 +2315,14 @@ pub const LibExeObjStep = struct {
         if (self.main_pkg_path) |dir| {
             try zig_args.append("--main-pkg-path");
             try zig_args.append(builder.pathFromRoot(dir));
+        }
+
+        if (self.force_pic) |pic| {
+            if (pic) {
+                try zig_args.append("-fPIC");
+            } else {
+                try zig_args.append("-fno-PIC");
+            }
         }
 
         if (self.kind == Kind.Test) {

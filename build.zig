@@ -373,6 +373,7 @@ fn addLibUserlandStep(b: *Builder, mode: builtin.Mode) void {
     artifact.bundle_compiler_rt = true;
     artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
     artifact.setBuildMode(mode);
+    artifact.force_pic = true;
     if (mode != .Debug) {
         artifact.strip = true;
     }
