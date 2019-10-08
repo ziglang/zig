@@ -732,6 +732,23 @@ static void anal_dump_pointer_attrs(AnalDumpCtx *ctx, ZigType *ty) {
     anal_dump_type_ref(ctx, ty->data.pointer.child_type);
 }
 
+static void anal_dump_struct_field(AnalDumpCtx *ctx, const TypeStructField *struct_field) {
+    JsonWriter *jw = &ctx->jw;
+
+    jw_begin_object(jw);
+
+    jw_object_field(jw, "name");
+    jw_string(jw, buf_ptr(struct_field->name));
+
+    jw_object_field(jw, "type");
+    anal_dump_type_ref(ctx, struct_field->type_entry);
+
+    jw_object_field(jw, "src");
+    anal_dump_node_ref(ctx, struct_field->decl_node);
+
+    jw_end_object(jw);
+}
+
 static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     JsonWriter *jw = &ctx->jw;
     jw_array_elem(jw);
@@ -790,6 +807,17 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
                         jw_array_elem(jw);
                         anal_dump_decl_ref(ctx, tld);
                     }
+                }
+                jw_end_array(jw);
+            }
+
+            {
+                jw_object_field(jw, "fields");
+                jw_begin_array(jw);
+
+                for(size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
+                    jw_array_elem(jw);
+                    anal_dump_struct_field(ctx, &ty->data.structure.fields[i]);
                 }
                 jw_end_array(jw);
             }
