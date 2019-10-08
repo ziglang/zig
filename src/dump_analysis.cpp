@@ -723,6 +723,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
 
     switch (ty->id) {
         case ZigTypeIdMetaType:
+        case ZigTypeIdBool:
             break;
         case ZigTypeIdStruct: {
             if (ty->data.structure.is_slice) {
