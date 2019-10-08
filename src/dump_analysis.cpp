@@ -683,24 +683,57 @@ static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty,
     zig_unreachable();
 }
 
+static void anal_dump_pointer_attrs(AnalDumpCtx *ctx, ZigType *ty) {
+    JsonWriter *jw = &ctx->jw;
+    if (ty->data.pointer.explicit_alignment != 0) {
+        jw_object_field(jw, "align");
+        jw_int(jw, ty->data.pointer.explicit_alignment);
+    }
+    if (ty->data.pointer.is_const) {
+        jw_object_field(jw, "const");
+        jw_bool(jw, true);
+    }
+    if (ty->data.pointer.is_volatile) {
+        jw_object_field(jw, "volatile");
+        jw_bool(jw, true);
+    }
+    if (ty->data.pointer.allow_zero) {
+        jw_object_field(jw, "allowZero");
+        jw_bool(jw, true);
+    }
+    if (ty->data.pointer.host_int_bytes != 0) {
+        jw_object_field(jw, "hostIntBytes");
+        jw_int(jw, ty->data.pointer.host_int_bytes);
+
+        jw_object_field(jw, "bitOffsetInHost");
+        jw_int(jw, ty->data.pointer.bit_offset_in_host);
+    }
+
+    jw_object_field(jw, "elem");
+    anal_dump_type_ref(ctx, ty->data.pointer.child_type);
+}
+
 static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     JsonWriter *jw = &ctx->jw;
     jw_array_elem(jw);
     jw_begin_object(jw);
 
-    jw_object_field(jw, "name");
-    jw_string(jw, buf_ptr(&ty->name));
-
     jw_object_field(jw, "kind");
     jw_int(jw, type_id_index(ty));
 
     switch (ty->id) {
+        case ZigTypeIdMetaType:
+            break;
         case ZigTypeIdStruct: {
             if (ty->data.structure.is_slice) {
-                // TODO
+                jw_object_field(jw, "len");
+                jw_int(jw, 2);
+                anal_dump_pointer_attrs(ctx, ty->data.structure.fields[slice_ptr_index].type_entry);
                 break;
             }
 
+            jw_object_field(jw, "name");
+            jw_string(jw, buf_ptr(&ty->name));
             {
                 jw_object_field(jw, "pubDecls");
                 jw_begin_array(jw);
@@ -755,13 +788,61 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             jw_int(jw, ty->data.floating.bit_count);
             break;
         }
+        case ZigTypeIdInt: {
+            if (ty->data.integral.is_signed) {
+                jw_object_field(jw, "i");
+            } else {
+                jw_object_field(jw, "u");
+            }
+            jw_int(jw, ty->data.integral.bit_count);
+            break;
+        }
         case ZigTypeIdFn: {
+            jw_object_field(jw, "name");
+            jw_string(jw, buf_ptr(&ty->name));
+
             jw_object_field(jw, "generic");
             jw_bool(jw, ty->data.fn.is_generic);
+
+            if (ty->data.fn.fn_type_id.return_type != nullptr) {
+                jw_object_field(jw, "ret");
+                anal_dump_type_ref(ctx, ty->data.fn.fn_type_id.return_type);
+            }
+
+            if (ty->data.fn.fn_type_id.param_count != 0) {
+                jw_object_field(jw, "args");
+                jw_begin_array(jw);
+                for (size_t i = 0; i < ty->data.fn.fn_type_id.param_count; i += 1) {
+                    jw_array_elem(jw);
+                    if (ty->data.fn.fn_type_id.param_info[i].type != nullptr) {
+                        anal_dump_type_ref(ctx, ty->data.fn.fn_type_id.param_info[i].type);
+                    } else {
+                        jw_null(jw);
+                    }
+                }
+                jw_end_array(jw);
+            }
+            break;
+        }
+        case ZigTypeIdPointer: {
+            switch (ty->data.pointer.ptr_len) {
+                case PtrLenSingle:
+                    break;
+                case PtrLenUnknown:
+                    jw_object_field(jw, "len");
+                    jw_int(jw, 1);
+                    break;
+                case PtrLenC:
+                    jw_object_field(jw, "len");
+                    jw_int(jw, 3);
+                    break;
+            }
+            anal_dump_pointer_attrs(ctx, ty);
             break;
         }
         default:
-            // TODO
+            jw_object_field(jw, "name");
+            jw_string(jw, buf_ptr(&ty->name));
             break;
     }
     jw_end_object(jw);
