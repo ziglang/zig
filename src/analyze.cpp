@@ -7328,6 +7328,14 @@ bool node_ptr_eql(const AstNode *a, const AstNode *b) {
     return a == b;
 }
 
+uint32_t fn_ptr_hash(const ZigFn *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool fn_ptr_eql(const ZigFn *a, const ZigFn *b) {
+    return a == b;
+}
+
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
     resolve_top_level_decl(codegen, tld, nullptr, false);

@@ -352,6 +352,9 @@ struct AnalDumpCtx {
     ZigList<Tld *> decl_list;
     HashMap<const Tld *, uint32_t, tld_ptr_hash, tld_ptr_eql> decl_map;
 
+    ZigList<ZigFn *> fn_list;
+    HashMap<const ZigFn *, uint32_t, fn_ptr_hash, fn_ptr_eql> fn_map;
+
     ZigList<AstNode *> node_list;
     HashMap<const AstNode *, uint32_t, node_ptr_hash, node_ptr_eql> node_map;
 };
@@ -430,6 +433,17 @@ static uint32_t anal_dump_get_node_id(AnalDumpCtx *ctx, AstNode *node) {
     return node_id;
 }
 
+static uint32_t anal_dump_get_fn_id(AnalDumpCtx *ctx, ZigFn *fn) {
+    uint32_t fn_id = ctx->fn_list.length;
+    auto existing_entry = ctx->fn_map.put_unique(fn, fn_id);
+    if (existing_entry == nullptr) {
+        ctx->fn_list.append(fn);
+    } else {
+        fn_id = existing_entry->value;
+    }
+    return fn_id;
+}
+
 static uint32_t anal_dump_get_decl_id(AnalDumpCtx *ctx, Tld *tld) {
     uint32_t decl_id = ctx->decl_list.length;
     auto existing_entry = ctx->decl_map.put_unique(tld, decl_id);
@@ -492,6 +506,11 @@ static void anal_dump_file_ref(AnalDumpCtx *ctx, Buf *file) {
 static void anal_dump_node_ref(AnalDumpCtx *ctx, AstNode *node) {
     uint32_t node_id = anal_dump_get_node_id(ctx, node);
     jw_int(&ctx->jw, node_id);
+}
+
+static void anal_dump_fn_ref(AnalDumpCtx *ctx, ZigFn *fn) {
+    uint32_t fn_id = anal_dump_get_fn_id(ctx, fn);
+    jw_int(&ctx->jw, fn_id);
 }
 
 static void anal_dump_decl_ref(AnalDumpCtx *ctx, Tld *tld) {
@@ -600,8 +619,10 @@ static void anal_dump_decl(AnalDumpCtx *ctx, Tld *tld) {
 
                 jw_object_field(jw, "type");
                 anal_dump_type_ref(ctx, fn->type_entry);
-            }
 
+                jw_object_field(jw, "value");
+                anal_dump_fn_ref(ctx, fn);
+            }
             break;
         }
         default:
@@ -640,6 +661,19 @@ static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty,
         case ZigTypeIdMetaType: {
             ZigType *val_ty = value->data.x_type;
             anal_dump_type_ref(ctx, val_ty);
+            return;
+        }
+        case ZigTypeIdFn: {
+            if (value->data.x_ptr.special == ConstPtrSpecialFunction) {
+                ZigFn *val_fn = value->data.x_ptr.data.fn.fn_entry;
+                if (val_fn->type_entry->data.fn.is_generic) {
+                    anal_dump_node_ref(ctx, val_fn->proto_node);
+                } else {
+                    anal_dump_fn_ref(ctx, val_fn);
+                }
+            } else {
+                jw_null(&ctx->jw);
+            }
             return;
         }
         default:
@@ -721,6 +755,11 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             jw_int(jw, ty->data.floating.bit_count);
             break;
         }
+        case ZigTypeIdFn: {
+            jw_object_field(jw, "generic");
+            jw_bool(jw, ty->data.fn.is_generic);
+            break;
+        }
         default:
             // TODO
             break;
@@ -763,7 +802,7 @@ void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
             doc_comments_buf = nullptr;
             break;
     }
-    if (doc_comments_buf->list.length != 0) {
+    if (doc_comments_buf != nullptr && doc_comments_buf->list.length != 0) {
         jw_object_field(jw, "docs");
         jw_string(jw, buf_ptr(doc_comments_buf));
     }
@@ -771,6 +810,19 @@ void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     jw_end_object(jw);
 }
 
+void anal_dump_fn(AnalDumpCtx *ctx, ZigFn *fn) {
+    JsonWriter *jw = &ctx->jw;
+
+    jw_begin_object(jw);
+
+    jw_object_field(jw, "src");
+    anal_dump_node_ref(ctx, fn->proto_node);
+
+    jw_object_field(jw, "type");
+    anal_dump_type_ref(ctx, fn->type_entry);
+
+    jw_end_object(jw);
+}
 
 void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const char *nl) {
     Error err;
@@ -783,6 +835,7 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     ctx.file_map.init(16);
     ctx.decl_map.init(16);
     ctx.node_map.init(16);
+    ctx.fn_map.init(16);
 
     jw_begin_object(jw);
 
@@ -821,6 +874,71 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
 
     jw_object_field(jw, "rootPkg");
     anal_dump_pkg_ref(&ctx, g->root_package);
+
+    // Poke the functions
+    for (size_t i = 0; i < g->fn_defs.length; i += 1) {
+        ZigFn *fn = g->fn_defs.at(i);
+        (void)anal_dump_get_fn_id(&ctx, fn);
+    }
+
+    jw_object_field(jw, "calls");
+    jw_begin_array(jw);
+    {
+        auto it = g->memoized_fn_eval_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            jw_array_elem(jw);
+            jw_begin_object(jw);
+
+            jw_object_field(jw, "args");
+            jw_begin_object(jw);
+
+            Scope *scope = entry->key;
+            while (scope != nullptr) {
+                if (scope->id == ScopeIdVarDecl) {
+                    ZigVar *var = reinterpret_cast<ScopeVarDecl *>(scope)->var;
+                    jw_object_field(jw, var->name);
+                    jw_begin_object(jw);
+                    jw_object_field(jw, "type");
+                    anal_dump_type_ref(&ctx, var->var_type);
+                    jw_object_field(jw, "value");
+                    anal_dump_value(&ctx, scope->source_node, var->var_type, var->const_value);
+                    jw_end_object(jw);
+                } else if (scope->id == ScopeIdFnDef) {
+                    jw_end_object(jw);
+
+                    jw_object_field(jw, "fn");
+                    ZigFn *fn = reinterpret_cast<ScopeFnDef *>(scope)->fn_entry;
+                    anal_dump_fn_ref(&ctx, fn);
+
+                    ConstExprValue *result = entry->value;
+                    jw_object_field(jw, "result");
+                    jw_begin_object(jw);
+                    jw_object_field(jw, "type");
+                    anal_dump_type_ref(&ctx, result->type);
+                    jw_object_field(jw, "value");
+                    anal_dump_value(&ctx, scope->source_node, result->type, result);
+                    jw_end_object(jw);
+                    break;
+                }
+                scope = scope->parent;
+            }
+            jw_end_object(jw);
+        }
+    }
+    jw_end_array(jw);
+
+    jw_object_field(jw, "fns");
+    jw_begin_array(jw);
+    for (uint32_t i = 0; i < ctx.fn_list.length; i += 1) {
+        ZigFn *fn = ctx.fn_list.at(i);
+        jw_array_elem(jw);
+        anal_dump_fn(&ctx, fn);
+    }
+    jw_end_array(jw);
 
     jw_object_field(jw, "packages");
     jw_begin_array(jw);

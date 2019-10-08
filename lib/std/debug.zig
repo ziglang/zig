@@ -2439,3 +2439,8 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     );
     std.debug.warn("{} sp = 0x{x}\n", prefix, sp);
 }
+
+// Reference everything so it gets tested.
+test "" {
+    _ = leb;
+}

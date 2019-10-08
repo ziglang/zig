@@ -1325,6 +1325,9 @@ bool tld_ptr_eql(const Tld *a, const Tld *b);
 uint32_t node_ptr_hash(const AstNode *ptr);
 bool node_ptr_eql(const AstNode *a, const AstNode *b);
 
+uint32_t fn_ptr_hash(const ZigFn *ptr);
+bool fn_ptr_eql(const ZigFn *a, const ZigFn *b);
+
 struct ZigTypeUnion {
     AstNode *decl_node;
     TypeUnionField *fields;
