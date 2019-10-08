@@ -1290,9 +1290,10 @@ struct ZigTypeErrorUnion {
 };
 
 struct ZigTypeErrorSet {
-    uint32_t err_count;
     ErrorTableEntry **errors;
     ZigFn *infer_fn;
+    uint32_t err_count;
+    bool incomplete;
 };
 
 struct ZigTypeEnum {
@@ -1327,6 +1328,9 @@ bool node_ptr_eql(const AstNode *a, const AstNode *b);
 
 uint32_t fn_ptr_hash(const ZigFn *ptr);
 bool fn_ptr_eql(const ZigFn *a, const ZigFn *b);
+
+uint32_t err_ptr_hash(const ErrorTableEntry *ptr);
+bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b);
 
 struct ZigTypeUnion {
     AstNode *decl_node;

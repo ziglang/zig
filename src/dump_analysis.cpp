@@ -357,6 +357,9 @@ struct AnalDumpCtx {
 
     ZigList<AstNode *> node_list;
     HashMap<const AstNode *, uint32_t, node_ptr_hash, node_ptr_eql> node_map;
+
+    ZigList<ErrorTableEntry *> err_list;
+    HashMap<const ErrorTableEntry *, uint32_t, err_ptr_hash, err_ptr_eql> err_map;
 };
 
 static uint32_t anal_dump_get_type_id(AnalDumpCtx *ctx, ZigType *ty);
@@ -444,6 +447,17 @@ static uint32_t anal_dump_get_fn_id(AnalDumpCtx *ctx, ZigFn *fn) {
     return fn_id;
 }
 
+static uint32_t anal_dump_get_err_id(AnalDumpCtx *ctx, ErrorTableEntry *err) {
+    uint32_t err_id = ctx->err_list.length;
+    auto existing_entry = ctx->err_map.put_unique(err, err_id);
+    if (existing_entry == nullptr) {
+        ctx->err_list.append(err);
+    } else {
+        err_id = existing_entry->value;
+    }
+    return err_id;
+}
+
 static uint32_t anal_dump_get_decl_id(AnalDumpCtx *ctx, Tld *tld) {
     uint32_t decl_id = ctx->decl_list.length;
     auto existing_entry = ctx->decl_map.put_unique(tld, decl_id);
@@ -511,6 +525,11 @@ static void anal_dump_node_ref(AnalDumpCtx *ctx, AstNode *node) {
 static void anal_dump_fn_ref(AnalDumpCtx *ctx, ZigFn *fn) {
     uint32_t fn_id = anal_dump_get_fn_id(ctx, fn);
     jw_int(&ctx->jw, fn_id);
+}
+
+static void anal_dump_err_ref(AnalDumpCtx *ctx, ErrorTableEntry *err) {
+    uint32_t err_id = anal_dump_get_err_id(ctx, err);
+    jw_int(&ctx->jw, err_id);
 }
 
 static void anal_dump_decl_ref(AnalDumpCtx *ctx, Tld *tld) {
@@ -841,6 +860,33 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             anal_dump_pointer_attrs(ctx, ty);
             break;
         }
+        case ZigTypeIdErrorSet: {
+            if (type_is_global_error_set(ty)) {
+                break;
+            }
+            if (ty->data.error_set.infer_fn != nullptr) {
+                jw_object_field(jw, "fn");
+                anal_dump_fn_ref(ctx, ty->data.error_set.infer_fn);
+            }
+            jw_object_field(jw, "errors");
+            jw_begin_array(jw);
+            for (uint32_t i = 0; i < ty->data.error_set.err_count; i += 1) {
+                jw_array_elem(jw);
+                ErrorTableEntry *err = ty->data.error_set.errors[i];
+                anal_dump_err_ref(ctx, err);
+            }
+            jw_end_array(jw);
+            break;
+        }
+        case ZigTypeIdErrorUnion: {
+            jw_object_field(jw, "err");
+            anal_dump_type_ref(ctx, ty->data.error_union.err_set_type);
+
+            jw_object_field(jw, "payload");
+            anal_dump_type_ref(ctx, ty->data.error_union.payload_type);
+
+            break;
+        }
         default:
             jw_object_field(jw, "name");
             jw_string(jw, buf_ptr(&ty->name));
@@ -849,7 +895,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     jw_end_object(jw);
 }
 
-void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
+static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     JsonWriter *jw = &ctx->jw;
 
     jw_begin_object(jw);
@@ -892,7 +938,21 @@ void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     jw_end_object(jw);
 }
 
-void anal_dump_fn(AnalDumpCtx *ctx, ZigFn *fn) {
+static void anal_dump_err(AnalDumpCtx *ctx, const ErrorTableEntry *err) {
+    JsonWriter *jw = &ctx->jw;
+
+    jw_begin_object(jw);
+
+    jw_object_field(jw, "src");
+    anal_dump_node_ref(ctx, err->decl_node);
+
+    jw_object_field(jw, "name");
+    jw_string(jw, buf_ptr(&err->name));
+
+    jw_end_object(jw);
+}
+
+static void anal_dump_fn(AnalDumpCtx *ctx, ZigFn *fn) {
     JsonWriter *jw = &ctx->jw;
 
     jw_begin_object(jw);
@@ -918,6 +978,7 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     ctx.decl_map.init(16);
     ctx.node_map.init(16);
     ctx.fn_map.init(16);
+    ctx.err_map.init(16);
 
     jw_begin_object(jw);
 
@@ -1052,6 +1113,15 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
         Buf *file = ctx.file_list.at(i);
         jw_array_elem(jw);
         anal_dump_file(&ctx, file);
+    }
+    jw_end_array(jw);
+
+    jw_object_field(jw, "errors");
+    jw_begin_array(jw);
+    for (uint32_t i = 0; i < ctx.err_list.length; i += 1) {
+        const ErrorTableEntry *err = ctx.err_list.at(i);
+        jw_array_elem(jw);
+        anal_dump_err(&ctx, err);
     }
     jw_end_array(jw);
 

@@ -1633,6 +1633,7 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     err_set_type->data.error_set.err_count = 0;
     err_set_type->data.error_set.errors = nullptr;
     err_set_type->data.error_set.infer_fn = fn_entry;
+    err_set_type->data.error_set.incomplete = true;
     err_set_type->size_in_bits = g->builtin_types.entry_global_error_set->size_in_bits;
     err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
     err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
@@ -4277,12 +4278,12 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node) {
     assert(err_set_type->id == ZigTypeIdErrorSet);
     ZigFn *infer_fn = err_set_type->data.error_set.infer_fn;
-    if (infer_fn != nullptr) {
+    if (infer_fn != nullptr && err_set_type->data.error_set.incomplete) {
         if (infer_fn->anal_state == FnAnalStateInvalid) {
             return false;
         } else if (infer_fn->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, infer_fn);
-            if (err_set_type->data.error_set.infer_fn != nullptr) {
+            if (err_set_type->data.error_set.incomplete) {
                 assert(g->errors.length != 0);
                 return false;
             }
@@ -4509,7 +4510,9 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
 
     if (fn_type_id->return_type->id == ZigTypeIdErrorUnion) {
         ZigType *return_err_set_type = fn_type_id->return_type->data.error_union.err_set_type;
-        if (return_err_set_type->data.error_set.infer_fn != nullptr) {
+        if (return_err_set_type->data.error_set.infer_fn != nullptr &&
+            return_err_set_type->data.error_set.incomplete)
+        {
             ZigType *inferred_err_set_type;
             if (fn->src_implicit_return_type->id == ZigTypeIdErrorSet) {
                 inferred_err_set_type = fn->src_implicit_return_type;
@@ -4522,14 +4525,16 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
                 return;
             }
 
-            if (inferred_err_set_type->data.error_set.infer_fn != nullptr) {
+            if (inferred_err_set_type->data.error_set.infer_fn != nullptr &&
+                inferred_err_set_type->data.error_set.incomplete)
+            {
                 if (!resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
                     fn->anal_state = FnAnalStateInvalid;
                     return;
                 }
             }
 
-            return_err_set_type->data.error_set.infer_fn = nullptr;
+            return_err_set_type->data.error_set.incomplete = false;
             if (type_is_global_error_set(inferred_err_set_type)) {
                 return_err_set_type->data.error_set.err_count = UINT32_MAX;
             } else {
@@ -7336,6 +7341,14 @@ bool fn_ptr_eql(const ZigFn *a, const ZigFn *b) {
     return a == b;
 }
 
+uint32_t err_ptr_hash(const ErrorTableEntry *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
+    return a == b;
+}
+
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
     resolve_top_level_decl(codegen, tld, nullptr, false);
@@ -7348,7 +7361,7 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
 
 bool type_is_global_error_set(ZigType *err_set_type) {
     assert(err_set_type->id == ZigTypeIdErrorSet);
-    assert(err_set_type->data.error_set.infer_fn == nullptr);
+    assert(!err_set_type->data.error_set.incomplete);
     return err_set_type->data.error_set.err_count == UINT32_MAX;
 }
 

@@ -9692,7 +9692,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         ZigType *container_set = wanted_type;
 
         // if the container set is inferred, then this will always work.
-        if (container_set->data.error_set.infer_fn != nullptr) {
+        if (container_set->data.error_set.infer_fn != nullptr && container_set->data.error_set.incomplete) {
             return result;
         }
         // if the container set is the global one, it will always work.
@@ -16157,7 +16157,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                 UndefOk);
 
             if (inferred_err_set_type != nullptr) {
-                inferred_err_set_type->data.error_set.infer_fn = nullptr;
+                inferred_err_set_type->data.error_set.incomplete = false;
                 if (result->type->id == ZigTypeIdErrorUnion) {
                     ErrorTableEntry *err = result->data.x_err_union.error_set->data.x_err_set;
                     if (err != nullptr) {
@@ -23617,7 +23617,7 @@ static IrInstruction *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruct
             if (!type_is_global_error_set(err_set_type) &&
                 err_set_type->data.error_set.err_count == 0)
             {
-                assert(err_set_type->data.error_set.infer_fn == nullptr);
+                assert(!err_set_type->data.error_set.incomplete);
                 return ir_const_bool(ira, &instruction->base, false);
             }
         }
