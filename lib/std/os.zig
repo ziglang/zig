@@ -183,7 +183,7 @@ pub fn abort() noreturn {
     exit(127);
 }
 
-pub const RaiseError = error{Unexpected};
+pub const RaiseError = UnexpectedError;
 
 pub fn raise(sig: u8) RaiseError!void {
     if (builtin.link_libc) {
@@ -215,10 +215,7 @@ pub fn raise(sig: u8) RaiseError!void {
     @compileError("std.os.raise unimplemented for this target");
 }
 
-pub const KillError = error{
-    PermissionDenied,
-    Unexpected,
-};
+pub const KillError = error{PermissionDenied} || UnexpectedError;
 
 pub fn kill(pid: pid_t, sig: u8) KillError!void {
     switch (errno(system.kill(pid, sig))) {
@@ -266,9 +263,7 @@ pub const ReadError = error{
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Returns the number of bytes that were read, which can be less than
 /// buf.len. If 0 bytes were read, that means EOF.
@@ -385,8 +380,7 @@ pub const WriteError = error{
     BrokenPipe,
     SystemResources,
     OperationAborted,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Write to a file descriptor. Keeps trying if it gets interrupted.
 /// This function is for blocking file descriptors only.
@@ -548,8 +542,7 @@ pub const OpenError = error{
     NotDir,
     PathAlreadyExists,
     DeviceBusy,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `openC`.
@@ -748,9 +741,7 @@ pub const ExecveError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     NameTooLong,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 fn execveErrnoToErr(err: usize) ExecveError {
     assert(err > 0);
@@ -808,8 +799,7 @@ pub fn getenvC(key: [*]const u8) ?[]const u8 {
 pub const GetCwdError = error{
     NameTooLong,
     CurrentWorkingDirectoryUnlinked,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// The result is a slice of out_buffer, indexed from 0.
 pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
@@ -846,8 +836,7 @@ pub const SymLinkError = error{
     NameTooLong,
     InvalidUtf8,
     BadPathName,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
@@ -932,7 +921,6 @@ pub const UnlinkError = error{
     NotDir,
     SystemResources,
     ReadOnlyFileSystem,
-    Unexpected,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -940,7 +928,7 @@ pub const UnlinkError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
-};
+} || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
 /// See also `unlinkC`.
@@ -996,8 +984,7 @@ const RenameError = error{
     RenameAcrossMountPoints,
     InvalidUtf8,
     BadPathName,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Change the name or location of a file.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
@@ -1064,8 +1051,7 @@ pub const MakeDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Create a directory.
 /// `mode` is ignored on Windows.
@@ -1116,8 +1102,7 @@ pub const DeleteDirError = error{
     ReadOnlyFileSystem,
     InvalidUtf8,
     BadPathName,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Deletes an empty directory.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
@@ -1163,8 +1148,7 @@ pub const ChangeCurDirError = error{
     FileNotFound,
     SystemResources,
     NotDir,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Changes the current working directory of the calling process.
 /// `dir_path` is recommended to be a UTF-8 encoded string.
@@ -1206,8 +1190,7 @@ pub const ReadLinkError = error{
     FileNotFound,
     SystemResources,
     NotDir,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Read value of a symbolic link.
 /// The return value is a slice of `out_buffer` from index 0.
@@ -1247,8 +1230,7 @@ pub const SetIdError = error{
     ResourceLimitReached,
     InvalidUserId,
     PermissionDenied,
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn setuid(uid: u32) SetIdError!void {
     switch (errno(system.setuid(uid))) {
@@ -1357,9 +1339,7 @@ pub const SocketError = error{
 
     /// The protocol type or the specified protocol is not supported within this domain.
     ProtocolNotSupported,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!i32 {
     const rc = system.socket(domain, socket_type, protocol);
@@ -1409,9 +1389,7 @@ pub const BindError = error{
 
     /// The socket inode would reside on a read-only filesystem.
     ReadOnlyFileSystem,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// addr is `*const T` where T is one of the sockaddr
 pub fn bind(fd: i32, addr: *const sockaddr) BindError!void {
@@ -1448,9 +1426,7 @@ const ListenError = error{
 
     /// The socket is not of a type that supports the listen() operation.
     OperationNotSupported,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn listen(sockfd: i32, backlog: u32) ListenError!void {
     const rc = system.listen(sockfd, backlog);
@@ -1487,9 +1463,7 @@ pub const AcceptError = error{
 
     /// Firewall rules forbid connection.
     BlockedByFirewall,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Accept a connection on a socket. `fd` must be opened in blocking mode.
 /// See also `accept4_async`.
@@ -1559,9 +1533,7 @@ pub const EpollCreateError = error{
 
     /// There was insufficient memory to create the kernel object.
     SystemResources,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn epoll_create1(flags: u32) EpollCreateError!i32 {
     const rc = system.epoll_create1(flags);
@@ -1600,9 +1572,7 @@ pub const EpollCtlError = error{
     /// The target file fd does not support epoll.  This error can occur if fd refers to,
     /// for example, a regular file or a directory.
     FileDescriptorIncompatibleWithEpoll,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
@@ -1643,8 +1613,7 @@ pub const EventFdError = error{
     SystemResources,
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
     const rc = system.eventfd(initval, flags);
@@ -1663,9 +1632,7 @@ pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
 pub const GetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn getsockname(sockfd: i32) GetSockNameError!sockaddr {
     var addr: sockaddr = undefined;
@@ -1714,9 +1681,7 @@ pub const ConnectError = error{
     /// Timeout  while  attempting  connection.   The server may be too busy to accept new connections.  Note
     /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
     ConnectionTimedOut,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Initiate a connection on a socket.
 /// This is for blocking file descriptors only.
@@ -1824,10 +1789,7 @@ pub fn waitpid(pid: i32, flags: u32) u32 {
     }
 }
 
-pub const FStatError = error{
-    SystemResources,
-    Unexpected,
-};
+pub const FStatError = error{SystemResources} || UnexpectedError;
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
@@ -1856,9 +1818,7 @@ pub const KQueueError = error{
 
     /// The system-wide limit on the total number of open files has been reached.
     SystemFdQuotaExceeded,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn kqueue() KQueueError!i32 {
     const rc = system.kqueue();
@@ -1922,8 +1882,7 @@ pub const INotifyInitError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     SystemResources,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// initialize an inotify instance
 pub fn inotify_init1(flags: u32) INotifyInitError!i32 {
@@ -1944,8 +1903,7 @@ pub const INotifyAddWatchError = error{
     FileNotFound,
     SystemResources,
     UserResourceLimitReached,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// add a watch to an initialized inotify instance
 pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INotifyAddWatchError!i32 {
@@ -1992,8 +1950,7 @@ pub const MProtectError = error{
     /// dle of a region currently protected as PROT_READ|PROT_WRITE would result in three map‐
     /// pings: two read/write mappings at each end and a read-only mapping in the middle.)
     OutOfMemory,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// `memory.len` must be page-aligned.
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
@@ -2007,10 +1964,7 @@ pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectErro
     }
 }
 
-pub const ForkError = error{
-    SystemResources,
-    Unexpected,
-};
+pub const ForkError = error{SystemResources} || UnexpectedError;
 
 pub fn fork() ForkError!pid_t {
     const rc = system.fork();
@@ -2037,8 +1991,7 @@ pub const MMapError = error{
     PermissionDenied,
     LockedMemoryLimitExceeded,
     OutOfMemory,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Map files or devices into memory.
 /// Use of a mapped region can result in these signals:
@@ -2101,9 +2054,7 @@ pub const AccessError = error{
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// check user's permissions for a file
 /// TODO currently this assumes `mode` is `F_OK` on Windows.
@@ -2161,8 +2112,7 @@ pub fn accessW(path: [*]const u16, mode: u32) windows.GetFileAttributesError!voi
 pub const PipeError = error{
     SystemFdQuotaExceeded,
     ProcessFdQuotaExceeded,
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Creates a unidirectional data channel that can be used for interprocess communication.
 pub fn pipe() PipeError![2]fd_t {
@@ -2193,8 +2143,7 @@ pub const SysCtlError = error{
     PermissionDenied,
     SystemResources,
     NameTooLong,
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn sysctl(
     name: []const c_int,
@@ -2237,10 +2186,7 @@ pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
     }
 }
 
-pub const SeekError = error{
-    Unseekable,
-    Unexpected,
-};
+pub const SeekError = error{Unseekable} || UnexpectedError;
 
 /// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
@@ -2382,9 +2328,7 @@ pub const RealPathError = error{
     InvalidUtf8,
 
     PathAlreadyExists,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 /// Return the canonicalized absolute pathname.
 /// Expands all symbolic links and resolves references to `.`, `..`, and
@@ -2548,10 +2492,7 @@ pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_inf
     return last_r;
 }
 
-pub const ClockGetTimeError = error{
-    UnsupportedClock,
-    Unexpected,
-};
+pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     switch (errno(system.clock_gettime(clk_id, tp))) {
@@ -2571,10 +2512,7 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
     }
 }
 
-pub const SchedGetAffinityError = error{
-    PermissionDenied,
-    Unexpected,
-};
+pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
@@ -2628,8 +2566,7 @@ pub const SigaltstackError = error{
 
     /// Attempted to change the signal stack while it was active.
     PermissionDenied,
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
     if (windows.is_the_target or uefi.is_the_target or wasi.is_the_target)
@@ -2677,9 +2614,7 @@ pub const FutimensError = error{
     PermissionDenied,
 
     ReadOnlyFileSystem,
-
-    Unexpected,
-};
+} || UnexpectedError;
 
 pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
     switch (errno(system.futimens(fd, times))) {
@@ -2694,10 +2629,7 @@ pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
     }
 }
 
-pub const GetHostNameError = error{
-    PermissionDenied,
-    Unexpected,
-};
+pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {

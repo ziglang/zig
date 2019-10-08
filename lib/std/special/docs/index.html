@@ -87,7 +87,7 @@
       #listPkgs li a {
         display: block;
         color: #000;
-        padding: 8px 16px;
+        padding: 0.5em 1em;
         text-decoration: none;
       }
       #listPkgs li a:hover {
@@ -145,6 +145,13 @@
       #listSearchResults li.selected {
         background-color: #93e196;
       }
+
+      #tableFnErrors tr td:first-child{
+        text-align: right;
+        font-weight: bold;
+        vertical-align: top;
+      }
+
       .tok-kw {
           color: #333;
           font-weight: bold;
@@ -262,7 +269,13 @@
     </div>
     <h1 id="hdrName" class="hidden"></h1>
     <div id="fnDocs" class="hidden"></div>
-    <div id="fnErrors" class="hidden"></div>
+    <div id="sectFnErrors" class="hidden">
+      <h2>Errors</h2>
+      <div id="fnErrorsAnyError">
+        <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
+      </div>
+      <table id="tableFnErrors"><tbody id="listFnErrors"></tbody></table>
+    </div>
     <div id="fnExamples" class="hidden"></div>
     <div id="fnNoExamples" class="hidden">
       <p>This function is not tested or referenced.</p>

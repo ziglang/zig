@@ -7892,11 +7892,14 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
     }
 
     uint32_t index = set1->data.error_set.err_count;
+    bool need_comma = false;
     for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
         if (errors[error_entry->value] == nullptr) {
             errors[error_entry->value] = error_entry;
-            buf_appendf(&err_set_type->name, "%s,", buf_ptr(&error_entry->name));
+            const char *comma = need_comma ? "," : "";
+            need_comma = true;
+            buf_appendf(&err_set_type->name, "%s%s", comma, buf_ptr(&error_entry->name));
             err_set_type->data.error_set.errors[index] = error_entry;
             index += 1;
         }
@@ -7927,6 +7930,17 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     return err_set_type;
 }
 
+static AstNode *ast_field_to_symbol_node(AstNode *err_set_field_node) {
+    if (err_set_field_node->type == NodeTypeSymbol) {
+        return err_set_field_node;
+    } else if (err_set_field_node->type == NodeTypeErrorSetField) {
+        assert(err_set_field_node->data.err_set_field.field_name->type == NodeTypeSymbol);
+        return err_set_field_node->data.err_set_field.field_name;
+    } else {
+        return err_set_field_node;
+    }
+}
+
 static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeErrorSetDecl);
 
@@ -7946,18 +7960,10 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
 
     for (uint32_t i = 0; i < err_count; i += 1) {
         AstNode *field_node = node->data.err_set_decl.decls.at(i);
-        AstNode *symbol_node;
-        if (field_node->type == NodeTypeSymbol) {
-            symbol_node = field_node;
-        } else if (field_node->type == NodeTypeErrorSetField) {
-            symbol_node = field_node->data.err_set_field.field_name;
-        } else {
-            zig_unreachable();
-        }
-        assert(symbol_node->type == NodeTypeSymbol);
+        AstNode *symbol_node = ast_field_to_symbol_node(field_node);
         Buf *err_name = symbol_node->data.symbol_expr.symbol;
         ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
-        err->decl_node = symbol_node;
+        err->decl_node = field_node;
         buf_init_from_buf(&err->name, err_name);
 
         auto existing_entry = irb->codegen->error_table.put_unique(err_name, err);
@@ -7973,8 +7979,10 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
 
         ErrorTableEntry *prev_err = errors[err->value];
         if (prev_err != nullptr) {
-            ErrorMsg *msg = add_node_error(irb->codegen, err->decl_node, buf_sprintf("duplicate error: '%s'", buf_ptr(&err->name)));
-            add_error_note(irb->codegen, msg, prev_err->decl_node, buf_sprintf("other error here"));
+            ErrorMsg *msg = add_node_error(irb->codegen, ast_field_to_symbol_node(err->decl_node),
+                    buf_sprintf("duplicate error: '%s'", buf_ptr(&err->name)));
+            add_error_note(irb->codegen, msg, ast_field_to_symbol_node(prev_err->decl_node),
+                    buf_sprintf("other error here"));
             return irb->codegen->invalid_instruction;
         }
         errors[err->value] = err;
@@ -9479,6 +9487,14 @@ static void populate_error_set_table(ErrorTableEntry **errors, ZigType *set) {
     }
 }
 
+static ErrorTableEntry *better_documented_error(ErrorTableEntry *preferred, ErrorTableEntry *other) {
+    if (preferred->decl_node->type == NodeTypeErrorSetField)
+        return preferred;
+    if (other->decl_node->type == NodeTypeErrorSetField)
+        return other;
+    return preferred;
+}
+
 static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigType *set2,
         AstNode *source_node)
 {
@@ -9505,12 +9521,17 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error{");
 
+    bool need_comma = false;
     for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
         ErrorTableEntry *existing_entry = errors[error_entry->value];
         if (existing_entry != nullptr) {
-            intersection_list.append(existing_entry);
-            buf_appendf(&err_set_type->name, "%s,", buf_ptr(&existing_entry->name));
+            // prefer the one with docs
+            const char *comma = need_comma ? "," : "";
+            need_comma = true;
+            ErrorTableEntry *existing_entry_with_docs = better_documented_error(existing_entry, error_entry);
+            intersection_list.append(existing_entry_with_docs);
+            buf_appendf(&err_set_type->name, "%s%s", comma, buf_ptr(&existing_entry_with_docs->name));
         }
     }
     free(errors);
@@ -12058,7 +12079,7 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             ZigList<ErrorTableEntry *> *missing_errors = &cast_result->data.error_set_mismatch->missing_errors;
             for (size_t i = 0; i < missing_errors->length; i += 1) {
                 ErrorTableEntry *error_entry = missing_errors->at(i);
-                add_error_note(ira->codegen, parent_msg, error_entry->decl_node,
+                add_error_note(ira->codegen, parent_msg, ast_field_to_symbol_node(error_entry->decl_node),
                     buf_sprintf("'error.%s' not a member of destination error set", buf_ptr(&error_entry->name)));
             }
             break;

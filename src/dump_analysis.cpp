@@ -892,6 +892,9 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             if (type_is_global_error_set(ty)) {
                 break;
             }
+            jw_object_field(jw, "name");
+            jw_string(jw, buf_ptr(&ty->name));
+
             if (ty->data.error_set.infer_fn != nullptr) {
                 jw_object_field(jw, "fn");
                 anal_dump_fn_ref(ctx, ty->data.error_set.infer_fn);

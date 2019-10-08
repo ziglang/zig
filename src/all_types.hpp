@@ -2146,6 +2146,7 @@ struct ErrorTableEntry {
     Buf name;
     uint32_t value;
     AstNode *decl_node;
+    ErrorTableEntry *other; // null, or another error decl that was merged into this
     ZigType *set_with_only_this_in_it;
     // If we generate a constant error name value for this error, we memoize it here.
     // The type of this is array

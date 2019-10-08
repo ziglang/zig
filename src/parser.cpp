@@ -498,8 +498,12 @@ static AstNode *ast_parse_root(ParseContext *pc) {
 }
 
 static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
+    Token *first_doc_token = nullptr;
     Token *doc_token = nullptr;
     while ((doc_token = eat_token_if(pc, TokenIdDocComment))) {
+        if (first_doc_token == nullptr) {
+            first_doc_token = doc_token;
+        }
         if (buf->list.length == 0) {
             buf_resize(buf, 0);
         }
@@ -507,7 +511,7 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
         buf_append_mem(buf, buf_ptr(pc->buf) + doc_token->start_pos + 3,
                 doc_token->end_pos - doc_token->start_pos - 3);
     }
-    return doc_token;
+    return first_doc_token;
 }
 
 // ContainerMembers
