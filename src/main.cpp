@@ -34,7 +34,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  build-exe [source]           create executable from source or object files\n"
         "  build-lib [source]           create library from source or object files\n"
         "  build-obj [source]           create object from source or assembly\n"
-        "  builtin                      show the source code of that @import(\"builtin\")\n"
+        "  builtin                      show the source code of @import(\"builtin\")\n"
         "  cc                           C compiler\n"
         "  fmt                          parse files and render in canonical zig format\n"
         "  id                           print the base64-encoded compiler id\n"
