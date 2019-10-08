@@ -59,23 +59,25 @@
         margin: 0.5em 0 0 0;
         padding: 0;
         overflow: hidden;
-        background-color: #333;
+        background-color: #f1f1f1;
       }
       #listNav li {
         float:left;
       }
       #listNav li a {
         display: block;
-        color: #fff;
+        color: #000;
         text-align: center;
         padding: .5em .8em;
         text-decoration: none;
       }
       #listNav li a:hover {
-        background-color: #111;
+        background-color: #555;
+        color: #fff;
       }
       #listNav li a.active {
-        background-color: #4CAF50;
+        background-color: #FFBB4D;
+        color: #000;
       }
 
       #listPkgs {
@@ -192,11 +194,19 @@
         pre{
           background-color:#2A2A2A;
         }
+        #listNav {
+          background-color: #333;
+        }
+        #listNav li a {
+          color: #fff;
+        }
         #listNav li a:hover {
-          background-color: #000;
+          background-color: #555;
+          color: #fff;
         }
         #listNav li a.active {
-          background-color: #4CAF50;
+          background-color: #FFBB4D;
+          color: #000;
         }
         #listPkgs {
           background-color: #333;
