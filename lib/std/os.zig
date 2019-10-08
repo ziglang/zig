@@ -1747,7 +1747,7 @@ pub fn connect(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!v
     }
 }
 
-/// Same as `connect` except it is for blocking socket file descriptors.
+/// Same as `connect` except it is for non-blocking socket file descriptors.
 /// It expects to receive EINPROGRESS`.
 pub fn connect_async(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
