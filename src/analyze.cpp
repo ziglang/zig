@@ -999,7 +999,12 @@ static ZigType *get_root_container_type(CodeGen *g, const char *full_name, Buf *
     entry->data.structure.root_struct = root_struct;
     entry->data.structure.layout = ContainerLayoutAuto;
 
-    buf_init_from_str(&entry->name, full_name);
+    if (full_name[0] == '\0') {
+        buf_init_from_str(&entry->name, "(root)");
+    } else {
+        buf_init_from_str(&entry->name, full_name);
+    }
+
     return entry;
 }
 
@@ -3156,7 +3161,13 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     return ErrorNone;
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, bool is_test) {
+void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type) {
+    if (g->root_import == container_type || buf_len(&container_type->name) == 0) return;
+    buf_append_buf(buf, &container_type->name);
+    buf_append_char(buf, NAMESPACE_SEP_CHAR);
+}
+
+static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool is_test) {
     buf_resize(buf, 0);
 
     Scope *scope = tld->parent_scope;
@@ -3164,8 +3175,7 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, bool is_test) {
         scope = scope->parent;
     }
     ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
-    buf_append_buf(buf, &decls_scope->container_type->name);
-    if (buf_len(buf) != 0) buf_append_char(buf, NAMESPACE_SEP_CHAR);
+    append_namespace_qualification(g, buf, decls_scope->container_type);
     if (is_test) {
         buf_append_str(buf, "test \"");
         buf_append_buf(buf, tld->name);
@@ -3288,7 +3298,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_proto->is_export || is_extern) {
             buf_init_from_buf(&fn_table_entry->symbol_name, tld_fn->base.name);
         } else {
-            get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, false);
+            get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
         if (fn_proto->is_export) {
@@ -3352,7 +3362,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
 
-        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, true);
+        get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, true);
 
         tld_fn->fn_entry = fn_table_entry;
 
