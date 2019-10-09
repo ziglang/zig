@@ -248,8 +248,17 @@ comptime {
 
         switch (builtin.arch) {
             .i386 => {
+                @export("_alldiv", @import("compiler_rt/aulldiv.zig")._alldiv, strong_linkage);
                 @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
+                @export("_allrem", @import("compiler_rt/aullrem.zig")._allrem, strong_linkage);
                 @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
+
+                @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
+                @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);
+                @export("__multi3", @import("compiler_rt/multi3.zig").__multi3, linkage);
+                @export("__udivti3", @import("compiler_rt/udivti3.zig").__udivti3, linkage);
+                @export("__udivmodti4", @import("compiler_rt/udivmodti4.zig").__udivmodti4, linkage);
+                @export("__umodti3", @import("compiler_rt/umodti3.zig").__umodti3, linkage);
             },
             .x86_64 => {
                 // The "ti" functions must use @Vector(2, u64) parameter types to adhere to the ABI

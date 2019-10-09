@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
@@ -87,7 +88,10 @@ test "extenddftf2" {
 test "extendhfsf2" {
     test__extendhfsf2(0x7e00, 0x7fc00000); // qNaN
     test__extendhfsf2(0x7f00, 0x7fe00000); // sNaN
-    test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
+    // On x86 the NaN becomes quiet because the return is pushed on the x87
+    // stack due to ABI requirements
+    if (builtin.arch != .i386 and builtin.os == .windows)
+        test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
 
     test__extendhfsf2(0, 0); // 0
     test__extendhfsf2(0x8000, 0x80000000); // -0
