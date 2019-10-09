@@ -234,14 +234,16 @@ comptime {
         @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
     if (builtin.os == .windows) {
-        if (!builtin.link_libc) {
+        // Default stack-probe functions emitted by LLVM
+        if (is_mingw) {
+            @export("_alloca", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
+            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        } else {
             @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
             @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
-            @export("___chkstk", @import("compiler_rt/stack_probe.zig").___chkstk, strong_linkage);
-            @export("__chkstk_ms", @import("compiler_rt/stack_probe.zig").__chkstk_ms, strong_linkage);
-            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
-        } else if (is_mingw) {
-            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        }
+
+        if (is_mingw) {
             @export("__stack_chk_fail", __stack_chk_fail, strong_linkage);
             @export("__stack_chk_guard", __stack_chk_guard, strong_linkage);
         }
