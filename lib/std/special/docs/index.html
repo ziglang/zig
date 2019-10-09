@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <title>Documentation - Zig</title>
-    <link rel="icon" href="favicon.png">
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
     <style type="text/css">
       body {
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
@@ -127,7 +127,7 @@
         text-align: center;
         font-size: 1.5em;
       }
-      dt, dd {
+      #helpDialog dt, #helpDialog dd {
         display: inline;
         margin: 0 0.2em;
       }
@@ -152,10 +152,8 @@
         background-color: #93e196;
       }
 
-      #tableFnErrors tr td:first-child{
-        text-align: right;
+      #tableFnErrors dt {
         font-weight: bold;
-        vertical-align: top;
       }
 
       #sectGlobalVars td, #sectFns td, #sectFields td {
@@ -297,7 +295,7 @@
       <div id="fnErrorsAnyError">
         <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
       </div>
-      <table id="tableFnErrors"><tbody id="listFnErrors"></tbody></table>
+      <div id="tableFnErrors"><dl id="listFnErrors"></dl></div>
     </div>
     <div id="fnExamples" class="hidden"></div>
     <div id="fnNoExamples" class="hidden">
