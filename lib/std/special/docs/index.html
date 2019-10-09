@@ -158,10 +158,13 @@
         vertical-align: top;
       }
 
-      #sectGlobalVars td {
+      #sectGlobalVars td, #sectFns td {
         vertical-align: top;
         margin: 0;
         padding: 0.5em;
+        max-width: 20em;
+        text-overflow: ellipsis;
+        overflow-x: hidden;
       }
 
       .tok-kw {
@@ -327,8 +330,10 @@
     </div>
     <div id="sectFns" class="hidden">
       <h2>Functions</h2>
-      <ul id="listFns">
-      </ul>
+      <table>
+        <tbody id="listFns">
+        </tbody>
+      </table>
     </div>
     <div id="sectErrSets" class="hidden">
       <h2>Error Sets</h2>
