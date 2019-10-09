@@ -853,7 +853,7 @@ pub const Builder = struct {
     ) ![]u8 {
         assert(argv.len != 0);
 
-        const max_output_size = 100 * 1024;
+        const max_output_size = 400 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
         defer child.deinit();
 
