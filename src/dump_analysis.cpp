@@ -811,7 +811,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
                 jw_end_array(jw);
             }
 
-            {
+            if (ty->data.structure.src_field_count != 0) {
                 jw_object_field(jw, "fields");
                 jw_begin_array(jw);
 
