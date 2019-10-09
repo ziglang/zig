@@ -552,28 +552,22 @@ static const char *mingwex_arm64_src[] = {
 
 struct MinGWDef {
     const char *name;
-    const char *path;
     bool always_link;
 };
 static const MinGWDef mingw_def_list[] = {
-    {"msvcrt", "lib-common" OS_SEP "msvcrt.def.in", true},
-    {"setupapi", "libarm32" OS_SEP "setupapi.def", false},
-    {"setupapi", "libarm64" OS_SEP "setupapi.def", false},
-    {"setupapi", "lib32" OS_SEP "setupapi.def", false},
-    {"setupapi", "lib64" OS_SEP "setupapi.def", false},
-    {"winmm", "lib-common" OS_SEP "winmm.def", false},
-    {"gdi32", "lib-common" OS_SEP "gdi32.def", false},
-    {"imm32", "lib-common" OS_SEP "imm32.def", false},
-    {"version", "lib-common" OS_SEP "version.def", false},
-    {"advapi32", "lib-common" OS_SEP "advapi32.def.in", true},
-    {"oleaut32", "lib-common" OS_SEP "oleaut32.def.in", false},
-    {"ole32", "lib-common" OS_SEP "ole32.def.in", false},
-    {"shell32", "lib-common" OS_SEP "shell32.def", true},
-    {"user32", "lib-common" OS_SEP "user32.def.in", true},
-    {"kernel32", "lib-common" OS_SEP "kernel32.def.in", true},
-    {"ntdll", "libarm32" OS_SEP "ntdll.def", true},
-    {"ntdll", "lib32" OS_SEP "ntdll.def", true},
-    {"ntdll", "lib64" OS_SEP "ntdll.def", true},
+    {"advapi32",true},
+    {"gdi32",   false},
+    {"imm32",   false},
+    {"kernel32",true},
+    {"msvcrt",  true},
+    {"ntdll",   true},
+    {"ole32",   false},
+    {"oleaut32",false},
+    {"setupapi",false},
+    {"shell32", true},
+    {"user32",  true},
+    {"version", false},
+    {"winmm",   false},
 };
 
 struct LinkJob {
@@ -1955,7 +1949,7 @@ static void print_zig_cc_cmd(ZigList<const char *> *args) {
     fprintf(stderr, "\n");
 }
 
-static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_rel_path) {
+static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_file) {
     Error err;
 
     Buf *self_exe_path = buf_alloc();
@@ -1973,8 +1967,6 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_re
     Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
 
-    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
-            buf_ptr(parent->zig_lib_dir), buf_ptr(def_in_rel_path));
     Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
             buf_ptr(parent->zig_lib_dir));
 
@@ -2122,24 +2114,57 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
 
     for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
         const char *name = mingw_def_list[def_i].name;
-        Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
-        bool always_link = mingw_def_list[def_i].always_link;
-        bool is_this_arch = false;
-        if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
-            is_this_arch = true;
-        } else if (target_is_arm(g->zig_target)) {
-            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
-                is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
-            } else {
-                is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
-            }
-        } else if (g->zig_target->arch == ZigLLVM_x86) {
-            is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
+        const bool always_link = mingw_def_list[def_i].always_link;
+
+        Buf override_path = BUF_INIT;
+
+        char const *lib_path = nullptr;
+        if (g->zig_target->arch == ZigLLVM_x86) {
+            lib_path = "lib32";
         } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-            is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
+            lib_path = "lib64";
+        } else if (target_is_arm(g->zig_target)) {
+            const bool is_32 = target_arch_pointer_bit_width(g->zig_target->arch) == 32;
+            lib_path = is_32 ? "libarm32" : "libarm64";
+        } else {
+            zig_unreachable();
         }
-        if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
-            lj->args.append(get_def_lib(g, name, path));
+
+        // Try the archtecture-specific path first
+        buf_resize(&override_path, 0);
+        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), lib_path, name);
+
+        bool does_exist;
+        if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
+            zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
+        }
+
+        if (!does_exist) {
+            // Try the generic version
+            buf_resize(&override_path, 0);
+            buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), name);
+
+            if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
+                zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
+            }
+        }
+
+        if (!does_exist) {
+            // Try the generic version and preprocess it
+            buf_resize(&override_path, 0);
+            buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def.in", buf_ptr(g->zig_lib_dir), name);
+
+            if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
+                zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
+            }
+        }
+
+        if (!does_exist) {
+            zig_panic("link: could not find .def file to build %s\n", name);
+        }
+
+        if (always_link || is_linking_system_lib(g, name)) {
+            lj->args.append(get_def_lib(g, name, &override_path));
         }
     }
 }
