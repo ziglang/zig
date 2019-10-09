@@ -8728,6 +8728,11 @@ static void init(CodeGen *g) {
         target_specific_cpu_args = "";
         target_specific_features = riscv_default_features;
     } else if (g->zig_target->arch == ZigLLVM_x86) {
+        // This is because we're really targeting i686 rather than i386.
+        // It's pretty much impossible to use many of the language features
+        // such as fp16 if you stick use the x87 only. This is also what clang
+        // uses as base cpu.
+        // TODO https://github.com/ziglang/zig/issues/2883
         target_specific_cpu_args = "pentium4";
         target_specific_features = "";
     } else {
