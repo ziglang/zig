@@ -70,6 +70,8 @@ static const char* ir_instruction_type_str(IrInstruction* instruction) {
             return "UnOp";
         case IrInstructionIdBinOp:
             return "BinOp";
+        case IrInstructionIdMergeErrSets:
+            return "MergeErrSets";
         case IrInstructionIdLoadPtr:
             return "LoadPtr";
         case IrInstructionIdLoadPtrGen:
@@ -497,8 +499,6 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "++";
         case IrBinOpArrayMult:
             return "**";
-        case IrBinOpMergeErrorSets:
-            return "||";
     }
     zig_unreachable();
 }
@@ -532,6 +532,15 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
     ir_print_other_instruction(irp, bin_op_instruction->op2);
     if (!bin_op_instruction->safety_check_on) {
         fprintf(irp->f, " // no safety");
+    }
+}
+
+static void ir_print_merge_err_sets(IrPrint *irp, IrInstructionMergeErrSets *instruction) {
+    ir_print_other_instruction(irp, instruction->op1);
+    fprintf(irp->f, " || ");
+    ir_print_other_instruction(irp, instruction->op2);
+    if (instruction->type_name != nullptr) {
+        fprintf(irp->f, " // name=%s", buf_ptr(instruction->type_name));
     }
 }
 
@@ -1973,6 +1982,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdBinOp:
             ir_print_bin_op(irp, (IrInstructionBinOp *)instruction);
+            break;
+        case IrInstructionIdMergeErrSets:
+            ir_print_merge_err_sets(irp, (IrInstructionMergeErrSets *)instruction);
             break;
         case IrInstructionIdDeclVarSrc:
             ir_print_decl_var_src(irp, (IrInstructionDeclVarSrc *)instruction);

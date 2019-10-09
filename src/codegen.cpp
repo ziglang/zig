@@ -2776,7 +2776,6 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
         case IrBinOpRemUnspecified:
-        case IrBinOpMergeErrorSets:
             zig_unreachable();
         case IrBinOpBoolOr:
             return LLVMBuildOr(g->builder, op1_value, op2_value, "");
@@ -6040,6 +6039,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAllocaGen:
         case IrInstructionIdAwaitSrc:
         case IrInstructionIdSplatSrc:
+        case IrInstructionIdMergeErrSets:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

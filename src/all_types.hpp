@@ -398,6 +398,7 @@ struct LazyValueErrUnionType {
     IrAnalyze *ira;
     IrInstruction *err_set_type;
     IrInstruction *payload_type;
+    Buf *type_name;
 };
 
 struct ConstExprValue {
@@ -2407,6 +2408,7 @@ enum IrInstructionId {
     IrInstructionIdPhi,
     IrInstructionIdUnOp,
     IrInstructionIdBinOp,
+    IrInstructionIdMergeErrSets,
     IrInstructionIdLoadPtr,
     IrInstructionIdLoadPtrGen,
     IrInstructionIdStorePtr,
@@ -2713,7 +2715,6 @@ enum IrBinOp {
     IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
-    IrBinOpMergeErrorSets,
 };
 
 struct IrInstructionBinOp {
@@ -2723,6 +2724,14 @@ struct IrInstructionBinOp {
     IrInstruction *op2;
     IrBinOp op_id;
     bool safety_check_on;
+};
+
+struct IrInstructionMergeErrSets {
+    IrInstruction base;
+
+    IrInstruction *op1;
+    IrInstruction *op2;
+    Buf *type_name;
 };
 
 struct IrInstructionLoadPtr {
@@ -3633,6 +3642,7 @@ struct IrInstructionErrorUnion {
 
     IrInstruction *err_set;
     IrInstruction *payload;
+    Buf *type_name;
 };
 
 struct IrInstructionAtomicRmw {
