@@ -415,15 +415,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
 
     bool external_linkage = linkage != GlobalLinkageIdInternal;
     CallingConvention cc = fn->type_entry->data.fn.fn_type_id.cc;
-    if (cc == CallingConventionStdcall && external_linkage &&
-        g->zig_target->arch == ZigLLVM_x86)
-    {
-        // prevent llvm name mangling
-        symbol_name = buf_ptr(buf_sprintf("\x01_%s", symbol_name));
-    }
-
     bool is_async = fn_is_async(fn);
-
 
     ZigType *fn_type = fn->type_entry;
     // Make the raw_type_ref populated

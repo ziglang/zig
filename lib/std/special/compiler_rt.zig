@@ -250,10 +250,12 @@ comptime {
 
         switch (builtin.arch) {
             .i386 => {
-                @export("_alldiv", @import("compiler_rt/aulldiv.zig")._alldiv, strong_linkage);
-                @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
-                @export("_allrem", @import("compiler_rt/aullrem.zig")._allrem, strong_linkage);
-                @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
+                // Don't let LLVM apply the stdcall name mangling on those MSVC
+                // builtin functions
+                @export("\x01__alldiv", @import("compiler_rt/aulldiv.zig")._alldiv, strong_linkage);
+                @export("\x01__aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
+                @export("\x01__allrem", @import("compiler_rt/aullrem.zig")._allrem, strong_linkage);
+                @export("\x01__aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
 
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
                 @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);
