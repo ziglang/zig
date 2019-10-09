@@ -4,7 +4,10 @@ const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
 const testing = std.testing;
 
+/// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
+
+/// Archimedes' constant (π)
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
 // From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
