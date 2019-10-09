@@ -225,6 +225,58 @@ nakedcc fn clone() void {
                 \\
             );
         },
+        .i386 => {
+            // __clone(func,    stack,   flags,    arg,      ptid,     tls,      ctid)
+            //         stack+4, stack+8, stack+12, stack+16, stack+20, stack+24, stack+28
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //         eax,       ebx,   ecx,   edx,  esi, edi
+            // Source: musl/src/thread/i386/clone.s
+            asm volatile (
+                \\    push %%ebp
+                \\    mov %%esp,%%ebp
+                \\    push %%ebx
+                \\    push %%esi
+                \\    push %%edi
+                \\
+                \\    xor %%eax,%%eax
+                \\    push $0x51
+                \\    mov %%gs,%%ax
+                \\    push $0xfffff
+                \\    shr $3,%%eax
+                \\    push 28(%%ebp)
+                \\    push %%eax
+                \\    mov $120,%%al
+                \\    mov 12(%%ebp),%%ecx
+                \\    mov 16(%%ebp),%%ebx
+                \\    and $-16,%%ecx
+                \\    sub $16,%%ecx
+                \\    mov 20(%%ebp),%%edi
+                \\    mov %%edi,(%%ecx)
+                \\    mov 24(%%ebp),%%edx
+                \\    mov %%esp,%%esi
+                \\    mov 32(%%ebp),%%edi
+                \\    mov 8(%%ebp),%%ebp
+                \\    int $128
+                \\    test %%eax,%%eax
+                \\    jnz 1f
+                \\
+                \\    mov %%ebp,%%eax
+                \\    xor %%ebp,%%ebp
+                \\    call *%%eax
+                \\    mov %%eax,%%ebx
+                \\    xor %%eax,%%eax
+                \\    inc %%eax
+                \\    int $128
+                \\    hlt
+                \\
+                \\1:  add $16,%%esp
+                \\    pop %%edi
+                \\    pop %%esi
+                \\    pop %%ebx
+                \\    pop %%ebp
+                \\    ret
+            );
+        },
         .aarch64 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //         x0,   x1,    w2,    x3,  x4,   x5,  x6
