@@ -193,6 +193,7 @@ enum TokenizeState {
     TokenizeStateStringEscapeUnicodeStart,
     TokenizeStateCharLiteral,
     TokenizeStateCharLiteralEnd,
+    TokenizeStateCharLiteralUnicode,
     TokenizeStateSawStar,
     TokenizeStateSawStarPercent,
     TokenizeStateSawSlash,
@@ -250,6 +251,7 @@ struct Tokenize {
     int exponent_in_bin_or_dec;
     BigInt specified_exponent;
     BigInt significand;
+    size_t remaining_code_units;
 };
 
 ATTRIBUTE_PRINTF(2, 3)
@@ -1221,17 +1223,32 @@ void tokenize(Buf *buf, Tokenization *out) {
                 }
                 break;
             case TokenizeStateCharLiteral:
-                switch (c) {
-                    case '\'':
-                        tokenize_error(&t, "expected character");
-                        break;
-                    case '\\':
-                        t.state = TokenizeStateStringEscape;
-                        break;
-                    default:
-                        t.cur_tok->data.char_lit.c = c;
-                        t.state = TokenizeStateCharLiteralEnd;
-                        break;
+                if (c == '\'') {
+                    tokenize_error(&t, "expected character");
+                } else if (c == '\\') {
+                    t.state = TokenizeStateStringEscape;
+                } else if ((c >= 0x80 && c <= 0xbf) || c >= 0xf8) {
+                    // 10xxxxxx
+                    // 11111xxx
+                    invalid_char_error(&t, c);
+                } else if (c >= 0xc0 && c <= 0xdf) {
+                    // 110xxxxx
+                    t.cur_tok->data.char_lit.c = c & 0x1f;
+                    t.remaining_code_units = 1;
+                    t.state = TokenizeStateCharLiteralUnicode;
+                } else if (c >= 0xe0 && c <= 0xef) {
+                    // 1110xxxx
+                    t.cur_tok->data.char_lit.c = c & 0x0f;
+                    t.remaining_code_units = 2;
+                    t.state = TokenizeStateCharLiteralUnicode;
+                } else if (c >= 0xf0 && c <= 0xf7) {
+                    // 11110xxx
+                    t.cur_tok->data.char_lit.c = c & 0x07;
+                    t.remaining_code_units = 3;
+                    t.state = TokenizeStateCharLiteralUnicode;
+                } else {
+                    t.cur_tok->data.char_lit.c = c;
+                    t.state = TokenizeStateCharLiteralEnd;
                 }
                 break;
             case TokenizeStateCharLiteralEnd:
@@ -1242,6 +1259,17 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     default:
                         invalid_char_error(&t, c);
+                }
+                break;
+            case TokenizeStateCharLiteralUnicode:
+                if (c <= 0x7f || c >= 0xc0) {
+                    invalid_char_error(&t, c);
+                }
+                t.cur_tok->data.char_lit.c <<= 6;
+                t.cur_tok->data.char_lit.c += c & 0x3f;
+                t.remaining_code_units--;
+                if (t.remaining_code_units == 0) {
+                    t.state = TokenizeStateCharLiteralEnd;
                 }
                 break;
             case TokenizeStateZero:
@@ -1479,6 +1507,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             break;
         case TokenizeStateCharLiteral:
         case TokenizeStateCharLiteralEnd:
+        case TokenizeStateCharLiteralUnicode:
             tokenize_error(&t, "unterminated character literal");
             break;
         case TokenizeStateSymbol:
