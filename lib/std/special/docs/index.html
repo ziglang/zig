@@ -22,6 +22,10 @@
         padding:1em;
         overflow-x: auto;
       }
+      code {
+        font-family:"Source Code Pro",monospace;
+        font-size:1em;
+      }
       nav {
         width: 10em;
         position: fixed;
@@ -152,6 +156,12 @@
         text-align: right;
         font-weight: bold;
         vertical-align: top;
+      }
+
+      #sectGlobalVars td {
+        vertical-align: top;
+        margin: 0;
+        padding: 0.5em;
       }
 
       .tok-kw {
@@ -310,8 +320,10 @@
     </div>
     <div id="sectGlobalVars" class="hidden">
       <h2>Global Variables</h2>
-      <div id="listGlobalVars">
-      </div>
+      <table>
+        <tbody id="listGlobalVars">
+        </tbody>
+      </table>
     </div>
     <div id="sectFns" class="hidden">
       <h2>Functions</h2>
