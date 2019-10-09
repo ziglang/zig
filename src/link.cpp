@@ -2057,9 +2057,18 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
         args.resize(0);
         args.append("link");
         coff_append_machine_arg(parent, &args);
+        args.append("-lldmingw");
+        args.append("-kill-at");
 
         args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_final_path))));
         args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(lib_final_path))));
+
+        if (parent->verbose_link) {
+            for (size_t i = 0; i < args.length; i += 1) {
+                fprintf(stderr, "%s ", args.at(i));
+            }
+            fprintf(stderr, "\n");
+        }
 
         Buf diag = BUF_INIT;
         ZigLLVM_ObjectFormatType target_ofmt = target_object_format(parent->zig_target);
