@@ -918,6 +918,14 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
 
             break;
         }
+        case ZigTypeIdArray: {
+            jw_object_field(jw, "len");
+            jw_int(jw, ty->data.array.len);
+
+            jw_object_field(jw, "elem");
+            anal_dump_type_ref(ctx, ty->data.array.child_type);
+            break;
+        }
         default:
             jw_object_field(jw, "name");
             jw_string(jw, buf_ptr(&ty->name));
