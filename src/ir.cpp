@@ -17952,7 +17952,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                     union_val->special = ConstValSpecialStatic;
                     bigint_init_bigint(&union_val->data.x_union.tag, &field->enum_field->value);
                     union_val->data.x_union.payload = payload_val;
-                } else {
+                } else if (bare_type->data.unionation.layout != ContainerLayoutExtern) {
                     TypeUnionField *actual_field = find_union_field_by_tag(bare_type, &union_val->data.x_union.tag);
                     if (actual_field == nullptr)
                         zig_unreachable();
