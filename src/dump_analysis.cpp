@@ -964,6 +964,9 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
         case NodeTypeStructField:
             name_buf = node->data.struct_field.name;
             break;
+        case NodeTypeParamDecl:
+            name_buf = node->data.param_decl.name;
+            break;
         default:
             name_buf = nullptr;
             break;
@@ -977,6 +980,9 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     switch (node->type) {
         case NodeTypeContainerDecl:
             fieldNodes = &node->data.container_decl.fields;
+            break;
+        case NodeTypeFnProto:
+            fieldNodes = &node->data.fn_proto.params;
             break;
         default:
             fieldNodes = nullptr;
