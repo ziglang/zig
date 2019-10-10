@@ -1,6 +1,3 @@
-const std = @import("std");
-const expect = std.testing.expect;
-
 const Foo = struct {
     usingnamespace Mixin;
 };
