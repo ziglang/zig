@@ -238,7 +238,8 @@ comptime {
         if (is_mingw) {
             @export("_alloca", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
             @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
-        } else {
+        } else if (!builtin.link_libc) {
+            // This symbols are otherwise exported by MSVCRT.lib
             @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
             @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
         }
