@@ -17,9 +17,15 @@ const File = std.fs.File;
 const testing = std.testing;
 
 pub const Mode = enum {
+    /// I/O operates normally, waiting for the operating system syscalls to complete.
     blocking,
+
+    /// I/O functions are generated async and rely on a global event loop. Event-based I/O.
     evented,
 };
+
+/// The application's chosen I/O mode. This defaults to `Mode.blocking` but can be overridden
+/// by `root.event_loop`.
 pub const mode: Mode = if (@hasDecl(root, "io_mode"))
     root.io_mode
 else if (@hasDecl(root, "event_loop"))
