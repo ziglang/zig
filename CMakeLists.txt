@@ -10,9 +10,13 @@ if(NOT CMAKE_INSTALL_PREFIX)
       "Directory to install zig to" FORCE)
 endif()
 
+set(CMAKE_USER_MAKE_RULES_OVERRIDE
+   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flag_overrides.cmake)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
+   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_flag_overrides.cmake)
+
 project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
-
 
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 5)
