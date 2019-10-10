@@ -48,8 +48,16 @@ pub const SYS_clock_gettime = 403;
 
 pub const MMAP2_UNIT = 4096;
 
-pub const O_LARGEFILE = 0x8000;
+pub const O_LARGEFILE = 0;
+pub const O_CREAT = 0o100;
+pub const O_EXCL = 0o200;
+pub const O_TRUNC = 0o1000;
+pub const O_NONBLOCK = 0o4000;
+pub const O_DIRECTORY = 0o200000;
+pub const O_CLOEXEC = 0o2000000;
+pub const O_PATH = 0o10000000;
 
+pub const Elf_Symndx = u32;
 pub const UserDesc = struct {
     entry_num: u32,
     base_addr: u32,
