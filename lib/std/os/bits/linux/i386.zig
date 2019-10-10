@@ -70,37 +70,27 @@ pub const UserDesc = struct {
     useable: u1,
 };
 
-pub const time = c_long;
-pub const mode = c_uint;
-pub const nlink = c_uint;
-pub const off = c_longlong;
-pub const ino = c_ulonglong;
-pub const dev = c_ulonglong;
-pub const blksize = c_long;
-pub const blkcnt = c_longlong;
-pub const timespec = struct {
-    tv_sec: time,
-    tv_nsec: c_long,
+pub const timespec = extern struct {
+    tv_sec: i32,
+    tv_nsec: i32,
 };
-pub const uid = c_uint;
-pub const gid = c_uint;
-pub const Stat = struct {
-    dev: dev,
+pub const Stat = extern struct {
+    dev: u64,
     __dev_padding: c_int,
     __ino_truncated: c_long,
-    mode: mode,
-    nlink: nlink,
-    uid: uid,
-    gid: gid,
-    rdev: dev,
+    mode: u32,
+    nlink: u32,
+    uid: u32,
+    gid: u32,
+    rdev: u64,
     __rdev_padding: c_int,
-    size: off,
-    blksize: blksize,
-    blocks: blkcnt,
+    size: i64,
+    blksize: i32,
+    blocks: i64,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    ino: ino,
+    ino: u64,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;
