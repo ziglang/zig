@@ -13122,7 +13122,6 @@ static bool ir_resolve_float_mode(IrAnalyze *ira, IrInstruction *value, FloatMod
     return true;
 }
 
-
 static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     if (type_is_invalid(value->value.type))
         return nullptr;
@@ -13143,11 +13142,11 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
-    if (array_val->data.x_array.special == ConstArraySpecialBuf) {
-        return array_val->data.x_array.data.s_buf;
-    }
     expand_undef_array(ira->codegen, array_val);
     size_t len = bigint_as_usize(&len_field->data.x_bigint);
+    if (array_val->data.x_array.special == ConstArraySpecialBuf && len == buf_len(array_val->data.x_array.data.s_buf)) {
+        return array_val->data.x_array.data.s_buf;
+    }
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
