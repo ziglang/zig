@@ -428,10 +428,13 @@
         border-bottom-style: solid;
         border-bottom-color: #000;
         outline: none;
+        transition: border-bottom-color 0.35s, background 0.35s, box-shadow 0.35s;
       }
       
       .search:focus {
         border-bottom-color: #ffbb4d;
+        background: white;
+        box-shadow: 0 0.3em 1em 0.125em rgba(0, 0, 0, 0.18);
       }
       
       .search::placeholder {
