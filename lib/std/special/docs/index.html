@@ -5,350 +5,48 @@
     <title>Documentation - Zig</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
     <style type="text/css">
-      .old body {
-        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
-        max-width: 60em;
+      :root {
+        font-size: 1em;
+        --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        --mono: "Source Code Pro", monospace;
+        --tx-color: #141414;
+        --bg-color: #ffffff;
+        --link-color: #2A6286;
+        --sidebar-sh-color: rgba(0, 0, 0, 0.09);
+        --search-bg-color: #f3f3f3;
+        --search-bg-color-focus: #ffffff;
+        --search-sh-color: rgba(0, 0, 0, 0.18);
+        --help-sh-color: rgba(0, 0, 0, 0.75);
       }
-      .old .hidden {
-        display: none;
-      }
-      .old a {
-        color: #2A6286;
-      }
-      .old pre{
-        font-family:"Source Code Pro",monospace;
-        font-size:1em;
-        background-color:#F5F5F5;
-        padding:1em;
-        overflow-x: auto;
-      }
-      .old code {
-        font-family:"Source Code Pro",monospace;
-        font-size:1em;
-      }
-      .old nav {
-        width: 10em;
-        position: fixed;
-        left: 0;
-        top: 0;
-        height: 100vh;
-        overflow: auto;
-      }
-      .old nav h2 {
-        font-size: 1.2em;
-        text-decoration: underline;
-        margin: 0;
-        padding: 0.5em 0;
-        text-align: center;
-      }
-      .old nav p {
-        margin: 0;
-        padding: 0;
-        text-align: center;
-      }
-      .old section {
-        margin-left: 10em;
-      }
-      .old section h1 {
-        border-bottom: 1px dashed;
-      }
-      .old section h2 {
-        font-size: 1.3em;
-        margin: 0.5em 0;
-        padding: 0;
-        border-bottom: 1px solid;
-      }
-      .old #listNav {
-        list-style-type: none;
-        margin: 0.5em 0 0 0;
-        padding: 0;
-        overflow: hidden;
-        background-color: #f1f1f1;
-      }
-      .old #listNav li {
-        float:left;
-      }
-      .old #listNav li a {
-        display: block;
-        color: #000;
-        text-align: center;
-        padding: .5em .8em;
+
+      a {
         text-decoration: none;
-      }
-      .old #listNav li a:hover {
-        background-color: #555;
-        color: #fff;
-      }
-      .old #listNav li a.active {
-        background-color: #FFBB4D;
-        color: #000;
-      }
-
-      .old #listPkgs {
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-        background-color: #f1f1f1;
-      }
-      .old #listPkgs li a {
-        display: block;
-        color: #000;
-        padding: 0.5em 1em;
-        text-decoration: none;
-      }
-      .old #listPkgs li a:hover {
-        background-color: #555;
-        color: #fff;
-      }
-      .old #listPkgs li a.active {
-        background-color: #FFBB4D;
-        color: #000;
-      }
-      .old #logo {
-        width: 8em;
-        padding: 0.5em 1em;
-      }
-
-      .old #search {
-        width: 100%;
-      }
-
-      .old #helpDialog {
-        width: 21em;
-        height: 19em;
-        position: fixed;
-        top: 0;
-        left: 0;
-        background-color: #333;
-        color: #fff;
-        border: 1px solid #fff;
-      }
-      .old #helpDialog h1 {
-        text-align: center;
-        font-size: 1.5em;
-      }
-      .old #helpDialog dt, #helpDialog dd {
-        display: inline;
-        margin: 0 0.2em;
-      }
-      .old kbd {
-        color: #000;
-        background-color: #fafbfc;
-        border-color: #d1d5da;
-        border-bottom-color: #c6cbd1;
-        box-shadow-color: #c6cbd1;
-        display: inline-block;
-        padding: 0.3em 0.2em;
-        font: 1.2em monospace;
-        line-height: 0.8em;
-        vertical-align: middle;
-        border: solid 1px;
-        border-radius: 3px;
-        box-shadow: inset 0 -1px 0;
-        cursor: default;
-      }
-
-      .old #listSearchResults li.selected {
-        background-color: #93e196;
-      }
-
-      .old #tableFnErrors dt {
-        font-weight: bold;
-      }
-
-      .old td {
-        vertical-align: top;
-        margin: 0;
-        padding: 0.5em;
-        max-width: 20em;
-        text-overflow: ellipsis;
-        overflow-x: hidden;
-      }
-
-      .old .tok-kw {
-          color: #333;
-          font-weight: bold;
-      }
-      .old .tok-str {
-          color: #d14;
-      }
-      .old .tok-builtin {
-          color: #0086b3;
-      }
-      .old .tok-comment {
-          color: #777;
-          font-style: italic;
-      }
-      .old .tok-fn {
-          color: #900;
-          font-weight: bold;
-      }
-      .old .tok-null {
-          color: #008080;
-      }
-      .old .tok-number {
-          color: #008080;
-      }
-      .old .tok-type {
-          color: #458;
-          font-weight: bold;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        .old body{
-          background-color: #111;
-          color: #bbb;
-        }
-        .old a {
-          color: #88f;
-        }
-        .old pre{
-          background-color:#2A2A2A;
-        }
-        .old #listNav {
-          background-color: #333;
-        }
-        .old #listNav li a {
-          color: #fff;
-        }
-        .old #listNav li a:hover {
-          background-color: #555;
-          color: #fff;
-        }
-        .old #listNav li a.active {
-          background-color: #FFBB4D;
-          color: #000;
-        }
-        .old #listPkgs {
-          background-color: #333;
-        }
-        .old #listPkgs li a {
-          color: #fff;
-        }
-        .old #listPkgs li a:hover {
-          background-color: #555;
-          color: #fff;
-        }
-        .old #listPkgs li a.active {
-          background-color: #FFBB4D;
-          color: #000;
-        }
-        .old #listSearchResults li.selected {
-          background-color: #000;
-        }
-        .old #listSearchResults li.selected a {
-          color: #fff;
-        }
-        .old .tok-kw {
-            color: #eee;
-        }
-        .old .tok-str {
-            color: #2e5;
-        }
-        .old .tok-builtin {
-            color: #ff894c;
-        }
-        .old .tok-comment {
-            color: #aa7;
-        }
-        .old .tok-fn {
-            color: #e33;
-        }
-        .old .tok-null {
-            color: #ff8080;
-        }
-        .old .tok-number {
-            color: #ff8080;
-        }
-        .old .tok-type {
-            color: #68f;
-        }
       }
       
-      /* ------- */
+      a:hover {
+        text-decoration: underline;
+      }
+      
       .hidden {
         display: none;
       }
-      
-      .font-normal {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-      }
-      
-      .font-mono {
-        font-family: "Source Code Pro", monospace;
-      }
 
+      /* layout */
       .canvas {
-        margin: 0;
-        padding: 0;
         width: 100vw;
         height: 100vh;
         overflow: hidden;
-        /*background-color: #fff4ef;*/
-        /*background-color: #f7f7f7;*/
+        margin: 0;
+        padding: 0;
+        font-family: var(--ui);
+        color: var(--tx-color);
+        background-color: var(--bg-color);
       }
 
-      .help-flex {
-        position: fixed;
-        top: 0;
-        left: 0;
+      .flex-main {
+        display: flex;
         width: 100%;
         height: 100%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        background-color: rgba(0, 0, 0, 0.15);
-        
-        z-index: 400;
-      }
-
-      .help-modal {
-        max-width: 97vw;
-        max-height: 97vh;
-        background-color: #333;
-        color: #fff;
-        border: 0.125em solid #000;
-        box-shadow: 0 0.5em 2.5em 0.3em rgba(0, 0, 0, 0.75);
-        overflow: auto;
-      }
-      
-      .help-modal h1 {
-        text-align: center;
-        font-size: 1.5em;
-        margin: 0.75em 2.5em 1em 2.5em;
-      }
-      
-      dt, dd {
-        display: inline;
-        margin: 0 0.2em;
-      }
-      
-      dl {
-        margin-left: 0.5em;
-        margin-right: 0.5em;
-      }
-      
-      kbd {
-        color: #000;
-        background-color: #fafbfc;
-        border-color: #d1d5da;
-        border-bottom-color: #c6cbd1;
-        box-shadow-color: #c6cbd1;
-        display: inline-block;
-        padding: 0.3em 0.2em;
-        font: 1.2em monospace;
-        line-height: 0.8em;
-        vertical-align: middle;
-        border: solid 1px;
-        border-radius: 3px;
-        box-shadow: inset 0 -1px 0;
-        cursor: default;
-      }
-
-      .main-flex {
-        width: 100%;
-        height: 100%;
-        display: flex;
         justify-content: center;
         
         z-index: 100;
@@ -359,43 +57,19 @@
         flex-shrink: 1;
       }
 
-      .nav {
-        width: 12em;
-        overflow: auto;
+      .flex-left {
+        width: 12rem;
         max-width: 15vw;
-        min-width: 9.5em;
+        min-width: 9.5rem;
+        overflow: auto;
+        overflow-wrap: break-word;
         flex-shrink: 0;
         flex-grow: 0;
-        background: #fff;
-        box-shadow: 0 0 1em rgba(0, 0, 0, 0.09);
-        overflow-wrap: break-word;
         
         z-index: 300;
       }
-      
-      nav h2 {
-        font-size: 1.2em;
-        margin: 0.5em;
-        padding: 0;
-      }
-      
-      nav h2 > span {
-        border-bottom: 0.125em dotted #000;
-      }
-      
-      nav p {
-        margin: 0.5em;
-      }
-      
-      .logo-wrap {
-        padding: 0.35em 0.35em;
-      }
-      
-      .logo {
-        width: 100%;
-      }
 
-      .right-flex {
+      .flex-right {
         display: flex;
         overflow: auto;
         flex-grow: 1;
@@ -404,91 +78,370 @@
         z-index: 200;
       }
 
-      .right-wrap {
-        width: 60em;
+      .flex-right > .wrap {
+        width: 60rem;
         max-width: 85vw;
         flex-shrink: 1;
       }
+      
+      .help-modal {
+        z-index: 400;
+      }
+      
+      /* sidebar */
+      .sidebar {
+        font-size: 1rem;
+        background-color: var(--bg-color);
+        box-shadow: 0 0 1rem var(--sidebar-sh-color);
+      }
+      
+      .sidebar .logo {
+        padding: 0.35rem 0.35rem;
+      }
+      
+      .sidebar .logo > img {
+        width: 100%;
+      }
+      
+      .sidebar h2 {
+        margin: 0.5rem;
+        padding: 0;
+        font-size: 1.2rem;
+      }
+      
+      .sidebar h2 > span {
+        border-bottom: 0.125rem dotted var(--tx-color);
+      }
+      
+      .sidebar .packages {
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+        background-color: #f1f1f1;
+      }
+      
+      .sidebar .packages > li > a {
+        display: block;
+        padding: 0.5rem 1rem;
+        color: var(--tx-color);
+        text-decoration: none;
+      }
+      
+      .sidebar .packages > li > a:hover {
+        color: #fff;
+        background-color: #555;
+      }
+      
+      .sidebar .packages > li > a.active {
+        color: #000;
+        background-color: #FFBB4D;
+      }
+      
+      .sidebar p.str {
+        margin: 0.5rem;
+        font-family: var(--mono);
+      }
 
-      .section-docs {
-        padding: 0.7em 0.7em 2.4em 1.4em;
-        background: #fff;
+      /* docs section */
+      .docs {
+        padding: 0.7rem 0.7rem 2.4rem 1.4rem;
+        font-size: 1rem;
+        background-color: var(--bg-color);
         overflow-wrap: break-word;
       }
 
-      .search {
+      .docs .search {
         width: 100%;
-        padding: 0.5em;
-        font-size: 1em;
-        background: #f3f3f3;
+        padding: 0.5rem;
+        font-size: 1rem;
+        font-family: var(--ui);
+        color: var(--tx-color);
+        background-color: var(--search-bg-color);
         border-top: 0;
         border-left: 0;
         border-right: 0;
-        border-bottom-width: 0.125em;
+        border-bottom-width: 0.125rem;
         border-bottom-style: solid;
-        border-bottom-color: #000;
+        border-bottom-color: var(--tx-color);
         outline: none;
         transition: border-bottom-color 0.35s, background 0.35s, box-shadow 0.35s;
       }
       
-      .search:focus {
+      .docs .search:focus {
+        background-color: var(--search-bg-color-focus);
         border-bottom-color: #ffbb4d;
-        background: white;
-        box-shadow: 0 0.3em 1em 0.125em rgba(0, 0, 0, 0.18);
+        box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
       }
       
-      .search::placeholder {
-        color: #000;
+      .docs .search::placeholder {
+        font-size: 1rem;
+        font-family: var(--ui);
+        color: var(--tx-color);
         opacity: 0.5;
       }
-
-      /*section.section-docs h1 {
-        text-decoration: none;
-        border-bottom: 0.125em dashed #717171;
-        display: inline-block;
-        font-size: 1.35em;
-        max-width: 100%;
-        margin: 0.8em 0;
+      
+      .docs a {
+        color: var(--link-color);
       }
       
-      section.section-docs h2 {
-        font-size: 1.2em;
+      .docs pre {
+        font-family: var(--mono);
+        font-size:1em;
+        background-color:#F5F5F5;
+        padding:1em;
+        overflow-x: auto;
+      }
+      
+      .docs code {
+        font-family: var(--mono);
+        font-size:1em;
+      }
+      
+      .docs h1 {
+        border-bottom: 1px dashed;
+      }
+      
+      .docs  h2 {
+        font-size: 1.3em;
         margin: 0.5em 0;
         padding: 0;
+        border-bottom: 1px solid;
+      }
+      #listNav {
+        list-style-type: none;
+        margin: 0.5em 0 0 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #f1f1f1;
+      }
+      #listNav li {
+        float:left;
+      }
+      #listNav li a {
+        display: block;
+        color: #000;
+        text-align: center;
+        padding: .5em .8em;
         text-decoration: none;
-        border-bottom: 0.125em solid #717171;
-        display: inline-block;
-        max-width: 100%;
+      }
+      #listNav li a:hover {
+        background-color: #555;
+        color: #fff;
+      }
+      #listNav li a.active {
+        background-color: #FFBB4D;
+        color: #000;
+      }
+
+      #listSearchResults li.selected {
+        background-color: #93e196;
+      }
+
+      #tableFnErrors dt {
+        font-weight: bold;
+      }
+
+      .docs td {
+        vertical-align: top;
+        margin: 0;
+        padding: 0.5em;
+        max-width: 20em;
+        text-overflow: ellipsis;
+        overflow-x: hidden;
       }
       
-      table {
-        border: 1px solid red;
-      }*/
+      /* help dialog */
+      .help-modal {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        position: fixed;
+        top: 0;
+        left: 0;
+        justify-content: center;
+        align-items: center;
+        background-color: rgba(0, 0, 0, 0.15);
+        backdrop-filter: blur(0.3em);
+      }
+
+      .help-modal > .dialog {
+        max-width: 97vw;
+        max-height: 97vh;
+        overflow: auto;
+        font-size: 1rem;
+        color: #fff;
+        background-color: #333;
+        border: 0.125rem solid #000;
+        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--help-sh-color);
+      }
+      
+      .help-modal h1 {
+        margin: 0.75em 2.5em 1em 2.5em;
+        font-size: 1.5em;
+        text-align: center;
+      }
+      
+      .help-modal dt, .help-modal dd {
+        display: inline;
+        margin: 0 0.2em;
+      }
+      
+      .help-modal dl {
+        margin-left: 0.5em;
+        margin-right: 0.5em;
+      }
+      
+      .help-modal kbd {
+        display: inline-block;
+        padding: 0.3em 0.2em;
+        font-size: 1.2em;
+        font-size: var(--mono);
+        line-height: 0.8em;
+        vertical-align: middle;
+        color: #000;
+        background-color: #fafbfc;
+        border-color: #d1d5da;
+        border-bottom-color: #c6cbd1;
+        border: solid 0.0625em;
+        border-radius: 0.1875em;
+        box-shadow-color: #c6cbd1;
+        box-shadow: inset 0 -0.0625em 0;
+        cursor: default;
+      }
+      
+      /* tokens */
+      .tok-kw {
+          color: #333;
+          font-weight: bold;
+      }
+      .tok-str {
+          color: #d14;
+      }
+      .tok-builtin {
+          color: #0086b3;
+      }
+      .tok-comment {
+          color: #777;
+          font-style: italic;
+      }
+      .tok-fn {
+          color: #900;
+          font-weight: bold;
+      }
+      .tok-null {
+          color: #008080;
+      }
+      .tok-number {
+          color: #008080;
+      }
+      .tok-type {
+          color: #458;
+          font-weight: bold;
+      }
+      
+      /* dark mode */
+      @media (prefers-color-scheme: dark) {
+      
+        :root {
+          --tx-color: #bbb;
+          --bg-color: #111;
+          --link-color: #88f;
+          --sidebar-sh-color: rgba(128, 128, 128, 0.09);
+          --search-bg-color: #3c3c3c;
+          --search-bg-color-focus: #000;
+          --search-sh-color: rgba(255, 255, 255, 0.28);
+          --help-sh-color: rgba(142, 142, 142, 0.5);
+        }
+        
+        .docs pre {
+          background-color:#2A2A2A;
+        }
+        #listNav {
+          background-color: #333;
+        }
+        #listNav li a {
+          color: #fff;
+        }
+        #listNav li a:hover {
+          background-color: #555;
+          color: #fff;
+        }
+        #listNav li a.active {
+          background-color: #FFBB4D;
+          color: #000;
+        }
+        #listPkgs {
+          background-color: #333;
+        }
+        #listPkgs li a {
+          color: #fff;
+        }
+        #listPkgs li a:hover {
+          background-color: #555;
+          color: #fff;
+        }
+        #listPkgs li a.active {
+          background-color: #FFBB4D;
+          color: #000;
+        }
+        #listSearchResults li.selected {
+          background-color: #000;
+        }
+        #listSearchResults li.selected a {
+          color: #fff;
+        }
+        .tok-kw {
+            color: #eee;
+        }
+        .tok-str {
+            color: #2e5;
+        }
+        .tok-builtin {
+            color: #ff894c;
+        }
+        .tok-comment {
+            color: #aa7;
+        }
+        .tok-fn {
+            color: #e33;
+        }
+        .tok-null {
+            color: #ff8080;
+        }
+        .tok-number {
+            color: #ff8080;
+        }
+        .tok-type {
+            color: #68f;
+        }
+        
+      }
     </style>
   </head>
-  <body class="canvas font-normal">
-    <div class="main-flex">
+  <body class="canvas">
+    <div class="flex-main">
       <div class="flex-filler"></div>
-      <nav class="nav">
-        <div class="logo-wrap">
-          <img alt="ZIG" class="logo" id="logo" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCAxNTAgMTAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiNmN2E0MWQiPjxwYXRoIGQ9Im0wIDEwdjgwaDE5bDYtMTAgMTItMTBoLTE3di00MGgxNXYtMjB6bTQwIDB2MjBoNjJ2LTIwem05MSAwLTYgMTAtMTIgMTBoMTd2NDBoLTE1djIwaDM1di04MHptLTgzIDYwdjIwaDYydi0yMHoiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwYXRoIGQ9Im0zNyA3MC0xOCAyMHYtMTV6Ii8+PHBhdGggZD0ibTExMyAzMCAxOC0yMHYxNXoiLz48cGF0aCBkPSJtOTYuOTggMTAuNjMgMzYuMjgtMTAuNC04MC4yOSA4OS4xNy0zNi4yOCAxMC40eiIvPjwvZz48L3N2Zz4K"></img>
-        </div>
-        <div id="sectPkgs" class="old hidden">
-          <h2><span>Packages</span></h2>
-          <ul id="listPkgs">
-          </ul>
-        </div>
-        <div id="sectInfo" class="hidden">
-          <h2><span>Zig Version</span></h2>
-          <p class="font-mono" id="tdZigVer"></p>
-          <h2><span>Target</span></h2>
-          <p class="font-mono" id="tdTarget"></p>
-        </div>
-      </nav>
-      <div class="right-flex">
-        <div class="right-wrap">
-          <section class="old section-docs">
-            <input type="search" class="search font-normal" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
+      <div class="flex-left sidebar">
+        <nav>
+          <div class="logo">
+            <img alt="ZIG" id="logo" src="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCAxNTAgMTAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiNmN2E0MWQiPjxwYXRoIGQ9Im0wIDEwdjgwaDE5bDYtMTAgMTItMTBoLTE3di00MGgxNXYtMjB6bTQwIDB2MjBoNjJ2LTIwem05MSAwLTYgMTAtMTIgMTBoMTd2NDBoLTE1djIwaDM1di04MHptLTgzIDYwdjIwaDYydi0yMHoiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwYXRoIGQ9Im0zNyA3MC0xOCAyMHYtMTV6Ii8+PHBhdGggZD0ibTExMyAzMCAxOC0yMHYxNXoiLz48cGF0aCBkPSJtOTYuOTggMTAuNjMgMzYuMjgtMTAuNC04MC4yOSA4OS4xNy0zNi4yOCAxMC40eiIvPjwvZz48L3N2Zz4K"></img>
+          </div>
+          <div id="sectPkgs" class="hidden">
+            <h2><span>Packages</span></h2>
+            <ul id="listPkgs" class="packages"></ul>
+          </div>
+          <div id="sectInfo" class="hidden">
+            <h2><span>Zig Version</span></h2>
+            <p class="str" id="tdZigVer"></p>
+            <h2><span>Target</span></h2>
+            <p class="str" id="tdTarget"></p>
+          </div>
+        </nav>
+      </div>
+      <div class="flex-right">
+        <div class="wrap">
+          <section class="docs">
+            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
@@ -562,8 +515,8 @@
       </div>
     </div>
     <div id="helpDialog" class="hidden">
-      <div class="help-flex">
-        <div class="help-modal">
+      <div class="help-modal">
+        <div class="dialog">
           <h1>Keyboard Shortcuts</h1>
           <dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd></dl>
           <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this dialog</dd></dl>
