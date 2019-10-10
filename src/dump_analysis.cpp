@@ -732,23 +732,6 @@ static void anal_dump_pointer_attrs(AnalDumpCtx *ctx, ZigType *ty) {
     anal_dump_type_ref(ctx, ty->data.pointer.child_type);
 }
 
-static void anal_dump_struct_field(AnalDumpCtx *ctx, const TypeStructField *struct_field) {
-    JsonWriter *jw = &ctx->jw;
-
-    jw_begin_object(jw);
-
-    jw_object_field(jw, "name");
-    jw_string(jw, buf_ptr(struct_field->name));
-
-    jw_object_field(jw, "type");
-    anal_dump_type_ref(ctx, struct_field->type_entry);
-
-    jw_object_field(jw, "src");
-    anal_dump_node_ref(ctx, struct_field->decl_node);
-
-    jw_end_object(jw);
-}
-
 static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
     JsonWriter *jw = &ctx->jw;
     jw_array_elem(jw);
@@ -811,13 +794,16 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
                 jw_end_array(jw);
             }
 
+            jw_object_field(jw, "src");
+            anal_dump_node_ref(ctx, ty->data.structure.decl_node);
+
             if (ty->data.structure.src_field_count != 0) {
                 jw_object_field(jw, "fields");
                 jw_begin_array(jw);
 
                 for(size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
                     jw_array_elem(jw);
-                    anal_dump_struct_field(ctx, &ty->data.structure.fields[i]);
+                    anal_dump_type_ref(ctx, ty->data.structure.fields[i].type_entry);
                 }
                 jw_end_array(jw);
             }
@@ -827,7 +813,6 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
 
                 jw_object_field(jw, "file");
                 anal_dump_file_ref(ctx, path_buf);
-
             }
             break;
         }
@@ -972,6 +957,45 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
     if (doc_comments_buf != nullptr && doc_comments_buf->list.length != 0) {
         jw_object_field(jw, "docs");
         jw_string(jw, buf_ptr(doc_comments_buf));
+    }
+
+    const Buf *name_buf;
+    switch (node->type) {
+        case NodeTypeStructField:
+            name_buf = node->data.struct_field.name;
+            break;
+        case NodeTypeParamDecl:
+            name_buf = node->data.param_decl.name;
+            break;
+        default:
+            name_buf = nullptr;
+            break;
+    }
+    if (name_buf != nullptr) {
+        jw_object_field(jw, "name");
+        jw_string(jw, buf_ptr(name_buf));
+    }
+
+    const ZigList<AstNode *> *fieldNodes;
+    switch (node->type) {
+        case NodeTypeContainerDecl:
+            fieldNodes = &node->data.container_decl.fields;
+            break;
+        case NodeTypeFnProto:
+            fieldNodes = &node->data.fn_proto.params;
+            break;
+        default:
+            fieldNodes = nullptr;
+            break;
+    }
+    if (fieldNodes != nullptr) {
+        jw_object_field(jw, "fields");
+        jw_begin_array(jw);
+        for (size_t i = 0; i < fieldNodes->length; i += 1) {
+            jw_array_elem(jw);
+            anal_dump_node_ref(ctx, fieldNodes->at(i));
+        }
+        jw_end_array(jw);
     }
 
     jw_end_object(jw);
