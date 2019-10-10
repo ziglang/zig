@@ -76,8 +76,8 @@ pub fn syscall6(
         \\  push %[arg6]
         \\  push %[arg5]
         \\  push %%ebp
-        \\  mov 4(%%esp), %%ebp
-        \\  mov 8(%%esp), %%edi
+        \\  mov 4(%%esp), %%edi
+        \\  mov 8(%%esp), %%ebp
         \\  int $0x80
         \\  pop %%ebp
         \\  add $8, %%esp
