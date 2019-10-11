@@ -2098,6 +2098,60 @@ static bool is_linking_system_lib(CodeGen *g, const char *name) {
     return false;
 }
 
+static Error find_mingw_lib_def(LinkJob *lj, const char *name, Buf *out_path) {
+    CodeGen *g = lj->codegen;
+    Buf override_path = BUF_INIT;
+    Error err;
+
+    char const *lib_path = nullptr;
+    if (g->zig_target->arch == ZigLLVM_x86) {
+        lib_path = "lib32";
+    } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+        lib_path = "lib64";
+    } else if (target_is_arm(g->zig_target)) {
+        const bool is_32 = target_arch_pointer_bit_width(g->zig_target->arch) == 32;
+        lib_path = is_32 ? "libarm32" : "libarm64";
+    } else {
+        zig_unreachable();
+    }
+
+    // Try the archtecture-specific path first
+    buf_resize(&override_path, 0);
+    buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), lib_path, name);
+
+    bool does_exist;
+    if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+        return err;
+    }
+
+    if (!does_exist) {
+        // Try the generic version
+        buf_resize(&override_path, 0);
+        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), name);
+
+        if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+            return err;
+        }
+    }
+
+    if (!does_exist) {
+        // Try the generic version and preprocess it
+        buf_resize(&override_path, 0);
+        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def.in", buf_ptr(g->zig_lib_dir), name);
+
+        if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+            return err;
+        }
+    }
+
+    if (!does_exist) {
+        return ErrorFileNotFound;
+    }
+
+    buf_init_from_buf(out_path, &override_path);
+    return ErrorNone;
+}
+
 static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     CodeGen *g = lj->codegen;
 
@@ -2125,55 +2179,18 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         const char *name = mingw_def_list[def_i].name;
         const bool always_link = mingw_def_list[def_i].always_link;
 
-        Buf override_path = BUF_INIT;
+        Buf lib_path = BUF_INIT;
+        Error err = find_mingw_lib_def(lj, name, &lib_path);
 
-        char const *lib_path = nullptr;
-        if (g->zig_target->arch == ZigLLVM_x86) {
-            lib_path = "lib32";
-        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-            lib_path = "lib64";
-        } else if (target_is_arm(g->zig_target)) {
-            const bool is_32 = target_arch_pointer_bit_width(g->zig_target->arch) == 32;
-            lib_path = is_32 ? "libarm32" : "libarm64";
-        } else {
-            zig_unreachable();
-        }
-
-        // Try the archtecture-specific path first
-        buf_resize(&override_path, 0);
-        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), lib_path, name);
-
-        bool does_exist;
-        if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
-            zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
-        }
-
-        if (!does_exist) {
-            // Try the generic version
-            buf_resize(&override_path, 0);
-            buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), name);
-
-            if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
-                zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
-            }
-        }
-
-        if (!does_exist) {
-            // Try the generic version and preprocess it
-            buf_resize(&override_path, 0);
-            buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def.in", buf_ptr(g->zig_lib_dir), name);
-
-            if (os_file_exists(&override_path, &does_exist) != ErrorNone) {
-                zig_panic("link: unable to check if file exists: %s", buf_ptr(&override_path));
-            }
-        }
-
-        if (!does_exist) {
+        if (err == ErrorFileNotFound) {
             zig_panic("link: could not find .def file to build %s\n", name);
+        } else if (err != ErrorNone) {
+            zig_panic("link: unable to check if .def file for %s exists: %s",
+                      name, err_str(err));
         }
 
         if (always_link || is_linking_system_lib(g, name)) {
-            lj->args.append(get_def_lib(g, name, &override_path));
+            lj->args.append(get_def_lib(g, name, &lib_path));
         }
     }
 }
@@ -2307,8 +2324,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    Buf *def_contents = buf_alloc();
-    ZigList<const char *> gen_lib_args = {0};
     for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(lib_i);
         if (buf_eql_str(link_lib->name, "c")) {
@@ -2331,36 +2346,27 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
 
-        buf_resize(def_contents, 0);
-        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-            Buf *symbol_name = link_lib->symbols.at(exp_i);
-            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+        // This library may be a system one and we may have a suitable .lib file
+
+        // Normalize the library name to lower case, the FS may be
+        // case-sensitive
+        char *name = strdup(buf_ptr(link_lib->name));
+        assert(name != nullptr);
+        for (char *ch = name; *ch; ++ch) *ch = tolower(*ch);
+
+        Buf lib_path = BUF_INIT;
+        err = find_mingw_lib_def(lj, name, &lib_path);
+
+        if (err == ErrorFileNotFound) {
+            zig_panic("link: could not find .def file to build %s\n", name);
+        } else if (err != ErrorNone) {
+            zig_panic("link: unable to check if .def file for %s exists: %s",
+                      name, err_str(err));
         }
-        buf_appendf(def_contents, "\n");
 
-        Buf *def_path = buf_alloc();
-        os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-        if ((err = os_write_file(def_path, def_contents))) {
-            zig_panic("error writing def file: %s", err_str(err));
-        }
+        lj->args.append(get_def_lib(g, name, &lib_path));
 
-        Buf *generated_lib_path = buf_alloc();
-        os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-        gen_lib_args.resize(0);
-        gen_lib_args.append("link");
-
-        coff_append_machine_arg(g, &gen_lib_args);
-        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-        Buf diag = BUF_INIT;
-        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
-        if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
-            fprintf(stderr, "%s\n", buf_ptr(&diag));
-            exit(1);
-        }
-        lj->args.append(buf_ptr(generated_lib_path));
+        free(name);
     }
 }
 
