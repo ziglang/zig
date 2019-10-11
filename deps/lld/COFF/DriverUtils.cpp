@@ -638,10 +638,18 @@ void fixupExports() {
 
   if (config->killAt && config->machine == I386) {
     for (Export &e : config->exports) {
-      e.name = killAt(e.name, true);
-      e.exportName = killAt(e.exportName, false);
-      e.extName = killAt(e.extName, true);
-      e.symbolName = killAt(e.symbolName, true);
+      if (!e.name.empty() && e.name[0] == '?')
+        continue;
+      e.symbolName = e.name;
+      // Trim off the trailing decoration. Symbols will always have a
+      // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
+      // or ? for C++ functions). Vectorcall functions won't have any
+      // fixed prefix, but the function base name will still be at least
+      // one char.
+      e.name = e.name.substr(0, e.name.find('@', 1));
+      // By making sure E.SymbolName != E.Name for decorated symbols,
+      // writeImportLibrary writes these symbols with the type
+      // IMPORT_NAME_UNDECORATE.
     }
   }
 

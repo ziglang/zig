@@ -177,6 +177,17 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .windows,
+                .arch = .i386,
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .windows,
                 .arch = .x86_64,
                 .abi = .gnu,
             },
