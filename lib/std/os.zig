@@ -537,7 +537,12 @@ pub const OpenError = error{
     SystemFdQuotaExceeded,
     NoDevice,
     FileNotFound,
+
+    /// Insufficient kernel memory was available, or
+    /// the named file is a FIFO and per-user hard limit on
+    /// memory allocation for pipes has been reached.
     SystemResources,
+
     NoSpaceLeft,
     NotDir,
     PathAlreadyExists,
