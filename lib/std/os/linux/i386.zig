@@ -99,5 +99,4 @@ pub nakedcc fn restore_rt() void {
     _ = syscall0(SYS_rt_sigreturn);
 }
 
-// Source: libc/linux/clone.c
-pub extern fn clone(func: extern fn (arg: usize) i32, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) i32;
+pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) u8;
