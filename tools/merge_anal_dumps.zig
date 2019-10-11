@@ -46,6 +46,21 @@ const Node = struct {
     }
 };
 
+const Error = struct {
+    src: usize,
+    name: []const u8,
+
+    fn hash(n: Error) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, n.src);
+        return @truncate(u32, hasher.final());
+    }
+
+    fn eql(a: Error, b: Error) bool {
+        return a.src == b.src;
+    }
+};
+
 const Dump = struct {
     zig_id: ?[]const u8 = null,
     zig_version: ?[]const u8 = null,
@@ -60,6 +75,10 @@ const Dump = struct {
     node_list: std.ArrayList(Node),
     node_map: NodeMap,
 
+    const ErrorMap = std.HashMap(Error, usize, Error.hash, Error.eql);
+    error_list: std.ArrayList(Error),
+    error_map: ErrorMap,
+
     fn init(allocator: *mem.Allocator) Dump {
         return Dump{
             .targets = std.ArrayList([]const u8).init(allocator),
@@ -67,6 +86,8 @@ const Dump = struct {
             .file_map = FileMap.init(allocator),
             .node_list = std.ArrayList(Node).init(allocator),
             .node_map = NodeMap.init(allocator),
+            .error_list = std.ArrayList(Error).init(allocator),
+            .error_map = ErrorMap.init(allocator),
         };
     }
 
@@ -129,6 +150,21 @@ const Dump = struct {
         }
 
         // Merge errors. If the AST Node matches, it's the same error value.
+        const other_errors = root.Object.get("errors").?.value.Array.toSliceConst();
+        var other_error_to_mine = std.AutoHashMap(usize, usize).init(self.a());
+        for (other_errors) |other_error_json, i| {
+            const other_src_id = jsonObjInt(other_error_json, "src");
+            const other_error = Error{
+                .src = other_ast_node_to_mine.getValue(other_src_id).?,
+                .name = other_error_json.Object.get("name").?.value.String,
+            };
+            const gop = try self.error_map.getOrPut(other_error);
+            if (!gop.found_existing) {
+                gop.kv.value = self.error_list.len;
+                try self.error_list.append(other_error);
+            }
+            try other_error_to_mine.putNoClobber(i, gop.kv.value);
+        }
     }
 
     fn render(self: *Dump, stream: var) !void {
@@ -167,6 +203,22 @@ const Dump = struct {
         try jw.endArray();
 
         try jw.endObject();
+
+        try jw.objectField("errors");
+        try jw.beginArray();
+        for (self.error_list.toSliceConst()) |zig_error| {
+            try jw.arrayElem();
+            try jw.beginObject();
+
+            try jw.objectField("src");
+            try jw.emitNumber(zig_error.src);
+
+            try jw.objectField("name");
+            try jw.emitString(zig_error.name);
+
+            try jw.endObject();
+        }
+        try jw.endArray();
 
         try jw.objectField("astNodes");
         try jw.beginArray();
