@@ -508,7 +508,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-/// This is a simple OutStream that writes to a slice, and returns an error
+/// This is a simple OutStream that writes to a fixed buffer, and returns an error
 /// when it runs out of space.
 pub const SliceOutStream = struct {
     pub const Error = error{OutOfSpace};

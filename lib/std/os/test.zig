@@ -232,3 +232,8 @@ test "pipe" {
     os.close(fds[1]);
     os.close(fds[0]);
 }
+
+test "argsAlloc" {
+    var args = try std.process.argsAlloc(std.heap.direct_allocator);
+    std.heap.direct_allocator.free(args);
+}

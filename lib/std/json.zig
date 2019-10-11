@@ -8,6 +8,8 @@ const testing = std.testing;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
+pub const WriteStream = @import("json/write_stream.zig").WriteStream;
+
 // A single token slice into the parent string.
 //
 // Use `token.slice()` on the input at the current position to get the current slice.
@@ -1001,6 +1003,7 @@ pub const ValueTree = struct {
 };
 
 pub const ObjectMap = StringHashMap(Value);
+pub const Array = ArrayList(Value);
 
 pub const Value = union(enum) {
     Null,
@@ -1008,7 +1011,7 @@ pub const Value = union(enum) {
     Integer: i64,
     Float: f64,
     String: []const u8,
-    Array: ArrayList(Value),
+    Array: Array,
     Object: ObjectMap,
 
     pub fn dump(self: Value) void {
@@ -1134,7 +1137,7 @@ pub const Parser = struct {
     state: State,
     copy_strings: bool,
     // Stores parent nodes and un-combined Values.
-    stack: ArrayList(Value),
+    stack: Array,
 
     const State = enum {
         ObjectKey,
@@ -1148,7 +1151,7 @@ pub const Parser = struct {
             .allocator = allocator,
             .state = State.Simple,
             .copy_strings = copy_strings,
-            .stack = ArrayList(Value).init(allocator),
+            .stack = Array.init(allocator),
         };
     }
 
@@ -1210,7 +1213,7 @@ pub const Parser = struct {
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = Array.init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1260,7 +1263,7 @@ pub const Parser = struct {
                         p.state = State.ObjectKey;
                     },
                     Token.Id.ArrayBegin => {
-                        try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
+                        try p.stack.append(Value{ .Array = Array.init(allocator) });
                         p.state = State.ArrayValue;
                     },
                     Token.Id.String => {
@@ -1289,7 +1292,7 @@ pub const Parser = struct {
                     p.state = State.ObjectKey;
                 },
                 Token.Id.ArrayBegin => {
-                    try p.stack.append(Value{ .Array = ArrayList(Value).init(allocator) });
+                    try p.stack.append(Value{ .Array = Array.init(allocator) });
                     p.state = State.ArrayValue;
                 },
                 Token.Id.String => {
@@ -1404,4 +1407,51 @@ test "json.parser.dynamic" {
 
 test "import more json tests" {
     _ = @import("json/test.zig");
+}
+
+test "write json then parse it" {
+    var out_buffer: [1000]u8 = undefined;
+
+    var slice_out_stream = std.io.SliceOutStream.init(&out_buffer);
+    const out_stream = &slice_out_stream.stream;
+    var jw = WriteStream(@typeOf(out_stream).Child, 4).init(out_stream);
+
+    try jw.beginObject();
+
+    try jw.objectField("f");
+    try jw.emitBool(false);
+
+    try jw.objectField("t");
+    try jw.emitBool(true);
+
+    try jw.objectField("int");
+    try jw.emitNumber(i32(1234));
+
+    try jw.objectField("array");
+    try jw.beginArray();
+
+    try jw.arrayElem();
+    try jw.emitNull();
+
+    try jw.arrayElem();
+    try jw.emitNumber(f64(12.34));
+
+    try jw.endArray();
+
+    try jw.objectField("str");
+    try jw.emitString("hello");
+
+    try jw.endObject();
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var parser = Parser.init(allocator, false);
+    const tree = try parser.parse(slice_out_stream.getWritten());
+
+    testing.expect(tree.root.Object.get("f").?.value.Bool == false);
+    testing.expect(tree.root.Object.get("t").?.value.Bool == true);
+    testing.expect(tree.root.Object.get("int").?.value.Integer == 1234);
+    testing.expect(tree.root.Object.get("array").?.value.Array.at(0).Null == {});
+    testing.expect(tree.root.Object.get("array").?.value.Array.at(1).Float == 12.34);
+    testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
