@@ -1207,10 +1207,16 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
         jw_object_field(jw, "zigVersion");
         jw_string(jw, ZIG_VERSION_STRING);
 
+        jw_object_field(jw, "builds");
+        jw_begin_array(jw);
+        jw_array_elem(jw);
+        jw_begin_object(jw);
         jw_object_field(jw, "target");
         Buf triple_buf = BUF_INIT;
         target_triple_zig(&triple_buf, g->zig_target);
         jw_string(jw, buf_ptr(&triple_buf));
+        jw_end_object(jw);
+        jw_end_array(jw);
 
         jw_object_field(jw, "rootName");
         jw_string(jw, buf_ptr(g->root_out_name));

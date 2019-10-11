@@ -79,10 +79,12 @@ const Dump = struct {
         try mergeSameStrings(&self.zig_version, zig_version);
         try mergeSameStrings(&self.root_name, root_name);
 
-        const target = params.get("target").?.value.String;
-        try self.targets.append(target);
+        for (params.get("builds").?.value.Array.toSliceConst()) |json_build| {
+            const target = json_build.Object.get("target").?.value.String;
+            try self.targets.append(target);
+        }
 
-        // Merge files
+        // Merge files. If the string matches, it's the same file.
         const other_files = root.Object.get("files").?.value.Array.toSliceConst();
         var other_file_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_files) |other_file, i| {
@@ -94,7 +96,7 @@ const Dump = struct {
             try other_file_to_mine.putNoClobber(i, gop.kv.value);
         }
 
-        // Merge ast nodes
+        // Merge AST nodes. If the file id, line, and column all match, it's the same AST node.
         const other_ast_nodes = root.Object.get("astNodes").?.value.Array.toSliceConst();
         var other_ast_node_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_ast_nodes) |other_ast_node_json, i| {
@@ -125,6 +127,8 @@ const Dump = struct {
                 }
             }
         }
+
+        // Merge errors. If the AST Node matches, it's the same error value.
     }
 
     fn render(self: *Dump, stream: var) !void {
@@ -138,6 +142,31 @@ const Dump = struct {
             try jw.emitString(field.name);
         }
         try jw.endArray();
+
+        try jw.objectField("params");
+        try jw.beginObject();
+
+        try jw.objectField("zigId");
+        try jw.emitString(self.zig_id.?);
+
+        try jw.objectField("zigVersion");
+        try jw.emitString(self.zig_version.?);
+
+        try jw.objectField("rootName");
+        try jw.emitString(self.root_name.?);
+
+        try jw.objectField("builds");
+        try jw.beginArray();
+        for (self.targets.toSliceConst()) |target| {
+            try jw.arrayElem();
+            try jw.beginObject();
+            try jw.objectField("target");
+            try jw.emitString(target);
+            try jw.endObject();
+        }
+        try jw.endArray();
+
+        try jw.endObject();
 
         try jw.objectField("astNodes");
         try jw.beginArray();
