@@ -73,22 +73,18 @@ pub fn syscall6(
     arg6: usize,
 ) usize {
     return asm volatile (
-        \\  push %[arg6]
-        \\  push %[arg5]
         \\  push %%ebp
-        \\  mov 4(%%esp), %%edi
-        \\  mov 8(%%esp), %%ebp
+        \\  mov %[arg6], %%ebp
         \\  int $0x80
         \\  pop %%ebp
-        \\  add $8, %%esp
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
           [arg4] "{esi}" (arg4),
-          [arg5] "r" (arg5),
-          [arg6] "r" (arg6)
+          [arg5] "{edi}" (arg5),
+          [arg6] "rm" (arg6)
         : "memory"
     );
 }
