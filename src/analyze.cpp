@@ -8304,7 +8304,8 @@ static void resolve_llvm_types_integer(CodeGen *g, ZigType *type) {
         }
     }
 
-    type->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&type->name), type->size_in_bits, dwarf_tag);
+    type->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&type->name),
+            type->abi_size * 8, dwarf_tag);
     type->llvm_type = LLVMIntType(type->size_in_bits);
 }
 

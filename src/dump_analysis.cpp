@@ -991,6 +991,11 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             }
             break;
         }
+        case ZigTypeIdOptional: {
+            jw_object_field(jw, "child");
+            anal_dump_type_ref(ctx, ty->data.maybe.child_type);
+            break;
+        }
         case ZigTypeIdPointer: {
             switch (ty->data.pointer.ptr_len) {
                 case PtrLenSingle:
