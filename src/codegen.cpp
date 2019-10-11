@@ -413,7 +413,6 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         linkage = fn_export->linkage;
     }
 
-    bool external_linkage = linkage != GlobalLinkageIdInternal;
     CallingConvention cc = fn->type_entry->data.fn.fn_type_id.cc;
     bool is_async = fn_is_async(fn);
 
