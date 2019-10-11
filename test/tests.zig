@@ -44,6 +44,36 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
+                .arch = .i386,
+                .abi = .none,
+            },
+        },
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .i386,
+                .abi = .gnu,
+            },
+        },
+        .link_libc = true,
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .i386,
+                .abi = .musl,
+            },
+        },
+        .link_libc = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
                 .arch = .x86_64,
                 .abi = .none,
             },
