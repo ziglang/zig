@@ -65,7 +65,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -ftime-report                print timing diagnostics\n"
         "  -fstack-report               print stack size diagnostics\n"
         "  -fdump-analysis              write analysis.json file with type information\n"
-        "  -fgenerate-docs              create a docs/ dir with html documentation\n"
+        "  -femit-docs                  create a docs/ dir with html documentation\n"
+        "  -fno-emit-bin                skip emitting machine code\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
@@ -483,6 +484,7 @@ int main(int argc, char **argv) {
     bool stack_report = false;
     bool enable_dump_analysis = false;
     bool enable_doc_generation = false;
+    bool disable_bin_generation = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
@@ -668,8 +670,10 @@ int main(int argc, char **argv) {
                 stack_report = true;
             } else if (strcmp(arg, "-fdump-analysis") == 0) {
                 enable_dump_analysis = true;
-            } else if (strcmp(arg, "-fgenerate-docs") == 0) {
+            } else if (strcmp(arg, "-femit-docs") == 0) {
                 enable_doc_generation = true;
+            } else if (strcmp(arg, "-fno-emit-bin") == 0) {
+                disable_bin_generation = true;
             } else if (strcmp(arg, "--enable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
@@ -1148,6 +1152,7 @@ int main(int argc, char **argv) {
             g->enable_stack_report = stack_report;
             g->enable_dump_analysis = enable_dump_analysis;
             g->enable_doc_generation = enable_doc_generation;
+            g->disable_bin_generation = disable_bin_generation;
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
@@ -1288,6 +1293,11 @@ int main(int argc, char **argv) {
 
                 if (stack_report) {
                     zig_print_stack_report(g, stdout);
+                }
+
+                if (g->disable_bin_generation) {
+                    fprintf(stderr, "Semantic analysis complete. No binary produced due to -fno-emit-bin.\n");
+                    return 0;
                 }
 
                 Buf *test_exe_path_unresolved = &g->output_file_path;

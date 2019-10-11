@@ -2091,6 +2091,7 @@ struct CodeGen {
     bool function_sections;
     bool enable_dump_analysis;
     bool enable_doc_generation;
+    bool disable_bin_generation;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

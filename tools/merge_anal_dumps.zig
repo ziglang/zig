@@ -24,19 +24,49 @@ pub fn main() anyerror!void {
     try dump.render(&stdout.outStream().stream);
 }
 
+/// AST source node
+const Node = struct {
+    file: usize,
+    line: usize,
+    col: usize,
+    fields: []usize,
+
+    fn hash(n: Node) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, n.file);
+        std.hash.autoHash(&hasher, n.line);
+        std.hash.autoHash(&hasher, n.col);
+        return @truncate(u32, hasher.final());
+    }
+
+    fn eql(a: Node, b: Node) bool {
+        return a.file == b.file and
+            a.line == b.line and
+            a.col == b.col;
+    }
+};
+
 const Dump = struct {
     zig_id: ?[]const u8 = null,
     zig_version: ?[]const u8 = null,
     root_name: ?[]const u8 = null,
     targets: std.ArrayList([]const u8),
-    files_list: std.ArrayList([]const u8),
-    files_map: std.StringHashMap(usize),
+
+    const FileMap = std.StringHashMap(usize);
+    file_list: std.ArrayList([]const u8),
+    file_map: FileMap,
+
+    const NodeMap = std.HashMap(Node, usize, Node.hash, Node.eql);
+    node_list: std.ArrayList(Node),
+    node_map: NodeMap,
 
     fn init(allocator: *mem.Allocator) Dump {
         return Dump{
             .targets = std.ArrayList([]const u8).init(allocator),
-            .files_list = std.ArrayList([]const u8).init(allocator),
-            .files_map = std.StringHashMap(usize).init(allocator),
+            .file_list = std.ArrayList([]const u8).init(allocator),
+            .file_map = FileMap.init(allocator),
+            .node_list = std.ArrayList(Node).init(allocator),
+            .node_map = NodeMap.init(allocator),
         };
     }
 
@@ -56,17 +86,45 @@ const Dump = struct {
         const other_files = root.Object.get("files").?.value.Array.toSliceConst();
         var other_file_to_mine = std.AutoHashMap(usize, usize).init(self.a());
         for (other_files) |other_file, i| {
-            const gop = try self.files_map.getOrPut(other_file.String);
-            if (gop.found_existing) {
-                try other_file_to_mine.putNoClobber(i, gop.kv.value);
-            } else {
-                gop.kv.value = self.files_list.len;
-                try self.files_list.append(other_file.String);
+            const gop = try self.file_map.getOrPut(other_file.String);
+            if (!gop.found_existing) {
+                gop.kv.value = self.file_list.len;
+                try self.file_list.append(other_file.String);
             }
+            try other_file_to_mine.putNoClobber(i, gop.kv.value);
         }
 
+        // Merge ast nodes
         const other_ast_nodes = root.Object.get("astNodes").?.value.Array.toSliceConst();
         var other_ast_node_to_mine = std.AutoHashMap(usize, usize).init(self.a());
+        for (other_ast_nodes) |other_ast_node_json, i| {
+            const other_file_id = jsonObjInt(other_ast_node_json, "file");
+            const other_node = Node{
+                .line = jsonObjInt(other_ast_node_json, "line"),
+                .col = jsonObjInt(other_ast_node_json, "col"),
+                .file = other_file_to_mine.getValue(other_file_id).?,
+                .fields = ([*]usize)(undefined)[0..0],
+            };
+            const gop = try self.node_map.getOrPut(other_node);
+            if (!gop.found_existing) {
+                gop.kv.value = self.node_list.len;
+                try self.node_list.append(other_node);
+            }
+            try other_ast_node_to_mine.putNoClobber(i, gop.kv.value);
+        }
+        // convert fields lists
+        for (other_ast_nodes) |other_ast_node_json, i| {
+            const my_node_index = other_ast_node_to_mine.get(i).?.value;
+            const my_node = &self.node_list.toSlice()[my_node_index];
+            if (other_ast_node_json.Object.get("fields")) |fields_json_kv| {
+                const other_fields = fields_json_kv.value.Array.toSliceConst();
+                my_node.fields = try self.a().alloc(usize, other_fields.len);
+                for (other_fields) |other_field_index, field_i| {
+                    const other_index = @intCast(usize, other_field_index.Integer);
+                    my_node.fields[field_i] = other_ast_node_to_mine.get(other_index).?.value;
+                }
+            }
+        }
     }
 
     fn render(self: *Dump, stream: var) !void {
@@ -81,9 +139,39 @@ const Dump = struct {
         }
         try jw.endArray();
 
+        try jw.objectField("astNodes");
+        try jw.beginArray();
+        for (self.node_list.toSliceConst()) |node| {
+            try jw.arrayElem();
+            try jw.beginObject();
+
+            try jw.objectField("file");
+            try jw.emitNumber(node.file);
+
+            try jw.objectField("line");
+            try jw.emitNumber(node.line);
+
+            try jw.objectField("col");
+            try jw.emitNumber(node.col);
+
+            if (node.fields.len != 0) {
+                try jw.objectField("fields");
+                try jw.beginArray();
+
+                for (node.fields) |field_node_index| {
+                    try jw.arrayElem();
+                    try jw.emitNumber(field_node_index);
+                }
+                try jw.endArray();
+            }
+
+            try jw.endObject();
+        }
+        try jw.endArray();
+
         try jw.objectField("files");
         try jw.beginArray();
-        for (self.files_list.toSliceConst()) |file| {
+        for (self.file_list.toSliceConst()) |file| {
             try jw.arrayElem();
             try jw.emitString(file);
         }
@@ -105,3 +193,8 @@ const Dump = struct {
         }
     }
 };
+
+fn jsonObjInt(json_val: json.Value, field: []const u8) usize {
+    const uncasted = json_val.Object.get(field).?.value.Integer;
+    return @intCast(usize, uncasted);
+}

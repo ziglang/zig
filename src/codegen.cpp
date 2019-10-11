@@ -7586,6 +7586,8 @@ static void zig_llvm_emit_output(CodeGen *g) {
     char *err_msg = nullptr;
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
+            if (g->disable_bin_generation)
+                return;
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                         ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
                         g->enable_time_report))
@@ -10158,6 +10160,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->function_sections);
     cache_bool(ch, g->enable_dump_analysis);
     cache_bool(ch, g->enable_doc_generation);
+    cache_bool(ch, g->disable_bin_generation);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -10396,7 +10399,8 @@ void codegen_build_and_link(CodeGen *g) {
         // If there is more than one object, we have to link them (with -r).
         // Finally, if we didn't make an object from zig source, and we don't have caching enabled,
         // then we have an object from C source that we must copy to the output dir which we do with a -r link.
-        if (g->emit_file_type == EmitFileTypeBinary && (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
+        if (!g->disable_bin_generation && g->emit_file_type == EmitFileTypeBinary &&
+                (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
                     (!need_llvm_module(g) && !g->enable_cache)))
         {
             codegen_link(g);

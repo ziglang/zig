@@ -152,10 +152,17 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         ) !void {
             assert(self.state[self.state_index] == State.Value);
             switch (@typeInfo(@typeOf(value))) {
-                .Int => |info| if (info.bits < 53 or (value < 4503599627370496 and value > -4503599627370496)) {
-                    try self.stream.print("{}", value);
-                    self.popState();
-                    return;
+                .Int => |info| {
+                    if (info.bits < 53) {
+                        try self.stream.print("{}", value);
+                        self.popState();
+                        return;
+                    }
+                    if (value < 4503599627370496 and (!info.is_signed or value > -4503599627370496)) {
+                        try self.stream.print("{}", value);
+                        self.popState();
+                        return;
+                    }
                 },
                 .Float => if (@floatCast(f64, value) == value) {
                     try self.stream.print("{}", value);

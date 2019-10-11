@@ -1309,15 +1309,6 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
     }
     jw_end_array(jw);
 
-    jw_object_field(jw, "files");
-    jw_begin_array(jw);
-    for (uint32_t i = 0; i < ctx.file_list.length; i += 1) {
-        Buf *file = ctx.file_list.at(i);
-        jw_array_elem(jw);
-        anal_dump_file(&ctx, file);
-    }
-    jw_end_array(jw);
-
     jw_object_field(jw, "errors");
     jw_begin_array(jw);
     for (uint32_t i = 0; i < ctx.err_list.length; i += 1) {
@@ -1333,6 +1324,15 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
         const AstNode *node = ctx.node_list.at(i);
         jw_array_elem(jw);
         anal_dump_node(&ctx, node);
+    }
+    jw_end_array(jw);
+
+    jw_object_field(jw, "files");
+    jw_begin_array(jw);
+    for (uint32_t i = 0; i < ctx.file_list.length; i += 1) {
+        Buf *file = ctx.file_list.at(i);
+        jw_array_elem(jw);
+        anal_dump_file(&ctx, file);
     }
     jw_end_array(jw);
 

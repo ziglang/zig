@@ -550,3 +550,13 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
         }
     }.eql;
 }
+
+pub fn getAutoHashStratFn(comptime K: type, comptime strategy: std.hash.Strategy) (fn (K) u32) {
+    return struct {
+        fn hash(key: K) u32 {
+            var hasher = Wyhash.init(0);
+            std.hash.autoHashStrat(&hasher, key, strategy);
+            return @truncate(u32, hasher.final());
+        }
+    }.hash;
+}
