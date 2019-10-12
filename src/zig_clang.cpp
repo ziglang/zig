@@ -325,54 +325,54 @@ void ZigClang_detect_enum_TypeClass(clang::Type::TypeClass ty) {
     }
 }
 
+static_assert((clang::Type::TypeClass)ZigClangType_Adjusted == clang::Type::Adjusted, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Atomic == clang::Type::Atomic, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Attributed == clang::Type::Attributed, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Auto == clang::Type::Auto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_BlockPointer == clang::Type::BlockPointer, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Builtin == clang::Type::Builtin, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Complex == clang::Type::Complex, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Pointer == clang::Type::Pointer, "");
-static_assert((clang::Type::TypeClass)ZigClangType_BlockPointer == clang::Type::BlockPointer, "");
-static_assert((clang::Type::TypeClass)ZigClangType_LValueReference == clang::Type::LValueReference, "");
-static_assert((clang::Type::TypeClass)ZigClangType_RValueReference == clang::Type::RValueReference, "");
-static_assert((clang::Type::TypeClass)ZigClangType_MemberPointer == clang::Type::MemberPointer, "");
 static_assert((clang::Type::TypeClass)ZigClangType_ConstantArray == clang::Type::ConstantArray, "");
-static_assert((clang::Type::TypeClass)ZigClangType_IncompleteArray == clang::Type::IncompleteArray, "");
-static_assert((clang::Type::TypeClass)ZigClangType_VariableArray == clang::Type::VariableArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Decayed == clang::Type::Decayed, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Decltype == clang::Type::Decltype, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DeducedTemplateSpecialization == clang::Type::DeducedTemplateSpecialization, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentAddressSpace == clang::Type::DependentAddressSpace, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentName == clang::Type::DependentName, "");
 static_assert((clang::Type::TypeClass)ZigClangType_DependentSizedArray == clang::Type::DependentSizedArray, "");
 static_assert((clang::Type::TypeClass)ZigClangType_DependentSizedExtVector == clang::Type::DependentSizedExtVector, "");
-static_assert((clang::Type::TypeClass)ZigClangType_DependentAddressSpace == clang::Type::DependentAddressSpace, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Vector == clang::Type::Vector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_DependentTemplateSpecialization == clang::Type::DependentTemplateSpecialization, "");
 static_assert((clang::Type::TypeClass)ZigClangType_DependentVector == clang::Type::DependentVector, "");
-static_assert((clang::Type::TypeClass)ZigClangType_ExtVector == clang::Type::ExtVector, "");
-static_assert((clang::Type::TypeClass)ZigClangType_FunctionProto == clang::Type::FunctionProto, "");
-static_assert((clang::Type::TypeClass)ZigClangType_FunctionNoProto == clang::Type::FunctionNoProto, "");
-static_assert((clang::Type::TypeClass)ZigClangType_UnresolvedUsing == clang::Type::UnresolvedUsing, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Paren == clang::Type::Paren, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Typedef == clang::Type::Typedef, "");
-static_assert((clang::Type::TypeClass)ZigClangType_MacroQualified == clang::Type::MacroQualified, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Adjusted == clang::Type::Adjusted, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Decayed == clang::Type::Decayed, "");
-static_assert((clang::Type::TypeClass)ZigClangType_TypeOfExpr == clang::Type::TypeOfExpr, "");
-static_assert((clang::Type::TypeClass)ZigClangType_TypeOf == clang::Type::TypeOf, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Decltype == clang::Type::Decltype, "");
-static_assert((clang::Type::TypeClass)ZigClangType_UnaryTransform == clang::Type::UnaryTransform, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Record == clang::Type::Record, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Enum == clang::Type::Enum, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Elaborated == clang::Type::Elaborated, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Attributed == clang::Type::Attributed, "");
-static_assert((clang::Type::TypeClass)ZigClangType_TemplateTypeParm == clang::Type::TemplateTypeParm, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Enum == clang::Type::Enum, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ExtVector == clang::Type::ExtVector, "");
+static_assert((clang::Type::TypeClass)ZigClangType_FunctionNoProto == clang::Type::FunctionNoProto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_FunctionProto == clang::Type::FunctionProto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_IncompleteArray == clang::Type::IncompleteArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_InjectedClassName == clang::Type::InjectedClassName, "");
+static_assert((clang::Type::TypeClass)ZigClangType_LValueReference == clang::Type::LValueReference, "");
+static_assert((clang::Type::TypeClass)ZigClangType_MacroQualified == clang::Type::MacroQualified, "");
+static_assert((clang::Type::TypeClass)ZigClangType_MemberPointer == clang::Type::MemberPointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCInterface == clang::Type::ObjCInterface, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCObject == clang::Type::ObjCObject, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCObjectPointer == clang::Type::ObjCObjectPointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_ObjCTypeParam == clang::Type::ObjCTypeParam, "");
+static_assert((clang::Type::TypeClass)ZigClangType_PackExpansion == clang::Type::PackExpansion, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Paren == clang::Type::Paren, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Pipe == clang::Type::Pipe, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Pointer == clang::Type::Pointer, "");
+static_assert((clang::Type::TypeClass)ZigClangType_RValueReference == clang::Type::RValueReference, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Record == clang::Type::Record, "");
 static_assert((clang::Type::TypeClass)ZigClangType_SubstTemplateTypeParm == clang::Type::SubstTemplateTypeParm, "");
 static_assert((clang::Type::TypeClass)ZigClangType_SubstTemplateTypeParmPack == clang::Type::SubstTemplateTypeParmPack, "");
 static_assert((clang::Type::TypeClass)ZigClangType_TemplateSpecialization == clang::Type::TemplateSpecialization, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Auto == clang::Type::Auto, "");
-static_assert((clang::Type::TypeClass)ZigClangType_DeducedTemplateSpecialization == clang::Type::DeducedTemplateSpecialization, "");
-static_assert((clang::Type::TypeClass)ZigClangType_InjectedClassName == clang::Type::InjectedClassName, "");
-static_assert((clang::Type::TypeClass)ZigClangType_DependentName == clang::Type::DependentName, "");
-static_assert((clang::Type::TypeClass)ZigClangType_DependentTemplateSpecialization == clang::Type::DependentTemplateSpecialization, "");
-static_assert((clang::Type::TypeClass)ZigClangType_PackExpansion == clang::Type::PackExpansion, "");
-static_assert((clang::Type::TypeClass)ZigClangType_ObjCTypeParam == clang::Type::ObjCTypeParam, "");
-static_assert((clang::Type::TypeClass)ZigClangType_ObjCObject == clang::Type::ObjCObject, "");
-static_assert((clang::Type::TypeClass)ZigClangType_ObjCInterface == clang::Type::ObjCInterface, "");
-static_assert((clang::Type::TypeClass)ZigClangType_ObjCObjectPointer == clang::Type::ObjCObjectPointer, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Pipe == clang::Type::Pipe, "");
-static_assert((clang::Type::TypeClass)ZigClangType_Atomic == clang::Type::Atomic, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TemplateTypeParm == clang::Type::TemplateTypeParm, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TypeOf == clang::Type::TypeOf, "");
+static_assert((clang::Type::TypeClass)ZigClangType_TypeOfExpr == clang::Type::TypeOfExpr, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Typedef == clang::Type::Typedef, "");
+static_assert((clang::Type::TypeClass)ZigClangType_UnaryTransform == clang::Type::UnaryTransform, "");
+static_assert((clang::Type::TypeClass)ZigClangType_UnresolvedUsing == clang::Type::UnresolvedUsing, "");
+static_assert((clang::Type::TypeClass)ZigClangType_VariableArray == clang::Type::VariableArray, "");
+static_assert((clang::Type::TypeClass)ZigClangType_Vector == clang::Type::Vector, "");
 
 // Detect additions to the enum
 void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
@@ -1027,6 +1027,18 @@ void ZigClang_detect_enum_BuiltinTypeKind(clang::BuiltinType::Kind x) {
         case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
         case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
         case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
+        case clang::BuiltinType::SveInt8:
+        case clang::BuiltinType::SveInt16:
+        case clang::BuiltinType::SveInt32:
+        case clang::BuiltinType::SveInt64:
+        case clang::BuiltinType::SveUint8:
+        case clang::BuiltinType::SveUint16:
+        case clang::BuiltinType::SveUint32:
+        case clang::BuiltinType::SveUint64:
+        case clang::BuiltinType::SveFloat16:
+        case clang::BuiltinType::SveFloat32:
+        case clang::BuiltinType::SveFloat64:
+        case clang::BuiltinType::SveBool:
         case clang::BuiltinType::Void:
         case clang::BuiltinType::Bool:
         case clang::BuiltinType::Char_U:
@@ -1147,6 +1159,18 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCIm
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout == clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin == clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin == clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt8 == clang::BuiltinType::SveInt8, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt16 == clang::BuiltinType::SveInt16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt32 == clang::BuiltinType::SveInt32, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt64 == clang::BuiltinType::SveInt64, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveUint8 == clang::BuiltinType::SveUint8, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveUint16 == clang::BuiltinType::SveUint16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveUint32 == clang::BuiltinType::SveUint32, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveUint64 == clang::BuiltinType::SveUint64, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat16 == clang::BuiltinType::SveFloat16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat32 == clang::BuiltinType::SveFloat32, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat64 == clang::BuiltinType::SveFloat64, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBool == clang::BuiltinType::SveBool, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeVoid == clang::BuiltinType::Void, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBool == clang::BuiltinType::Bool, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar_U == clang::BuiltinType::Char_U, "");
@@ -1807,14 +1831,15 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
     bool for_serialization = false;
+    bool retain_excluded_conditional_blocks = false;
     std::unique_ptr<clang::ASTUnit> *err_unit = new std::unique_ptr<clang::ASTUnit>();
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
             args_begin, args_end,
             pch_container_ops, diags, resources_path,
             only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
-            nullptr);
+            single_file_parse, user_files_are_volatile, for_serialization, retain_excluded_conditional_blocks,
+            clang::None, err_unit, nullptr);
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
     if (!ast_unit && !err_unit) {
