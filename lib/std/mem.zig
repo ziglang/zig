@@ -1325,6 +1325,12 @@ fn AsBytesReturnType(comptime P: type) type {
     const size = usize(@sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
 
+    if (alignment == 0) {
+        if (comptime trait.isConstPtr(P))
+            return *const [size]u8;
+        return *[size]u8;
+    }
+
     if (comptime trait.isConstPtr(P))
         return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
