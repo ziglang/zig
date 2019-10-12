@@ -174,7 +174,6 @@ pub fn translate(
     tree.root_node.* = ast.Node.Root{
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
-        .doc_comments = null,
         // initialized with the eof token at the end
         .eof_token = undefined,
     };

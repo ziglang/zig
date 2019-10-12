@@ -576,7 +576,6 @@ pub const Node = struct {
 
     pub const Root = struct {
         base: Node,
-        doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
 
