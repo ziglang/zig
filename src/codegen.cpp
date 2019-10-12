@@ -5256,7 +5256,7 @@ static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
 
     LLVMTypeRef fn_type = LLVMFunctionType(get_llvm_type(g, return_type),
             &g->builtin_types.entry_i32->llvm_type, 1, false);
-    g->frame_address_fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
+    g->frame_address_fn_val = LLVMAddFunction(g->module, "llvm.frameaddress.p0i8", fn_type);
     assert(LLVMGetIntrinsicID(g->frame_address_fn_val));
 
     return g->frame_address_fn_val;
