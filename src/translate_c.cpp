@@ -1038,6 +1038,18 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
                     case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout:
                     case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin:
                     case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin:
+                    case ZigClangBuiltinTypeSveInt8:
+                    case ZigClangBuiltinTypeSveInt16:
+                    case ZigClangBuiltinTypeSveInt32:
+                    case ZigClangBuiltinTypeSveInt64:
+                    case ZigClangBuiltinTypeSveUint8:
+                    case ZigClangBuiltinTypeSveUint16:
+                    case ZigClangBuiltinTypeSveUint32:
+                    case ZigClangBuiltinTypeSveUint64:
+                    case ZigClangBuiltinTypeSveFloat16:
+                    case ZigClangBuiltinTypeSveFloat32:
+                    case ZigClangBuiltinTypeSveFloat64:
+                    case ZigClangBuiltinTypeSveBool:
                         emit_warning(c, source_loc, "unsupported builtin type");
                         return nullptr;
                 }
@@ -2900,6 +2912,18 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeResultDualRefStreamout:
                 case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeSingleRefStreamin:
                 case ZigClangBuiltinTypeOCLIntelSubgroupAVCImeDualRefStreamin:
+                case ZigClangBuiltinTypeSveInt8:
+                case ZigClangBuiltinTypeSveInt16:
+                case ZigClangBuiltinTypeSveInt32:
+                case ZigClangBuiltinTypeSveInt64:
+                case ZigClangBuiltinTypeSveUint8:
+                case ZigClangBuiltinTypeSveUint16:
+                case ZigClangBuiltinTypeSveUint32:
+                case ZigClangBuiltinTypeSveUint64:
+                case ZigClangBuiltinTypeSveFloat16:
+                case ZigClangBuiltinTypeSveFloat32:
+                case ZigClangBuiltinTypeSveFloat64:
+                case ZigClangBuiltinTypeSveBool:
                     return res;
             }
             break;
