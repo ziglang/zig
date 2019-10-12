@@ -312,7 +312,7 @@ getOutputStream(StringRef Path, DiagnosticsEngine &Diags, bool Binary) {
     sys::RemoveFileOnSignal(Path);
 
   std::error_code EC;
-  auto Out = llvm::make_unique<raw_fd_ostream>(
+  auto Out = std::make_unique<raw_fd_ostream>(
       Path, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
   if (EC) {
     Diags.Report(diag::err_fe_unable_to_open_output) << Path << EC.message();
@@ -445,7 +445,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     std::unique_ptr<MCAsmBackend> MAB(
         TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions));
 
-    auto FOut = llvm::make_unique<formatted_raw_ostream>(*Out);
+    auto FOut = std::make_unique<formatted_raw_ostream>(*Out);
     Str.reset(TheTarget->createAsmStreamer(
         Ctx, std::move(FOut), /*asmverbose*/ true,
         /*useDwarfDirectory*/ true, IP, std::move(CE), std::move(MAB),
@@ -456,7 +456,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     assert(Opts.OutputType == AssemblerInvocation::FT_Obj &&
            "Invalid file type!");
     if (!FDOS->supportsSeeking()) {
-      BOS = make_unique<buffer_ostream>(*FDOS);
+      BOS = std::make_unique<buffer_ostream>(*FDOS);
       Out = BOS.get();
     }
 
@@ -590,7 +590,7 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // FIXME: Remove this, one day.
   if (!Asm.LLVMArgs.empty()) {
     unsigned NumArgs = Asm.LLVMArgs.size();
-    auto Args = llvm::make_unique<const char*[]>(NumArgs + 2);
+    auto Args = std::make_unique<const char*[]>(NumArgs + 2);
     Args[0] = "clang (LLVM option parsing)";
     for (unsigned i = 0; i != NumArgs; ++i)
       Args[i + 1] = Asm.LLVMArgs[i].c_str();
