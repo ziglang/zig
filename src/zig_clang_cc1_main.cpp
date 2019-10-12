@@ -208,10 +208,10 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagsBuffer);
   bool Success = CompilerInvocation::CreateFromArgs(
-      Clang->getInvocation(), Argv.begin(), Argv.end(), Diags);
+      Clang->getInvocation(), Argv, Diags);
 
   if (Clang->getFrontendOpts().TimeTrace)
-    llvm::timeTraceProfilerInitialize();
+    llvm::timeTraceProfilerInitialize(/* granularity (us) */ 500);
 
   // --print-supported-cpus takes priority over the actual compilation.
   if (Clang->getFrontendOpts().PrintSupportedCPUs)

@@ -1831,14 +1831,15 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
     bool for_serialization = false;
+    bool retain_excluded_conditional_blocks = false;
     std::unique_ptr<clang::ASTUnit> *err_unit = new std::unique_ptr<clang::ASTUnit>();
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
             args_begin, args_end,
             pch_container_ops, diags, resources_path,
             only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
-            nullptr);
+            single_file_parse, user_files_are_volatile, for_serialization, retain_excluded_conditional_blocks,
+            clang::None, err_unit, nullptr);
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
     if (!ast_unit && !err_unit) {
