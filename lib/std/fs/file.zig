@@ -279,12 +279,12 @@ pub const File = struct {
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = @divFloor(atime, std.time.ns_per_s),
-                .tv_nsec = @mod(atime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) catch maxInt(isize),
             },
             os.timespec{
-                .tv_sec = @divFloor(mtime, std.time.ns_per_s),
-                .tv_nsec = @mod(mtime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) catch maxInt(isize),
             },
         };
         try os.futimens(self.handle, &times);
