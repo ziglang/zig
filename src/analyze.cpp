@@ -1787,6 +1787,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         if (!analyze_const_align(g, child_scope, fn_proto->align_expr, &fn_type_id.alignment)) {
             return g->builtin_types.entry_invalid;
         }
+        fn_entry->align_bytes = fn_type_id.alignment;
     }
 
     if (fn_proto->return_var_token != nullptr) {
@@ -3327,7 +3328,9 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
 
         if (fn_proto->section_expr != nullptr) {
-            analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
+            if (!analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name)) {
+                fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+            }
         }
 
         if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
