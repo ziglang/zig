@@ -4113,6 +4113,9 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const ZigClangStmt *s
         case ZigClangStmt_SourceLocExprClass:
             emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C SourceLocExprClass");
             return ErrorUnexpected;
+        case ZigClangStmt_OMPMasterTaskLoopDirectiveClass:
+            emit_warning(c, ZigClangStmt_getBeginLoc(stmt), "TODO handle C OMPMasterTaskLoopDirectiveClass");
+            return ErrorUnexpected;
     }
     zig_unreachable();
 }
