@@ -2054,27 +2054,12 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
         lib_final_path = buf_alloc();
         os_path_join(artifact_dir, final_lib_basename, lib_final_path);
 
-        args.resize(0);
-        args.append("link");
-        coff_append_machine_arg(parent, &args);
-        args.append("-lldmingw");
-        args.append("-kill-at");
-
-        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_final_path))));
-        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(lib_final_path))));
-
-        if (parent->verbose_link) {
-            for (size_t i = 0; i < args.length; i += 1) {
-                fprintf(stderr, "%s ", args.at(i));
-            }
-            fprintf(stderr, "\n");
-        }
-
-        Buf diag = BUF_INIT;
-        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(parent->zig_target);
-        if (!zig_lld_link(target_ofmt, args.items, args.length, &diag)) {
-            fprintf(stderr, "%s\n", buf_ptr(&diag));
-            exit(1);
+        if (ZigLLVMWriteImportLibrary(buf_ptr(def_final_path),
+                                      parent->zig_target->arch,
+                                      buf_ptr(lib_final_path),
+                                      /* kill_at */ true))
+        {
+            zig_panic("link: could not emit %s", buf_ptr(lib_final_path));
         }
     } else {
         // cache hit
