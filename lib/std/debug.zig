@@ -290,12 +290,12 @@ pub const StackIterator = struct {
         0;
 
     fn next(self: *StackIterator) ?usize {
-        if (self.fp < fp_adjust_factor) return null;
+        if (self.fp <= fp_adjust_factor) return null;
         self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*;
-        if (self.fp < fp_adjust_factor) return null;
+        if (self.fp <= fp_adjust_factor) return null;
 
         if (self.first_addr) |addr| {
-            while (self.fp >= fp_adjust_factor) : (self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*) {
+            while (self.fp > fp_adjust_factor) : (self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*) {
                 const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
                 if (addr == return_address) {
                     self.first_addr = null;
