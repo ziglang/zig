@@ -6097,6 +6097,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSplatSrc:
         case IrInstructionIdMergeErrSets:
         case IrInstructionIdVectorElem:
+        case IrInstructionIdAddrOf:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:

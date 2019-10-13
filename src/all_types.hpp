@@ -2415,6 +2415,7 @@ enum IrInstructionId {
     IrInstructionIdLoadPtrGen,
     IrInstructionIdStorePtr,
     IrInstructionIdVectorElem,
+    IrInstructionIdAddrOf,
     IrInstructionIdExtract,
     IrInstructionIdInsert,
     IrInstructionIdFieldPtr,
@@ -2751,6 +2752,17 @@ struct IrInstructionVectorElem {
     IrInstruction *agg;
     IrInstruction *index;
     IrInstruction *result_loc;
+};
+
+struct IrInstructionAddrOf {
+    IrInstruction base;
+
+    // While most values can be represented as pointers,
+    // the LLVM extensions to vectors (which goes beyond what GCC allows)
+    // cannot be represented with pointers, as they are bit packed.
+    // While most values are stored as pointers, this instruction allows
+    // handling of vectors specially.
+    IrInstruction *target;
 };
 
 struct IrInstructionExtract {

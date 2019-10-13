@@ -166,6 +166,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "Ref";
         case IrInstructionIdRefGen:
             return "RefGen";
+        case IrInstructionIdAddrOf:
+            return "AddrOf";
         case IrInstructionIdCompileErr:
             return "CompileErr";
         case IrInstructionIdCompileLog:
@@ -1074,6 +1076,10 @@ static void ir_print_ref_gen(IrPrint *irp, IrInstructionRefGen *instruction) {
     ir_print_other_instruction(irp, instruction->operand);
     fprintf(irp->f, ")result=");
     ir_print_other_instruction(irp, instruction->result_loc);
+}
+
+static void ir_print_addr_of(IrPrint *irp, IrInstructionAddrOf *instruction) {
+    ir_print_other_instruction(irp, instruction->target);
 }
 
 static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {
@@ -2149,6 +2155,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdRefGen:
             ir_print_ref_gen(irp, (IrInstructionRefGen *)instruction);
+            break;
+        case IrInstructionIdAddrOf:
+            ir_print_addr_of(irp, (IrInstructionAddrOf *)instruction);
             break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);

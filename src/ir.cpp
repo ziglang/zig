@@ -663,6 +663,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionRefGen *) {
     return IrInstructionIdRefGen;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAddrOf *) {
+    return IrInstructionIdAddrOf;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
@@ -1723,6 +1727,16 @@ static IrInstruction *ir_build_vector_elem(IrBuilder *irb, Scope *scope, AstNode
     ir_ref_instruction(index, irb->current_basic_block);
     if (result_loc != nullptr)
         ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_addr_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *target) {
+    IrInstructionAddrOf *instruction = ir_build_instruction<IrInstructionAddrOf>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6083,7 +6097,9 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpOptional), lval, result_loc);
         case PrefixOpAddrOf: {
             AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-            return ir_lval_wrap(irb, scope, ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr), lval, result_loc);
+            IrInstruction *elem_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
+            IrInstruction *addr_of = ir_build_addr_of(irb, scope, expr_node, elem_ptr);
+            return ir_lval_wrap(irb, scope, addr_of, lval, result_loc);
         }
     }
     zig_unreachable();
@@ -13252,6 +13268,24 @@ static IrInstruction *ir_analyze_instruction_add_implicit_return_type(IrAnalyze 
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_addr_of(IrAnalyze *ira, IrInstructionAddrOf *instruction) {
+    IrInstruction *target = instruction->target->child;
+    if (type_is_invalid(target->value.type))
+       return ira->codegen->invalid_instruction;
+
+    if (target->id != IrInstructionIdVectorElem) {
+        return target;
+    }
+
+    IrInstructionVectorElem *vector_elem = (IrInstructionVectorElem *)target;
+    IrInstruction *agg = vector_elem->agg;
+    assert(agg->value.type->id == ZigTypeIdVector);
+
+    ir_add_error(ira, agg, buf_sprintf("attempt to take pointer of vector element"));
+    return ira->codegen->invalid_instruction;
+}
+
+
 static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructionReturn *instruction) {
     IrInstruction *operand = instruction->operand->child;
     if (type_is_invalid(operand->value.type))
@@ -16101,9 +16135,9 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
             return ira->codegen->invalid_instruction;
 
         result->value.type = velem->agg->value.type;
-        IrInstruction *store_back_because_ssa_is_a_bad_idea_apparently = ir_analyze_store_ptr(ira, source_instr,
+        IrInstruction *store_back = ir_analyze_store_ptr(ira, source_instr,
             velem->result_loc, result, false);
-        if (type_is_invalid(store_back_because_ssa_is_a_bad_idea_apparently->value.type))
+        if (type_is_invalid(store_back->value.type))
             return ira->codegen->invalid_instruction;
         return result;
     }
@@ -26178,6 +26212,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdVectorElem:
             zig_unreachable();
 
+        case IrInstructionIdAddrOf:
+            return ir_analyze_instruction_addr_of(ira, (IrInstructionAddrOf *)instruction);
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
         case IrInstructionIdConst:
@@ -26615,6 +26651,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSpillBegin:
             return true;
 
+        case IrInstructionIdAddrOf:
         case IrInstructionIdVectorElem:
         case IrInstructionIdExtract:
         case IrInstructionIdPhi:
