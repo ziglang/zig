@@ -338,6 +338,7 @@ pub const Arch = enum {
     IA_64,
     x86_64,
     AArch64,
+    RiscV,
 };
 
 pub const SectionHeader = struct {
@@ -428,6 +429,7 @@ pub const Elf = struct {
             0x32 => Arch.IA_64,
             0x3E => Arch.x86_64,
             0xb7 => Arch.AArch64,
+            0xf3 => Arch.RiscV,
             else => return error.InvalidFormat,
         };
 
