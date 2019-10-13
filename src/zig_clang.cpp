@@ -533,6 +533,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::OMPSimdDirectiveClass:
         case clang::Stmt::OMPForDirectiveClass:
         case clang::Stmt::OMPForSimdDirectiveClass:
+        case clang::Stmt::OMPMasterTaskLoopDirectiveClass:
         case clang::Stmt::OMPSectionsDirectiveClass:
         case clang::Stmt::OMPSectionDirectiveClass:
         case clang::Stmt::OMPSingleDirectiveClass:
@@ -736,6 +737,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelDirectiveClass == 
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSimdDirectiveClass == clang::Stmt::OMPSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForDirectiveClass == clang::Stmt::OMPForDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForSimdDirectiveClass == clang::Stmt::OMPForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMasterTaskLoopDirectiveClass == clang::Stmt::OMPMasterTaskLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSectionsDirectiveClass == clang::Stmt::OMPSectionsDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSectionDirectiveClass == clang::Stmt::OMPSectionDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSingleDirectiveClass == clang::Stmt::OMPSingleDirectiveClass, "");
