@@ -328,3 +328,10 @@ test "align(@alignOf(T)) T does not force resolution of T" {
     _ = async S.doTheTest();
     expect(S.ok);
 }
+
+test "align(N) on functions" {
+    expect((@ptrToInt(overaligned_fn) & (0x1000 - 1)) == 0);
+}
+fn overaligned_fn() align(0x1000) i32 {
+    return 42;
+}
