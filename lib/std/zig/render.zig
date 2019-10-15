@@ -272,7 +272,7 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
                     try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
                     try renderToken(tree, stream, lparen_token, indent, start_col, Space.None); // (
                     try renderExpression(allocator, stream, tree, indent, start_col, align_value_expr, Space.None); // alignment
-                    try renderToken(tree, stream, rparen_token, indent, start_col, Space.Comma); // )
+                    try renderToken(tree, stream, rparen_token, indent, start_col, Space.Comma); // ),
                 } else {
                     try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Comma); // type,
                 }
@@ -283,8 +283,20 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             } else {
                 try renderToken(tree, stream, field.name_token, indent, start_col, Space.None); // name
                 try renderToken(tree, stream, tree.nextToken(field.name_token), indent, start_col, Space.Space); // :
-                try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
-                try renderToken(tree, stream, tree.nextToken(field.type_expr.?.lastToken()), indent, start_col, Space.Space); // =
+
+                if (field.align_expr) |align_value_expr| {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
+                    const lparen_token = tree.prevToken(align_value_expr.firstToken());
+                    const align_kw = tree.prevToken(lparen_token);
+                    const rparen_token = tree.nextToken(align_value_expr.lastToken());
+                    try renderToken(tree, stream, align_kw, indent, start_col, Space.None); // align
+                    try renderToken(tree, stream, lparen_token, indent, start_col, Space.None); // (
+                    try renderExpression(allocator, stream, tree, indent, start_col, align_value_expr, Space.None); // alignment
+                    try renderToken(tree, stream, rparen_token, indent, start_col, Space.Space); // )
+                } else {
+                    try renderExpression(allocator, stream, tree, indent, start_col, field.type_expr.?, Space.Space); // type
+                }
+                try renderToken(tree, stream, tree.prevToken(field.value_expr.?.firstToken()), indent, start_col, Space.Space); // =
                 return renderExpression(allocator, stream, tree, indent, start_col, field.value_expr.?, Space.Comma); // value,
             }
         },
