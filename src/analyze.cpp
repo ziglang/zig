@@ -8602,6 +8602,9 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     fn_type->llvm_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
             LLVMStoreSizeOfType(g->target_data_ref, fn_type->llvm_type),
             LLVMABIAlignmentOfType(g->target_data_ref, fn_type->llvm_type), "");
+
+    gen_param_types.deinit();
+    param_di_types.deinit();
 }
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
@@ -8636,6 +8639,9 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     fn->raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, gen_param_types.length, false);
     fn->raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
+
+    param_di_types.deinit();
+    gen_param_types.deinit();
 }
 
 static void resolve_llvm_types_anyerror(CodeGen *g) {
@@ -8660,6 +8666,8 @@ static void resolve_llvm_types_anyerror(CodeGen *g) {
             tag_debug_align_in_bits,
             err_enumerators.items, err_enumerators.length,
             get_llvm_di_type(g, g->err_tag_type), "");
+
+    err_enumerators.deinit();
 }
 
 static void resolve_llvm_types_async_frame(CodeGen *g, ZigType *frame_type, ResolveStatus wanted_resolve_status) {
@@ -8805,6 +8813,9 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
             nullptr, di_element_types.items, di_element_types.length, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, frame_header_di_type, replacement_di_type);
+
+    field_types.deinit();
+    di_element_types.deinit();
 }
 
 static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {

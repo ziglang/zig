@@ -689,3 +689,23 @@ test "non-packed struct with u128 entry in union" {
     s.f2 = v2;
     std.testing.expect(s.f2.Num == 123);
 }
+
+test "packed struct field passed to generic function" {
+    const S = struct {
+        const P = packed struct {
+            b: u5,
+            g: u5,
+            r: u5,
+            a: u1,
+        };
+
+        fn genericReadPackedField(ptr: var) u5 {
+            return ptr.*;
+        }
+    };
+
+    var p: S.P = undefined;
+    p.b = 29;
+    var loaded = S.genericReadPackedField(&p.b);
+    expect(loaded == 29);
+}

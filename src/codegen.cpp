@@ -4245,8 +4245,19 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
         codegen_report_errors_and_exit(g);
 
-    assert(field->gen_index != SIZE_MAX);
-    return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
+    src_assert(field->gen_index != SIZE_MAX, instruction->base.source_node);
+    LLVMValueRef field_ptr_val = LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
+    ZigType *res_type = instruction->base.value.type;
+    src_assert(res_type->id == ZigTypeIdPointer, instruction->base.source_node);
+    if (res_type->data.pointer.host_int_bytes != 0) {
+        // We generate packed structs with get_llvm_type_of_n_bytes, which is
+        // u8 for 1 byte or [n]u8 for multiple bytes. But the pointer to the type
+        // is supposed to be a pointer to the integer. So we bitcast it here.
+        LLVMTypeRef int_elem_type = LLVMIntType(8*res_type->data.pointer.host_int_bytes);
+        LLVMTypeRef integer_ptr_type = LLVMPointerType(int_elem_type, 0);
+        return LLVMBuildBitCast(g->builder, field_ptr_val, integer_ptr_type, "");
+    }
+    return field_ptr_val;
 }
 
 static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
