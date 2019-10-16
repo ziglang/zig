@@ -1370,6 +1370,10 @@ test "asBytes" {
         .d = 0xA1,
     };
     testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+
+    const ZST = struct {};
+    const zero = ZST{};
+    testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
 ///Given any value, returns a copy of its bytes in an array.
