@@ -249,7 +249,18 @@
       #tableFnErrors dt {
         font-weight: bold;
       }
-
+      
+      #listFnExamples {
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+      }
+      #listFnExamples li {
+        padding: 0.5em 0;
+        white-space: nowrap;
+        overflow-x: auto;
+      }
+      
       .docs td {
         vertical-align: top;
         margin: 0;
@@ -464,7 +475,6 @@
               <pre id="fnProtoCode"></pre>
             </div>
             <h1 id="hdrName" class="hidden"></h1>
-            <div id="fnExamples" class="hidden"></div>
             <div id="fnNoExamples" class="hidden">
               <p>This function is not tested or referenced.</p>
             </div>
@@ -493,44 +503,41 @@
             </div>
             <div id="sectFields" class="hidden">
               <h2>Fields</h2>
-              <div id="listFields">
-              </div>
+              <div id="listFields"></div>
             </div>
             <div id="sectTypes" class="hidden">
               <h2>Types</h2>
-              <ul id="listTypes">
-              </ul>
+              <ul id="listTypes"></ul>
             </div>
             <div id="sectNamespaces" class="hidden">
               <h2>Namespaces</h2>
-              <ul id="listNamespaces">
-              </ul>
+              <ul id="listNamespaces"></ul>
             </div>
             <div id="sectGlobalVars" class="hidden">
               <h2>Global Variables</h2>
               <table>
-                <tbody id="listGlobalVars">
-                </tbody>
+                <tbody id="listGlobalVars"></tbody>
               </table>
             </div>
             <div id="sectFns" class="hidden">
               <h2>Functions</h2>
               <table>
-                <tbody id="listFns">
-                </tbody>
+                <tbody id="listFns"></tbody>
               </table>
             </div>
             <div id="sectValues" class="hidden">
               <h2>Values</h2>
               <table>
-                <tbody id="listValues">
-                </tbody>
+                <tbody id="listValues"></tbody>
               </table>
             </div>
             <div id="sectErrSets" class="hidden">
               <h2>Error Sets</h2>
-              <ul id="listErrSets">
-              </ul>
+              <ul id="listErrSets"></ul>
+            </div>
+            <div id="fnExamples" class="hidden">
+              <h2>Examples</h2>
+              <ul id="listFnExamples"></ul>
             </div>
           </section>
         </div>
