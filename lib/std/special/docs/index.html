@@ -13,6 +13,13 @@
         --bg-color: #ffffff;
         --link-color: #2A6286;
         --sidebar-sh-color: rgba(0, 0, 0, 0.09);
+        --sidebar-pkg-bg-color: #f1f1f1;
+        --sidebar-pkglnk-tx-color: #141414;
+        --sidebar-pkglnk-tx-color-hover: #fff;
+        --sidebar-pkglnk-tx-color-active: #000;
+        --sidebar-pkglnk-bg-color: transparent;
+        --sidebar-pkglnk-bg-color-hover: #555;
+        --sidebar-pkglnk-bg-color-active: #FFBB4D;
         --search-bg-color: #f3f3f3;
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
@@ -118,24 +125,25 @@
         list-style-type: none;
         margin: 0;
         padding: 0;
-        background-color: #f1f1f1;
+        background-color: var(--sidebar-pkg-bg-color);
       }
       
       .sidebar .packages > li > a {
         display: block;
         padding: 0.5rem 1rem;
-        color: var(--tx-color);
+        color: var(--sidebar-pkglnk-tx-color);
+        background-color: var(--sidebar-pkglnk-bg-color);
         text-decoration: none;
       }
       
       .sidebar .packages > li > a:hover {
-        color: #fff;
-        background-color: #555;
+        color: var(--sidebar-pkglnk-tx-color-hover);
+        background-color: var(--sidebar-pkglnk-bg-color-hover);
       }
       
       .sidebar .packages > li > a.active {
-        color: #000;
-        background-color: #FFBB4D;
+        color: var(--sidebar-pkglnk-tx-color-active);
+        background-color: var(--sidebar-pkglnk-bg-color-active);
       }
       
       .sidebar p.str {
@@ -367,6 +375,13 @@
           --bg-color: #111;
           --link-color: #88f;
           --sidebar-sh-color: rgba(128, 128, 128, 0.09);
+          --sidebar-pkg-bg-color: #333;
+          --sidebar-pkglnk-tx-color: #fff;
+          --sidebar-pkglnk-tx-color-hover: #fff;
+          --sidebar-pkglnk-tx-color-active: #000;
+          --sidebar-pkglnk-bg-color: transparent;
+          --sidebar-pkglnk-bg-color-hover: #555;
+          --sidebar-pkglnk-bg-color-active: #FFBB4D;
           --search-bg-color: #3c3c3c;
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
@@ -387,20 +402,6 @@
           color: #fff;
         }
         #listNav li a.active {
-          background-color: #FFBB4D;
-          color: #000;
-        }
-        #listPkgs {
-          background-color: #333;
-        }
-        #listPkgs li a {
-          color: #fff;
-        }
-        #listPkgs li a:hover {
-          background-color: #555;
-          color: #fff;
-        }
-        #listPkgs li a.active {
           background-color: #FFBB4D;
           color: #000;
         }
