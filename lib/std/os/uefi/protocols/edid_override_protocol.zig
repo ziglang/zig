@@ -2,10 +2,11 @@ const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 
-/// UEFI Specification, Version 2.8, 12.9
+/// Override EDID information
 pub const EdidOverrideProtocol = extern struct {
     _get_edid: extern fn (*const EdidOverrideProtocol, Handle, *u32, *usize, *?[*]u8) usize,
 
+    /// Returns policy information and potentially a replacement EDID for the specified video output device.
     /// attributes must be align(4)
     pub fn getEdid(self: *const EdidOverrideProtocol, handle: Handle, attributes: *EdidOverrideProtocolAttributes, edid_size: *usize, edid: *?[*]u8) usize {
         return self._get_edid(self, handle, attributes, edid_size, edid);
