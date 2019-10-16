@@ -642,13 +642,86 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
     }
 }
 
+pub const ExecveError = error{
+    SystemResources,
+    AccessDenied,
+    InvalidExe,
+    FileSystem,
+    IsDir,
+    FileNotFound,
+    NotDir,
+    FileBusy,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NameTooLong,
+} || UnexpectedError;
+
+/// Like `execve` except the parameters are null-terminated,
+/// matching the syscall API on all targets. This removes the need for an allocator.
+/// This function ignores PATH environment variable. See `execvpeC` for that.
+pub fn execveC(path: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) ExecveError {
+    switch (errno(system.execve(path, child_argv, envp))) {
+        0 => unreachable,
+        EFAULT => unreachable,
+        E2BIG => return error.SystemResources,
+        EMFILE => return error.ProcessFdQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENFILE => return error.SystemFdQuotaExceeded,
+        ENOMEM => return error.SystemResources,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
+        EINVAL => return error.InvalidExe,
+        ENOEXEC => return error.InvalidExe,
+        EIO => return error.FileSystem,
+        ELOOP => return error.FileSystem,
+        EISDIR => return error.IsDir,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.NotDir,
+        ETXTBSY => return error.FileBusy,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Like `execvpe` except the parameters are null-terminated,
+/// matching the syscall API on all targets. This removes the need for an allocator.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+/// If `file` is an absolute path, this is the same as `execveC`.
+pub fn execvpeC(file: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) ExecveError {
+    const file_slice = mem.toSliceConst(u8, file);
+    if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
+
+    const PATH = getenv("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
+    var path_buf: [MAX_PATH_BYTES]u8 = undefined;
+    var it = mem.tokenize(PATH, ":");
+    var seen_eacces = false;
+    var err: ExecveError = undefined;
+    while (it.next()) |search_path| {
+        if (path_buf.len < search_path.len + file_slice.len + 1) return error.NameTooLong;
+        mem.copy(u8, &path_buf, search_path);
+        path_buf[search_path.len] = '/';
+        mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
+        path_buf[search_path.len + file_slice.len + 1] = 0;
+        err = execveC(&path_buf, child_argv, envp);
+        switch (err) {
+            error.AccessDenied => seen_eacces = true,
+            error.FileNotFound, error.NotDir => {},
+            else => |e| return e,
+        }
+    }
+    if (seen_eacces) return error.AccessDenied;
+    return err;
+}
+
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
-/// `argv[0]` is the executable path.
+/// `argv_slice[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-/// TODO provide execveC which does not take an allocator
-pub fn execve(allocator: *mem.Allocator, argv_slice: []const []const u8, env_map: *const std.BufMap) !void {
+pub fn execvpe(
+    allocator: *mem.Allocator,
+    argv_slice: []const []const u8,
+    env_map: *const std.BufMap,
+) (ExecveError || error{OutOfMemory}) {
     const argv_buf = try allocator.alloc(?[*]u8, argv_slice.len + 1);
     mem.set(?[*]u8, argv_buf, null);
     defer {
@@ -670,37 +743,7 @@ pub fn execve(allocator: *mem.Allocator, argv_slice: []const []const u8, env_map
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    const exe_path = argv_slice[0];
-    if (mem.indexOfScalar(u8, exe_path, '/') != null) {
-        return execveErrnoToErr(errno(system.execve(argv_buf[0].?, argv_buf.ptr, envp_buf.ptr)));
-    }
-
-    const PATH = getenv("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
-    // PATH.len because it is >= the largest search_path
-    // +1 for the / to join the search path and exe_path
-    // +1 for the null terminating byte
-    const path_buf = try allocator.alloc(u8, PATH.len + exe_path.len + 2);
-    defer allocator.free(path_buf);
-    var it = mem.tokenize(PATH, ":");
-    var seen_eacces = false;
-    var err: usize = undefined;
-    while (it.next()) |search_path| {
-        mem.copy(u8, path_buf, search_path);
-        path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);
-        path_buf[search_path.len + exe_path.len + 1] = 0;
-        err = errno(system.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
-        assert(err > 0);
-        if (err == EACCES) {
-            seen_eacces = true;
-        } else if (err != ENOENT) {
-            return execveErrnoToErr(err);
-        }
-    }
-    if (seen_eacces) {
-        err = EACCES;
-    }
-    return execveErrnoToErr(err);
+    return execvpeC(argv_buf.ptr[0].?, argv_buf.ptr, envp_buf.ptr);
 }
 
 pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*]u8 {
@@ -732,43 +775,6 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*]u8) vo
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
-}
-
-pub const ExecveError = error{
-    SystemResources,
-    AccessDenied,
-    InvalidExe,
-    FileSystem,
-    IsDir,
-    FileNotFound,
-    NotDir,
-    FileBusy,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NameTooLong,
-} || UnexpectedError;
-
-fn execveErrnoToErr(err: usize) ExecveError {
-    assert(err > 0);
-    switch (err) {
-        EFAULT => unreachable,
-        E2BIG => return error.SystemResources,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENOMEM => return error.SystemResources,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EINVAL => return error.InvalidExe,
-        ENOEXEC => return error.InvalidExe,
-        EIO => return error.FileSystem,
-        ELOOP => return error.FileSystem,
-        EISDIR => return error.IsDir,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ETXTBSY => return error.FileBusy,
-        else => return unexpectedErrno(err),
-    }
 }
 
 /// Get an environment variable.

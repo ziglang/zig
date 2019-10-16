@@ -27,7 +27,6 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// This represents the maximum size of a UTF-8 encoded file path.
 /// All file system operations which return a path are guaranteed to
 /// fit into a UTF-8 encoded array of this length.
-/// path being too long if it is this 0long
 pub const MAX_PATH_BYTES = switch (builtin.os) {
     .linux, .macosx, .ios, .freebsd, .netbsd => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.

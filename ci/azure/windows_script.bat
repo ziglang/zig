@@ -19,7 +19,7 @@ mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
 REM Here we use MinSizeRel instead of Release to work around https://github.com/ziglang/zig/issues/3024
 cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=MinSizeRel || exit /b
-msbuild /p:Configuration=MinSizeRel INSTALL.vcxproj || exit /b
+msbuild /maxcpucount /p:Configuration=MinSizeRel INSTALL.vcxproj || exit /b
 
 "%ZIGINSTALLDIR%\bin\zig.exe" build test || exit /b
 

@@ -508,7 +508,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-/// This is a simple OutStream that writes to a slice, and returns an error
+/// This is a simple OutStream that writes to a fixed buffer, and returns an error
 /// when it runs out of space.
 pub const SliceOutStream = struct {
     pub const Error = error{OutOfSpace};
@@ -1022,33 +1022,6 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             return @bitCast(T, result);
         }
 
-        //@TODO: Replace this with @unionInit or whatever when it is added
-        // see: #1315
-        fn setTag(ptr: var, tag: var) void {
-            const T = @typeOf(ptr);
-            comptime assert(trait.isPtrTo(builtin.TypeId.Union)(T));
-            const U = meta.Child(T);
-
-            const info = @typeInfo(U).Union;
-            if (info.tag_type) |TagType| {
-                comptime assert(TagType == @typeOf(tag));
-
-                var ptr_tag = ptr: {
-                    if (@alignOf(TagType) >= @alignOf(U)) break :ptr @ptrCast(*TagType, ptr);
-                    const offset = comptime max: {
-                        var max_field_size: comptime_int = 0;
-                        for (info.fields) |field_info| {
-                            const field_size = @sizeOf(field_info.field_type);
-                            max_field_size = math.max(max_field_size, field_size);
-                        }
-                        break :max math.max(max_field_size, @alignOf(U));
-                    };
-                    break :ptr @intToPtr(*TagType, @ptrToInt(ptr) + offset);
-                };
-                ptr_tag.* = tag;
-            }
-        }
-
         /// Deserializes and returns data of the specified type from the stream
         pub fn deserialize(self: *Self, comptime T: type) !T {
             var value: T = undefined;
@@ -1111,18 +1084,12 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         // safety. If it is bad, it will be caught anyway.
                         const TagInt = @TagType(TagType);
                         const tag = try self.deserializeInt(TagInt);
-
-                        {
-                            @setRuntimeSafety(false);
-                            //See: #1315
-                            setTag(ptr, @intToEnum(TagType, tag));
-                        }
-
+                        
                         inline for (info.fields) |field_info| {
                             if (field_info.enum_field.?.value == tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
-                                @field(ptr, name) = FieldType(undefined);
+                                ptr.* = @unionInit(C, name, undefined);
                                 try self.deserializeInto(&@field(ptr, name));
                                 return;
                             }

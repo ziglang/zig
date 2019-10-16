@@ -269,9 +269,17 @@ pub const File = struct {
 
     pub const UpdateTimesError = os.FutimensError || windows.SetFileTimeError;
 
-    /// `atime`: access timestamp in nanoseconds
-    /// `mtime`: last modification timestamp in nanoseconds
-    pub fn updateTimes(self: File, atime: i64, mtime: i64) UpdateTimesError!void {
+    /// The underlying file system may have a different granularity than nanoseconds,
+    /// and therefore this function cannot guarantee any precision will be stored.
+    /// Further, the maximum value is limited by the system ABI. When a value is provided
+    /// that exceeds this range, the value is clamped to the maximum.
+    pub fn updateTimes(
+        self: File,
+        /// access timestamp in nanoseconds
+        atime: i64,
+        /// last modification timestamp in nanoseconds
+        mtime: i64,
+    ) UpdateTimesError!void {
         if (windows.is_the_target) {
             const atime_ft = windows.nanoSecondsToFileTime(atime);
             const mtime_ft = windows.nanoSecondsToFileTime(mtime);
@@ -279,12 +287,12 @@ pub const File = struct {
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = @divFloor(atime, std.time.ns_per_s),
-                .tv_nsec = @mod(atime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) catch maxInt(isize),
             },
             os.timespec{
-                .tv_sec = @divFloor(mtime, std.time.ns_per_s),
-                .tv_nsec = @mod(mtime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) catch maxInt(isize),
             },
         };
         try os.futimens(self.handle, &times);

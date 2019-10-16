@@ -36,7 +36,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         size: usize,
         max_distance_from_start_index: usize,
         allocator: *Allocator,
-        // this is used to detect bugs where a hashtable is edited while an iterator is running.
+
+        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
         const Self = @This();
@@ -549,4 +550,14 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
             return meta.eql(a, b);
         }
     }.eql;
+}
+
+pub fn getAutoHashStratFn(comptime K: type, comptime strategy: std.hash.Strategy) (fn (K) u32) {
+    return struct {
+        fn hash(key: K) u32 {
+            var hasher = Wyhash.init(0);
+            std.hash.autoHashStrat(&hasher, key, strategy);
+            return @truncate(u32, hasher.final());
+        }
+    }.hash;
 }

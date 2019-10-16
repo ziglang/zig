@@ -6,6 +6,8 @@ const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
+const uid_t = linux.uid_t;
+const gid_t = linux.gid_t;
 
 pub const SYS_restart_syscall = 0;
 pub const SYS_exit = 1;
@@ -512,7 +514,14 @@ pub const msghdr_const = extern struct {
     msg_flags: i32,
 };
 
+pub const blksize_t = i32;
+pub const nlink_t = u32;
+pub const time_t = isize;
+pub const mode_t = u32;
 pub const off_t = i64;
+pub const ino_t = u64;
+pub const dev_t = u64;
+pub const blkcnt_t = i64;
 
 /// Renamed to Stat to not conflict with the stat function.
 /// atime, mtime, and ctime have functions to return `timespec`,
@@ -521,22 +530,22 @@ pub const off_t = i64;
 /// in C, macros are used to hide the differences. Here we use
 /// methods to accomplish this.
 pub const Stat = extern struct {
-    dev: u64,
+    dev: dev_t,
     __dev_padding: u32,
     __ino_truncated: u32,
-    mode: u32,
-    nlink: u32,
-    uid: u32,
-    gid: u32,
-    rdev: u64,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
     __rdev_padding: u32,
     size: off_t,
-    blksize: i32,
-    blocks: u64,
+    blksize: blksize_t,
+    blocks: blkcnt_t,
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    ino: u64,
+    ino: ino_t,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;

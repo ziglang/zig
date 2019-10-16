@@ -234,24 +234,29 @@ comptime {
         @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
     }
     if (builtin.os == .windows) {
-        if (!builtin.link_libc) {
+        // Default stack-probe functions emitted by LLVM
+        if (is_mingw) {
+            @export("_alloca", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
+            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        } else if (!builtin.link_libc) {
+            // This symbols are otherwise exported by MSVCRT.lib
             @export("_chkstk", @import("compiler_rt/stack_probe.zig")._chkstk, strong_linkage);
             @export("__chkstk", @import("compiler_rt/stack_probe.zig").__chkstk, strong_linkage);
-            @export("___chkstk", @import("compiler_rt/stack_probe.zig").___chkstk, strong_linkage);
-            @export("__chkstk_ms", @import("compiler_rt/stack_probe.zig").__chkstk_ms, strong_linkage);
-            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
-        } else if (is_mingw) {
-            @export("___chkstk_ms", @import("compiler_rt/stack_probe.zig").___chkstk_ms, strong_linkage);
+        }
+
+        if (is_mingw) {
             @export("__stack_chk_fail", __stack_chk_fail, strong_linkage);
             @export("__stack_chk_guard", __stack_chk_guard, strong_linkage);
         }
 
         switch (builtin.arch) {
             .i386 => {
-                @export("_alldiv", @import("compiler_rt/aulldiv.zig")._alldiv, strong_linkage);
-                @export("_aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
-                @export("_allrem", @import("compiler_rt/aullrem.zig")._allrem, strong_linkage);
-                @export("_aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
+                // Don't let LLVM apply the stdcall name mangling on those MSVC
+                // builtin functions
+                @export("\x01__alldiv", @import("compiler_rt/aulldiv.zig")._alldiv, strong_linkage);
+                @export("\x01__aulldiv", @import("compiler_rt/aulldiv.zig")._aulldiv, strong_linkage);
+                @export("\x01__allrem", @import("compiler_rt/aullrem.zig")._allrem, strong_linkage);
+                @export("\x01__aullrem", @import("compiler_rt/aullrem.zig")._aullrem, strong_linkage);
 
                 @export("__divti3", @import("compiler_rt/divti3.zig").__divti3, linkage);
                 @export("__modti3", @import("compiler_rt/modti3.zig").__modti3, linkage);

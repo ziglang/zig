@@ -413,17 +413,8 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         linkage = fn_export->linkage;
     }
 
-    bool external_linkage = linkage != GlobalLinkageIdInternal;
     CallingConvention cc = fn->type_entry->data.fn.fn_type_id.cc;
-    if (cc == CallingConventionStdcall && external_linkage &&
-        g->zig_target->arch == ZigLLVM_x86)
-    {
-        // prevent llvm name mangling
-        symbol_name = buf_ptr(buf_sprintf("\x01_%s", symbol_name));
-    }
-
     bool is_async = fn_is_async(fn);
-
 
     ZigType *fn_type = fn->type_entry;
     // Make the raw_type_ref populated
@@ -4254,8 +4245,19 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
         codegen_report_errors_and_exit(g);
 
-    assert(field->gen_index != SIZE_MAX);
-    return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
+    src_assert(field->gen_index != SIZE_MAX, instruction->base.source_node);
+    LLVMValueRef field_ptr_val = LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
+    ZigType *res_type = instruction->base.value.type;
+    src_assert(res_type->id == ZigTypeIdPointer, instruction->base.source_node);
+    if (res_type->data.pointer.host_int_bytes != 0) {
+        // We generate packed structs with get_llvm_type_of_n_bytes, which is
+        // u8 for 1 byte or [n]u8 for multiple bytes. But the pointer to the type
+        // is supposed to be a pointer to the integer. So we bitcast it here.
+        LLVMTypeRef int_elem_type = LLVMIntType(8*res_type->data.pointer.host_int_bytes);
+        LLVMTypeRef integer_ptr_type = LLVMPointerType(int_elem_type, 0);
+        return LLVMBuildBitCast(g->builder, field_ptr_val, integer_ptr_type, "");
+    }
+    return field_ptr_val;
 }
 
 static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
@@ -7595,6 +7597,8 @@ static void zig_llvm_emit_output(CodeGen *g) {
     char *err_msg = nullptr;
     switch (g->emit_file_type) {
         case EmitFileTypeBinary:
+            if (g->disable_bin_generation)
+                return;
             if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                         ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
                         g->enable_time_report))
@@ -10167,6 +10171,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->function_sections);
     cache_bool(ch, g->enable_dump_analysis);
     cache_bool(ch, g->enable_doc_generation);
+    cache_bool(ch, g->disable_bin_generation);
     cache_buf_opt(ch, g->mmacosx_version_min);
     cache_buf_opt(ch, g->mios_version_min);
     cache_usize(ch, g->version_major);
@@ -10405,7 +10410,8 @@ void codegen_build_and_link(CodeGen *g) {
         // If there is more than one object, we have to link them (with -r).
         // Finally, if we didn't make an object from zig source, and we don't have caching enabled,
         // then we have an object from C source that we must copy to the output dir which we do with a -r link.
-        if (g->emit_file_type == EmitFileTypeBinary && (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
+        if (!g->disable_bin_generation && g->emit_file_type == EmitFileTypeBinary &&
+                (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
                     (!need_llvm_module(g) && !g->enable_cache)))
         {
             codegen_link(g);

@@ -44,3 +44,35 @@ test "timer" {
     // TODO implicit cast from *[N]T to [*]T
     err = linux.epoll_wait(@intCast(i32, epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);
 }
+
+const File = std.fs.File;
+
+test "statx" {
+    const tmp_file_name = "just_a_temporary_file.txt";
+    var file = try File.openWrite(tmp_file_name);
+    defer {
+        file.close();
+        std.fs.deleteFile(tmp_file_name) catch {};
+    }
+
+    var statx_buf: linux.Statx = undefined;
+    switch (linux.getErrno(linux.statx(file.handle, c"", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+        0 => {},
+        // The statx syscall was only introduced in linux 4.11
+        linux.ENOSYS => return error.SkipZigTest,
+        else => unreachable,
+    }
+
+    var stat_buf: linux.Stat = undefined;
+    switch (linux.getErrno(linux.fstatat(file.handle, c"", &stat_buf, linux.AT_EMPTY_PATH))) {
+        0 => {},
+        else => unreachable,
+    }
+
+    expect(stat_buf.mode == statx_buf.mode);
+    expect(@bitCast(u32, stat_buf.uid) == statx_buf.uid);
+    expect(@bitCast(u32, stat_buf.gid) == statx_buf.gid);
+    expect(@bitCast(u64, i64(stat_buf.size)) == statx_buf.size);
+    expect(@bitCast(u64, i64(stat_buf.blksize)) == statx_buf.blksize);
+    expect(@bitCast(u64, i64(stat_buf.blocks)) == statx_buf.blocks);
+}

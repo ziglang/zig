@@ -280,14 +280,23 @@ pub const StackIterator = struct {
         };
     }
 
+    // On some architectures such as x86 the frame pointer is the address where
+    // the previous fp is stored, while on some other architectures such as
+    // RISC-V it points to the "top" of the frame, just above where the previous
+    // fp and the return address are stored.
+    const fp_adjust_factor = if (builtin.arch == .riscv32 or builtin.arch == .riscv64)
+        2 * @sizeOf(usize)
+    else
+        0;
+
     fn next(self: *StackIterator) ?usize {
-        if (self.fp == 0) return null;
-        self.fp = @intToPtr(*const usize, self.fp).*;
-        if (self.fp == 0) return null;
+        if (self.fp <= fp_adjust_factor) return null;
+        self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*;
+        if (self.fp <= fp_adjust_factor) return null;
 
         if (self.first_addr) |addr| {
-            while (self.fp != 0) : (self.fp = @intToPtr(*const usize, self.fp).*) {
-                const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+            while (self.fp > fp_adjust_factor) : (self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*) {
+                const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
                 if (addr == return_address) {
                     self.first_addr = null;
                     return return_address;
@@ -295,7 +304,7 @@ pub const StackIterator = struct {
             }
         }
 
-        const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+        const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
         return return_address;
     }
 };

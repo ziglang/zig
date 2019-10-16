@@ -1293,3 +1293,94 @@ pub const utsname = extern struct {
     domainname: [65]u8,
 };
 pub const HOST_NAME_MAX = 64;
+
+pub const STATX_TYPE = 0x0001;
+pub const STATX_MODE = 0x0002;
+pub const STATX_NLINK = 0x0004;
+pub const STATX_UID = 0x0008;
+pub const STATX_GID = 0x0010;
+pub const STATX_ATIME = 0x0020;
+pub const STATX_MTIME = 0x0040;
+pub const STATX_CTIME = 0x0080;
+pub const STATX_INO = 0x0100;
+pub const STATX_SIZE = 0x0200;
+pub const STATX_BLOCKS = 0x0400;
+pub const STATX_BASIC_STATS = 0x07ff;
+
+pub const STATX_BTIME = 0x0800;
+
+pub const STATX_ATTR_COMPRESSED = 0x0004;
+pub const STATX_ATTR_IMMUTABLE = 0x0010;
+pub const STATX_ATTR_APPEND = 0x0020;
+pub const STATX_ATTR_NODUMP = 0x0040;
+pub const STATX_ATTR_ENCRYPTED = 0x0800;
+pub const STATX_ATTR_AUTOMOUNT = 0x1000;
+
+pub const statx_timestamp = extern struct {
+    tv_sec: i64,
+    tv_nsec: u32,
+    __pad1: u32,
+};
+
+/// Renamed to `Statx` to not conflict with the `statx` function.
+pub const Statx = extern struct {
+    /// Mask of bits indicating filled fields
+    mask: u32,
+
+    /// Block size for filesystem I/O
+    blksize: u32,
+
+    /// Extra file attribute indicators
+    attributes: u64,
+
+    /// Number of hard links
+    nlink: u32,
+
+    /// User ID of owner
+    uid: u32,
+
+    /// Group ID of owner
+    gid: u32,
+
+    /// File type and mode
+    mode: u16,
+    __pad1: u16,
+
+    /// Inode number
+    ino: u64,
+
+    /// Total size in bytes
+    size: u64,
+
+    /// Number of 512B blocks allocated
+    blocks: u64,
+
+    /// Mask to show what's supported in `attributes`.
+    attributes_mask: u64,
+
+    /// Last access file timestamp
+    atime: statx_timestamp,
+
+    /// Creation file timestamp
+    btime: statx_timestamp,
+
+    /// Last status change file timestamp
+    ctime: statx_timestamp,
+
+    /// Last modification file timestamp
+    mtime: statx_timestamp,
+
+    /// Major ID, if this file represents a device.
+    rdev_major: u32,
+
+    /// Minor ID, if this file represents a device.
+    rdev_minor: u32,
+
+    /// Major ID of the device containing the filesystem where this file resides.
+    dev_major: u32,
+
+    /// Minor ID of the device containing the filesystem where this file resides.
+    dev_minor: u32,
+
+    __pad2: [14]u64,
+};

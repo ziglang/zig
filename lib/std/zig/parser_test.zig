@@ -173,6 +173,12 @@ test "zig fmt: aligned struct field" {
         \\};
         \\
     );
+    try testCanonical(
+        \\pub const S = struct {
+        \\    f: i32 align(32) = 1,
+        \\};
+        \\
+    );
 }
 
 test "zig fmt: preserve space between async fn definitions" {

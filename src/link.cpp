@@ -552,28 +552,41 @@ static const char *mingwex_arm64_src[] = {
 
 struct MinGWDef {
     const char *name;
-    const char *path;
     bool always_link;
 };
 static const MinGWDef mingw_def_list[] = {
-    {"msvcrt", "lib-common" OS_SEP "msvcrt.def.in", true},
-    {"setupapi", "libarm32" OS_SEP "setupapi.def", false},
-    {"setupapi", "libarm64" OS_SEP "setupapi.def", false},
-    {"setupapi", "lib32" OS_SEP "setupapi.def", false},
-    {"setupapi", "lib64" OS_SEP "setupapi.def", false},
-    {"winmm", "lib-common" OS_SEP "winmm.def", false},
-    {"gdi32", "lib-common" OS_SEP "gdi32.def", false},
-    {"imm32", "lib-common" OS_SEP "imm32.def", false},
-    {"version", "lib-common" OS_SEP "version.def", false},
-    {"advapi32", "lib-common" OS_SEP "advapi32.def.in", true},
-    {"oleaut32", "lib-common" OS_SEP "oleaut32.def.in", false},
-    {"ole32", "lib-common" OS_SEP "ole32.def.in", false},
-    {"shell32", "lib-common" OS_SEP "shell32.def", true},
-    {"user32", "lib-common" OS_SEP "user32.def.in", true},
-    {"kernel32", "lib-common" OS_SEP "kernel32.def.in", true},
-    {"ntdll", "libarm32" OS_SEP "ntdll.def", true},
-    {"ntdll", "lib32" OS_SEP "ntdll.def", true},
-    {"ntdll", "lib64" OS_SEP "ntdll.def", true},
+    {"advapi32",true},
+    {"bcrypt",  false},
+    {"comctl32",false},
+    {"comdlg32",false},
+    {"crypt32", false},
+    {"cryptnet",false},
+    {"gdi32",   false},
+    {"imm32",   false},
+    {"kernel32",true},
+    {"lz32",    false},
+    {"mpr",     false},
+    {"msvcrt",  true},
+    {"mswsock", false},
+    {"ncrypt",  false},
+    {"netapi32",false},
+    {"ntdll",   true},
+    {"ole32",   false},
+    {"oleaut32",false},
+    {"opengl32",false},
+    {"rpcns4",  false},
+    {"rpcrt4",  false},
+    {"scarddlg",false},
+    {"setupapi",false},
+    {"shell32", true},
+    {"urlmon",  false},
+    {"user32",  true},
+    {"version", false},
+    {"winmm",   false},
+    {"winscard",false},
+    {"winspool",false},
+    {"wintrust",false},
+    {"ws2_32",  false},
 };
 
 struct LinkJob {
@@ -1955,7 +1968,7 @@ static void print_zig_cc_cmd(ZigList<const char *> *args) {
     fprintf(stderr, "\n");
 }
 
-static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_rel_path) {
+static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_file) {
     Error err;
 
     Buf *self_exe_path = buf_alloc();
@@ -1973,8 +1986,6 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_re
     Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
 
-    Buf *def_in_file = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
-            buf_ptr(parent->zig_lib_dir), buf_ptr(def_in_rel_path));
     Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
             buf_ptr(parent->zig_lib_dir));
 
@@ -2062,18 +2073,12 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_re
         lib_final_path = buf_alloc();
         os_path_join(artifact_dir, final_lib_basename, lib_final_path);
 
-        args.resize(0);
-        args.append("link");
-        coff_append_machine_arg(parent, &args);
-
-        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_final_path))));
-        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(lib_final_path))));
-
-        Buf diag = BUF_INIT;
-        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(parent->zig_target);
-        if (!zig_lld_link(target_ofmt, args.items, args.length, &diag)) {
-            fprintf(stderr, "%s\n", buf_ptr(&diag));
-            exit(1);
+        if (ZigLLVMWriteImportLibrary(buf_ptr(def_final_path),
+                                      parent->zig_target->arch,
+                                      buf_ptr(lib_final_path),
+                                      /* kill_at */ true))
+        {
+            zig_panic("link: could not emit %s", buf_ptr(lib_final_path));
         }
     } else {
         // cache hit
@@ -2095,6 +2100,60 @@ static bool is_linking_system_lib(CodeGen *g, const char *name) {
         }
     }
     return false;
+}
+
+static Error find_mingw_lib_def(LinkJob *lj, const char *name, Buf *out_path) {
+    CodeGen *g = lj->codegen;
+    Buf override_path = BUF_INIT;
+    Error err;
+
+    char const *lib_path = nullptr;
+    if (g->zig_target->arch == ZigLLVM_x86) {
+        lib_path = "lib32";
+    } else if (g->zig_target->arch == ZigLLVM_x86_64) {
+        lib_path = "lib64";
+    } else if (target_is_arm(g->zig_target)) {
+        const bool is_32 = target_arch_pointer_bit_width(g->zig_target->arch) == 32;
+        lib_path = is_32 ? "libarm32" : "libarm64";
+    } else {
+        zig_unreachable();
+    }
+
+    // Try the archtecture-specific path first
+    buf_resize(&override_path, 0);
+    buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), lib_path, name);
+
+    bool does_exist;
+    if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+        return err;
+    }
+
+    if (!does_exist) {
+        // Try the generic version
+        buf_resize(&override_path, 0);
+        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def", buf_ptr(g->zig_lib_dir), name);
+
+        if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+            return err;
+        }
+    }
+
+    if (!does_exist) {
+        // Try the generic version and preprocess it
+        buf_resize(&override_path, 0);
+        buf_appendf(&override_path, "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "lib-common" OS_SEP "%s.def.in", buf_ptr(g->zig_lib_dir), name);
+
+        if ((err = os_file_exists(&override_path, &does_exist)) != ErrorNone) {
+            return err;
+        }
+    }
+
+    if (!does_exist) {
+        return ErrorFileNotFound;
+    }
+
+    buf_init_from_buf(out_path, &override_path);
+    return ErrorNone;
 }
 
 static void add_mingw_link_args(LinkJob *lj, bool is_library) {
@@ -2122,24 +2181,20 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
 
     for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
         const char *name = mingw_def_list[def_i].name;
-        Buf *path = buf_create_from_str(mingw_def_list[def_i].path);
-        bool always_link = mingw_def_list[def_i].always_link;
-        bool is_this_arch = false;
-        if (buf_starts_with_str(path, "lib-common" OS_SEP)) {
-            is_this_arch = true;
-        } else if (target_is_arm(g->zig_target)) {
-            if (target_arch_pointer_bit_width(g->zig_target->arch) == 32) {
-                is_this_arch = buf_starts_with_str(path, "libarm32" OS_SEP);
-            } else {
-                is_this_arch = buf_starts_with_str(path, "libarm64" OS_SEP);
+        const bool always_link = mingw_def_list[def_i].always_link;
+
+        if (always_link || is_linking_system_lib(g, name)) {
+            Buf lib_path = BUF_INIT;
+            Error err = find_mingw_lib_def(lj, name, &lib_path);
+
+            if (err == ErrorFileNotFound) {
+                zig_panic("link: could not find .def file to build %s\n", name);
+            } else if (err != ErrorNone) {
+                zig_panic("link: unable to check if .def file for %s exists: %s",
+                        name, err_str(err));
             }
-        } else if (g->zig_target->arch == ZigLLVM_x86) {
-            is_this_arch = buf_starts_with_str(path, "lib32" OS_SEP);
-        } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-            is_this_arch = buf_starts_with_str(path, "lib64" OS_SEP);
-        }
-        if (is_this_arch && (always_link || is_linking_system_lib(g, name))) {
-            lj->args.append(get_def_lib(g, name, path));
+
+            lj->args.append(get_def_lib(g, name, &lib_path));
         }
     }
 }
@@ -2273,8 +2328,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    Buf *def_contents = buf_alloc();
-    ZigList<const char *> gen_lib_args = {0};
     for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(lib_i);
         if (buf_eql_str(link_lib->name, "c")) {
@@ -2297,36 +2350,27 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
 
-        buf_resize(def_contents, 0);
-        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-            Buf *symbol_name = link_lib->symbols.at(exp_i);
-            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+        // This library may be a system one and we may have a suitable .lib file
+
+        // Normalize the library name to lower case, the FS may be
+        // case-sensitive
+        char *name = strdup(buf_ptr(link_lib->name));
+        assert(name != nullptr);
+        for (char *ch = name; *ch; ++ch) *ch = tolower(*ch);
+
+        Buf lib_path = BUF_INIT;
+        err = find_mingw_lib_def(lj, name, &lib_path);
+
+        if (err == ErrorFileNotFound) {
+            zig_panic("link: could not find .def file to build %s\n", name);
+        } else if (err != ErrorNone) {
+            zig_panic("link: unable to check if .def file for %s exists: %s",
+                      name, err_str(err));
         }
-        buf_appendf(def_contents, "\n");
 
-        Buf *def_path = buf_alloc();
-        os_path_join(g->output_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-        if ((err = os_write_file(def_path, def_contents))) {
-            zig_panic("error writing def file: %s", err_str(err));
-        }
+        lj->args.append(get_def_lib(g, name, &lib_path));
 
-        Buf *generated_lib_path = buf_alloc();
-        os_path_join(g->output_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-        gen_lib_args.resize(0);
-        gen_lib_args.append("link");
-
-        coff_append_machine_arg(g, &gen_lib_args);
-        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-        Buf diag = BUF_INIT;
-        ZigLLVM_ObjectFormatType target_ofmt = target_object_format(g->zig_target);
-        if (!zig_lld_link(target_ofmt, gen_lib_args.items, gen_lib_args.length, &diag)) {
-            fprintf(stderr, "%s\n", buf_ptr(&diag));
-            exit(1);
-        }
-        lj->args.append(buf_ptr(generated_lib_path));
+        free(name);
     }
 }
 
