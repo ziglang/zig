@@ -1322,52 +1322,65 @@ pub const statx_timestamp = extern struct {
     __pad1: u32,
 };
 
+/// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
-    // Mask of bits indicating filled fields
-    stx_mask: u32,
-    // Block size for filesystem I/O
-    stx_blksize: u32,
-    // Extra file attribute indicators
-    stx_attributes: u64,
-    // Number of hard links
-    stx_nlink: u32,
-    // User ID of owner
-    stx_uid: u32,
-    // Group ID of owner
-    stx_gid: u32,
-    // File type and mode
-    stx_mode: u16,
+    /// Mask of bits indicating filled fields
+    mask: u32,
+
+    /// Block size for filesystem I/O
+    blksize: u32,
+
+    /// Extra file attribute indicators
+    attributes: u64,
+
+    /// Number of hard links
+    nlink: u32,
+
+    /// User ID of owner
+    uid: u32,
+
+    /// Group ID of owner
+    gid: u32,
+
+    /// File type and mode
+    mode: u16,
     __pad1: u16,
-    // Inode number
-    stx_ino: u64,
-    // Total size in bytes
-    stx_size: u64,
-    // Number of 512B blocks allocated
-    stx_blocks: u64,
-    // Mask to show what's supported in stx_attributes
-    stx_attributes_mask: u64,
 
-    // The following fields are file timestamps
-    // Last access
-    stx_atime: statx_timestamp,
-    // Creation
-    stx_btime: statx_timestamp,
-    // Last status change
-    stx_ctime: statx_timestamp,
-    // Last modification
-    stx_mtime: statx_timestamp,
+    /// Inode number
+    ino: u64,
 
-    // If this file represents a device, then the next two fields contain the ID of the device
-    // Major ID
-    stx_rdev_major: u32,
-    // Minor ID
-    stx_rdev_minor: u32,
+    /// Total size in bytes
+    size: u64,
 
-    // The next two fields contain the ID of the device containing the filesystem where the file resides
-    // Major ID
-    stx_dev_major: u32,
-    // Minor ID
-    stx_dev_minor: u32,
+    /// Number of 512B blocks allocated
+    blocks: u64,
+
+    /// Mask to show what's supported in `attributes`.
+    attributes_mask: u64,
+
+    /// Last access file timestamp
+    atime: statx_timestamp,
+
+    /// Creation file timestamp
+    btime: statx_timestamp,
+
+    /// Last status change file timestamp
+    ctime: statx_timestamp,
+
+    /// Last modification file timestamp
+    mtime: statx_timestamp,
+
+    /// Major ID, if this file represents a device.
+    rdev_major: u32,
+
+    /// Minor ID, if this file represents a device.
+    rdev_minor: u32,
+
+    /// Major ID of the device containing the filesystem where this file resides.
+    dev_major: u32,
+
+    /// Minor ID of the device containing the filesystem where this file resides.
+    dev_minor: u32,
 
     __pad2: [14]u64,
 };
