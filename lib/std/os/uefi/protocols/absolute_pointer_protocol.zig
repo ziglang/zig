@@ -2,17 +2,19 @@ const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 
-/// UEFI Specification, Version 2.8, 12.7
+/// Protocol for touchscreens
 pub const AbsolutePointerProtocol = extern struct {
     _reset: extern fn (*const AbsolutePointerProtocol, bool) usize,
     _get_state: extern fn (*const AbsolutePointerProtocol, *AbsolutePointerState) usize,
     wait_for_input: Event,
     mode: *AbsolutePointerMode,
 
+    /// Resets the pointer device hardware.
     pub fn reset(self: *const AbsolutePointerProtocol, verify: bool) usize {
         return self._reset(self, verify);
     }
 
+    /// Retrieves the current state of a pointer device.
     pub fn getState(self: *const AbsolutePointerProtocol, state: *AbsolutePointerState) usize {
         return self._get_state(self, state);
     }
@@ -42,12 +44,12 @@ pub const AbsolutePointerMode = extern struct {
 };
 
 pub const AbsolutePointerState = extern struct {
-    current_x: u64 = undefined,
-    current_y: u64 = undefined,
-    current_z: u64 = undefined,
+    current_x: u64,
+    current_y: u64,
+    current_z: u64,
     active_buttons: packed struct {
         touch_active: bool,
         alt_active: bool,
         _pad1: u30,
-    } = undefined,
+    },
 };

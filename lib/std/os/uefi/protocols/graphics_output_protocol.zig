@@ -1,21 +1,24 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-/// UEFI Specification, Version 2.8, 12.9
+/// Graphics output
 pub const GraphicsOutputProtocol = extern struct {
     _query_mode: extern fn (*const GraphicsOutputProtocol, u32, *usize, **GraphicsOutputModeInformation) usize,
     _set_mode: extern fn (*const GraphicsOutputProtocol, u32) usize,
     _blt: extern fn (*const GraphicsOutputProtocol, ?[*]GraphicsOutputBltPixel, GraphicsOutputBltOperation, usize, usize, usize, usize, usize, usize, usize) usize,
     mode: *GraphicsOutputProtocolMode,
 
+    /// Returns information for an available graphics mode that the graphics device and the set of active video output devices supports.
     pub fn queryMode(self: *const GraphicsOutputProtocol, mode: u32, size_of_info: *usize, info: **GraphicsOutputModeInformation) usize {
         return self._query_mode(self, mode, size_of_info, info);
     }
 
+    /// Set the video device into the specified mode and clears the visible portions of the output display to black.
     pub fn setMode(self: *const GraphicsOutputProtocol, mode: u32) usize {
         return self._set_mode(self, mode);
     }
 
+    /// Blt a rectangle of pixels on the graphics screen. Blt stands for BLock Transfer.
     pub fn blt(self: *const GraphicsOutputProtocol, blt_buffer: ?[*]GraphicsOutputBltPixel, blt_operation: GraphicsOutputBltOperation, source_x: usize, source_y: usize, destination_x: usize, destination_y: usize, width: usize, height: usize, delta: usize) usize {
         return self._blt(self, blt_buffer, blt_operation, source_x, source_y, destination_x, destination_y, width, height, delta);
     }

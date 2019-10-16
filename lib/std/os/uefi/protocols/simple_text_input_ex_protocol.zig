@@ -2,7 +2,7 @@ const uefi = @import("std").os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 
-/// UEFI Specification, Version 2.8, 12.3
+/// Character input devices, e.g. Keyboard
 pub const SimpleTextInputExProtocol = extern struct {
     _reset: extern fn (*const SimpleTextInputExProtocol, bool) usize,
     _read_key_stroke_ex: extern fn (*const SimpleTextInputExProtocol, *KeyData) usize,
@@ -11,22 +11,27 @@ pub const SimpleTextInputExProtocol = extern struct {
     _register_key_notify: extern fn (*const SimpleTextInputExProtocol, *const KeyData, extern fn (*const KeyData) usize, **c_void) usize,
     _unregister_key_notify: extern fn (*const SimpleTextInputExProtocol, *const c_void) usize,
 
+    /// Resets the input device hardware.
     pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) usize {
         return self._reset(self, verify);
     }
 
+    /// Reads the next keystroke from the input device.
     pub fn readKeyStrokeEx(self: *const SimpleTextInputExProtocol, key_data: *KeyData) usize {
         return self._read_key_stroke_ex(self, key_data);
     }
 
+    /// Set certain state for the input device.
     pub fn setState(self: *const SimpleTextInputExProtocol, state: *const u8) usize {
         return self._set_state(self, state);
     }
 
+    /// Register a notification function for a particular keystroke for the input device.
     pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: extern fn (*const KeyData) usize, handle: **c_void) usize {
         return self._register_key_notify(self, key_data, notify, handle);
     }
 
+    /// Remove the notification that was previously registered.
     pub fn unregisterKeyNotify(self: *const SimpleTextInputExProtocol, handle: *const c_void) usize {
         return self._unregister_key_notify(self, handle);
     }

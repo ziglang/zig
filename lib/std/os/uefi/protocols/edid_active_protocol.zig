@@ -1,7 +1,7 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-/// UEFI Specification, Version 2.8, 12.9
+/// EDID information for an active video output device
 pub const EdidActiveProtocol = extern struct {
     size_of_edid: u32,
     edid: ?[*]u8,

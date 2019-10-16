@@ -2,10 +2,12 @@ const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const hii = uefi.protocols.hii;
 
+/// Display a popup window
 pub const HIIPopupProtocol = extern struct {
     revision: u64,
     _create_popup: extern fn (*const HIIPopupProtocol, HIIPopupStyle, HIIPopupType, hii.HIIHandle, u16, ?*HIIPopupSelection) usize,
 
+    /// Displays a popup window.
     pub fn createPopup(self: *const HIIPopupProtocol, style: HIIPopupStyle, popup_type: HIIPopupType, handle: hii.HIIHandle, msg: u16, user_selection: ?*HIIPopupSelection) usize {
         return self._create_popup(self, style, popup_type, handle, msg, user_selection);
     }

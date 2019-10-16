@@ -7,17 +7,18 @@ const SimpleTextInputExProtocol = uefi.protocols.SimpleTextInputExProtocol;
 const SimpleTextOutputProtocol = uefi.protocols.SimpleTextOutputProtocol;
 const TableHeader = uefi.tables.TableHeader;
 
-/// UEFI Specification, Version 2.8, 4.3
+/// The EFI System Table contains pointers to the runtime and boot services tables.
 ///
 /// As the system_table may grow with new UEFI versions, it is important to check hdr.header_size.
 ///
 /// After successfully calling boot_services.exitBootServices, console_in_handle,
 /// con_in, console_out_handle, con_out, standard_error_handle, std_err, and
 /// boot_services should be set to null. After setting these attributes to null,
-/// hdr.crc32 must be recomputed. See UEFI Specification, Version 2.8, 7.4.
+/// hdr.crc32 must be recomputed.
 pub const SystemTable = extern struct {
     hdr: TableHeader,
-    firmware_vendor: *u16,
+    /// A null-terminated string that identifies the vendor that produces the system firmware of the platform.
+    firmware_vendor: [*]u16,
     firmware_revision: u32,
     console_in_handle: ?Handle,
     con_in: ?*SimpleTextInputExProtocol,
