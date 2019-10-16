@@ -365,7 +365,8 @@ pub const ChildProcess = struct {
                 os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            os.execve(self.allocator, self.argv, env_map) catch |err| forkChildErrReport(err_pipe[1], err);
+            const err = os.execvpe(self.allocator, self.argv, env_map);
+            forkChildErrReport(err_pipe[1], err);
         }
 
         // we are the parent
