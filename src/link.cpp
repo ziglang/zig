@@ -563,6 +563,7 @@ static const MinGWDef mingw_def_list[] = {
     {"ntdll",   true},
     {"ole32",   false},
     {"oleaut32",false},
+    {"opengl32",false},
     {"setupapi",false},
     {"shell32", true},
     {"user32",  true},
