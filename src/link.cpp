@@ -576,7 +576,6 @@ static const MinGWDef mingw_def_list[] = {
     {"opengl32",false},
     {"rpcns4",  false},
     {"rpcrt4",  false},
-    {"samsrv",  false},
     {"scarddlg",false},
     {"setupapi",false},
     {"shell32", true},
@@ -2184,17 +2183,17 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
         const char *name = mingw_def_list[def_i].name;
         const bool always_link = mingw_def_list[def_i].always_link;
 
-        Buf lib_path = BUF_INIT;
-        Error err = find_mingw_lib_def(lj, name, &lib_path);
-
-        if (err == ErrorFileNotFound) {
-            zig_panic("link: could not find .def file to build %s\n", name);
-        } else if (err != ErrorNone) {
-            zig_panic("link: unable to check if .def file for %s exists: %s",
-                      name, err_str(err));
-        }
-
         if (always_link || is_linking_system_lib(g, name)) {
+            Buf lib_path = BUF_INIT;
+            Error err = find_mingw_lib_def(lj, name, &lib_path);
+
+            if (err == ErrorFileNotFound) {
+                zig_panic("link: could not find .def file to build %s\n", name);
+            } else if (err != ErrorNone) {
+                zig_panic("link: unable to check if .def file for %s exists: %s",
+                        name, err_str(err));
+            }
+
             lj->args.append(get_def_lib(g, name, &lib_path));
         }
     }
