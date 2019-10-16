@@ -542,3 +542,13 @@ pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
     }
     return error.InvalidEnumTag;
 }
+
+/// Given a type and a name, return the field index according to source order.
+/// Returns `null` if the field is not found.
+pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
+    inline for (fields(T)) |field, i| {
+        if (mem.eql(u8, field.name, name))
+            return comptime_int(i);
+    }
+    return null;
+}

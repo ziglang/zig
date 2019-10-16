@@ -36,7 +36,8 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         size: usize,
         max_distance_from_start_index: usize,
         allocator: *Allocator,
-        // this is used to detect bugs where a hashtable is edited while an iterator is running.
+
+        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
         const Self = @This();

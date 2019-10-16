@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const json = std.json;
 const mem = std.mem;
+const fieldIndex = std.meta.fieldIndex;
+const TypeId = builtin.TypeId;
 
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
@@ -61,6 +63,81 @@ const Error = struct {
     }
 };
 
+const simple_types = [_][]const u8{
+    "Type",
+    "Void",
+    "Bool",
+    "NoReturn",
+    "ComptimeFloat",
+    "ComptimeInt",
+    "Undefined",
+    "Null",
+    "AnyFrame",
+    "EnumLiteral",
+};
+
+const Type = union(builtin.TypeId) {
+    Type,
+    Void,
+    Bool,
+    NoReturn,
+    ComptimeFloat,
+    ComptimeInt,
+    Undefined,
+    Null,
+    AnyFrame,
+    EnumLiteral,
+
+    Int: Int,
+    Float: usize, // bits
+
+    Vector: Array,
+    Optional: usize, // payload type index
+    Pointer: Pointer,
+    Array: Array,
+
+    Struct, // TODO
+    ErrorUnion, // TODO
+    ErrorSet, // TODO
+    Enum, // TODO
+    Union, // TODO
+    Fn, // TODO
+    BoundFn, // TODO
+    ArgTuple, // TODO
+    Opaque, // TODO
+    Frame, // TODO
+
+    const Int = struct {
+        bits: usize,
+        signed: bool,
+    };
+
+    const Pointer = struct {
+        elem: usize,
+        alignment: usize,
+        is_const: bool,
+        is_volatile: bool,
+        allow_zero: bool,
+        host_int_bytes: usize,
+        bit_offset_in_host: usize,
+    };
+
+    const Array = struct {
+        elem: usize,
+        len: usize,
+    };
+
+    fn hash(t: Type) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHash(&hasher, builtin.TypeId(t));
+        return @truncate(u32, hasher.final());
+    }
+
+    fn eql(a: Type, b: Type) bool {
+        return std.meta.eql(a, b);
+    }
+};
+
 const Dump = struct {
     zig_id: ?[]const u8 = null,
     zig_version: ?[]const u8 = null,
@@ -79,6 +156,10 @@ const Dump = struct {
     error_list: std.ArrayList(Error),
     error_map: ErrorMap,
 
+    const TypeMap = std.HashMap(Type, usize, Type.hash, Type.eql);
+    type_list: std.ArrayList(Type),
+    type_map: TypeMap,
+
     fn init(allocator: *mem.Allocator) Dump {
         return Dump{
             .targets = std.ArrayList([]const u8).init(allocator),
@@ -88,6 +169,8 @@ const Dump = struct {
             .node_map = NodeMap.init(allocator),
             .error_list = std.ArrayList(Error).init(allocator),
             .error_map = ErrorMap.init(allocator),
+            .type_list = std.ArrayList(Type).init(allocator),
+            .type_map = TypeMap.init(allocator),
         };
     }
 
@@ -165,6 +248,66 @@ const Dump = struct {
             }
             try other_error_to_mine.putNoClobber(i, gop.kv.value);
         }
+
+        // Merge types. Now it starts to get advanced.
+        // First we identify all the simple types and merge those.
+        // Example: void, type, noreturn
+        // We can also do integers and floats.
+        const other_types = root.Object.get("types").?.value.Array.toSliceConst();
+        var other_types_to_mine = std.AutoHashMap(usize, usize).init(self.a());
+        for (other_types) |other_type_json, i| {
+            const type_kind = jsonObjInt(other_type_json, "kind");
+            switch (type_kind) {
+                fieldIndex(TypeId, "Int").? => {
+                    var signed: bool = undefined;
+                    var bits: usize = undefined;
+                    if (other_type_json.Object.get("i")) |kv| {
+                        signed = true;
+                        bits = @intCast(usize, kv.value.Integer);
+                    } else if (other_type_json.Object.get("u")) |kv| {
+                        signed = false;
+                        bits = @intCast(usize, kv.value.Integer);
+                    } else {
+                        unreachable;
+                    }
+                    const other_type = Type{
+                        .Int = Type.Int{
+                            .bits = bits,
+                            .signed = signed,
+                        },
+                    };
+                    try self.mergeOtherType(other_type, i, &other_types_to_mine);
+                },
+                fieldIndex(TypeId, "Float").? => {
+                    const other_type = Type{
+                        .Float = jsonObjInt(other_type_json, "bits"),
+                    };
+                    try self.mergeOtherType(other_type, i, &other_types_to_mine);
+                },
+                else => {},
+            }
+
+            inline for (simple_types) |simple_type_name| {
+                if (type_kind == std.meta.fieldIndex(builtin.TypeId, simple_type_name).?) {
+                    const other_type = @unionInit(Type, simple_type_name, {});
+                    try self.mergeOtherType(other_type, i, &other_types_to_mine);
+                }
+            }
+        }
+    }
+
+    fn mergeOtherType(
+        self: *Dump,
+        other_type: Type,
+        other_type_index: usize,
+        other_types_to_mine: *std.AutoHashMap(usize, usize),
+    ) !void {
+        const gop = try self.type_map.getOrPut(other_type);
+        if (!gop.found_existing) {
+            gop.kv.value = self.type_list.len;
+            try self.type_list.append(other_type);
+        }
+        try other_types_to_mine.putNoClobber(other_type_index, gop.kv.value);
     }
 
     fn render(self: *Dump, stream: var) !void {
@@ -203,6 +346,36 @@ const Dump = struct {
         try jw.endArray();
 
         try jw.endObject();
+
+        try jw.objectField("types");
+        try jw.beginArray();
+        for (self.type_list.toSliceConst()) |t| {
+            try jw.arrayElem();
+            try jw.beginObject();
+
+            try jw.objectField("kind");
+            try jw.emitNumber(@enumToInt(builtin.TypeId(t)));
+
+            switch (t) {
+                .Int => |int| {
+                    if (int.signed) {
+                        try jw.objectField("i");
+                    } else {
+                        try jw.objectField("u");
+                    }
+                    try jw.emitNumber(int.bits);
+                },
+                .Float => |bits| {
+                    try jw.objectField("bits");
+                    try jw.emitNumber(bits);
+                },
+
+                else => {},
+            }
+
+            try jw.endObject();
+        }
+        try jw.endArray();
 
         try jw.objectField("errors");
         try jw.beginArray();

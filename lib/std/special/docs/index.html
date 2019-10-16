@@ -104,6 +104,16 @@
         background-color: #FFBB4D;
         color: #000;
       }
+      #listFnExamples {
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+      }
+      #listFnExamples li {
+        padding: 0.5em 0;
+        white-space: nowrap;
+        overflow-x: auto;
+      }
       #logo {
         width: 8em;
         padding: 0.5em 1em;
@@ -289,7 +299,6 @@
       <pre id="fnProtoCode"></pre>
     </div>
     <h1 id="hdrName" class="hidden"></h1>
-    <div id="fnExamples" class="hidden"></div>
     <div id="fnNoExamples" class="hidden">
       <p>This function is not tested or referenced.</p>
     </div>
@@ -356,6 +365,10 @@
       <h2>Error Sets</h2>
       <ul id="listErrSets">
       </ul>
+    </div>
+    <div id="fnExamples" class="hidden">
+        <h2>Examples</h2>
+        <ul id="listFnExamples"></ul>
     </div>
     </section>
     <div id="helpDialog" class="hidden">
