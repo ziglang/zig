@@ -1325,6 +1325,12 @@ fn AsBytesReturnType(comptime P: type) type {
     const size = usize(@sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
 
+    if (alignment == 0) {
+        if (comptime trait.isConstPtr(P))
+            return *const [size]u8;
+        return *[size]u8;
+    }
+
     if (comptime trait.isConstPtr(P))
         return *align(alignment) const [size]u8;
     return *align(alignment) [size]u8;
@@ -1364,6 +1370,10 @@ test "asBytes" {
         .d = 0xA1,
     };
     testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+
+    const ZST = struct {};
+    const zero = ZST{};
+    testing.expect(eql(u8, asBytes(&zero), ""));
 }
 
 ///Given any value, returns a copy of its bytes in an array.
