@@ -88,8 +88,9 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"
         "  --verbose-cc                 enable compiler debug output for C compilation\n"
-        "  -dirafter [dir]              same as -isystem but do it last\n"
-        "  -isystem [dir]               add additional search path for other .h files\n"
+        "  -dirafter [dir]              add directory to AFTER include search path\n"
+        "  -isystem [dir]               add directory to SYSTEM include search path\n"
+        "  -I[dir]                      add directory to include search path\n"
         "  -mllvm [arg]                 (unsupported) forward an arg to LLVM's option processing\n"
         "  --override-lib-dir [arg]     override path to Zig lib directory\n"
         "  -ffunction-sections          places each function in a separate section\n"
@@ -708,6 +709,9 @@ int main(int argc, char **argv) {
                 if (strcmp(l, "c") == 0)
                     have_libc = true;
                 link_libs.append(l);
+            } else if (arg[1] == 'I' && arg[2] != 0) {
+                clang_argv.append("-I");
+                clang_argv.append(&arg[2]);
             } else if (arg[1] == 'F' && arg[2] != 0) {
                 framework_dirs.append(&arg[2]);
             } else if (strcmp(arg, "--pkg-begin") == 0) {
@@ -782,6 +786,9 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
+                    clang_argv.append(argv[i]);
+                } else if (strcmp(arg, "-I") == 0) {
+                    clang_argv.append("-I");
                     clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "-dirafter") == 0) {
                     clang_argv.append("-dirafter");
