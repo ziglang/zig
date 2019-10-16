@@ -552,3 +552,9 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     }
     return null;
 }
+
+/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
+pub fn refAllDecls(comptime T: type) void {
+    if (!builtin.is_test) return;
+    _ = declarations(T);
+}

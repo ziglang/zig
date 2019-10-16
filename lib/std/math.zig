@@ -202,54 +202,8 @@ pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
 
-test "math" {
-    _ = @import("math/nan.zig");
-    _ = @import("math/isnan.zig");
-    _ = @import("math/fabs.zig");
-    _ = @import("math/ceil.zig");
-    _ = @import("math/floor.zig");
-    _ = @import("math/trunc.zig");
-    _ = @import("math/round.zig");
-    _ = @import("math/frexp.zig");
-    _ = @import("math/modf.zig");
-    _ = @import("math/copysign.zig");
-    _ = @import("math/isfinite.zig");
-    _ = @import("math/isinf.zig");
-    _ = @import("math/isnormal.zig");
-    _ = @import("math/signbit.zig");
-    _ = @import("math/scalbn.zig");
-    _ = @import("math/pow.zig");
-    _ = @import("math/powi.zig");
-    _ = @import("math/sqrt.zig");
-    _ = @import("math/cbrt.zig");
-    _ = @import("math/acos.zig");
-    _ = @import("math/asin.zig");
-    _ = @import("math/atan.zig");
-    _ = @import("math/atan2.zig");
-    _ = @import("math/hypot.zig");
-    _ = @import("math/exp.zig");
-    _ = @import("math/exp2.zig");
-    _ = @import("math/expm1.zig");
-    _ = @import("math/ilogb.zig");
-    _ = @import("math/ln.zig");
-    _ = @import("math/log.zig");
-    _ = @import("math/log2.zig");
-    _ = @import("math/log10.zig");
-    _ = @import("math/log1p.zig");
-    _ = @import("math/fma.zig");
-    _ = @import("math/asinh.zig");
-    _ = @import("math/acosh.zig");
-    _ = @import("math/atanh.zig");
-    _ = @import("math/sinh.zig");
-    _ = @import("math/cosh.zig");
-    _ = @import("math/tanh.zig");
-    _ = @import("math/sin.zig");
-    _ = @import("math/cos.zig");
-    _ = @import("math/tan.zig");
-
-    _ = @import("math/complex.zig");
-
-    _ = @import("math/big.zig");
+comptime {
+    std.meta.refAllDecls(@This());
 }
 
 pub fn floatMantissaBits(comptime T: type) comptime_int {
