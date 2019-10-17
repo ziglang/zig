@@ -400,6 +400,12 @@
 #define __NR_io_uring_setup          4425
 #define __NR_io_uring_enter          4426
 #define __NR_io_uring_register       4427
+#define __NR_open_tree		4428
+#define __NR_move_mount		4429
+#define __NR_fsopen		4430
+#define __NR_fsconfig		4431
+#define __NR_fsmount		4432
+#define __NR_fspick		4433
 
 #define SYS_syscall                 4000
 #define SYS_exit                    4001
@@ -803,3 +809,9 @@
 #define SYS_io_uring_setup          4425
 #define SYS_io_uring_enter          4426
 #define SYS_io_uring_register       4427
+#define SYS_open_tree		4428
+#define SYS_move_mount		4429
+#define SYS_fsopen		4430
+#define SYS_fsconfig		4431
+#define SYS_fsmount		4432
+#define SYS_fspick		4433

@@ -31,9 +31,9 @@ extern "C" {
 
 #define _SEM_SEMUN_UNDEFINED 1
 
-#define SEM_STAT 18
+#define SEM_STAT (18 | (IPC_STAT & 0x100))
 #define SEM_INFO 19
-#define SEM_STAT_ANY 20
+#define SEM_STAT_ANY (20 | (IPC_STAT & 0x100))
 
 struct  seminfo {
 	int semmap;

@@ -1,10 +1,8 @@
-struct pt_regs {
-	unsigned long gpr[32], nip, msr, orig_gpr3, ctr, link, xer, ccr, mq;
-	unsigned long trap, dar, dsisr, result;
-};
-
 struct user {
-	struct pt_regs regs;
+	struct {
+		unsigned long gpr[32], nip, msr, orig_gpr3, ctr, link, xer, ccr, mq;
+		unsigned long trap, dar, dsisr, result;
+	} regs;
 	unsigned long u_tsize, u_dsize, u_ssize;
 	unsigned long start_code, start_data, start_stack;
 	long signal;

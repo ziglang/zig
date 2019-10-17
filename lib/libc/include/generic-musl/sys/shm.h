@@ -33,9 +33,9 @@ extern "C" {
 
 #define SHM_LOCK 11
 #define SHM_UNLOCK 12
-#define SHM_STAT 13
+#define SHM_STAT (13 | (IPC_STAT & 0x100))
 #define SHM_INFO 14
-#define SHM_STAT_ANY 15
+#define SHM_STAT_ANY (15 | (IPC_STAT & 0x100))
 #define SHM_DEST 01000
 #define SHM_LOCKED 02000
 #define SHM_HUGETLB 04000

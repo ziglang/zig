@@ -76,6 +76,7 @@
 #define ETH_P_QINQ2	0x9200
 #define ETH_P_QINQ3	0x9300
 #define ETH_P_EDSA	0xDADA
+#define ETH_P_DSA_8021Q	0xDADB
 #define ETH_P_IFE	0xED3E
 #define ETH_P_AF_IUCV	0xFBFB
 

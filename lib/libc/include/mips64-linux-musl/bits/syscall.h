@@ -330,6 +330,12 @@
 #define __NR_io_uring_setup		5425
 #define __NR_io_uring_enter		5426
 #define __NR_io_uring_register		5427
+#define __NR_open_tree		5428
+#define __NR_move_mount		5429
+#define __NR_fsopen		5430
+#define __NR_fsconfig		5431
+#define __NR_fsmount		5432
+#define __NR_fspick		5433
 
 #define SYS_read			5000
 #define SYS_write			5001
@@ -663,3 +669,9 @@
 #define SYS_io_uring_setup		5425
 #define SYS_io_uring_enter		5426
 #define SYS_io_uring_register		5427
+#define SYS_open_tree		5428
+#define SYS_move_mount		5429
+#define SYS_fsopen		5430
+#define SYS_fsconfig		5431
+#define SYS_fsmount		5432
+#define SYS_fspick		5433
