@@ -16,9 +16,6 @@ log1p:
 	fyl2x
 	ret
 		# subnormal x, return x with underflow
-2:	fnstsw %ax
-	and $16,%ax
-	jnz 1f
-	fsts 4(%esp)
+2:	fsts 4(%esp)
 	fstp %st(1)
-1:	ret
+	ret

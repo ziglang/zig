@@ -4,11 +4,11 @@ struct semid_ds {
 	time_t sem_ctime;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 	unsigned short sem_nsems;
-	char __sem_nsems_pad[sizeof(time_t)-sizeof(short)];
+	char __sem_nsems_pad[sizeof(long)-sizeof(short)];
 #else
-	char __sem_nsems_pad[sizeof(time_t)-sizeof(short)];
+	char __sem_nsems_pad[sizeof(long)-sizeof(short)];
 	unsigned short sem_nsems;
 #endif
-	time_t __unused3;
-	time_t __unused4;
+	long __unused3;
+	long __unused4;
 };

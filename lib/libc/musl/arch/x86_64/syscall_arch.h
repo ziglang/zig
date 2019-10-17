@@ -66,3 +66,5 @@ static __inline long __syscall6(long n, long a1, long a2, long a3, long a4, long
 #define VDSO_CGT_VER "LINUX_2.6"
 #define VDSO_GETCPU_SYM "__vdso_getcpu"
 #define VDSO_GETCPU_VER "LINUX_2.6"
+
+#define IPC_64 0

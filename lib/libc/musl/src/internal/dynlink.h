@@ -28,6 +28,7 @@ typedef Elf64_Sym Sym;
 enum {
 	REL_NONE = 0,
 	REL_SYMBOLIC = -100,
+	REL_USYMBOLIC,
 	REL_GOT,
 	REL_PLT,
 	REL_RELATIVE,

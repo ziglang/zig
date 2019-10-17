@@ -26,4 +26,3 @@ struct shm_info {
 	unsigned long shm_tot, shm_rss, shm_swp;
 	unsigned long __swap_attempts, __swap_successes;
 };
-

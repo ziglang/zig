@@ -10,8 +10,5 @@ atan:
 	fpatan
 	ret
 		# subnormal x, return x with underflow
-1:	fnstsw %ax
-	and $16,%ax
-	jnz 2f
-	fsts 4(%esp)
-2:	ret
+1:	fsts 4(%esp)
+	ret

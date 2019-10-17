@@ -30,3 +30,11 @@
 #define HWCAP_SB		(1 << 29)
 #define HWCAP_PACA		(1 << 30)
 #define HWCAP_PACG		(1UL << 31)
+
+#define HWCAP2_DCPODP		(1 << 0)
+#define HWCAP2_SVE2		(1 << 1)
+#define HWCAP2_SVEAES		(1 << 2)
+#define HWCAP2_SVEPMULL		(1 << 3)
+#define HWCAP2_SVEBITPERM	(1 << 4)
+#define HWCAP2_SVESHA3		(1 << 5)
+#define HWCAP2_SVESM4		(1 << 6)

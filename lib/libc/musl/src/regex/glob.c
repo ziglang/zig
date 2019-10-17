@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stddef.h>
+#include <unistd.h>
+#include <pwd.h>
 
 struct match
 {
@@ -90,16 +92,23 @@ static int do_glob(char *buf, size_t pos, int type, char *pat, int flags, int (*
 	if (!*pat) {
 		/* If we consumed any components above, or if GLOB_MARK is
 		 * requested and we don't yet know if the match is a dir,
-		 * we must call stat to confirm the file exists and/or
-		 * determine its type. */
+		 * we must confirm the file exists and/or determine its type.
+		 *
+		 * If marking dirs, symlink type is inconclusive; we need the
+		 * type for the symlink target, and therefore must try stat
+		 * first unless type is known not to be a symlink. Otherwise,
+		 * or if that fails, use lstat for determining existence to
+		 * avoid false negatives in the case of broken symlinks. */
 		struct stat st;
-		if ((flags & GLOB_MARK) && type==DT_LNK) type = 0;
-		if (!type && stat(buf, &st)) {
+		if ((flags & GLOB_MARK) && (!type||type==DT_LNK) && !stat(buf, &st)) {
+			if (S_ISDIR(st.st_mode)) type = DT_DIR;
+			else type = DT_REG;
+		}
+		if (!type && lstat(buf, &st)) {
 			if (errno!=ENOENT && (errfunc(buf, errno) || (flags & GLOB_ERR)))
 				return GLOB_ABORTED;
 			return 0;
 		}
-		if (!type && S_ISDIR(st.st_mode)) type = DT_DIR;
 		if (append(tail, buf, pos, (flags & GLOB_MARK) && type==DT_DIR))
 			return GLOB_NOSPACE;
 		return 0;
@@ -182,6 +191,39 @@ static int sort(const void *a, const void *b)
 	return strcmp(*(const char **)a, *(const char **)b);
 }
 
+static int expand_tilde(char **pat, char *buf, size_t *pos)
+{
+	char *p = *pat + 1;
+	size_t i = 0;
+
+	char delim, *name_end = __strchrnul(p, '/');
+	if ((delim = *name_end)) *name_end++ = 0;
+	*pat = name_end;
+
+	char *home = *p ? NULL : getenv("HOME");
+	if (!home) {
+		struct passwd pw, *res;
+		switch (*p ? getpwnam_r(p, &pw, buf, PATH_MAX, &res)
+			   : getpwuid_r(getuid(), &pw, buf, PATH_MAX, &res)) {
+		case ENOMEM:
+			return GLOB_NOSPACE;
+		case 0:
+			if (!res)
+		default:
+				return GLOB_NOMATCH;
+		}
+		home = pw.pw_dir;
+	}
+	while (i < PATH_MAX - 2 && *home)
+		buf[i++] = *home++;
+	if (*home)
+		return GLOB_NOMATCH;
+	if ((buf[i] = delim))
+		buf[++i] = 0;
+	*pos = i;
+	return 0;
+}
+
 int glob(const char *restrict pat, int flags, int (*errfunc)(const char *path, int err), glob_t *restrict g)
 {
 	struct match head = { .next = NULL }, *tail = &head;
@@ -202,7 +244,12 @@ int glob(const char *restrict pat, int flags, int (*errfunc)(const char *path, i
 		char *p = strdup(pat);
 		if (!p) return GLOB_NOSPACE;
 		buf[0] = 0;
-		error = do_glob(buf, 0, 0, p, flags, errfunc, &tail);
+		size_t pos = 0;
+		char *s = p;
+		if ((flags & (GLOB_TILDE | GLOB_TILDE_CHECK)) && *p == '~')
+			error = expand_tilde(&s, buf, &pos);
+		if (!error)
+			error = do_glob(buf, pos, 0, s, flags, errfunc, &tail);
 		free(p);
 	}
 
