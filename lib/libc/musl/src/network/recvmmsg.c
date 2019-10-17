@@ -1,7 +1,12 @@
 #define _GNU_SOURCE
 #include <sys/socket.h>
 #include <limits.h>
+#include <errno.h>
+#include <time.h>
 #include "syscall.h"
+
+#define IS32BIT(x) !((x)+0x80000000ULL>>32)
+#define CLAMP(x) (int)(IS32BIT(x) ? (x) : 0x7fffffffU+((0ULL+(x))>>63))
 
 int recvmmsg(int fd, struct mmsghdr *msgvec, unsigned int vlen, unsigned int flags, struct timespec *timeout)
 {
@@ -11,5 +16,18 @@ int recvmmsg(int fd, struct mmsghdr *msgvec, unsigned int vlen, unsigned int fla
 	for (i = vlen; i; i--, mh++)
 		mh->msg_hdr.__pad1 = mh->msg_hdr.__pad2 = 0;
 #endif
+#ifdef SYS_recvmmsg_time64
+	time_t s = timeout ? timeout->tv_sec : 0;
+	long ns = timeout ? timeout->tv_nsec : 0;
+	int r = -ENOSYS;
+	if (SYS_recvmmsg == SYS_recvmmsg_time64 || !IS32BIT(s))
+		r = __syscall_cp(SYS_recvmmsg_time64, fd, msgvec, vlen, flags,
+			timeout ? ((long long[]){s, ns}) : 0);
+	if (SYS_recvmmsg == SYS_recvmmsg_time64 || r!=-ENOSYS)
+		return __syscall_ret(r);
+	return syscall_cp(SYS_recvmmsg, fd, msgvec, vlen, flags,
+		timeout ? ((long[]){CLAMP(s), ns}) : 0);
+#else
 	return syscall_cp(SYS_recvmmsg, fd, msgvec, vlen, flags, timeout);
+#endif
 }

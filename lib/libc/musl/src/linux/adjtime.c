@@ -15,7 +15,7 @@ int adjtime(const struct timeval *in, struct timeval *out)
 		tx.offset = in->tv_sec*1000000 + in->tv_usec;
 		tx.modes = ADJ_OFFSET_SINGLESHOT;
 	}
-	if (syscall(SYS_adjtimex, &tx) < 0) return -1;
+	if (adjtimex(&tx) < 0) return -1;
 	if (out) {
 		out->tv_sec = tx.offset / 1000000;
 		if ((out->tv_usec = tx.offset % 1000000) < 0) {

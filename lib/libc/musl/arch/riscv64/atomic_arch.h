@@ -14,7 +14,7 @@ static inline int a_cas(volatile int *p, int t, int s)
 		"	sc.w.aqrl %1, %4, (%2)\n"
 		"	bnez %1, 1b\n"
 		"1:"
-		: "=&r"(old), "=r"(tmp)
+		: "=&r"(old), "=&r"(tmp)
 		: "r"(p), "r"(t), "r"(s)
 		: "memory");
 	return old;
@@ -31,7 +31,7 @@ static inline void *a_cas_p(volatile void *p, void *t, void *s)
 		"	sc.d.aqrl %1, %4, (%2)\n"
 		"	bnez %1, 1b\n"
 		"1:"
-		: "=&r"(old), "=r"(tmp)
+		: "=&r"(old), "=&r"(tmp)
 		: "r"(p), "r"(t), "r"(s)
 		: "memory");
 	return old;

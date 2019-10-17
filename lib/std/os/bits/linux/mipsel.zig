@@ -484,6 +484,7 @@ pub const Stat = extern struct {
     blksize: blksize_t,
     __pad3: [1]u32,
     blocks: blkcnt_t,
+    __pad4: [14]usize,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;

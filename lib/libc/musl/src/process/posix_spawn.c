@@ -125,6 +125,14 @@ static int child(void *args_vp)
 					__syscall(SYS_close, fd);
 				}
 				break;
+			case FDOP_CHDIR:
+				ret = __syscall(SYS_chdir, op->path);
+				if (ret<0) goto fail;
+				break;
+			case FDOP_FCHDIR:
+				ret = __syscall(SYS_fchdir, op->fd);
+				if (ret<0) goto fail;
+				break;
 			}
 		}
 	}

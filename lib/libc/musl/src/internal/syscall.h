@@ -43,8 +43,8 @@ hidden long __syscall_ret(unsigned long),
 #define __syscall(...) __SYSCALL_DISP(__syscall,__VA_ARGS__)
 #define syscall(...) __syscall_ret(__syscall(__VA_ARGS__))
 
-#define socketcall __socketcall
-#define socketcall_cp __socketcall_cp
+#define socketcall(nm,a,b,c,d,e,f) __syscall_ret(__socketcall(nm,a,b,c,d,e,f))
+#define socketcall_cp(nm,a,b,c,d,e,f) __syscall_ret(__socketcall_cp(nm,a,b,c,d,e,f))
 
 #define __syscall_cp0(n) (__syscall_cp)(n,0,0,0,0,0,0)
 #define __syscall_cp1(n,a) (__syscall_cp)(n,__scc(a),0,0,0,0,0)
@@ -58,12 +58,12 @@ hidden long __syscall_ret(unsigned long),
 #define syscall_cp(...) __syscall_ret(__syscall_cp(__VA_ARGS__))
 
 #ifndef SYSCALL_USE_SOCKETCALL
-#define __socketcall(nm,a,b,c,d,e,f) syscall(SYS_##nm, a, b, c, d, e, f)
-#define __socketcall_cp(nm,a,b,c,d,e,f) syscall_cp(SYS_##nm, a, b, c, d, e, f)
+#define __socketcall(nm,a,b,c,d,e,f) __syscall(SYS_##nm, a, b, c, d, e, f)
+#define __socketcall_cp(nm,a,b,c,d,e,f) __syscall_cp(SYS_##nm, a, b, c, d, e, f)
 #else
-#define __socketcall(nm,a,b,c,d,e,f) syscall(SYS_socketcall, __SC_##nm, \
+#define __socketcall(nm,a,b,c,d,e,f) __syscall(SYS_socketcall, __SC_##nm, \
     ((long [6]){ (long)a, (long)b, (long)c, (long)d, (long)e, (long)f }))
-#define __socketcall_cp(nm,a,b,c,d,e,f) syscall_cp(SYS_socketcall, __SC_##nm, \
+#define __socketcall_cp(nm,a,b,c,d,e,f) __syscall_cp(SYS_socketcall, __SC_##nm, \
     ((long [6]){ (long)a, (long)b, (long)c, (long)d, (long)e, (long)f }))
 #endif
 
@@ -193,6 +193,89 @@ hidden long __syscall_ret(unsigned long),
 #define SYS_sendfile SYS_sendfile64
 #endif
 
+
+/* Ensure that the plain syscall names are defined even for "time64-only"
+ * archs. These facilitate callers passing null time arguments, and make
+ * tests for establishing which to use/fallback-to more consistent when
+ * they do need to be called with time arguments. */
+
+#ifndef SYS_clock_gettime
+#define SYS_clock_gettime SYS_clock_gettime64
+#endif
+
+#ifndef SYS_clock_settime
+#define SYS_clock_settime SYS_clock_settime64
+#endif
+
+#ifndef SYS_clock_adjtime
+#define SYS_clock_adjtime SYS_clock_adjtime64
+#endif
+
+#ifndef SYS_clock_getres
+#define SYS_clock_getres SYS_clock_getres_time64
+#endif
+
+#ifndef SYS_clock_nanosleep
+#define SYS_clock_nanosleep SYS_clock_nanosleep_time64
+#endif
+
+#ifndef SYS_timer_gettime
+#define SYS_timer_gettime SYS_timer_gettime64
+#endif
+
+#ifndef SYS_timer_settime
+#define SYS_timer_settime SYS_timer_settime64
+#endif
+
+#ifndef SYS_timerfd_gettime
+#define SYS_timerfd_gettime SYS_timerfd_gettime64
+#endif
+
+#ifndef SYS_timerfd_settime
+#define SYS_timerfd_settime SYS_timerfd_settime64
+#endif
+
+#ifndef SYS_utimensat
+#define SYS_utimensat SYS_utimensat_time64
+#endif
+
+#ifndef SYS_pselect6
+#define SYS_pselect6 SYS_pselect6_time64
+#endif
+
+#ifndef SYS_ppoll
+#define SYS_ppoll SYS_ppoll_time64
+#endif
+
+#ifndef SYS_recvmmsg
+#define SYS_recvmmsg SYS_recvmmsg_time64
+#endif
+
+#ifndef SYS_mq_timedsend
+#define SYS_mq_timedsend SYS_mq_timedsend_time64
+#endif
+
+#ifndef SYS_mq_timedreceive
+#define SYS_mq_timedreceive SYS_mq_timedreceive_time64
+#endif
+
+/* SYS_semtimedop omitted because SYS_ipc may provide it */
+
+#ifndef SYS_rt_sigtimedwait
+#define SYS_rt_sigtimedwait SYS_rt_sigtimedwait_time64
+#endif
+
+#ifndef SYS_futex
+#define SYS_futex SYS_futex_time64
+#endif
+
+#ifndef SYS_sched_rr_get_interval
+#define SYS_sched_rr_get_interval SYS_sched_rr_get_interval_time64
+#endif
+
+
+
+
 /* socketcall calls */
 
 #define __SC_socket      1
@@ -215,6 +298,20 @@ hidden long __syscall_ret(unsigned long),
 #define __SC_accept4     18
 #define __SC_recvmmsg    19
 #define __SC_sendmmsg    20
+
+#ifndef SO_RCVTIMEO_OLD
+#define SO_RCVTIMEO_OLD  20
+#endif
+#ifndef SO_SNDTIMEO_OLD
+#define SO_SNDTIMEO_OLD  21
+#endif
+
+#ifndef SIOCGSTAMP_OLD
+#define SIOCGSTAMP_OLD 0x8906
+#endif
+#ifndef SIOCGSTAMPNS_OLD
+#define SIOCGSTAMPNS_OLD 0x8907
+#endif
 
 #ifdef SYS_open
 #define __sys_open2(x,pn,fl) __syscall2(SYS_open, pn, (fl)|O_LARGEFILE)

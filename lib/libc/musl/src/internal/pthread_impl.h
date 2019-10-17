@@ -125,7 +125,6 @@ struct __timer {
 	 0x80000000 })
 
 void *__tls_get_addr(tls_mod_off_t *);
-hidden void *__tls_get_new(tls_mod_off_t *);
 hidden int __init_tp(void *);
 hidden void *__copy_tls(unsigned char *);
 hidden void __reset_tls();

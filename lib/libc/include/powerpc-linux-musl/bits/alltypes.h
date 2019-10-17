@@ -14,11 +14,19 @@ typedef __builtin_va_list __isoc_va_list;
 
 
 #ifndef __cplusplus
+#ifdef __WCHAR_TYPE__
+#if defined(__NEED_wchar_t) && !defined(__DEFINED_wchar_t)
+typedef __WCHAR_TYPE__ wchar_t;
+#define __DEFINED_wchar_t
+#endif
+
+#else
 #if defined(__NEED_wchar_t) && !defined(__DEFINED_wchar_t)
 typedef long wchar_t;
 #define __DEFINED_wchar_t
 #endif
 
+#endif
 #endif
 
 #if defined(__NEED_float_t) && !defined(__DEFINED_float_t)

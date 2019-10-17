@@ -6,10 +6,10 @@
 .global __cp_cancel
 .hidden __cp_cancel
 .hidden __cancel
-.global __syscall_cp_internal
-.hidden __syscall_cp_internal
-.type   __syscall_cp_internal,@function
-__syscall_cp_internal:
+.global __syscall_cp_asm
+.hidden __syscall_cp_asm
+.type   __syscall_cp_asm,@function
+__syscall_cp_asm:
 
 __cp_begin:
 	mov (%rdi),%eax

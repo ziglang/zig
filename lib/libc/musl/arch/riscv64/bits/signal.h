@@ -6,46 +6,43 @@
 # define SIGSTKSZ 8192
 #endif
 
-/* gregs[0] holds the program counter. */
+typedef unsigned long __riscv_mc_gp_state[32];
+
+struct __riscv_mc_f_ext_state {
+	unsigned int __f[32];
+	unsigned int __fcsr;
+};
+
+struct __riscv_mc_d_ext_state {
+	unsigned long long __f[32];
+	unsigned int __fcsr;
+};
+
+struct __riscv_mc_q_ext_state {
+	unsigned long long __f[64] __attribute__((aligned(16)));
+	unsigned int __fcsr;
+	unsigned int __reserved[3];
+};
+
+union __riscv_mc_fp_state {
+	struct __riscv_mc_f_ext_state __f;
+	struct __riscv_mc_d_ext_state __d;
+	struct __riscv_mc_q_ext_state __q;
+};
+
+typedef struct mcontext_t {
+	__riscv_mc_gp_state __gregs;
+	union __riscv_mc_fp_state __fpregs;
+} mcontext_t;
 
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 typedef unsigned long greg_t;
 typedef unsigned long gregset_t[32];
-
-struct __riscv_f_ext_state {
-	unsigned int f[32];
-	unsigned int fcsr;
-};
-
-struct __riscv_d_ext_state {
-	unsigned long long f[32];
-	unsigned int fcsr;
-};
-
-struct __riscv_q_ext_state {
-	unsigned long long f[64] __attribute__((aligned(16)));
-	unsigned int fcsr;
-	unsigned int reserved[3];
-};
-
-union __riscv_fp_state {
-	struct __riscv_f_ext_state f;
-	struct __riscv_d_ext_state d;
-	struct __riscv_q_ext_state q;
-};
-
-typedef union __riscv_fp_state fpregset_t;
-
-typedef struct sigcontext {
+typedef union __riscv_mc_fp_state fpregset_t;
+struct sigcontext {
 	gregset_t gregs;
 	fpregset_t fpregs;
-} mcontext_t;
-
-#else
-typedef struct {
-	unsigned long gregs[32];
-	unsigned long long fpregs[66];
-} mcontext_t;
+};
 #endif
 
 struct sigaltstack {
@@ -54,10 +51,10 @@ struct sigaltstack {
 	size_t ss_size;
 };
 
-typedef struct __ucontext
+typedef struct ucontext_t
 {
 	unsigned long uc_flags;
-	struct __ucontext *uc_link;
+	struct ucontext_t *uc_link;
 	stack_t uc_stack;
 	sigset_t uc_sigmask;
 	mcontext_t uc_mcontext;
