@@ -156,4 +156,25 @@ ZIG_EXTERN_C void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self);
 // ABI warning
 ZIG_EXTERN_C stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self);
 
+// ABI warning
+struct Stage2Progress;
+// ABI warning
+struct Stage2ProgressNode;
+// ABI warning
+ZIG_EXTERN_C Stage2Progress *stage2_progress_create(void);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_disable_tty(Stage2Progress *progress);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_destroy(Stage2Progress *progress);
+// ABI warning
+ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start_root(Stage2Progress *progress,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items);
+// ABI warning
+ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_end(Stage2ProgressNode *node);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_complete_one(Stage2ProgressNode *node);
+
 #endif

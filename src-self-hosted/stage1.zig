@@ -456,3 +456,62 @@ export fn stage2_attach_segfault_handler() void {
         std.debug.attachSegfaultHandler();
     }
 }
+
+// ABI warning
+export fn stage2_progress_create() *std.Progress {
+    const ptr = std.heap.c_allocator.create(std.Progress) catch @panic("out of memory");
+    ptr.* = std.Progress{};
+    return ptr;
+}
+
+// ABI warning
+export fn stage2_progress_destroy(progress: *std.Progress) void {
+    std.heap.c_allocator.destroy(progress);
+}
+
+// ABI warning
+export fn stage2_progress_start_root(
+    progress: *std.Progress,
+    name_ptr: [*]const u8,
+    name_len: usize,
+    estimated_total_items: usize,
+) *std.Progress.Node {
+    return progress.start(
+        name_ptr[0..name_len],
+        if (estimated_total_items == 0) null else estimated_total_items,
+    ) catch @panic("timer unsupported");
+}
+
+// ABI warning
+export fn stage2_progress_disable_tty(progress: *std.Progress) void {
+    progress.terminal = null;
+}
+
+// ABI warning
+export fn stage2_progress_start(
+    node: *std.Progress.Node,
+    name_ptr: [*]const u8,
+    name_len: usize,
+    estimated_total_items: usize,
+) *std.Progress.Node {
+    const child_node = std.heap.c_allocator.create(std.Progress.Node) catch @panic("out of memory");
+    child_node.* = node.start(
+        name_ptr[0..name_len],
+        if (estimated_total_items == 0) null else estimated_total_items,
+    );
+    child_node.activate();
+    return child_node;
+}
+
+// ABI warning
+export fn stage2_progress_end(node: *std.Progress.Node) void {
+    node.end();
+    if (&node.context.root != node) {
+        std.heap.c_allocator.destroy(node);
+    }
+}
+
+// ABI warning
+export fn stage2_progress_complete_one(node: *std.Progress.Node) void {
+    node.completeOne();
+}

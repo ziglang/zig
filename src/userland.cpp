@@ -59,3 +59,32 @@ stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self) {
     const char *msg = "stage0 called stage2_DepTokenizer_next";
     stage2_panic(msg, strlen(msg));
 }
+
+
+struct Stage2Progress {
+    int trash;
+};
+
+struct Stage2ProgressNode {
+    int trash;
+};
+
+Stage2Progress *stage2_progress_create(void) {
+    return nullptr;
+}
+
+void stage2_progress_destroy(Stage2Progress *progress) {}
+
+Stage2ProgressNode *stage2_progress_start_root(Stage2Progress *progress,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items)
+{
+    return nullptr;
+}
+Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items)
+{
+    return nullptr;
+}
+void stage2_progress_end(Stage2ProgressNode *node) {}
+void stage2_progress_complete_one(Stage2ProgressNode *node) {}
+void stage2_progress_disable_tty(Stage2Progress *progress) {}
