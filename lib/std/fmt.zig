@@ -1055,14 +1055,21 @@ const BufPrintContext = struct {
 };
 
 fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
-    if (context.remaining.len < bytes.len) return error.BufferTooSmall;
+    if (context.remaining.len < bytes.len) {
+        mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
+        return error.BufferTooSmall;
+    }
     mem.copy(u8, context.remaining, bytes);
     context.remaining = context.remaining[bytes.len..];
 }
 
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
+pub const BufPrintError = error{
+    /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
+    BufferTooSmall,
+};
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) BufPrintError![]u8 {
     var context = BufPrintContext{ .remaining = buf };
-    try format(&context, error{BufferTooSmall}, bufPrintWrite, fmt, args);
+    try format(&context, BufPrintError, bufPrintWrite, fmt, args);
     return buf[0 .. buf.len - context.remaining.len];
 }
 

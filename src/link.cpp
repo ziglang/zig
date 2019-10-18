@@ -594,11 +594,13 @@ struct LinkJob {
     ZigList<const char *> args;
     bool link_in_crt;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
+    Stage2ProgressNode *build_dep_prog_node;
 };
 
-static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file) {
-    CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str(name));
+static const char *build_libc_object(CodeGen *parent_gen, const char *name, CFile *c_file,
+        Stage2ProgressNode *progress_node)
+{
+    CodeGen *child_gen = create_child_codegen(parent_gen, nullptr, OutTypeObj, nullptr, name, progress_node);
     ZigList<CFile *> c_source_files = {0};
     c_source_files.append(c_file);
     child_gen->c_source_files = c_source_files;
@@ -622,9 +624,8 @@ static const char *path_from_libunwind(CodeGen *g, const char *subpath) {
     return path_from_zig_lib(g, "libunwind", subpath);
 }
 
-static const char *build_libunwind(CodeGen *parent) {
-    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str("unwind"));
+static const char *build_libunwind(CodeGen *parent, Stage2ProgressNode *progress_node) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "unwind", progress_node);
     LinkLib *new_link_lib = codegen_add_link_lib(child_gen, buf_create_from_str("c"));
     new_link_lib->provided_explicitly = false;
     enum SrcKind {
@@ -1017,9 +1018,8 @@ static bool is_musl_arch_name(const char *name) {
     return false;
 }
 
-static const char *build_musl(CodeGen *parent) {
-    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-    codegen_set_out_name(child_gen, buf_create_from_str("c"));
+static const char *build_musl(CodeGen *parent, Stage2ProgressNode *progress_node) {
+    CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c", progress_node);
 
     // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
     // Even a .s file can substitute for a .c file.
@@ -1175,7 +1175,7 @@ static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *
     child_gen->c_source_files.append(c_file);
 }
 
-static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
+static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2ProgressNode *progress_node) {
     if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
         if (strcmp(file, "crt2.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
@@ -1188,7 +1188,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             //c_file->args.append("-DUNICODE");
             //c_file->args.append("-D_UNICODE");
             //c_file->args.append("-DWPRFLAG=1");
-            return build_libc_object(parent, "crt2", c_file);
+            return build_libc_object(parent, "crt2", c_file, progress_node);
         } else if (strcmp(file, "dllcrt2.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = buf_ptr(buf_sprintf(
@@ -1196,10 +1196,9 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             mingw_add_cc_args(parent, c_file);
             c_file->args.append("-U__CRTDLL__");
             c_file->args.append("-D__MSVCRT__");
-            return build_libc_object(parent, "dllcrt2", c_file);
+            return build_libc_object(parent, "dllcrt2", c_file, progress_node);
         } else if (strcmp(file, "mingw32.lib") == 0) {
-            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("mingw32"));
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "mingw32", progress_node);
 
             static const char *deps[] = {
                 "mingw" OS_SEP "crt" OS_SEP "crt0_c.c",
@@ -1256,8 +1255,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
         } else if (strcmp(file, "msvcrt-os.lib") == 0) {
-            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("msvcrt-os"));
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "msvcrt-os", progress_node);
 
             for (size_t i = 0; i < array_length(msvcrt_common_src); i += 1) {
                 add_msvcrt_os_dep(parent, child_gen, msvcrt_common_src[i]);
@@ -1274,8 +1272,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
         } else if (strcmp(file, "mingwex.lib") == 0) {
-            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("mingwex"));
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "mingwex", progress_node);
 
             for (size_t i = 0; i < array_length(mingwex_generic_src); i += 1) {
                 add_mingwex_os_dep(parent, child_gen, mingwex_generic_src[i]);
@@ -1318,7 +1315,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-DASSEMBLER");
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
-            return build_libc_object(parent, "crti", c_file);
+            return build_libc_object(parent, "crti", c_file, progress_node);
         } else if (strcmp(file, "crtn.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = glibc_start_asm_path(parent, "crtn.S");
@@ -1329,7 +1326,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-DASSEMBLER");
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
-            return build_libc_object(parent, "crtn", c_file);
+            return build_libc_object(parent, "crtn", c_file, progress_node);
         } else if (strcmp(file, "start.os") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = glibc_start_asm_path(parent, "start.S");
@@ -1347,7 +1344,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-DASSEMBLER");
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
-            return build_libc_object(parent, "start", c_file);
+            return build_libc_object(parent, "start", c_file, progress_node);
         } else if (strcmp(file, "abi-note.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "abi-note.S");
@@ -1360,19 +1357,17 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-DASSEMBLER");
             c_file->args.append("-g");
             c_file->args.append("-Wa,--noexecstack");
-            return build_libc_object(parent, "abi-note", c_file);
+            return build_libc_object(parent, "abi-note", c_file, progress_node);
         } else if (strcmp(file, "Scrt1.o") == 0) {
-            const char *start_os = get_libc_crt_file(parent, "start.os");
-            const char *abi_note_o = get_libc_crt_file(parent, "abi-note.o");
-            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeObj, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("Scrt1"));
+            const char *start_os = get_libc_crt_file(parent, "start.os", progress_node);
+            const char *abi_note_o = get_libc_crt_file(parent, "abi-note.o", progress_node);
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeObj, nullptr, "Scrt1", progress_node);
             codegen_add_object(child_gen, buf_create_from_str(start_os));
             codegen_add_object(child_gen, buf_create_from_str(abi_note_o));
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
-            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr);
-            codegen_set_out_name(child_gen, buf_create_from_str("c_nonshared"));
+            CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c_nonshared", progress_node);
             {
                 CFile *c_file = allocate<CFile>(1);
                 c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "elf-init.c");
@@ -1401,7 +1396,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-DPIC");
                 c_file->args.append("-DLIBC_NONSHARED=1");
                 c_file->args.append("-DTOP_NAMESPACE=glibc");
-                codegen_add_object(child_gen, buf_create_from_str(build_libc_object(parent, "elf-init", c_file)));
+                codegen_add_object(child_gen, buf_create_from_str(
+                            build_libc_object(parent, "elf-init", c_file, progress_node)));
             }
             static const struct {
                 const char *name;
@@ -1445,7 +1441,8 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
                 c_file->args.append("-DPIC");
                 c_file->args.append("-DLIBC_NONSHARED=1");
                 c_file->args.append("-DTOP_NAMESPACE=glibc");
-                codegen_add_object(child_gen, buf_create_from_str(build_libc_object(parent, deps[i].name, c_file)));
+                codegen_add_object(child_gen, buf_create_from_str(
+                            build_libc_object(parent, deps[i].name, c_file, progress_node)));
             }
             codegen_build_and_link(child_gen);
             return buf_ptr(&child_gen->output_file_path);
@@ -1458,20 +1455,20 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->source_path = musl_start_asm_path(parent, "crti.s");
             musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-Qunused-arguments");
-            return build_libc_object(parent, "crti", c_file);
+            return build_libc_object(parent, "crti", c_file, progress_node);
         } else if (strcmp(file, "crtn.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = musl_start_asm_path(parent, "crtn.s");
             c_file->args.append("-Qunused-arguments");
             musl_add_cc_args(parent, c_file, false);
-            return build_libc_object(parent, "crtn", c_file);
+            return build_libc_object(parent, "crtn", c_file, progress_node);
         } else if (strcmp(file, "crt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "crt1.c");
             musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");
-            return build_libc_object(parent, "crt1", c_file);
+            return build_libc_object(parent, "crt1", c_file, progress_node);
         } else if (strcmp(file, "Scrt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
@@ -1479,7 +1476,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
             c_file->args.append("-fPIC");
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");
-            return build_libc_object(parent, "Scrt1", c_file);
+            return build_libc_object(parent, "Scrt1", c_file, progress_node);
         } else {
             zig_unreachable();
         }
@@ -1491,10 +1488,11 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file) {
     }
 }
 
-static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, OutType child_out_type) {
-    CodeGen *child_gen = create_child_codegen(parent_gen, full_path, child_out_type,
-            parent_gen->libc);
-    codegen_set_out_name(child_gen, buf_create_from_str(aname));
+static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, OutType child_out_type,
+        Stage2ProgressNode *progress_node)
+{
+    CodeGen *child_gen = create_child_codegen(parent_gen, full_path, child_out_type, parent_gen->libc, aname,
+            progress_node);
 
     // This is so that compiler_rt and libc.zig libraries know whether they
     // will eventually be linked with libc. They make different decisions
@@ -1511,18 +1509,18 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
     return &child_gen->output_file_path;
 }
 
-static Buf *build_compiler_rt(CodeGen *parent_gen, OutType child_out_type) {
+static Buf *build_compiler_rt(CodeGen *parent_gen, OutType child_out_type, Stage2ProgressNode *progress_node) {
     Buf *full_path = buf_alloc();
     os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt.zig"), full_path);
 
-    return build_a_raw(parent_gen, "compiler_rt", full_path, child_out_type);
+    return build_a_raw(parent_gen, "compiler_rt", full_path, child_out_type, progress_node);
 }
 
-static Buf *build_c(CodeGen *parent_gen, OutType child_out_type) {
+static Buf *build_c(CodeGen *parent_gen, OutType child_out_type, Stage2ProgressNode *progress_node) {
     Buf *full_path = buf_alloc();
     os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("c.zig"), full_path);
 
-    return build_a_raw(parent_gen, "c", full_path, child_out_type);
+    return build_a_raw(parent_gen, "c", full_path, child_out_type, progress_node);
 }
 
 static const char *get_darwin_arch_string(const ZigTarget *t) {
@@ -1616,7 +1614,7 @@ static void add_glibc_libs(LinkJob *lj) {
 
     Buf *artifact_dir;
     if ((err = glibc_build_dummies_and_maps(lj->codegen, glibc_abi, lj->codegen->zig_target,
-                    &artifact_dir, true)))
+                    &artifact_dir, true, lj->build_dep_prog_node)))
     {
         fprintf(stderr, "%s\n", err_str(err));
         exit(1);
@@ -1692,9 +1690,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         } else {
             crt1o = "Scrt1.o";
         }
-        lj->args.append(get_libc_crt_file(g, crt1o));
+        lj->args.append(get_libc_crt_file(g, crt1o, lj->build_dep_prog_node));
         if (target_libc_needs_crti_crtn(g->zig_target)) {
-            lj->args.append(get_libc_crt_file(g, "crti.o"));
+            lj->args.append(get_libc_crt_file(g, "crti.o", lj->build_dep_prog_node));
         }
     }
 
@@ -1759,11 +1757,11 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     if (!g->is_dummy_so && (g->out_type == OutTypeExe || is_dyn_lib)) {
         if (g->libc_link_lib == nullptr) {
-            Buf *libc_a_path = build_c(g, OutTypeLib);
+            Buf *libc_a_path = build_c(g, OutTypeLib, lj->build_dep_prog_node);
             lj->args.append(buf_ptr(libc_a_path));
         }
 
-        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
+        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib, lj->build_dep_prog_node);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
@@ -1823,15 +1821,15 @@ static void construct_linker_job_elf(LinkJob *lj) {
             }
         } else if (target_is_glibc(g->zig_target)) {
             if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g));
+                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             }
             add_glibc_libs(lj);
-            lj->args.append(get_libc_crt_file(g, "libc_nonshared.a"));
+            lj->args.append(get_libc_crt_file(g, "libc_nonshared.a", lj->build_dep_prog_node));
         } else if (target_is_musl(g->zig_target)) {
             if (target_supports_libunwind(g->zig_target)) {
-                lj->args.append(build_libunwind(g));
+                lj->args.append(build_libunwind(g, lj->build_dep_prog_node));
             }
-            lj->args.append(build_musl(g));
+            lj->args.append(build_musl(g, lj->build_dep_prog_node));
         } else {
             zig_unreachable();
         }
@@ -1840,9 +1838,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
     // crt end
     if (lj->link_in_crt) {
         if (target_is_android(g->zig_target)) {
-            lj->args.append(get_libc_crt_file(g, "crtend_android.o"));
+            lj->args.append(get_libc_crt_file(g, "crtend_android.o", lj->build_dep_prog_node));
         } else if (target_libc_needs_crti_crtn(g->zig_target)) {
-            lj->args.append(get_libc_crt_file(g, "crtn.o"));
+            lj->args.append(get_libc_crt_file(g, "crtn.o", lj->build_dep_prog_node));
         }
     }
 
@@ -1887,10 +1885,10 @@ static void construct_linker_job_wasm(LinkJob *lj) {
     }
 
     if (g->out_type != OutTypeObj) {
-        Buf *libc_o_path = build_c(g, OutTypeObj);
+        Buf *libc_o_path = build_c(g, OutTypeObj, lj->build_dep_prog_node);
         lj->args.append(buf_ptr(libc_o_path));
 
-        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj);
+        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj, lj->build_dep_prog_node);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 }
@@ -2170,14 +2168,14 @@ static void add_mingw_link_args(LinkJob *lj, bool is_library) {
     }
 
     if (is_dll) {
-        lj->args.append(get_libc_crt_file(g, "dllcrt2.o"));
+        lj->args.append(get_libc_crt_file(g, "dllcrt2.o", lj->build_dep_prog_node));
     } else {
-        lj->args.append(get_libc_crt_file(g, "crt2.o"));
+        lj->args.append(get_libc_crt_file(g, "crt2.o", lj->build_dep_prog_node));
     }
 
-    lj->args.append(get_libc_crt_file(g, "mingw32.lib"));
-    lj->args.append(get_libc_crt_file(g, "mingwex.lib"));
-    lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib"));
+    lj->args.append(get_libc_crt_file(g, "mingw32.lib", lj->build_dep_prog_node));
+    lj->args.append(get_libc_crt_file(g, "mingwex.lib", lj->build_dep_prog_node));
+    lj->args.append(get_libc_crt_file(g, "msvcrt-os.lib", lj->build_dep_prog_node));
 
     for (size_t def_i = 0; def_i < array_length(mingw_def_list); def_i += 1) {
         const char *name = mingw_def_list[def_i].name;
@@ -2319,12 +2317,12 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) {
         if (g->libc_link_lib == nullptr && !g->is_dummy_so) {
-            Buf *libc_a_path = build_c(g, OutTypeLib);
+            Buf *libc_a_path = build_c(g, OutTypeLib, lj->build_dep_prog_node);
             lj->args.append(buf_ptr(libc_a_path));
         }
 
         // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
-        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
+        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib, lj->build_dep_prog_node);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
@@ -2563,7 +2561,7 @@ static void construct_linker_job_macho(LinkJob *lj) {
 
     // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
     if (g->out_type == OutTypeExe || is_dyn_lib) {
-        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib);
+        Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeLib, lj->build_dep_prog_node);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
@@ -2621,15 +2619,21 @@ static void construct_linker_job(LinkJob *lj) {
     }
 }
 
-void zig_link_add_compiler_rt(CodeGen *g) {
-    Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj);
+void zig_link_add_compiler_rt(CodeGen *g, Stage2ProgressNode *progress_node) {
+    Buf *compiler_rt_o_path = build_compiler_rt(g, OutTypeObj, progress_node);
     g->link_objects.append(compiler_rt_o_path);
 }
 
 void codegen_link(CodeGen *g) {
     codegen_add_time_event(g, "Build Dependencies");
-
     LinkJob lj = {0};
+
+    {
+        const char *progress_name = "Build Dependencies";
+        lj.build_dep_prog_node = stage2_progress_start(g->progress_node,
+                progress_name, strlen(progress_name), 0);
+    }
+
 
     // even though we're calling LLD as a library it thinks the first
     // argument is its own exe name
@@ -2656,6 +2660,12 @@ void codegen_link(CodeGen *g) {
         }
         ZigLLVM_OSType os_type = get_llvm_os_type(g->zig_target->os);
         codegen_add_time_event(g, "LLVM Link");
+        {
+            const char *progress_name = "linking";
+            Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
+                    progress_name, strlen(progress_name), 0);
+            (void)child_progress_node;
+        }
         if (g->verbose_link) {
             fprintf(stderr, "ar rcs %s", buf_ptr(&g->output_file_path));
             for (size_t i = 0; i < file_names.length; i += 1) {

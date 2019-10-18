@@ -1,107 +1,242 @@
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 
-pub const PrintConfig = struct {
-    /// If the current node (and its children) should
-    /// print to stderr on update()
-    flag: bool = false,
+/// This API is non-allocating and non-fallible. The tradeoff is that users of
+/// this API must provide the storage for each `Progress.Node`.
+/// Initialize the struct directly, overriding these fields as desired:
+/// * `refresh_rate_ms`
+/// * `initial_delay_ms`
+pub const Progress = struct {
+    /// `null` if the current node (and its children) should
+    /// not print on update()
+    terminal: ?std.fs.File = undefined,
 
-    /// If all output should be suppressed instead
-    /// serves the same practical purpose as `flag` but supposed to be used
-    /// by separate parts of the user program.
-    suppress: bool = false,
-};
+    root: Node = undefined,
 
-pub const ProgressNode = struct {
-    completed_items: usize = 0,
-    total_items: usize,
+    /// Keeps track of how much time has passed since the beginning.
+    /// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
+    timer: std.time.Timer = undefined,
 
-    print_config: PrintConfig,
+    /// When the previous refresh was written to the terminal.
+    /// Used to compare with `refresh_rate_ms`.
+    prev_refresh_timestamp: u64 = undefined,
 
-    // TODO maybe instead of keeping a prefix field, we could
-    // select the proper prefix at the time of update(), and if we're not
-    // in a terminal, we use warn("/r{}", lots_of_whitespace).
-    prefix: []const u8,
+    /// This buffer represents the maximum number of bytes written to the terminal
+    /// with each refresh.
+    output_buffer: [100]u8 = undefined,
 
-    /// Create a new progress node.
-    pub fn start(
-        parent_opt: ?ProgressNode,
-        total_items_opt: ?usize,
-    ) !ProgressNode {
+    /// Keeps track of how many columns in the terminal have been output, so that
+    /// we can move the cursor back later.
+    columns_written: usize = undefined,
 
-        // inherit the last set print "configuration" from the parent node
-        var print_config = PrintConfig{};
-        if (parent_opt) |parent| {
-            print_config = parent.print_config;
+    /// How many nanoseconds between writing updates to the terminal.
+    refresh_rate_ns: u64 = 50 * std.time.millisecond,
+
+    /// How many nanoseconds to keep the output hidden
+    initial_delay_ns: u64 = 500 * std.time.millisecond,
+
+    done: bool = true,
+
+    /// Represents one unit of progress. Each node can have children nodes, or
+    /// one can use integers with `update`.
+    pub const Node = struct {
+        context: *Progress,
+        parent: ?*Node,
+        completed_items: usize,
+        name: []const u8,
+        recently_updated_child: ?*Node = null,
+
+        /// This field may be updated freely.
+        estimated_total_items: ?usize,
+
+        /// Create a new child progress node.
+        /// Call `Node.end` when done.
+        /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
+        /// API to set `self.parent.recently_updated_child` with the return value.
+        /// Until that is fixed you probably want to call `activate` on the return value.
+        pub fn start(self: *Node, name: []const u8, estimated_total_items: ?usize) Node {
+            return Node{
+                .context = self.context,
+                .parent = self,
+                .completed_items = 0,
+                .name = name,
+                .estimated_total_items = estimated_total_items,
+            };
         }
 
-        var stderr = try std.io.getStdErr();
-        const is_term = std.os.isatty(stderr.handle);
-
-        // if we're in a terminal, use vt100 escape codes
-        // for the progress.
-        var prefix: []const u8 = undefined;
-        if (is_term) {
-            prefix = "\x21[2K\r";
-        } else {
-            prefix = "\n";
+        /// This is the same as calling `start` and then `end` on the returned `Node`.
+        pub fn completeOne(self: *Node) void {
+            if (self.parent) |parent| parent.recently_updated_child = self;
+            self.completed_items += 1;
+            self.context.maybeRefresh();
         }
 
-        return ProgressNode{
-            .total_items = total_items_opt orelse 0,
-            .print_config = print_config,
-            .prefix = prefix,
-        };
-    }
-
-    /// Signal an update on the progress node.
-    /// The user of this function is supposed to modify
-    /// ProgressNode.PrintConfig.flag when update() is supposed to print.
-    pub fn update(
-        self: *ProgressNode,
-        current_action: ?[]const u8,
-        items_done_opt: ?usize,
-    ) void {
-        if (items_done_opt) |items_done| {
-            self.completed_items = items_done;
-
-            if (items_done > self.total_items) {
-                self.total_items = items_done;
+        pub fn end(self: *Node) void {
+            self.context.maybeRefresh();
+            if (self.parent) |parent| {
+                if (parent.recently_updated_child) |parent_child| {
+                    if (parent_child == self) {
+                        parent.recently_updated_child = null;
+                    }
+                }
+                parent.completeOne();
+            } else {
+                self.context.done = true;
+                self.context.refresh();
             }
         }
 
-        var cfg = self.print_config;
-        if (cfg.flag and !cfg.suppress and current_action != null) {
-            std.debug.warn(
-                "{}[{}/{}] {}",
-                self.prefix,
-                self.completed_items,
-                self.total_items,
-                current_action,
-            );
+        /// Tell the parent node that this node is actively being worked on.
+        pub fn activate(self: *Node) void {
+            if (self.parent) |parent| parent.recently_updated_child = self;
+        }
+    };
+
+    /// Create a new progress node.
+    /// Call `Node.end` when done.
+    /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
+    /// API to return Progress rather than accept it as a parameter.
+    pub fn start(self: *Progress, name: []const u8, estimated_total_items: ?usize) !*Node {
+        if (std.io.getStdErr()) |stderr| {
+            const is_term = stderr.isTty();
+            self.terminal = if (is_term) stderr else null;
+        } else |_| {
+            self.terminal = null;
+        }
+        self.root = Node{
+            .context = self,
+            .parent = null,
+            .completed_items = 0,
+            .name = name,
+            .estimated_total_items = estimated_total_items,
+        };
+        self.prev_refresh_timestamp = 0;
+        self.columns_written = 0;
+        self.timer = try std.time.Timer.start();
+        self.done = false;
+        return &self.root;
+    }
+
+    /// Updates the terminal if enough time has passed since last update.
+    pub fn maybeRefresh(self: *Progress) void {
+        const now = self.timer.read();
+        if (now < self.initial_delay_ns) return;
+        if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
+        self.refresh();
+    }
+
+    /// Updates the terminal and resets `self.next_refresh_timestamp`.
+    pub fn refresh(self: *Progress) void {
+        const file = self.terminal orelse return;
+
+        const prev_columns_written = self.columns_written;
+        var end: usize = 0;
+        if (self.columns_written > 0) {
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", self.columns_written) catch unreachable).len;
+            self.columns_written = 0;
+        }
+
+        if (!self.done) {
+            self.bufWriteNode(self.root, &end);
+            self.bufWrite(&end, "...");
+        }
+
+        if (prev_columns_written > self.columns_written) {
+            const amt = prev_columns_written - self.columns_written;
+            std.mem.set(u8, self.output_buffer[end .. end + amt], ' ');
+            end += amt;
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", amt) catch unreachable).len;
+        }
+
+        _ = file.write(self.output_buffer[0..end]) catch |e| {
+            // Stop trying to write to this file once it errors.
+            self.terminal = null;
+        };
+        self.prev_refresh_timestamp = self.timer.read();
+    }
+
+    fn bufWriteNode(self: *Progress, node: Node, end: *usize) void {
+        if (node.name.len != 0 or node.estimated_total_items != null) {
+            if (node.name.len != 0) {
+                self.bufWrite(end, "{}", node.name);
+                if (node.recently_updated_child != null or node.estimated_total_items != null or
+                    node.completed_items != 0)
+                {
+                    self.bufWrite(end, "...");
+                }
+            }
+            if (node.estimated_total_items) |total| {
+                self.bufWrite(end, "[{}/{}] ", node.completed_items, total);
+            } else if (node.completed_items != 0) {
+                self.bufWrite(end, "[{}] ", node.completed_items);
+            }
+        }
+        if (node.recently_updated_child) |child| {
+            self.bufWriteNode(child.*, end);
         }
     }
 
-    pub fn end(self: *ProgressNode) void {
-        if (!self.print_config.flag) return;
-
-        // TODO emoji?
-        std.debug.warn("\n[V] done!");
+    fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: ...) void {
+        if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
+            const amt = written.len;
+            end.* += amt;
+            self.columns_written += amt;
+        } else |err| switch (err) {
+            error.BufferTooSmall => {
+                self.columns_written += self.output_buffer.len - end.*;
+                end.* = self.output_buffer.len;
+            },
+        }
+        const bytes_needed_for_esc_codes_at_end = 11;
+        const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
+        if (end.* > max_end) {
+            const suffix = "...";
+            self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
+            std.mem.copy(u8, self.output_buffer[max_end..], suffix);
+            end.* = max_end + suffix.len;
+        }
     }
 };
 
 test "basic functionality" {
-    var node = try ProgressNode.start(null, 100);
+    var progress = Progress{};
+    const root_node = try progress.start("", 100);
+    defer root_node.end();
 
-    var buf: [100]u8 = undefined;
+    const sub_task_names = [_][]const u8{
+        "reticulating splines",
+        "adjusting shoes",
+        "climbing towers",
+        "pouring juice",
+    };
+    var next_sub_task: usize = 0;
 
     var i: usize = 0;
-    while (i < 100) : (i += 6) {
-        if (i > 50) node.print_config.flag = true;
-        const msg = try std.fmt.bufPrint(buf[0..], "action at i={}", i);
-        node.update(msg, i);
-        std.time.sleep(10 * std.time.millisecond);
-    }
+    while (i < 100) : (i += 1) {
+        var node = root_node.start(sub_task_names[next_sub_task], 5);
+        node.activate();
+        next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
-    node.end();
+        node.completeOne();
+        std.time.sleep(5 * std.time.millisecond);
+        node.completeOne();
+        node.completeOne();
+        std.time.sleep(5 * std.time.millisecond);
+        node.completeOne();
+        node.completeOne();
+        std.time.sleep(5 * std.time.millisecond);
+
+        node.end();
+
+        std.time.sleep(5 * std.time.millisecond);
+    }
+    {
+        var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", null);
+        node.activate();
+        std.time.sleep(10 * std.time.millisecond);
+        progress.maybeRefresh();
+        std.time.sleep(10 * std.time.millisecond);
+        node.end();
+    }
 }

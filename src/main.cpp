@@ -506,6 +506,8 @@ int main(int argc, char **argv) {
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
 
+    Stage2ProgressNode *root_progress_node = stage2_progress_start_root(stage2_progress_create(), "", 0, 0);
+
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
         if ((err = os_self_exe_path(&zig_exe_path_buf))) {
@@ -589,7 +591,7 @@ int main(int argc, char **argv) {
         }
 
         CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
-                BuildModeDebug, override_lib_dir, nullptr, &full_cache_dir, false);
+                BuildModeDebug, override_lib_dir, nullptr, &full_cache_dir, false, root_progress_node);
         g->valgrind_support = valgrind_support;
         g->enable_time_report = timing_info;
         codegen_set_out_name(g, buf_create_from_str("build"));
@@ -1034,17 +1036,19 @@ int main(int argc, char **argv) {
             ZigLibCInstallation libc;
             if ((err = zig_libc_parse(&libc, buf_create_from_str(in_file), &target, true)))
                 return EXIT_FAILURE;
+            stage2_progress_end(root_progress_node);
             return EXIT_SUCCESS;
         }
         ZigLibCInstallation libc;
         if ((err = zig_libc_find_native(&libc, true)))
             return EXIT_FAILURE;
         zig_libc_render(&libc, stdout);
+        stage2_progress_end(root_progress_node);
         return EXIT_SUCCESS;
     }
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
-                out_type, build_mode, override_lib_dir, nullptr, nullptr, false);
+                out_type, build_mode, override_lib_dir, nullptr, nullptr, false, root_progress_node);
         codegen_set_strip(g, strip);
         for (size_t i = 0; i < link_libs.length; i += 1) {
             LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
@@ -1060,6 +1064,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
             return EXIT_FAILURE;
         }
+        stage2_progress_end(root_progress_node);
         return EXIT_SUCCESS;
     }
     case CmdRun:
@@ -1148,7 +1153,7 @@ int main(int argc, char **argv) {
                 cache_dir_buf = buf_create_from_str(cache_dir);
             }
             CodeGen *g = codegen_create(main_pkg_path, zig_root_source_file, &target, out_type, build_mode,
-                    override_lib_dir, libc, cache_dir_buf, cmd == CmdTest);
+                    override_lib_dir, libc, cache_dir_buf, cmd == CmdTest, root_progress_node);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;
@@ -1276,6 +1281,7 @@ int main(int argc, char **argv) {
                         if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
                             return EXIT_FAILURE;
                     }
+                    stage2_progress_end(root_progress_node);
                     return EXIT_SUCCESS;
                 } else {
                     zig_unreachable();
@@ -1284,6 +1290,7 @@ int main(int argc, char **argv) {
                 codegen_translate_c(g, in_file_buf, stdout, cmd == CmdTranslateCUserland);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
+                stage2_progress_end(root_progress_node);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_set_emit_file_type(g, emit_file_type);
@@ -1338,6 +1345,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
                 }
+                stage2_progress_end(root_progress_node);
                 return (term.how == TerminationIdClean) ? term.code : -1;
             } else {
                 zig_unreachable();
