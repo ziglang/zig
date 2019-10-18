@@ -49,6 +49,43 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// Renders fmt string with args, calling output with slices of bytes.
 /// If `output` returns an error, the error is returned from `format` and
 /// `output` is not called again.
+///
+/// The format string must be comptime known and may contain placeholders following
+/// this format:
+/// `{[position][specifier]:[fill][alignment][width].[precision]}`
+/// 
+/// Each word between `[` and `]` is a parameter you have to replace with something:
+///
+/// - *position* is the index of the argument that should be inserted
+/// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *fill* is a single character which is used to pad the formatted text
+/// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
+/// - *width* is the total width of the field in characters
+/// - *precision* specifies how many decimals a formatted number should have
+///
+/// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
+/// all parameters after the separator are omitted.
+/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
+/// the digits after `:` is interpreted as *width*, not *fill*.
+///
+/// The *specifier* has several options for types:
+/// - `x` and `X`:
+///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
+///   - output numeric value in hexadecimal notation
+/// - `s`: print a pointer-to-many as a c-string, use zero-termination
+/// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+/// - `e`: output floating point value in scientific notation
+/// - `d`: output numeric value in decimal notation
+/// - `b`: output integer value in binary notation
+///
+/// If a formatted user type contains a function of the type
+/// ```
+/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void
+/// ```
+/// with `?` beeing the type formatted, this function will be called instead of the default implementation.
+/// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
+///
+/// A user type may be a `struct`, `union` or `enum` type.
 pub fn format(
     context: var,
     comptime Errors: type,
