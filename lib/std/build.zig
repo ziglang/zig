@@ -1491,6 +1491,8 @@ pub const LibExeObjStep = struct {
     /// Position Independent Code
     force_pic: ?bool = null,
 
+    subsystem: ?builtin.SubSystem = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -2323,6 +2325,20 @@ pub const LibExeObjStep = struct {
             } else {
                 try zig_args.append("-fno-PIC");
             }
+        }
+
+        if (self.subsystem) |subsystem| {
+            try zig_args.append("--subsystem");
+            try zig_args.append(switch (subsystem) {
+                .Console => "console",
+                .Windows => "windows",
+                .Posix => "posix",
+                .Native => "native",
+                .EfiApplication => "efi_application",
+                .EfiBootServiceDriver => "efi_boot_service_driver",
+                .EfiRom => "efi_rom",
+                .EfiRuntimeDriver => "efi_runtime_driver",
+            });
         }
 
         if (self.kind == Kind.Test) {
