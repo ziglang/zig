@@ -26,10 +26,6 @@ pub const Progress = struct {
     /// with each refresh.
     output_buffer: [100]u8 = undefined,
 
-    /// Keeps track of how many columns in the terminal have been output, so that
-    /// we can move the cursor back later.
-    columns_written: usize = undefined,
-
     /// How many nanoseconds between writing updates to the terminal.
     refresh_rate_ns: u64 = 50 * std.time.millisecond,
 
@@ -37,6 +33,10 @@ pub const Progress = struct {
     initial_delay_ns: u64 = 500 * std.time.millisecond,
 
     done: bool = true,
+
+    /// Keeps track of how many columns in the terminal have been output, so that
+    /// we can move the cursor back later.
+    columns_written: usize = undefined,
 
     /// Represents one unit of progress. Each node can have children nodes, or
     /// one can use integers with `update`.
@@ -99,8 +99,7 @@ pub const Progress = struct {
     /// API to return Progress rather than accept it as a parameter.
     pub fn start(self: *Progress, name: []const u8, estimated_total_items: ?usize) !*Node {
         if (std.io.getStdErr()) |stderr| {
-            const is_term = stderr.isTty();
-            self.terminal = if (is_term) stderr else null;
+            self.terminal = if (stderr.supportsAnsiEscapeCodes()) stderr else null;
         } else |_| {
             self.terminal = null;
         }
@@ -111,8 +110,8 @@ pub const Progress = struct {
             .name = name,
             .estimated_total_items = estimated_total_items,
         };
-        self.prev_refresh_timestamp = 0;
         self.columns_written = 0;
+        self.prev_refresh_timestamp = 0;
         self.timer = try std.time.Timer.start();
         self.done = false;
         return &self.root;
@@ -133,20 +132,42 @@ pub const Progress = struct {
         const prev_columns_written = self.columns_written;
         var end: usize = 0;
         if (self.columns_written > 0) {
+            // restore cursor position
             end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", self.columns_written) catch unreachable).len;
             self.columns_written = 0;
+
+            // clear rest of line
+            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K") catch unreachable).len;
         }
 
         if (!self.done) {
-            self.bufWriteNode(self.root, &end);
-            self.bufWrite(&end, "...");
-        }
-
-        if (prev_columns_written > self.columns_written) {
-            const amt = prev_columns_written - self.columns_written;
-            std.mem.set(u8, self.output_buffer[end .. end + amt], ' ');
-            end += amt;
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{}D", amt) catch unreachable).len;
+            var need_ellipse = false;
+            var maybe_node: ?*Node = &self.root;
+            while (maybe_node) |node| {
+                if (need_ellipse) {
+                    self.bufWrite(&end, "...");
+                }
+                need_ellipse = false;
+                if (node.name.len != 0 or node.estimated_total_items != null) {
+                    if (node.name.len != 0) {
+                        self.bufWrite(&end, "{}", node.name);
+                        need_ellipse = true;
+                    }
+                    if (node.estimated_total_items) |total| {
+                        if (need_ellipse) self.bufWrite(&end, " ");
+                        self.bufWrite(&end, "[{}/{}] ", node.completed_items, total);
+                        need_ellipse = false;
+                    } else if (node.completed_items != 0) {
+                        if (need_ellipse) self.bufWrite(&end, " ");
+                        self.bufWrite(&end, "[{}] ", node.completed_items);
+                        need_ellipse = false;
+                    }
+                }
+                maybe_node = node.recently_updated_child;
+            }
+            if (need_ellipse) {
+                self.bufWrite(&end, "...");
+            }
         }
 
         _ = file.write(self.output_buffer[0..end]) catch |e| {
@@ -156,25 +177,14 @@ pub const Progress = struct {
         self.prev_refresh_timestamp = self.timer.read();
     }
 
-    fn bufWriteNode(self: *Progress, node: Node, end: *usize) void {
-        if (node.name.len != 0 or node.estimated_total_items != null) {
-            if (node.name.len != 0) {
-                self.bufWrite(end, "{}", node.name);
-                if (node.recently_updated_child != null or node.estimated_total_items != null or
-                    node.completed_items != 0)
-                {
-                    self.bufWrite(end, "...");
-                }
-            }
-            if (node.estimated_total_items) |total| {
-                self.bufWrite(end, "[{}/{}] ", node.completed_items, total);
-            } else if (node.completed_items != 0) {
-                self.bufWrite(end, "[{}] ", node.completed_items);
-            }
-        }
-        if (node.recently_updated_child) |child| {
-            self.bufWriteNode(child.*, end);
-        }
+    pub fn log(self: *Progress, comptime format: []const u8, args: ...) void {
+        const file = self.terminal orelse return;
+        self.refresh();
+        file.outStream().stream.print(format, args) catch {
+            self.terminal = null;
+            return;
+        };
+        self.columns_written = 0;
     }
 
     fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: ...) void {
@@ -200,6 +210,12 @@ pub const Progress = struct {
 };
 
 test "basic functionality" {
+    var disable = true;
+    if (disable) {
+        // This test is disabled because it uses time.sleep() and is therefore slow. It also
+        // prints bogus progress data to stderr.
+        return error.SkipZigTest;
+    }
     var progress = Progress{};
     const root_node = try progress.start("", 100);
     defer root_node.end();
@@ -235,7 +251,7 @@ test "basic functionality" {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", null);
         node.activate();
         std.time.sleep(10 * std.time.millisecond);
-        progress.maybeRefresh();
+        progress.refresh();
         std.time.sleep(10 * std.time.millisecond);
         node.end();
     }

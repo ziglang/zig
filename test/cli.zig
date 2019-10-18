@@ -87,7 +87,7 @@ fn exec(cwd: []const u8, argv: []const []const u8) !ChildProcess.ExecResult {
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-lib" });
     const test_result = try exec(dir_path, [_][]const u8{ zig_exe, "build", "test" });
-    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
+    testing.expect(std.mem.eql(u8, test_result.stderr, ""));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
@@ -136,6 +136,6 @@ fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
     const output_path = try fs.path.join(a, [_][]const u8{ "does", "not", "exist" });
     const source_path = try fs.path.join(a, [_][]const u8{ "src", "main.zig" });
     _ = try exec(dir_path, [_][]const u8{
-        zig_exe, "build-exe", source_path, "--output-dir", output_path
+        zig_exe, "build-exe", source_path, "--output-dir", output_path,
     });
 }

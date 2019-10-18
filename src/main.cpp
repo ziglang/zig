@@ -506,8 +506,6 @@ int main(int argc, char **argv) {
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
 
-    Stage2ProgressNode *root_progress_node = stage2_progress_start_root(stage2_progress_create(), "", 0, 0);
-
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         Buf zig_exe_path_buf = BUF_INIT;
         if ((err = os_self_exe_path(&zig_exe_path_buf))) {
@@ -589,6 +587,7 @@ int main(int argc, char **argv) {
             Buf *cache_dir_buf = buf_create_from_str(cache_dir);
             full_cache_dir = os_path_resolve(&cache_dir_buf, 1);
         }
+        Stage2ProgressNode *root_progress_node = stage2_progress_start_root(stage2_progress_create(), "", 0, 0);
 
         CodeGen *g = codegen_create(main_pkg_path, build_runner_path, &target, OutTypeExe,
                 BuildModeDebug, override_lib_dir, nullptr, &full_cache_dir, false, root_progress_node);
@@ -964,6 +963,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Unmatched --pkg-begin\n");
         return EXIT_FAILURE;
     }
+
+    Stage2Progress *progress = stage2_progress_create();
+    Stage2ProgressNode *root_progress_node = stage2_progress_start_root(progress, "", 0, 0);
+    if (color == ErrColorOff) stage2_progress_disable_tty(progress);
 
     init_all_targets();
 

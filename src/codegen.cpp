@@ -10479,11 +10479,11 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
 }
 
 CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
-        ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *child_progress_node)
+        ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *parent_progress_node)
 {
-    if (!child_progress_node) {
-        child_progress_node = stage2_progress_start(parent_gen->progress_node, name, strlen(name), 0);
-    }
+    Stage2ProgressNode *child_progress_node = stage2_progress_start(
+            parent_progress_node ? parent_progress_node : parent_gen->progress_node,
+            name, strlen(name), 0);
 
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
         parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_stage1_cache_path(), false, child_progress_node);

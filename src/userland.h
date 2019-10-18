@@ -163,6 +163,8 @@ struct Stage2ProgressNode;
 // ABI warning
 ZIG_EXTERN_C Stage2Progress *stage2_progress_create(void);
 // ABI warning
+ZIG_EXTERN_C void stage2_progress_disable_tty(Stage2Progress *progress);
+// ABI warning
 ZIG_EXTERN_C void stage2_progress_destroy(Stage2Progress *progress);
 // ABI warning
 ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start_root(Stage2Progress *progress,
