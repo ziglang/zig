@@ -19251,7 +19251,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
 
     ZigType *target_type = target_value_ptr->value.type->data.pointer.child_type;
     ConstExprValue *pointee_val = nullptr;
-    if (instr_is_comptime(target_value_ptr)) {
+    if (instr_is_comptime(target_value_ptr) && target_value_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
         pointee_val = const_ptr_pointee(ira, ira->codegen, &target_value_ptr->value, target_value_ptr->source_node);
         if (pointee_val == nullptr)
             return ira->codegen->invalid_instruction;

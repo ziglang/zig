@@ -434,3 +434,21 @@ test "switch with disjoint range" {
         126...126 => {},
     }
 }
+
+var state: u32 = 0;
+fn poll() void {
+    switch (state) {
+        0 => {
+            state = 1;
+        },
+        else => {
+            state += 1;
+        },
+    }
+}
+
+test "switch on global mutable var isn't constant-folded" {
+    while (state < 2) {
+        poll();
+    }
+}
