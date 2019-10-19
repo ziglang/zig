@@ -5783,8 +5783,8 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 
 
 ConstExprValue *create_const_vals(size_t count) {
-    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count);
-    ConstExprValue *vals = allocate<ConstExprValue>(count);
+    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count, "ConstGlobalRefs");
+    ConstExprValue *vals = allocate<ConstExprValue>(count, "ConstExprValue");
     for (size_t i = 0; i < count; i += 1) {
         vals[i].global_refs = &global_refs[i];
     }

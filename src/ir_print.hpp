@@ -15,4 +15,6 @@
 void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, IrPass pass);
 void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction, int indent_size, IrPass pass);
 
+const char* ir_instruction_type_str(IrInstructionId id);
+
 #endif
