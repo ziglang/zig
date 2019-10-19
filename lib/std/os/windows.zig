@@ -42,7 +42,6 @@ pub const subsystem: ?builtin.SubSystem = blk: {
                 break :blk builtin.SubSystem.Console;
             }
         },
-        .uefi => break :blk builtin.SubSystem.EfiApplication,
         else => break :blk null,
     }
 };
