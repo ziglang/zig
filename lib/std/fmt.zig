@@ -77,12 +77,14 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
+/// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+/// - `*`: output the address of the value instead of the value itself. 
 ///
 /// If a formatted user type contains a function of the type
 /// ```
 /// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void
 /// ```
-/// with `?` beeing the type formatted, this function will be called instead of the default implementation.
+/// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
 /// A user type may be a `struct`, `union` or `enum` type.
