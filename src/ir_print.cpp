@@ -38,8 +38,8 @@ struct IrPrint {
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction);
 
-static const char* ir_instruction_type_str(IrInstruction* instruction) {
-    switch (instruction->id) {
+const char* ir_instruction_type_str(IrInstructionId id) {
+    switch (id) {
         case IrInstructionIdInvalid:
             return "Invalid";
         case IrInstructionIdShuffleVector:
@@ -387,7 +387,7 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction, bool trail
     const char *ref_count = ir_has_side_effects(instruction) ?
         "-" : buf_ptr(buf_sprintf("%" ZIG_PRI_usize "", instruction->ref_count));
     fprintf(irp->f, "%c%-3zu| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
-        ir_instruction_type_str(instruction), type_name, ref_count);
+        ir_instruction_type_str(instruction->id), type_name, ref_count);
 }
 
 static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {

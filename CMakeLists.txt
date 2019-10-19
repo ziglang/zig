@@ -46,6 +46,7 @@ message("Configuring zig version ${ZIG_VERSION}")
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
+set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
@@ -455,6 +456,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
+    "${CMAKE_SOURCE_DIR}/src/memory_profiling.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"

@@ -64,6 +64,9 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fno-PIC                     disable Position Independent Code\n"
         "  -ftime-report                print timing diagnostics\n"
         "  -fstack-report               print stack size diagnostics\n"
+#ifdef ZIG_ENABLE_MEM_PROFILE
+        "  -fmem-report                 print memory usage diagnostics\n"
+#endif
         "  -fdump-analysis              write analysis.json file with type information\n"
         "  -femit-docs                  create a docs/ dir with html documentation\n"
         "  -fno-emit-bin                skip emitting machine code\n"
@@ -306,8 +309,28 @@ static int zig_error_no_build_file(void) {
 
 extern "C" int ZigClang_main(int argc, char **argv);
 
+#ifdef ZIG_ENABLE_MEM_PROFILE
+bool mem_report = false;
+#endif
+
+int main_exit(Stage2ProgressNode *root_progress_node, int exit_code) {
+    if (root_progress_node != nullptr) {
+        stage2_progress_end(root_progress_node);
+    }
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    if (mem_report) {
+        memprof_dump_stats(stderr);
+    }
+#endif
+    return exit_code;
+}
+
 int main(int argc, char **argv) {
     stage2_attach_segfault_handler();
+
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_init();
+#endif
 
     char *arg0 = argv[0];
     Error err;
@@ -670,6 +693,13 @@ int main(int argc, char **argv) {
                 timing_info = true;
             } else if (strcmp(arg, "-fstack-report") == 0) {
                 stack_report = true;
+            } else if (strcmp(arg, "-fmem-report") == 0) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+                mem_report = true;
+#else
+                fprintf(stderr, "-fmem-report requires configuring with -DZIG_ENABLE_MEM_PROFILE=ON\n");
+                return print_error_usage(arg0);
+#endif
             } else if (strcmp(arg, "-fdump-analysis") == 0) {
                 enable_dump_analysis = true;
             } else if (strcmp(arg, "-femit-docs") == 0) {
@@ -1038,16 +1068,14 @@ int main(int argc, char **argv) {
         if (in_file) {
             ZigLibCInstallation libc;
             if ((err = zig_libc_parse(&libc, buf_create_from_str(in_file), &target, true)))
-                return EXIT_FAILURE;
-            stage2_progress_end(root_progress_node);
-            return EXIT_SUCCESS;
+                return main_exit(root_progress_node, EXIT_FAILURE);
+            return main_exit(root_progress_node, EXIT_SUCCESS);
         }
         ZigLibCInstallation libc;
         if ((err = zig_libc_find_native(&libc, true)))
-            return EXIT_FAILURE;
+            return main_exit(root_progress_node, EXIT_FAILURE);
         zig_libc_render(&libc, stdout);
-        stage2_progress_end(root_progress_node);
-        return EXIT_SUCCESS;
+        return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdBuiltin: {
         CodeGen *g = codegen_create(main_pkg_path, nullptr, &target,
@@ -1065,10 +1093,9 @@ int main(int argc, char **argv) {
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
-            return EXIT_FAILURE;
+            return main_exit(root_progress_node, EXIT_FAILURE);
         }
-        stage2_progress_end(root_progress_node);
-        return EXIT_SUCCESS;
+        return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdRun:
     case CmdBuild:
@@ -1142,7 +1169,7 @@ int main(int argc, char **argv) {
                 libc = allocate<ZigLibCInstallation>(1);
                 if ((err = zig_libc_parse(libc, buf_create_from_str(libc_txt), &target, true))) {
                     fprintf(stderr, "Unable to parse --libc text file: %s\n", err_str(err));
-                    return EXIT_FAILURE;
+                    return main_exit(root_progress_node, EXIT_FAILURE);
                 }
             }
             Buf *cache_dir_buf;
@@ -1219,7 +1246,7 @@ int main(int argc, char **argv) {
             codegen_set_rdynamic(g, rdynamic);
             if (mmacosx_version_min && mios_version_min) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
-                return EXIT_FAILURE;
+                return main_exit(root_progress_node, EXIT_FAILURE);
             }
 
             if (mmacosx_version_min) {
@@ -1259,6 +1286,11 @@ int main(int argc, char **argv) {
                     zig_print_stack_report(g, stdout);
 
                 if (cmd == CmdRun) {
+                    stage2_progress_end(root_progress_node);
+#ifdef ZIG_ENABLE_MEM_PROFILE
+                    memprof_dump_stats(stderr);
+#endif
+
                     const char *exec_path = buf_ptr(&g->output_file_path);
                     ZigList<const char*> args = {0};
 
@@ -1282,10 +1314,9 @@ int main(int argc, char **argv) {
                         buf_replace(&g->output_file_path, '/', '\\');
 #endif
                         if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
-                            return EXIT_FAILURE;
+                            return main_exit(root_progress_node, EXIT_FAILURE);
                     }
-                    stage2_progress_end(root_progress_node);
-                    return EXIT_SUCCESS;
+                    return main_exit(root_progress_node, EXIT_SUCCESS);
                 } else {
                     zig_unreachable();
                 }
@@ -1293,8 +1324,7 @@ int main(int argc, char **argv) {
                 codegen_translate_c(g, in_file_buf, stdout, cmd == CmdTranslateCUserland);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
-                stage2_progress_end(root_progress_node);
-                return EXIT_SUCCESS;
+                return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
                 codegen_set_emit_file_type(g, emit_file_type);
 
@@ -1314,7 +1344,7 @@ int main(int argc, char **argv) {
 
                 if (g->disable_bin_generation) {
                     fprintf(stderr, "Semantic analysis complete. No binary produced due to -fno-emit-bin.\n");
-                    return 0;
+                    return main_exit(root_progress_node, EXIT_SUCCESS);
                 }
 
                 Buf *test_exe_path_unresolved = &g->output_file_path;
@@ -1324,7 +1354,7 @@ int main(int argc, char **argv) {
                 if (emit_file_type != EmitFileTypeBinary) {
                     fprintf(stderr, "Created %s but skipping execution because it is non executable.\n",
                             buf_ptr(test_exe_path));
-                    return 0;
+                    return main_exit(root_progress_node, EXIT_SUCCESS);
                 }
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
@@ -1336,7 +1366,7 @@ int main(int argc, char **argv) {
                 if (!target_can_exec(&native, &target) && test_exec_args.length == 0) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
                             buf_ptr(test_exe_path));
-                    return 0;
+                    return main_exit(root_progress_node, EXIT_SUCCESS);
                 }
 
                 Termination term;
@@ -1348,21 +1378,20 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
                 }
-                stage2_progress_end(root_progress_node);
-                return (term.how == TerminationIdClean) ? term.code : -1;
+                return main_exit(root_progress_node, (term.how == TerminationIdClean) ? term.code : -1);
             } else {
                 zig_unreachable();
             }
         }
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
-        return EXIT_SUCCESS;
+        return main_exit(root_progress_node, EXIT_SUCCESS);
     case CmdZen: {
         const char *ptr;
         size_t len;
         stage2_zen(&ptr, &len);
         fwrite(ptr, len, 1, stdout);
-        return EXIT_SUCCESS;
+        return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdTargets:
         return print_target_list(stdout);
