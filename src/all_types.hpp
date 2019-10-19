@@ -2569,12 +2569,12 @@ enum IrInstructionId {
 struct IrInstruction {
     Scope *scope;
     AstNode *source_node;
-    ConstExprValue value;
-    size_t debug_id;
     LLVMValueRef llvm_value;
+    ConstExprValue value;
+    uint32_t debug_id;
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen
-    size_t ref_count;
+    uint32_t ref_count;
     // When analyzing IR, instructions that point to this instruction in the "old ir"
     // can find the instruction that corresponds to this value in the "new ir"
     // with this child field.

@@ -10822,7 +10822,8 @@ static IrInstruction *ira_suspend(IrAnalyze *ira, IrInstruction *old_instruction
         IrSuspendPosition *suspend_pos)
 {
     if (ira->codegen->verbose_ir) {
-        fprintf(stderr, "suspend %s_%zu %s_%zu #%zu (%zu,%zu)\n", ira->old_irb.current_basic_block->name_hint,
+        fprintf(stderr, "suspend %s_%zu %s_%zu #%" PRIu32 " (%zu,%zu)\n",
+                ira->old_irb.current_basic_block->name_hint,
                 ira->old_irb.current_basic_block->debug_id,
                 ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->name_hint,
                 ira->old_irb.exec->basic_block_list.at(ira->old_bb_index)->debug_id,
@@ -10860,7 +10861,7 @@ static IrInstruction *ira_resume(IrAnalyze *ira) {
     ira->instruction_index = pos.instruction_index;
     assert(pos.instruction_index < ira->old_irb.current_basic_block->instruction_list.length);
     if (ira->codegen->verbose_ir) {
-        fprintf(stderr, "%s_%zu #%zu\n", ira->old_irb.current_basic_block->name_hint,
+        fprintf(stderr, "%s_%zu #%" PRIu32 "\n", ira->old_irb.current_basic_block->name_hint,
                 ira->old_irb.current_basic_block->debug_id,
                 ira->old_irb.current_basic_block->instruction_list.at(pos.instruction_index)->debug_id);
     }
@@ -26328,7 +26329,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
         }
 
         if (ira->codegen->verbose_ir) {
-            fprintf(stderr, "analyze #%zu\n", old_instruction->debug_id);
+            fprintf(stderr, "analyze #%" PRIu32 "\n", old_instruction->debug_id);
         }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {

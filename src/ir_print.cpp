@@ -385,8 +385,8 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction, bool trail
     const char mark = trailing ? ':' : '#';
     const char *type_name = instruction->value.type ? buf_ptr(&instruction->value.type->name) : "(unknown)";
     const char *ref_count = ir_has_side_effects(instruction) ?
-        "-" : buf_ptr(buf_sprintf("%" ZIG_PRI_usize "", instruction->ref_count));
-    fprintf(irp->f, "%c%-3zu| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
+        "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->ref_count));
+    fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
         ir_instruction_type_str(instruction->id), type_name, ref_count);
 }
 
@@ -398,7 +398,7 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
 }
 
 static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
-    fprintf(irp->f, "#%" ZIG_PRI_usize "", instruction->debug_id);
+    fprintf(irp->f, "#%" PRIu32 "", instruction->debug_id);
     if (irp->pass != IrPassSrc && irp->printed.maybe_get(instruction) == nullptr) {
         irp->printed.put(instruction, 0);
         irp->pending.append(instruction);
