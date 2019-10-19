@@ -23,12 +23,15 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
-fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, comptime next_arg: *comptime_int) comptime_int {
+fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, comptime next_arg: *comptime_int, comptime arg_count: comptime_int) comptime_int {
     if (maybe_pos_arg) |pos_arg| {
         used_pos_args.* |= 1 << pos_arg;
         return pos_arg;
     } else {
         const arg = next_arg.*;
+        if(arg >= arg_count){
+            @compileError("Too few arguments");
+        }
         next_arg.* += 1;
         return arg;
     }
@@ -126,7 +129,7 @@ pub fn format(
                     }
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg, args.len);
 
                     try formatType(
                         args[arg_to_print],
@@ -159,7 +162,7 @@ pub fn format(
                     state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg, args.len);
 
                     try formatType(
                         args[arg_to_print],
@@ -206,7 +209,7 @@ pub fn format(
                     state = .FormatPrecision;
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg, args.len);
 
                     try formatType(
                         args[arg_to_print],
@@ -234,7 +237,7 @@ pub fn format(
                     options.precision.? += c - '0';
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg, args.len);
 
                     try formatType(
                         args[arg_to_print],
