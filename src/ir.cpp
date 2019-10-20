@@ -23084,17 +23084,22 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             zig_unreachable();
         }
 
-        uint64_t start_scalar = bigint_as_u64(&casted_start->value.data.x_bigint);
+        ConstExprValue *start_val = ir_resolve_const(ira, casted_start, UndefBad);
+        if (!start_val)
+            return ira->codegen->invalid_instruction;
+
+        uint64_t start_scalar = bigint_as_u64(&start_val->data.x_bigint);
         if (!ptr_is_undef && start_scalar > rel_end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
             return ira->codegen->invalid_instruction;
         }
 
-        uint64_t end_scalar;
+        uint64_t end_scalar = rel_end;
         if (end) {
-            end_scalar = bigint_as_u64(&end->value.data.x_bigint);
-        } else {
-            end_scalar = rel_end;
+            ConstExprValue *end_val = ir_resolve_const(ira, end, UndefBad);
+            if (!end_val)
+                return ira->codegen->invalid_instruction;
+            end_scalar = bigint_as_u64(&end_val->data.x_bigint);
         }
         if (!ptr_is_undef) {
             if (end_scalar > rel_end) {
