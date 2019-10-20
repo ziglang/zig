@@ -10120,6 +10120,18 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 } else {
                     err_set_type = cur_type;
                 }
+
+                if (!resolve_inferred_error_set(ira->codegen, err_set_type, cur_inst->source_node)) {
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+
+                if (type_is_global_error_set(err_set_type)) {
+                    err_set_type = ira->codegen->builtin_types.entry_global_error_set;
+                    continue;
+                }
+
+                update_errors_helper(ira->codegen, &errors, &errors_count);
+
                 for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     assert(errors[error_entry->value] == nullptr);

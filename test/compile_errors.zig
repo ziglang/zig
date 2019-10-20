@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "comparison with error union and error value",
+        \\export fn entry() void {
+        \\    var number_or_error: anyerror!i32 = error.SomethingAwful;
+        \\    _ = number_or_error == error.SomethingAwful;
+        \\}
+    ,
+        "tmp.zig:3:25: error: operator not allowed for type 'anyerror!i32'",
+    );
+
+    cases.add(
         "switch with overlapping case ranges",
         \\export fn entry() void {
         \\    var q: u8 = 0;
