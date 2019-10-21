@@ -24,11 +24,14 @@ pub fn main() anyerror!void {
                 test_node.end();
                 progress.log("{}...SKIP\n", test_fn.name);
             },
-            else => return err,
+            else => {
+                progress.log("");
+                return err;
+            },
         }
     }
     root_node.end();
     if (ok_count != test_fn_list.len) {
-        progress.log("{} passed; {} skipped.\n", ok_count, skip_count);
+        std.debug.warn("{} passed; {} skipped.\n", ok_count, skip_count);
     }
 }
