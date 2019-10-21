@@ -15,6 +15,7 @@ pub fn main() anyerror!void {
     for (test_fn_list) |test_fn, i| {
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
+        progress.refresh();
         if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();
