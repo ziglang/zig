@@ -138,22 +138,21 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             continue;
         }
 
+        if (visib_token != null) {
+            try tree.errors.push(AstError{
+                .ExpectedPubItem = AstError.ExpectedPubItem{ .token = it.index },
+            });
+            return error.ParseError;
+        }
+
         if (try parseContainerField(arena, it, tree)) |node| {
             const field = node.cast(Node.ContainerField).?;
-            field.visib_token = visib_token;
             field.doc_comments = doc_comments;
             try list.push(node);
             const comma = eatToken(it, .Comma) orelse break;
             if (try parseAppendedDocComment(arena, it, tree, comma)) |appended_comment|
                 field.doc_comments = appended_comment;
             continue;
-        }
-
-        // Dangling pub
-        if (visib_token != null) {
-            try tree.errors.push(AstError{
-                .ExpectedPubItem = AstError.ExpectedPubItem{ .token = it.index },
-            });
         }
 
         break;
@@ -407,7 +406,6 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
     node.* = Node.ContainerField{
         .base = Node{ .id = .ContainerField },
         .doc_comments = null,
-        .visib_token = null,
         .name_token = name_token,
         .type_expr = type_expr,
         .value_expr = value_expr,

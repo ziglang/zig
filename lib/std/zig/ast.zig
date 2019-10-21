@@ -290,7 +290,7 @@ pub const Error = union(enum) {
     pub const ExpectedSuffixOp = SingleTokenError("Expected pointer dereference, optional unwrap, or field access, found '{}'");
 
     pub const ExpectedParamType = SimpleError("Expected parameter type");
-    pub const ExpectedPubItem = SimpleError("Pub must be followed by fn decl, var decl, or container member");
+    pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
     pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
@@ -757,7 +757,6 @@ pub const Node = struct {
     pub const ContainerField = struct {
         base: Node,
         doc_comments: ?*DocComment,
-        visib_token: ?TokenIndex,
         name_token: TokenIndex,
         type_expr: ?*Node,
         value_expr: ?*Node,
@@ -780,7 +779,6 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const ContainerField) TokenIndex {
-            if (self.visib_token) |visib_token| return visib_token;
             return self.name_token;
         }
 

@@ -161,7 +161,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         const Self = @This();
         const Stream = InStream(Error);
 
-        pub stream: Stream,
+        stream: Stream,
 
         unbuffered_in_stream: *Stream,
 
@@ -273,7 +273,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         pub const Error = InStreamError;
         pub const Stream = InStream(Error);
 
-        pub stream: Stream,
+        stream: Stream,
         base: *Stream,
 
         // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
@@ -336,7 +336,7 @@ pub const SliceInStream = struct {
     pub const Error = error{};
     pub const Stream = InStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
     pos: usize,
     slice: []const u8,
@@ -514,9 +514,9 @@ pub const SliceOutStream = struct {
     pub const Error = error{OutOfSpace};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
-    pub pos: usize,
+    pos: usize,
     slice: []u8,
 
     pub fn init(slice: []u8) SliceOutStream {
@@ -571,7 +571,7 @@ pub const NullOutStream = struct {
     pub const Error = error{};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
     pub fn init() NullOutStream {
         return NullOutStream{
@@ -595,8 +595,8 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
-        pub bytes_written: u64,
+        stream: Stream,
+        bytes_written: u64,
         child_stream: *Stream,
 
         pub fn init(child_stream: *Stream) Self {
@@ -635,7 +635,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
+        stream: Stream,
 
         unbuffered_out_stream: *Stream,
 
@@ -1084,7 +1084,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         // safety. If it is bad, it will be caught anyway.
                         const TagInt = @TagType(TagType);
                         const tag = try self.deserializeInt(TagInt);
-                        
+
                         inline for (info.fields) |field_info| {
                             if (field_info.enum_field.?.value == tag) {
                                 const name = field_info.name;

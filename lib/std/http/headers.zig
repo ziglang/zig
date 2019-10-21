@@ -28,9 +28,9 @@ fn never_index_default(name: []const u8) bool {
 
 const HeaderEntry = struct {
     allocator: *Allocator,
-    pub name: []const u8,
-    pub value: []u8,
-    pub never_index: bool,
+    name: []const u8,
+    value: []u8,
+    never_index: bool,
 
     const Self = @This();
 
