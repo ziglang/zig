@@ -1478,10 +1478,9 @@ pub const AcceptError = error{
 
 /// Accept a connection on a socket. `fd` must be opened in blocking mode.
 /// See also `accept4_async`.
-pub fn accept4(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
+pub fn accept4(fd: i32, addr: *sockaddr, addrSize: *usize, flags: u32) AcceptError!i32 {
     while (true) {
-        var sockaddr_size = u32(@sizeOf(sockaddr));
-        const rc = system.accept4(fd, addr, &sockaddr_size, flags);
+        const rc = system.accept4(fd, addr, addrSize, flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
@@ -1506,10 +1505,9 @@ pub fn accept4(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
 
 /// This is the same as `accept4` except `fd` is expected to be non-blocking.
 /// Returns -1 if would block.
-pub fn accept4_async(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
+pub fn accept4_async(fd: i32, addr: *sockaddr, addrSize: *usize, flags: u32) AcceptError!i32 {
     while (true) {
-        var sockaddr_size = u32(@sizeOf(sockaddr));
-        const rc = system.accept4(fd, addr, &sockaddr_size, flags);
+        const rc = system.accept4(fd, addr, addrSize, flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
