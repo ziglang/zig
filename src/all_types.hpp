@@ -990,8 +990,6 @@ struct AstNodeStructField {
     // populated if the "align(A)" is present
     AstNode *align_expr;
     Buf doc_comments;
-
-    VisibMod visib_mod;
 };
 
 struct AstNodeStringLiteral {
