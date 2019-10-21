@@ -158,3 +158,6 @@ pub const EWOULDBLOCK = 140;
 pub const EDQUOT = 10069;
 
 pub const F_OK = 0;
+
+/// Remove directory instead of unlinking file
+pub const AT_REMOVEDIR = 0x200;

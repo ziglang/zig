@@ -353,17 +353,12 @@ pub fn deleteTree(full_path: []const u8) !void {
 
         return dir.deleteTree(path.basename(full_path));
     } else {
-        return Dir.posix_cwd.deleteTree(full_path);
+        return Dir.cwd().deleteTree(full_path);
     }
 }
 
 pub const Dir = struct {
     fd: os.fd_t,
-
-    /// An open handle to the current working directory.
-    /// Closing this directory is safety-checked illegal behavior.
-    /// Not available on Windows.
-    pub const posix_cwd = Dir{ .fd = os.AT_FDCWD };
 
     pub const Entry = struct {
         name: []const u8,
@@ -386,11 +381,9 @@ pub const Dir = struct {
         .macosx, .ios, .freebsd, .netbsd => struct {
             dir: Dir,
             seek: i64,
-            buf: [buffer_len]u8,
+            buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
             index: usize,
             end_index: usize,
-
-            pub const buffer_len = 8192;
 
             const Self = @This();
 
@@ -407,27 +400,24 @@ pub const Dir = struct {
             fn nextDarwin(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        while (true) {
-                            const rc = os.system.__getdirentries64(
-                                self.dir.fd,
-                                &self.buf,
-                                self.buf.len,
-                                &self.seek,
-                            );
-                            if (rc == 0) return null;
-                            if (rc < 0) {
-                                switch (os.errno(rc)) {
-                                    os.EBADF => unreachable,
-                                    os.EFAULT => unreachable,
-                                    os.ENOTDIR => unreachable,
-                                    os.EINVAL => unreachable,
-                                    else => |err| return os.unexpectedErrno(err),
-                                }
+                        const rc = os.system.__getdirentries64(
+                            self.dir.fd,
+                            &self.buf,
+                            self.buf.len,
+                            &self.seek,
+                        );
+                        if (rc == 0) return null;
+                        if (rc < 0) {
+                            switch (os.errno(rc)) {
+                                os.EBADF => unreachable,
+                                os.EFAULT => unreachable,
+                                os.ENOTDIR => unreachable,
+                                os.EINVAL => unreachable,
+                                else => |err| return os.unexpectedErrno(err),
                             }
-                            self.index = 0;
-                            self.end_index = @intCast(usize, rc);
-                            break;
                         }
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
                     }
                     const darwin_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
                     const next_index = self.index + darwin_entry.d_reclen;
@@ -460,26 +450,23 @@ pub const Dir = struct {
             fn nextBsd(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        while (true) {
-                            const rc = os.system.getdirentries(
-                                self.dir.fd,
-                                self.buf[0..].ptr,
-                                self.buf.len,
-                                &self.seek,
-                            );
-                            switch (os.errno(rc)) {
-                                0 => {},
-                                os.EBADF => unreachable,
-                                os.EFAULT => unreachable,
-                                os.ENOTDIR => unreachable,
-                                os.EINVAL => unreachable,
-                                else => |err| return os.unexpectedErrno(err),
-                            }
-                            if (rc == 0) return null;
-                            self.index = 0;
-                            self.end_index = @intCast(usize, rc);
-                            break;
+                        const rc = os.system.getdirentries(
+                            self.dir.fd,
+                            self.buf[0..].ptr,
+                            self.buf.len,
+                            &self.seek,
+                        );
+                        switch (os.errno(rc)) {
+                            0 => {},
+                            os.EBADF => unreachable,
+                            os.EFAULT => unreachable,
+                            os.ENOTDIR => unreachable,
+                            os.EINVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
                         }
+                        if (rc == 0) return null;
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
                     }
                     const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
                     const next_index = self.index + freebsd_entry.d_reclen;
@@ -511,11 +498,9 @@ pub const Dir = struct {
         },
         .linux => struct {
             dir: Dir,
-            buf: [buffer_len]u8,
+            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
             index: usize,
             end_index: usize,
-
-            pub const buffer_len = 8192;
 
             const Self = @This();
 
@@ -524,21 +509,18 @@ pub const Dir = struct {
             pub fn next(self: *Self) !?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
-                        while (true) {
-                            const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
-                            switch (os.linux.getErrno(rc)) {
-                                0 => {},
-                                os.EBADF => unreachable,
-                                os.EFAULT => unreachable,
-                                os.ENOTDIR => unreachable,
-                                os.EINVAL => unreachable,
-                                else => |err| return os.unexpectedErrno(err),
-                            }
-                            if (rc == 0) return null;
-                            self.index = 0;
-                            self.end_index = rc;
-                            break;
+                        const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
+                        switch (os.linux.getErrno(rc)) {
+                            0 => {},
+                            os.EBADF => unreachable,
+                            os.EFAULT => unreachable,
+                            os.ENOTDIR => unreachable,
+                            os.EINVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
                         }
+                        if (rc == 0) return null;
+                        self.index = 0;
+                        self.end_index = rc;
                     }
                     const linux_entry = @ptrCast(*align(1) os.dirent64, &self.buf[self.index]);
                     const next_index = self.index + linux_entry.d_reclen;
@@ -570,12 +552,116 @@ pub const Dir = struct {
         },
         .windows => struct {
             dir: Dir,
-            find_file_data: os.windows.WIN32_FIND_DATAW,
+            buf: [8192]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
+            index: usize,
+            end_index: usize,
             first: bool,
             name_data: [256]u8,
+
+            const Self = @This();
+
+            pub fn next(self: *Self) !?Entry {
+                start_over: while (true) {
+                    const w = os.windows;
+                    if (self.index >= self.end_index) {
+                        var io: w.IO_STATUS_BLOCK = undefined;
+                        //var mask_buf = [2]u16{ 'a', 0 };
+                        //var mask = w.UNICODE_STRING{
+                        //    .Length = 2,
+                        //    .MaximumLength = 2,
+                        //    .Buffer = &mask_buf,
+                        //};
+                        const rc = w.ntdll.NtQueryDirectoryFile(
+                            self.dir.fd,
+                            null,
+                            null,
+                            null,
+                            &io,
+                            &self.buf,
+                            self.buf.len,
+                            .FileBothDirectoryInformation,
+                            w.FALSE,
+                            null,
+                            if (self.first) w.BOOLEAN(w.TRUE) else w.BOOLEAN(w.FALSE),
+                        );
+                        self.first = false;
+                        if (io.Information == 0) return null;
+                        self.index = 0;
+                        self.end_index = io.Information;
+                        switch (rc) {
+                            w.STATUS.SUCCESS => {},
+                            else => return w.unexpectedStatus(rc),
+                        }
+                    }
+
+                    const aligned_ptr = @alignCast(@alignOf(w.FILE_BOTH_DIR_INFORMATION), &self.buf[self.index]);
+                    const dir_info = @ptrCast(*w.FILE_BOTH_DIR_INFORMATION, aligned_ptr);
+                    if (dir_info.NextEntryOffset != 0) {
+                        self.index += dir_info.NextEntryOffset;
+                    } else {
+                        self.index = self.buf.len;
+                    }
+
+                    const name_utf16le = @ptrCast([*]u16, &dir_info.FileName)[0 .. dir_info.FileNameLength / 2];
+
+                    if (mem.eql(u16, name_utf16le, [_]u16{'.'}) or mem.eql(u16, name_utf16le, [_]u16{ '.', '.' }))
+                        continue;
+                    // Trust that Windows gives us valid UTF-16LE
+                    const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
+                    const name_utf8 = self.name_data[0..name_utf8_len];
+                    const kind = blk: {
+                        const attrs = dir_info.FileAttributes;
+                        if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
+                        if (attrs & w.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
+                        break :blk Entry.Kind.File;
+                    };
+                    return Entry{
+                        .name = name_utf8,
+                        .kind = kind,
+                    };
+                }
+            }
         },
         else => @compileError("unimplemented"),
     };
+
+    pub fn iterate(self: Dir) Iterator {
+        switch (builtin.os) {
+            .macosx, .ios, .freebsd, .netbsd => return Iterator{
+                .dir = self,
+                .seek = 0,
+                .index = 0,
+                .end_index = 0,
+                .buf = undefined,
+            },
+            .linux => return Iterator{
+                .dir = self,
+                .index = 0,
+                .end_index = 0,
+                .buf = undefined,
+            },
+            .windows => return Iterator{
+                .dir = self,
+                .index = 0,
+                .end_index = 0,
+                .first = true,
+                .buf = undefined,
+                .name_data = undefined,
+            },
+            else => @compileError("unimplemented"),
+        }
+    }
+
+    /// Returns an open handle to the current working directory.
+    /// Closing the returned `Dir` is checked illegal behavior.
+    /// On POSIX targets, this function is comptime-callable.
+    pub fn cwd() Dir {
+        if (os.windows.is_the_target) {
+            return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+        } else {
+            return Dir{ .fd = os.AT_FDCWD };
+        }
+    }
 
     pub const OpenError = error{
         FileNotFound,
@@ -594,18 +680,15 @@ pub const Dir = struct {
 
     /// Call `close` to free the directory handle.
     pub fn open(dir_path: []const u8) OpenError!Dir {
-        return posix_cwd.openDir(dir_path);
+        return cwd().openDir(dir_path);
     }
 
     /// Same as `open` except the parameter is null-terminated.
     pub fn openC(dir_path_c: [*]const u8) OpenError!Dir {
-        return posix_cwd.openDirC(dir_path_c);
+        return cwd().openDirC(dir_path_c);
     }
 
     pub fn close(self: *Dir) void {
-        if (os.windows.is_the_target) {
-            @panic("TODO");
-        }
         os.close(self.fd);
         self.* = undefined;
     }
@@ -625,14 +708,25 @@ pub const Dir = struct {
 
     /// Call `close` on the result when done.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
+        std.debug.warn("openDir {}\n", sub_path);
+        if (os.windows.is_the_target) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.openDirW(&sub_path_w);
+        }
+
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.openDirC(&sub_path_c);
     }
 
-    /// Call `close` on the result when done.
-    pub fn openDirC(self: Dir, sub_path: [*]const u8) OpenError!Dir {
+    /// Same as `openDir` except the parameter is null-terminated.
+    pub fn openDirC(self: Dir, sub_path_c: [*]const u8) OpenError!Dir {
+        if (os.windows.is_the_target) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.openDirW(&sub_path_w);
+        }
+
         const flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC;
-        const fd = os.openatC(self.fd, sub_path, flags, 0) catch |err| switch (err) {
+        const fd = os.openatC(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
@@ -640,6 +734,79 @@ pub const Dir = struct {
             else => |e| return e,
         };
         return Dir{ .fd = fd };
+    }
+
+    /// Same as `openDir` except the path parameter is UTF16LE, NT-prefixed.
+    /// This function is Windows-only.
+    pub fn openDirW(self: Dir, sub_path_w: [*]const u16) OpenError!Dir {
+        const w = os.windows;
+        var result = Dir{
+            .fd = undefined,
+        };
+        //var mask: ?[*]const u16 = undefined;
+        //var nt_name: w.UNICODE_STRING = undefined;
+        //if (w.ntdll.RtlDosPathNameToNtPathName_U(sub_path_w, &nt_name, null, null) == 0) {
+        //    return error.FileNotFound;
+        //}
+        //defer w.ntdll.RtlFreeUnicodeString(&nt_name);
+        //if (mask) |m| {
+        //    if (m[0] == 0) {
+        //        return error.FileNotFound;
+        //    } else {
+        //        nt_name.Length = @intCast(u16, @ptrToInt(mask) - @ptrToInt(nt_name.Buffer));
+        //    }
+        //} else {
+        //    return error.FileNotFound;
+        //}
+
+        const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
+        std.debug.warn("path_len_bytes = {}\n", path_len_bytes);
+        var nt_name = w.UNICODE_STRING{
+            .Length = path_len_bytes,
+            .MaximumLength = path_len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+        };
+        var attr = w.OBJECT_ATTRIBUTES{
+            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+            .RootDirectory = if (path.isAbsoluteW(sub_path_w)) null else self.fd,
+            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+        std.debug.warn("RootDirectory = {}\n", attr.RootDirectory);
+        var io: w.IO_STATUS_BLOCK = undefined;
+        const wide_slice = nt_name.Buffer[0 .. nt_name.Length / 2];
+        //const wide_slice2 = std.mem.toSliceConst(u16, mask.?);
+        var buf: [200]u8 = undefined;
+        //var buf2: [200]u8 = undefined;
+        const len = std.unicode.utf16leToUtf8(&buf, wide_slice) catch unreachable;
+        //const len2 = std.unicode.utf16leToUtf8(&buf2, wide_slice2) catch unreachable;
+        std.debug.warn("path: {}\n", buf[0..len]);
+        //std.debug.warn("path: {}\nmask: {}\n", buf[0..len], buf2[0..len2]);
+        const rc = w.ntdll.NtCreateFile(
+            &result.fd,
+            w.GENERIC_READ | w.SYNCHRONIZE,
+            &attr,
+            &io,
+            null,
+            0,
+            w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
+            w.FILE_OPEN,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+            null,
+            0,
+        );
+        std.debug.warn("result.fd = {}\n", result.fd);
+        switch (rc) {
+            w.STATUS.SUCCESS => return result,
+            w.STATUS.OBJECT_NAME_INVALID => @panic("openDirW invalid object name"),
+            w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            w.STATUS.INVALID_PARAMETER => {
+                @panic("invalid parameter");
+            },
+            else => return w.unexpectedStatus(rc),
+        }
     }
 
     pub const DeleteFileError = os.UnlinkError;
@@ -677,6 +844,10 @@ pub const Dir = struct {
     /// Returns `error.DirNotEmpty` if the directory is not empty.
     /// To delete a directory recursively, see `deleteTree`.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
+        if (os.windows.is_the_target) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.deleteDirW(&sub_path_w);
+        }
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.deleteDirC(&sub_path_c);
     }
@@ -689,24 +860,25 @@ pub const Dir = struct {
         };
     }
 
-    pub fn iterate(self: Dir) Iterator {
-        switch (builtin.os) {
-            .macosx, .ios, .freebsd, .netbsd => return Iterator{
-                .dir = self,
-                .seek = 0,
-                .index = 0,
-                .end_index = 0,
-                .buf = undefined,
-            },
-            .linux => return Iterator{
-                .dir = self,
-                .index = 0,
-                .end_index = 0,
-                .buf = undefined,
-            },
-            .windows => @panic("TODO"),
-            else => @compileError("unimplemented"),
-        }
+    /// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
+    /// This function is Windows-only.
+    pub fn deleteDirW(self: Dir, sub_path_w: [*]const u16) DeleteDirError!void {
+        os.unlinkatW(self.fd, sub_path_w, os.AT_REMOVEDIR) catch |err| switch (err) {
+            error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+            else => |e| return e,
+        };
+    }
+
+    /// Read value of a symbolic link.
+    /// The return value is a slice of `buffer`, from index `0`.
+    pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.readLinkC(&sub_path_c, buffer);
+    }
+
+    /// Same as `readLink`, except the `pathname` parameter is null-terminated.
+    pub fn readLinkC(self: Dir, sub_path_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+        return os.readlinkatC(self.fd, sub_path_c, buffer);
     }
 
     pub const DeleteTreeError = error{
@@ -953,7 +1125,6 @@ pub const Walker = struct {
 /// Must call `Walker.deinit` when done.
 /// `dir_path` must not end in a path separator.
 /// The order of returned file system entries is undefined.
-/// TODO: https://github.com/ziglang/zig/issues/2888
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
@@ -978,15 +1149,13 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
 
 /// Read value of a symbolic link.
 /// The return value is a slice of buffer, from index `0`.
-/// TODO https://github.com/ziglang/zig/issues/2888
-pub fn readLink(pathname: []const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
+pub fn readLink(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
     return os.readlink(pathname, buffer);
 }
 
-/// Same as `readLink`, except the `pathname` parameter is null-terminated.
-/// TODO https://github.com/ziglang/zig/issues/2888
-pub fn readLinkC(pathname: [*]const u8, buffer: *[os.PATH_MAX]u8) ![]u8 {
-    return os.readlinkC(pathname, buffer);
+/// Same as `readLink`, except the parameter is null-terminated.
+pub fn readLinkC(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+    return os.readlinkC(pathname_c, buffer);
 }
 
 pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError;

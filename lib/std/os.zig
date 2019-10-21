@@ -999,12 +999,20 @@ pub const UnlinkatError = UnlinkError || error{
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return unlinkatW(dirfd, &file_path_w, flags);
+    }
     const file_path_c = try toPosixPath(file_path);
     return unlinkatC(dirfd, &file_path_c, flags);
 }
 
 /// Same as `unlinkat` but `file_path` is a null-terminated string.
 pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatError!void {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
+        return unlinkatW(dirfd, &file_path_w, flags);
+    }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
         0 => return,
         EACCES => return error.AccessDenied,
@@ -1025,6 +1033,56 @@ pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatErro
         EBADF => unreachable, // always a race condition
 
         else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
+pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatError!void {
+    const w = windows;
+
+    const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
+    const create_options_flags = if (want_rmdir_behavior)
+        w.ULONG(w.FILE_DELETE_ON_CLOSE)
+    else
+        w.ULONG(w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+    var nt_name: w.UNICODE_STRING = undefined;
+    if (w.ntdll.RtlDosPathNameToNtPathName_U(sub_path_w, &nt_name, null, null) == 0) {
+        return error.FileNotFound;
+    }
+    defer w.ntdll.RtlFreeUnicodeString(&nt_name);
+
+    var attr = w.OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+        .RootDirectory = dirfd,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: w.IO_STATUS_BLOCK = undefined;
+    var tmp_handle: w.HANDLE = undefined;
+    var rc = w.ntdll.NtCreateFile(
+        &tmp_handle,
+        w.SYNCHRONIZE | w.DELETE,
+        &attr,
+        &io,
+        null,
+        0,
+        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+        w.FILE_OPEN,
+        create_options_flags,
+        null,
+        0,
+    );
+    if (rc == w.STATUS.SUCCESS) {
+        rc = w.ntdll.NtClose(tmp_handle);
+    }
+    switch (rc) {
+        w.STATUS.SUCCESS => return,
+        w.STATUS.OBJECT_NAME_INVALID => unreachable,
+        w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        w.STATUS.INVALID_PARAMETER => unreachable,
+        else => return w.unexpectedStatus(rc),
     }
 }
 
@@ -1272,6 +1330,27 @@ pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
         @compileError("TODO implement readlink for Windows");
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
+    switch (errno(rc)) {
+        0 => return out_buffer[0..@bitCast(usize, rc)],
+        EACCES => return error.AccessDenied,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOTDIR => return error.NotDir,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn readlinkatC(dirfd: fd_t, file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        @compileError("TODO implement readlink for Windows");
+    }
+    const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
         0 => return out_buffer[0..@bitCast(usize, rc)],
         EACCES => return error.AccessDenied,
