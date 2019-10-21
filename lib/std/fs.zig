@@ -37,8 +37,6 @@ pub const MAX_PATH_BYTES = switch (builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const MAX_BUF_BYTES: usize = 8192;
-
 // here we replace the standard +/ with -_ so that it can be used in a file name
 const b64_fs_encoder = base64.Base64Encoder.init("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", base64.standard_pad_char);
 
@@ -337,136 +335,35 @@ pub fn deleteDirW(dir_path: [*]const u16) !void {
     return os.rmdirW(dir_path);
 }
 
-const DeleteTreeError = error{
-    OutOfMemory,
-    AccessDenied,
-    FileTooBig,
-    IsDir,
-    SymLinkLoop,
-    ProcessFdQuotaExceeded,
-    NameTooLong,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    SystemResources,
-    NoSpaceLeft,
-    PathAlreadyExists,
-    ReadOnlyFileSystem,
-    NotDir,
-    FileNotFound,
-    FileSystem,
-    FileBusy,
-    DirNotEmpty,
-    DeviceBusy,
+/// Removes a symlink, file, or directory.
+/// If `full_path` is relative, this is equivalent to `Dir.deleteTree` with the
+/// current working directory as the open directory handle.
+/// If `full_path` is absolute, this is equivalent to `Dir.deleteTree` with the
+/// base directory.
+pub fn deleteTree(full_path: []const u8) !void {
+    if (path.isAbsolute(full_path)) {
+        const dirname = path.dirname(full_path) orelse return error{
+            /// Attempt to remove the root file system path.
+            /// This error is unreachable if `full_path` is relative.
+            CannotDeleteRootDirectory,
+        }.CannotDeleteRootDirectory;
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
+        var dir = try Dir.open(dirname);
+        defer dir.close();
 
-    /// On Windows, file paths cannot contain these characters:
-    /// '/', '*', '?', '"', '<', '>', '|'
-    BadPathName,
-
-    Unexpected,
-};
-
-/// Whether `full_path` describes a symlink, file, or directory, this function
-/// removes it. If it cannot be removed because it is a non-empty directory,
-/// this function recursively removes its entries and then tries again.
-/// TODO determine if we can remove the allocator requirement
-/// https://github.com/ziglang/zig/issues/2886
-pub fn deleteTree(full_path: []const u8) DeleteTreeError!void {
-    start_over: while (true) {
-        var got_access_denied = false;
-        // First, try deleting the item as a file. This way we don't follow sym links.
-        if (deleteFile(full_path)) {
-            return;
-        } else |err| switch (err) {
-            error.FileNotFound => return,
-            error.IsDir => {},
-            error.AccessDenied => got_access_denied = true,
-
-            error.InvalidUtf8,
-            error.SymLinkLoop,
-            error.NameTooLong,
-            error.SystemResources,
-            error.ReadOnlyFileSystem,
-            error.NotDir,
-            error.FileSystem,
-            error.FileBusy,
-            error.BadPathName,
-            error.Unexpected,
-            => return err,
-        }
-        {
-            var dir = Dir.open(full_path) catch |err| switch (err) {
-                error.NotDir => {
-                    if (got_access_denied) {
-                        return error.AccessDenied;
-                    }
-                    continue :start_over;
-                },
-
-                error.OutOfMemory,
-                error.AccessDenied,
-                error.FileTooBig,
-                error.IsDir,
-                error.SymLinkLoop,
-                error.ProcessFdQuotaExceeded,
-                error.NameTooLong,
-                error.SystemFdQuotaExceeded,
-                error.NoDevice,
-                error.FileNotFound,
-                error.SystemResources,
-                error.NoSpaceLeft,
-                error.PathAlreadyExists,
-                error.Unexpected,
-                error.InvalidUtf8,
-                error.BadPathName,
-                error.DeviceBusy,
-                => return err,
-            };
-            defer dir.close();
-
-            while (try dir.next()) |entry| {
-                var full_entry_buf: [MAX_BUF_BYTES]u8 = undefined;
-                const full_entry_path = full_entry_buf[0..];
-                mem.copy(u8, full_entry_path, full_path);
-                full_entry_path[full_path.len] = path.sep;
-                mem.copy(u8, full_entry_path[full_path.len + 1 ..], entry.name);
-
-                try deleteTree(full_entry_path[0..full_path.len + entry.name.len + 1]);
-            }
-        }
-        return deleteDir(full_path);
+        return dir.deleteTree(path.basename(full_path));
+    } else {
+        return Dir.posix_cwd.deleteTree(full_path);
     }
 }
 
-/// TODO: separate this API into the one that opens directory handles to then subsequently open
-/// files, and into the one that reads files from an open directory handle.
 pub const Dir = struct {
-    handle: Handle,
+    fd: os.fd_t,
 
-    pub const Handle = switch (builtin.os) {
-        .macosx, .ios, .freebsd, .netbsd => struct {
-            fd: i32,
-            seek: i64,
-            buf: [MAX_BUF_BYTES]u8,
-            index: usize,
-            end_index: usize,
-        },
-        .linux => struct {
-            fd: i32,
-            buf: [MAX_BUF_BYTES]u8,
-            index: usize,
-            end_index: usize,
-        },
-        .windows => struct {
-            handle: os.windows.HANDLE,
-            find_file_data: os.windows.WIN32_FIND_DATAW,
-            first: bool,
-            name_data: [256]u8,
-        },
-        else => @compileError("unimplemented"),
-    };
+    /// An open handle to the current working directory.
+    /// Closing this directory is safety-checked illegal behavior.
+    /// Not available on Windows.
+    pub const posix_cwd = Dir{ .fd = os.AT_FDCWD };
 
     pub const Entry = struct {
         name: []const u8,
@@ -485,269 +382,504 @@ pub const Dir = struct {
         };
     };
 
+    pub const Iterator = switch (builtin.os) {
+        .macosx, .ios, .freebsd, .netbsd => struct {
+            dir: Dir,
+            seek: i64,
+            buf: [buffer_len]u8,
+            index: usize,
+            end_index: usize,
+
+            pub const buffer_len = 8192;
+
+            const Self = @This();
+
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
+            pub fn next(self: *Self) !?Entry {
+                switch (builtin.os) {
+                    .macosx, .ios => return self.nextDarwin(),
+                    .freebsd, .netbsd => return self.nextBsd(),
+                    else => @compileError("unimplemented"),
+                }
+            }
+
+            fn nextDarwin(self: *Self) !?Entry {
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        while (true) {
+                            const rc = os.system.__getdirentries64(
+                                self.dir.fd,
+                                &self.buf,
+                                self.buf.len,
+                                &self.seek,
+                            );
+                            if (rc == 0) return null;
+                            if (rc < 0) {
+                                switch (os.errno(rc)) {
+                                    os.EBADF => unreachable,
+                                    os.EFAULT => unreachable,
+                                    os.ENOTDIR => unreachable,
+                                    os.EINVAL => unreachable,
+                                    else => |err| return os.unexpectedErrno(err),
+                                }
+                            }
+                            self.index = 0;
+                            self.end_index = @intCast(usize, rc);
+                            break;
+                        }
+                    }
+                    const darwin_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + darwin_entry.d_reclen;
+                    self.index = next_index;
+
+                    const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
+
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                        continue :start_over;
+                    }
+
+                    const entry_kind = switch (darwin_entry.d_type) {
+                        os.DT_BLK => Entry.Kind.BlockDevice,
+                        os.DT_CHR => Entry.Kind.CharacterDevice,
+                        os.DT_DIR => Entry.Kind.Directory,
+                        os.DT_FIFO => Entry.Kind.NamedPipe,
+                        os.DT_LNK => Entry.Kind.SymLink,
+                        os.DT_REG => Entry.Kind.File,
+                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        os.DT_WHT => Entry.Kind.Whiteout,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+
+            fn nextBsd(self: *Self) !?Entry {
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        while (true) {
+                            const rc = os.system.getdirentries(
+                                self.dir.fd,
+                                self.buf[0..].ptr,
+                                self.buf.len,
+                                &self.seek,
+                            );
+                            switch (os.errno(rc)) {
+                                0 => {},
+                                os.EBADF => unreachable,
+                                os.EFAULT => unreachable,
+                                os.ENOTDIR => unreachable,
+                                os.EINVAL => unreachable,
+                                else => |err| return os.unexpectedErrno(err),
+                            }
+                            if (rc == 0) return null;
+                            self.index = 0;
+                            self.end_index = @intCast(usize, rc);
+                            break;
+                        }
+                    }
+                    const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + freebsd_entry.d_reclen;
+                    self.index = next_index;
+
+                    const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
+
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                        continue :start_over;
+                    }
+
+                    const entry_kind = switch (freebsd_entry.d_type) {
+                        os.DT_BLK => Entry.Kind.BlockDevice,
+                        os.DT_CHR => Entry.Kind.CharacterDevice,
+                        os.DT_DIR => Entry.Kind.Directory,
+                        os.DT_FIFO => Entry.Kind.NamedPipe,
+                        os.DT_LNK => Entry.Kind.SymLink,
+                        os.DT_REG => Entry.Kind.File,
+                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        os.DT_WHT => Entry.Kind.Whiteout,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+        },
+        .linux => struct {
+            dir: Dir,
+            buf: [buffer_len]u8,
+            index: usize,
+            end_index: usize,
+
+            pub const buffer_len = 8192;
+
+            const Self = @This();
+
+            /// Memory such as file names referenced in this returned entry becomes invalid
+            /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
+            pub fn next(self: *Self) !?Entry {
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        while (true) {
+                            const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
+                            switch (os.linux.getErrno(rc)) {
+                                0 => {},
+                                os.EBADF => unreachable,
+                                os.EFAULT => unreachable,
+                                os.ENOTDIR => unreachable,
+                                os.EINVAL => unreachable,
+                                else => |err| return os.unexpectedErrno(err),
+                            }
+                            if (rc == 0) return null;
+                            self.index = 0;
+                            self.end_index = rc;
+                            break;
+                        }
+                    }
+                    const linux_entry = @ptrCast(*align(1) os.dirent64, &self.buf[self.index]);
+                    const next_index = self.index + linux_entry.d_reclen;
+                    self.index = next_index;
+
+                    const name = mem.toSlice(u8, @ptrCast([*]u8, &linux_entry.d_name));
+
+                    // skip . and .. entries
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                        continue :start_over;
+                    }
+
+                    const entry_kind = switch (linux_entry.d_type) {
+                        os.DT_BLK => Entry.Kind.BlockDevice,
+                        os.DT_CHR => Entry.Kind.CharacterDevice,
+                        os.DT_DIR => Entry.Kind.Directory,
+                        os.DT_FIFO => Entry.Kind.NamedPipe,
+                        os.DT_LNK => Entry.Kind.SymLink,
+                        os.DT_REG => Entry.Kind.File,
+                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+        },
+        .windows => struct {
+            dir: Dir,
+            find_file_data: os.windows.WIN32_FIND_DATAW,
+            first: bool,
+            name_data: [256]u8,
+        },
+        else => @compileError("unimplemented"),
+    };
+
     pub const OpenError = error{
         FileNotFound,
         NotDir,
         AccessDenied,
-        FileTooBig,
-        IsDir,
         SymLinkLoop,
         ProcessFdQuotaExceeded,
         NameTooLong,
         SystemFdQuotaExceeded,
         NoDevice,
         SystemResources,
-        NoSpaceLeft,
-        PathAlreadyExists,
-        OutOfMemory,
         InvalidUtf8,
         BadPathName,
         DeviceBusy,
+    } || os.UnexpectedError;
 
-        Unexpected,
-    };
-
-    /// Call close when done.
-    /// TODO remove the allocator requirement from this API
-    /// https://github.com/ziglang/zig/issues/2885
+    /// Call `close` to free the directory handle.
     pub fn open(dir_path: []const u8) OpenError!Dir {
-        return Dir{
-            .handle = switch (builtin.os) {
-                .windows => blk: {
-                    var find_file_data: os.windows.WIN32_FIND_DATAW = undefined;
-                    const handle = try os.windows.FindFirstFile(dir_path, &find_file_data);
-                    break :blk Handle{
-                        .handle = handle,
-                        .find_file_data = find_file_data, // TODO guaranteed copy elision
-                        .first = true,
-                        .name_data = undefined,
-                    };
-                },
-                .macosx, .ios, .freebsd, .netbsd => Handle{
-                    .fd = try os.open(dir_path, os.O_RDONLY | os.O_NONBLOCK | os.O_DIRECTORY | os.O_CLOEXEC, 0),
-                    .seek = 0,
-                    .index = 0,
-                    .end_index = 0,
-                    .buf = [_]u8{},
-                },
-                .linux => Handle{
-                    .fd = try os.open(dir_path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, 0),
-                    .index = 0,
-                    .end_index = 0,
-                    .buf = [_]u8{},
-                },
-                else => @compileError("unimplemented"),
-            },
-        };
+        return posix_cwd.openDir(dir_path);
+    }
+
+    /// Same as `open` except the parameter is null-terminated.
+    pub fn openC(dir_path_c: [*]const u8) OpenError!Dir {
+        return posix_cwd.openDirC(dir_path_c);
     }
 
     pub fn close(self: *Dir) void {
         if (os.windows.is_the_target) {
-            return os.windows.FindClose(self.handle.handle);
+            @panic("TODO");
         }
-        os.close(self.handle.fd);
+        os.close(self.fd);
+        self.* = undefined;
     }
 
-    /// Memory such as file names referenced in this returned entry becomes invalid
-    /// with subsequent calls to next, as well as when this `Dir` is deinitialized.
-    pub fn next(self: *Dir) !?Entry {
+    /// Call `File.close` on the result when done.
+    pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+        const path_c = try os.toPosixPath(sub_path);
+        return self.openReadC(&path_c);
+    }
+
+    /// Call `File.close` on the result when done.
+    pub fn openReadC(self: Dir, sub_path: [*]const u8) File.OpenError!File {
+        const flags = os.O_LARGEFILE | os.O_RDONLY;
+        const fd = try os.openatC(self.fd, sub_path, flags, 0);
+        return File.openHandle(fd);
+    }
+
+    /// Call `close` on the result when done.
+    pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.openDirC(&sub_path_c);
+    }
+
+    /// Call `close` on the result when done.
+    pub fn openDirC(self: Dir, sub_path: [*]const u8) OpenError!Dir {
+        const flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC;
+        const fd = os.openatC(self.fd, sub_path, flags, 0) catch |err| switch (err) {
+            error.FileTooBig => unreachable, // can't happen for directories
+            error.IsDir => unreachable, // we're providing O_DIRECTORY
+            error.NoSpaceLeft => unreachable, // not providing O_CREAT
+            error.PathAlreadyExists => unreachable, // not providing O_CREAT
+            else => |e| return e,
+        };
+        return Dir{ .fd = fd };
+    }
+
+    pub const DeleteFileError = os.UnlinkError;
+
+    /// Delete a file name and possibly the file it refers to, based on an open directory handle.
+    pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.deleteFileC(&sub_path_c);
+    }
+
+    /// Same as `deleteFile` except the parameter is null-terminated.
+    pub fn deleteFileC(self: Dir, sub_path_c: [*]const u8) DeleteFileError!void {
+        os.unlinkatC(self.fd, sub_path_c, 0) catch |err| switch (err) {
+            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            else => |e| return e,
+        };
+    }
+
+    pub const DeleteDirError = error{
+        DirNotEmpty,
+        FileNotFound,
+        AccessDenied,
+        FileBusy,
+        FileSystem,
+        SymLinkLoop,
+        NameTooLong,
+        NotDir,
+        SystemResources,
+        ReadOnlyFileSystem,
+        InvalidUtf8,
+        BadPathName,
+        Unexpected,
+    };
+
+    /// Returns `error.DirNotEmpty` if the directory is not empty.
+    /// To delete a directory recursively, see `deleteTree`.
+    pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.deleteDirC(&sub_path_c);
+    }
+
+    /// Same as `deleteDir` except the parameter is null-terminated.
+    pub fn deleteDirC(self: Dir, sub_path_c: [*]const u8) DeleteDirError!void {
+        os.unlinkatC(self.fd, sub_path_c, os.AT_REMOVEDIR) catch |err| switch (err) {
+            error.IsDir => unreachable, // not possible since we pass AT_REMOVEDIR
+            else => |e| return e,
+        };
+    }
+
+    pub fn iterate(self: Dir) Iterator {
         switch (builtin.os) {
-            .linux => return self.nextLinux(),
-            .macosx, .ios => return self.nextDarwin(),
-            .windows => return self.nextWindows(),
-            .freebsd => return self.nextBsd(),
-            .netbsd => return self.nextBsd(),
+            .macosx, .ios, .freebsd, .netbsd => return Iterator{
+                .dir = self,
+                .seek = 0,
+                .index = 0,
+                .end_index = 0,
+                .buf = undefined,
+            },
+            .linux => return Iterator{
+                .dir = self,
+                .index = 0,
+                .end_index = 0,
+                .buf = undefined,
+            },
+            .windows => @panic("TODO"),
             else => @compileError("unimplemented"),
         }
     }
 
-    pub fn openRead(self: Dir, file_path: []const u8) os.OpenError!File {
-        const path_c = try os.toPosixPath(file_path);
-        return self.openReadC(&path_c);
-    }
+    pub const DeleteTreeError = error{
+        AccessDenied,
+        FileTooBig,
+        SymLinkLoop,
+        ProcessFdQuotaExceeded,
+        NameTooLong,
+        SystemFdQuotaExceeded,
+        NoDevice,
+        SystemResources,
+        ReadOnlyFileSystem,
+        FileSystem,
+        FileBusy,
+        DeviceBusy,
 
-    pub fn openReadC(self: Dir, file_path: [*]const u8) OpenError!File {
-        const flags = os.O_LARGEFILE | os.O_RDONLY;
-        const fd = try os.openatC(self.handle.fd, file_path, flags, 0);
-        return File.openHandle(fd);
-    }
+        /// One of the path components was not a directory.
+        /// This error is unreachable if `sub_path` does not contain a path separator.
+        NotDir,
 
-    fn nextDarwin(self: *Dir) !?Entry {
+        /// On Windows, file paths must be valid Unicode.
+        InvalidUtf8,
+
+        /// On Windows, file paths cannot contain these characters:
+        /// '/', '*', '?', '"', '<', '>', '|'
+        BadPathName,
+    } || os.UnexpectedError;
+
+    /// Whether `full_path` describes a symlink, file, or directory, this function
+    /// removes it. If it cannot be removed because it is a non-empty directory,
+    /// this function recursively removes its entries and then tries again.
+    /// This operation is not atomic on most file systems.
+    pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
         start_over: while (true) {
-            if (self.handle.index >= self.handle.end_index) {
-                while (true) {
-                    const rc = os.system.__getdirentries64(
-                        self.handle.fd,
-                        self.handle.buf[0..].ptr,
-                        self.handle.buf.len,
-                        &self.handle.seek,
-                    );
-                    if (rc == 0) return null;
-                    if (rc < 0) {
-                        switch (os.errno(rc)) {
-                            os.EBADF => unreachable,
-                            os.EFAULT => unreachable,
-                            os.ENOTDIR => unreachable,
-                            os.EINVAL => unreachable,
-                            else => |err| return os.unexpectedErrno(err),
-                        }
+            var got_access_denied = false;
+            // First, try deleting the item as a file. This way we don't follow sym links.
+            if (self.deleteFile(sub_path)) {
+                return;
+            } else |err| switch (err) {
+                error.FileNotFound => return,
+                error.IsDir => {},
+                error.AccessDenied => got_access_denied = true,
+
+                error.InvalidUtf8,
+                error.SymLinkLoop,
+                error.NameTooLong,
+                error.SystemResources,
+                error.ReadOnlyFileSystem,
+                error.NotDir,
+                error.FileSystem,
+                error.FileBusy,
+                error.BadPathName,
+                error.Unexpected,
+                => |e| return e,
+            }
+            var dir = self.openDir(sub_path) catch |err| switch (err) {
+                error.NotDir => {
+                    if (got_access_denied) {
+                        return error.AccessDenied;
                     }
-                    self.handle.index = 0;
-                    self.handle.end_index = @intCast(usize, rc);
-                    break;
+                    continue :start_over;
+                },
+                error.FileNotFound => {
+                    // That's fine, we were trying to remove this directory anyway.
+                    continue :start_over;
+                },
+
+                error.AccessDenied,
+                error.SymLinkLoop,
+                error.ProcessFdQuotaExceeded,
+                error.NameTooLong,
+                error.SystemFdQuotaExceeded,
+                error.NoDevice,
+                error.SystemResources,
+                error.Unexpected,
+                error.InvalidUtf8,
+                error.BadPathName,
+                error.DeviceBusy,
+                => |e| return e,
+            };
+            var cleanup_dir_parent: ?Dir = null;
+            defer if (cleanup_dir_parent) |*d| d.close();
+
+            var cleanup_dir = true;
+            defer if (cleanup_dir) dir.close();
+
+            var dir_name_buf: [MAX_PATH_BYTES]u8 = undefined;
+            var dir_name: []const u8 = sub_path;
+            var parent_dir = self;
+
+            // Here we must avoid recursion, in order to provide O(1) memory guarantee of this function.
+            // Go through each entry and if it is not a directory, delete it. If it is a directory,
+            // open it, and close the original directory. Repeat. Then start the entire operation over.
+
+            scan_dir: while (true) {
+                var dir_it = dir.iterate();
+                while (try dir_it.next()) |entry| {
+                    if (dir.deleteFile(entry.name)) {
+                        continue;
+                    } else |err| switch (err) {
+                        error.FileNotFound => continue,
+
+                        // Impossible because we do not pass any path separators.
+                        error.NotDir => unreachable,
+
+                        error.IsDir => {},
+                        error.AccessDenied => got_access_denied = true,
+
+                        error.InvalidUtf8,
+                        error.SymLinkLoop,
+                        error.NameTooLong,
+                        error.SystemResources,
+                        error.ReadOnlyFileSystem,
+                        error.FileSystem,
+                        error.FileBusy,
+                        error.BadPathName,
+                        error.Unexpected,
+                        => |e| return e,
+                    }
+
+                    const new_dir = dir.openDir(entry.name) catch |err| switch (err) {
+                        error.NotDir => {
+                            if (got_access_denied) {
+                                return error.AccessDenied;
+                            }
+                            continue :scan_dir;
+                        },
+                        error.FileNotFound => {
+                            // That's fine, we were trying to remove this directory anyway.
+                            continue :scan_dir;
+                        },
+
+                        error.AccessDenied,
+                        error.SymLinkLoop,
+                        error.ProcessFdQuotaExceeded,
+                        error.NameTooLong,
+                        error.SystemFdQuotaExceeded,
+                        error.NoDevice,
+                        error.SystemResources,
+                        error.Unexpected,
+                        error.InvalidUtf8,
+                        error.BadPathName,
+                        error.DeviceBusy,
+                        => |e| return e,
+                    };
+                    if (cleanup_dir_parent) |*d| d.close();
+                    cleanup_dir_parent = dir;
+                    dir = new_dir;
+                    mem.copy(u8, &dir_name_buf, entry.name);
+                    dir_name = dir_name_buf[0..entry.name.len];
+                    continue :scan_dir;
+                }
+                // Reached the end of the directory entries, which means we successfully deleted all of them.
+                // Now to remove the directory itself.
+                dir.close();
+                cleanup_dir = false;
+
+                if (cleanup_dir_parent) |d| {
+                    d.deleteDir(dir_name) catch |err| switch (err) {
+                        // These two things can happen due to file system race conditions.
+                        error.FileNotFound, error.DirNotEmpty => continue :start_over,
+                        else => |e| return e,
+                    };
+                    continue :start_over;
+                } else {
+                    self.deleteDir(sub_path) catch |err| switch (err) {
+                        error.FileNotFound => return,
+                        error.DirNotEmpty => continue :start_over,
+                        else => |e| return e,
+                    };
+                    return;
                 }
             }
-            const darwin_entry = @ptrCast(*align(1) os.dirent, &self.handle.buf[self.handle.index]);
-            const next_index = self.handle.index + darwin_entry.d_reclen;
-            self.handle.index = next_index;
-
-            const name = @ptrCast([*]u8, &darwin_entry.d_name)[0..darwin_entry.d_namlen];
-
-            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
-                continue :start_over;
-            }
-
-            const entry_kind = switch (darwin_entry.d_type) {
-                os.DT_BLK => Entry.Kind.BlockDevice,
-                os.DT_CHR => Entry.Kind.CharacterDevice,
-                os.DT_DIR => Entry.Kind.Directory,
-                os.DT_FIFO => Entry.Kind.NamedPipe,
-                os.DT_LNK => Entry.Kind.SymLink,
-                os.DT_REG => Entry.Kind.File,
-                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                os.DT_WHT => Entry.Kind.Whiteout,
-                else => Entry.Kind.Unknown,
-            };
-            return Entry{
-                .name = name,
-                .kind = entry_kind,
-            };
-        }
-    }
-
-    fn nextWindows(self: *Dir) !?Entry {
-        while (true) {
-            if (self.handle.first) {
-                self.handle.first = false;
-            } else {
-                if (!try os.windows.FindNextFile(self.handle.handle, &self.handle.find_file_data))
-                    return null;
-            }
-            const name_utf16le = mem.toSlice(u16, self.handle.find_file_data.cFileName[0..].ptr);
-            if (mem.eql(u16, name_utf16le, [_]u16{'.'}) or mem.eql(u16, name_utf16le, [_]u16{ '.', '.' }))
-                continue;
-            // Trust that Windows gives us valid UTF-16LE
-            const name_utf8_len = std.unicode.utf16leToUtf8(self.handle.name_data[0..], name_utf16le) catch unreachable;
-            const name_utf8 = self.handle.name_data[0..name_utf8_len];
-            const kind = blk: {
-                const attrs = self.handle.find_file_data.dwFileAttributes;
-                if (attrs & os.windows.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
-                if (attrs & os.windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                break :blk Entry.Kind.File;
-            };
-            return Entry{
-                .name = name_utf8,
-                .kind = kind,
-            };
-        }
-    }
-
-    fn nextLinux(self: *Dir) !?Entry {
-        start_over: while (true) {
-            if (self.handle.index >= self.handle.end_index) {
-                while (true) {
-                    const rc = os.linux.getdents64(self.handle.fd, self.handle.buf[0..].ptr, self.handle.buf.len);
-                    switch (os.linux.getErrno(rc)) {
-                        0 => {},
-                        os.EBADF => unreachable,
-                        os.EFAULT => unreachable,
-                        os.ENOTDIR => unreachable,
-                        os.EINVAL => unreachable,
-                        else => |err| return os.unexpectedErrno(err),
-                    }
-                    if (rc == 0) return null;
-                    self.handle.index = 0;
-                    self.handle.end_index = rc;
-                    break;
-                }
-            }
-            const linux_entry = @ptrCast(*align(1) os.dirent64, &self.handle.buf[self.handle.index]);
-            const next_index = self.handle.index + linux_entry.d_reclen;
-            self.handle.index = next_index;
-
-            const name = mem.toSlice(u8, @ptrCast([*]u8, &linux_entry.d_name));
-
-            // skip . and .. entries
-            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
-                continue :start_over;
-            }
-
-            const entry_kind = switch (linux_entry.d_type) {
-                os.DT_BLK => Entry.Kind.BlockDevice,
-                os.DT_CHR => Entry.Kind.CharacterDevice,
-                os.DT_DIR => Entry.Kind.Directory,
-                os.DT_FIFO => Entry.Kind.NamedPipe,
-                os.DT_LNK => Entry.Kind.SymLink,
-                os.DT_REG => Entry.Kind.File,
-                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                else => Entry.Kind.Unknown,
-            };
-            return Entry{
-                .name = name,
-                .kind = entry_kind,
-            };
-        }
-    }
-
-    fn nextBsd(self: *Dir) !?Entry {
-        start_over: while (true) {
-            if (self.handle.index >= self.handle.end_index) {
-                while (true) {
-                    const rc = os.system.getdirentries(
-                        self.handle.fd,
-                        self.handle.buf[0..].ptr,
-                        self.handle.buf.len,
-                        &self.handle.seek,
-                    );
-                    switch (os.errno(rc)) {
-                        0 => {},
-                        os.EBADF => unreachable,
-                        os.EFAULT => unreachable,
-                        os.ENOTDIR => unreachable,
-                        os.EINVAL => unreachable,
-                        else => |err| return os.unexpectedErrno(err),
-                    }
-                    if (rc == 0) return null;
-                    self.handle.index = 0;
-                    self.handle.end_index = @intCast(usize, rc);
-                    break;
-                }
-            }
-            const freebsd_entry = @ptrCast(*align(1) os.dirent, &self.handle.buf[self.handle.index]);
-            const next_index = self.handle.index + freebsd_entry.d_reclen;
-            self.handle.index = next_index;
-
-            const name = @ptrCast([*]u8, &freebsd_entry.d_name)[0..freebsd_entry.d_namlen];
-
-            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
-                continue :start_over;
-            }
-
-            const entry_kind = switch (freebsd_entry.d_type) {
-                os.DT_BLK => Entry.Kind.BlockDevice,
-                os.DT_CHR => Entry.Kind.CharacterDevice,
-                os.DT_DIR => Entry.Kind.Directory,
-                os.DT_FIFO => Entry.Kind.NamedPipe,
-                os.DT_LNK => Entry.Kind.SymLink,
-                os.DT_REG => Entry.Kind.File,
-                os.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                os.DT_WHT => Entry.Kind.Whiteout,
-                else => Entry.Kind.Unknown,
-            };
-            return Entry{
-                .name = name,
-                .kind = entry_kind,
-            };
         }
     }
 };
@@ -757,13 +889,18 @@ pub const Walker = struct {
     name_buffer: std.Buffer,
 
     pub const Entry = struct {
-        path: []const u8,
+        /// The containing directory. This can be used to operate directly on `basename`
+        /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
+        /// The directory remains open until `next` or `deinit` is called.
+        dir: Dir,
         basename: []const u8,
+
+        path: []const u8,
         kind: Dir.Entry.Kind,
     };
 
     const StackItem = struct {
-        dir_it: Dir,
+        dir_it: Dir.Iterator,
         dirname_len: usize,
     };
 
@@ -781,23 +918,26 @@ pub const Walker = struct {
                 try self.name_buffer.appendByte(path.sep);
                 try self.name_buffer.append(base.name);
                 if (base.kind == .Directory) {
-                    // TODO https://github.com/ziglang/zig/issues/2888
-                    var new_dir = try Dir.open(self.name_buffer.toSliceConst());
+                    var new_dir = top.dir_it.dir.openDir(base.name) catch |err| switch (err) {
+                        error.NameTooLong => unreachable, // no path sep in base.name
+                        else => |e| return e,
+                    };
                     {
                         errdefer new_dir.close();
                         try self.stack.append(StackItem{
-                            .dir_it = new_dir,
+                            .dir_it = new_dir.iterate(),
                             .dirname_len = self.name_buffer.len(),
                         });
                     }
                 }
                 return Entry{
+                    .dir = top.dir_it.dir,
                     .basename = self.name_buffer.toSliceConst()[dirname_len + 1 ..],
                     .path = self.name_buffer.toSliceConst(),
                     .kind = base.kind,
                 };
             } else {
-                self.stack.pop().dir_it.close();
+                self.stack.pop().dir_it.dir.close();
             }
         }
     }
@@ -812,12 +952,13 @@ pub const Walker = struct {
 /// Recursively iterates over a directory.
 /// Must call `Walker.deinit` when done.
 /// `dir_path` must not end in a path separator.
+/// The order of returned file system entries is undefined.
 /// TODO: https://github.com/ziglang/zig/issues/2888
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
-    var dir_it = try Dir.open(dir_path);
-    errdefer dir_it.close();
+    var dir = try Dir.open(dir_path);
+    errdefer dir.close();
 
     var name_buffer = try std.Buffer.init(allocator, dir_path);
     errdefer name_buffer.deinit();
@@ -828,7 +969,7 @@ pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     };
 
     try walker.stack.append(Walker.StackItem{
-        .dir_it = dir_it,
+        .dir_it = dir.iterate(),
         .dirname_len = dir_path.len,
     });
 

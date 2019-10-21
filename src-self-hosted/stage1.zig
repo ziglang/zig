@@ -286,8 +286,10 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
             var dir = try fs.Dir.open(file_path);
             defer dir.close();
 
-            while (try dir.next()) |entry| {
-                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+            var dir_it = dir.iterate();
+
+            while (try dir_it.next()) |entry| {
+                if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
                     try fmtPath(fmt, full_path, check_mode);
                 }

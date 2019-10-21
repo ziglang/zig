@@ -529,22 +529,36 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
 
 pub const OpenError = error{
     AccessDenied,
-    FileTooBig,
-    IsDir,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
-    NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
     FileNotFound,
+
+    /// The path exceeded `MAX_PATH_BYTES` bytes.
+    NameTooLong,
 
     /// Insufficient kernel memory was available, or
     /// the named file is a FIFO and per-user hard limit on
     /// memory allocation for pipes has been reached.
     SystemResources,
 
+    /// The file is too large to be opened. This error is unreachable
+    /// for 64-bit targets, as well as when opening directories.
+    FileTooBig,
+
+    /// The path refers to directory but the `O_DIRECTORY` flag was not provided.
+    IsDir,
+
+    /// A new path cannot be created because the device has no room for the new file.
+    /// This error is only reachable when the `O_CREAT` flag is provided.
     NoSpaceLeft,
+
+    /// A component used as a directory in the path was not, in fact, a directory, or
+    /// `O_DIRECTORY` was specified and the path was not a directory.
     NotDir,
+
+    /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
 } || UnexpectedError;
@@ -974,6 +988,42 @@ pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
         ENOTDIR => return error.NotDir,
         ENOMEM => return error.SystemResources,
         EROFS => return error.ReadOnlyFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const UnlinkatError = UnlinkError || error{
+    /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
+    DirNotEmpty,
+};
+
+/// Delete a file name and possibly the file it refers to, based on an open directory handle.
+pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
+    const file_path_c = try toPosixPath(file_path);
+    return unlinkatC(dirfd, &file_path_c, flags);
+}
+
+/// Same as `unlinkat` but `file_path` is a null-terminated string.
+pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatError!void {
+    switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
+        EBUSY => return error.FileBusy,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        EISDIR => return error.IsDir,
+        ELOOP => return error.SymLinkLoop,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.NotDir,
+        ENOMEM => return error.SystemResources,
+        EROFS => return error.ReadOnlyFileSystem,
+        ENOTEMPTY => return error.DirNotEmpty,
+
+        EINVAL => unreachable, // invalid flags, or pathname has . as last component
+        EBADF => unreachable, // always a race condition
+
         else => |err| return unexpectedErrno(err),
     }
 }
