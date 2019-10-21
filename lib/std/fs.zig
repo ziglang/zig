@@ -590,6 +590,7 @@ pub const Dir = struct {
                         self.end_index = io.Information;
                         switch (rc) {
                             w.STATUS.SUCCESS => {},
+                            w.STATUS.ACCESS_DENIED => return error.AccessDenied,
                             else => return w.unexpectedStatus(rc),
                         }
                     }
@@ -708,7 +709,7 @@ pub const Dir = struct {
 
     /// Call `close` on the result when done.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
-        std.debug.warn("openDir {}\n", sub_path);
+        // std.debug.warn("openDir {}\n", sub_path);
         if (os.windows.is_the_target) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirW(&sub_path_w);
@@ -740,9 +741,26 @@ pub const Dir = struct {
     /// This function is Windows-only.
     pub fn openDirW(self: Dir, sub_path_w: [*]const u16) OpenError!Dir {
         const w = os.windows;
+
         var result = Dir{
             .fd = undefined,
         };
+
+        const desired_access = w.GENERIC_READ | w.SYNCHRONIZE;
+
+        // if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        //     // Windows gives me STATUS_OBJECT_NAME_INVALID with "." as the object name.
+
+        //     if (w.kernel32.DuplicateHandle(w.self_process_handle, self.fd, w.self_process_handle, &result.fd, desired_access, w.TRUE, 0) == 0) {
+        //         switch (w.kernel32.GetLastError()) {
+        //             else => |err| return w.unexpectedError(err),
+        //         }
+
+        //         @panic("handle DuplicateHandle error");
+        //     }
+        //     return result;
+        // }
+
         //var mask: ?[*]const u16 = undefined;
         //var nt_name: w.UNICODE_STRING = undefined;
         //if (w.ntdll.RtlDosPathNameToNtPathName_U(sub_path_w, &nt_name, null, null) == 0) {
@@ -760,7 +778,7 @@ pub const Dir = struct {
         //}
 
         const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
-        std.debug.warn("path_len_bytes = {}\n", path_len_bytes);
+        // std.debug.warn("path_len_bytes = {}\n", path_len_bytes);
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
@@ -774,7 +792,11 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        std.debug.warn("RootDirectory = {}\n", attr.RootDirectory);
+        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+            // Windows does not recognize this, but it does work with empty string.
+            nt_name.Length = 0;
+        }
+        // std.debug.warn("RootDirectory = {}\n", attr.RootDirectory);
         var io: w.IO_STATUS_BLOCK = undefined;
         const wide_slice = nt_name.Buffer[0 .. nt_name.Length / 2];
         //const wide_slice2 = std.mem.toSliceConst(u16, mask.?);
@@ -782,11 +804,11 @@ pub const Dir = struct {
         //var buf2: [200]u8 = undefined;
         const len = std.unicode.utf16leToUtf8(&buf, wide_slice) catch unreachable;
         //const len2 = std.unicode.utf16leToUtf8(&buf2, wide_slice2) catch unreachable;
-        std.debug.warn("path: {}\n", buf[0..len]);
+        // std.debug.warn("path: {}\n", buf[0..len]);
         //std.debug.warn("path: {}\nmask: {}\n", buf[0..len], buf2[0..len2]);
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
-            w.GENERIC_READ | w.SYNCHRONIZE,
+            desired_access,
             &attr,
             &io,
             null,
@@ -797,11 +819,12 @@ pub const Dir = struct {
             null,
             0,
         );
-        std.debug.warn("result.fd = {}\n", result.fd);
+        // std.debug.warn("result.fd = {}\n", result.fd);
         switch (rc) {
             w.STATUS.SUCCESS => return result,
             w.STATUS.OBJECT_NAME_INVALID => @panic("openDirW invalid object name"),
             w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            w.STATUS.OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
             w.STATUS.INVALID_PARAMETER => {
                 @panic("invalid parameter");
             },

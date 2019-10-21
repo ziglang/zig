@@ -20,6 +20,8 @@ pub const shell32 = @import("windows/shell32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
+pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
+
 /// `builtin` is missing `subsystem` when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
 /// used rather than `builtin.subsystem`.
@@ -898,7 +900,7 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS={}\n", status);
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", status);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

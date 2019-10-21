@@ -872,3 +872,5 @@ pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
     Handle: HANDLE,
 };
+
+pub const DUPLICATE_SAME_ACCESS = 2;
