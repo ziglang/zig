@@ -128,6 +128,10 @@ pub const dirent = extern struct {
     d_type: u8,
     d_off: i64,
     d_name: [512]u8,
+
+    pub fn reclen(self: dirent) usize {
+        return self.d_reclen;
+    }
 };
 
 pub const in_port_t = u16;

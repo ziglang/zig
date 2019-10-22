@@ -119,6 +119,10 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_type: u8,
     d_name: u8, // field address is address of first byte of name
+
+    pub fn reclen(self: dirent) usize {
+        return self.d_reclen;
+    }
 };
 
 pub const pthread_attr_t = extern struct {
