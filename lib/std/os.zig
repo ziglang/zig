@@ -1476,17 +1476,46 @@ pub const AcceptError = error{
     BlockedByFirewall,
 } || UnexpectedError;
 
-/// Accept a connection on a socket. `fd` must be opened in blocking mode.
-/// See also `accept4_async`.
-pub fn accept4(fd: i32, addr: *sockaddr, addrSize: *usize, flags: u32) AcceptError!i32 {
+/// Accept a connection on a socket.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+pub fn accept4(
+    /// This argument is a socket that has been created with `socket`, bound to a local address
+    /// with `bind`, and is listening for connections after a `listen`.
+    sockfd: i32,
+    /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
+    /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
+    /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
+    /// respective  protocol  man  pages).
+    addr: *sockaddr,
+    /// This argument is a value-result argument: the caller must initialize it to contain  the
+    /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
+    /// of the peer address.
+    ///
+    /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
+    /// will return a value greater than was supplied to the call.
+    addr_size: *usize,
+    /// If  flags  is  0, then `accept4` is the same as `accept`.  The following values can be bitwise
+    /// ORed in flags to obtain different behavior:
+    /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
+    ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
+    ///   the same result.
+    /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
+    ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+    flags: u32,
+) AcceptError!i32 {
     while (true) {
-        const rc = system.accept4(fd, addr, addrSize, flags);
+        const rc = system.accept4(sockfd, addr, addr_size, flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
-            else => |err| return unexpectedErrno(err),
 
-            EAGAIN => unreachable, // This function is for blocking only.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(sockfd) catch return error.WouldBlock;
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // always a race condition
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
@@ -1499,33 +1528,8 @@ pub fn accept4(fd: i32, addr: *sockaddr, addrSize: *usize, flags: u32) AcceptErr
             EOPNOTSUPP => return error.OperationNotSupported,
             EPROTO => return error.ProtocolFailure,
             EPERM => return error.BlockedByFirewall,
-        }
-    }
-}
 
-/// This is the same as `accept4` except `fd` is expected to be non-blocking.
-/// Returns -1 if would block.
-pub fn accept4_async(fd: i32, addr: *sockaddr, addrSize: *usize, flags: u32) AcceptError!i32 {
-    while (true) {
-        const rc = system.accept4(fd, addr, addrSize, flags);
-        switch (errno(rc)) {
-            0 => return @intCast(i32, rc),
-            EINTR => continue,
             else => |err| return unexpectedErrno(err),
-
-            EAGAIN => return -1,
-            EBADF => unreachable, // always a race condition
-            ECONNABORTED => return error.ConnectionAborted,
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            ENFILE => return error.SystemFdQuotaExceeded,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            ENOTSOCK => return error.FileDescriptorNotASocket,
-            EOPNOTSUPP => return error.OperationNotSupported,
-            EPROTO => return error.ProtocolFailure,
-            EPERM => return error.BlockedByFirewall,
         }
     }
 }
