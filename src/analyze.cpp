@@ -120,6 +120,12 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
     }
 }
 
+static void update_progress_display(CodeGen *g) {
+    stage2_progress_update_node(g->sub_progress_node, 
+        g->resolve_queue_index + g->fn_defs_index,
+        g->resolve_queue.length + g->fn_defs.length);
+}
+
 ScopeDecls *get_container_scope(ZigType *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
@@ -3939,6 +3945,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, AstNode *source_node, bool all
         return;
 
     tld->resolution = TldResolutionResolving;
+    update_progress_display(g);
 
     switch (tld->id) {
         case TldIdVar: {
@@ -4592,6 +4599,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
         return;
 
     fn_table_entry->anal_state = FnAnalStateProbing;
+    update_progress_display(g);
 
     AstNode *return_type_node = (fn_table_entry->proto_node != nullptr) ?
         fn_table_entry->proto_node->data.fn_proto.return_type : fn_table_entry->fndef_scope->base.source_node;

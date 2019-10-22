@@ -7303,8 +7303,12 @@ static void do_code_gen(CodeGen *g) {
     }
 
     // Generate function definitions.
+    stage2_progress_update_node(g->sub_progress_node, 0, g->fn_defs.length);
     for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         ZigFn *fn_table_entry = g->fn_defs.at(fn_i);
+        Stage2ProgressNode *fn_prog_node = stage2_progress_start(g->sub_progress_node,
+                buf_ptr(&fn_table_entry->symbol_name), buf_len(&fn_table_entry->symbol_name), 0);
+
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         CallingConvention cc = fn_type_id->cc;
         bool is_c_abi = cc == CallingConventionC;
@@ -7568,6 +7572,7 @@ static void do_code_gen(CodeGen *g) {
 
         ir_render(g, fn_table_entry);
 
+        stage2_progress_end(fn_prog_node);
     }
 
     assert(!g->errors.length);
@@ -7615,7 +7620,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
             if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
                 (g->out_type == OutTypeLib && !g->is_dynamic)))
             {
-                zig_link_add_compiler_rt(g, g->progress_node);
+                zig_link_add_compiler_rt(g, g->sub_progress_node);
             }
             break;
 
@@ -9458,7 +9463,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
 }
 
 // returns true if it was a cache miss
-static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file, Stage2ProgressNode *parent_prog_node) {
+static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
 
     Buf *artifact_dir;
@@ -9470,7 +9475,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file, Stage2Pr
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
 
-    Stage2ProgressNode *child_prog_node = stage2_progress_start(parent_prog_node, buf_ptr(c_source_basename),
+    Stage2ProgressNode *child_prog_node = stage2_progress_start(g->sub_progress_node, buf_ptr(c_source_basename),
             buf_len(c_source_basename), 0);
 
     Buf *final_o_basename = buf_alloc();
@@ -9606,17 +9611,15 @@ static void gen_c_objects(CodeGen *g) {
         exit(1);
     }
 
-    codegen_add_time_event(g, "Compile C Code");
-    const char *c_prog_name = "compiling C objects";
-    Stage2ProgressNode *c_prog_node = stage2_progress_start(g->progress_node, c_prog_name, strlen(c_prog_name),
-            g->c_source_files.length);
+    codegen_add_time_event(g, "Compile C Objects");
+    const char *c_prog_name = "Compile C Objects";
+    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node, c_prog_name, strlen(c_prog_name),
+            g->c_source_files.length));
 
     for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
         CFile *c_file = g->c_source_files.at(c_file_i);
-        gen_c_object(g, self_exe_path, c_file, c_prog_node);
+        gen_c_object(g, self_exe_path, c_file);
     }
-
-    stage2_progress_end(c_prog_node);
 }
 
 void codegen_add_object(CodeGen *g, Buf *object_path) {
@@ -10337,9 +10340,8 @@ void codegen_build_and_link(CodeGen *g) {
 
             codegen_add_time_event(g, "Semantic Analysis");
             const char *progress_name = "Semantic Analysis";
-            Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                    progress_name, strlen(progress_name), 0);
-            (void)child_progress_node;
+            codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                    progress_name, strlen(progress_name), 0));
 
             gen_root_source(g);
 
@@ -10365,18 +10367,16 @@ void codegen_build_and_link(CodeGen *g) {
             codegen_add_time_event(g, "Code Generation");
             {
                 const char *progress_name = "Code Generation";
-                Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                        progress_name, strlen(progress_name), 0);
-                (void)child_progress_node;
+                codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                        progress_name, strlen(progress_name), 0));
             }
 
             do_code_gen(g);
             codegen_add_time_event(g, "LLVM Emit Output");
             {
                 const char *progress_name = "LLVM Emit Output";
-                Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                        progress_name, strlen(progress_name), 0);
-                (void)child_progress_node;
+                codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                        progress_name, strlen(progress_name), 0));
             }
             zig_llvm_emit_output(g);
 
@@ -10384,9 +10384,8 @@ void codegen_build_and_link(CodeGen *g) {
                 codegen_add_time_event(g, "Generate .h");
                 {
                     const char *progress_name = "Generate .h";
-                    Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                            progress_name, strlen(progress_name), 0);
-                    (void)child_progress_node;
+                    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                            progress_name, strlen(progress_name), 0));
                 }
                 gen_h_file(g);
             }
@@ -10458,6 +10457,7 @@ void codegen_build_and_link(CodeGen *g) {
 
     codegen_release_caches(g);
     codegen_add_time_event(g, "Done");
+    codegen_switch_sub_prog_node(g, nullptr);
 }
 
 void codegen_release_caches(CodeGen *g) {
@@ -10487,7 +10487,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
         ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *parent_progress_node)
 {
     Stage2ProgressNode *child_progress_node = stage2_progress_start(
-            parent_progress_node ? parent_progress_node : parent_gen->progress_node,
+            parent_progress_node ? parent_progress_node : parent_gen->sub_progress_node,
             name, strlen(name), 0);
 
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
@@ -10524,9 +10524,14 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node)
 {
     CodeGen *g = allocate<CodeGen>(1);
-    g->progress_node = progress_node;
+    g->main_progress_node = progress_node;
 
     codegen_add_time_event(g, "Initialize");
+    {
+        const char *progress_name = "Initialize";
+        codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                progress_name, strlen(progress_name), 0));
+    }
 
     g->subsystem = TargetSubsystemAuto;
     g->libc = libc;
@@ -10651,3 +10656,11 @@ bool codegen_fn_has_err_ret_tracing_stack(CodeGen *g, ZigFn *fn, bool is_async) 
             !codegen_fn_has_err_ret_tracing_arg(g, fn->type_entry->data.fn.fn_type_id.return_type);
     }
 }
+
+void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
+    if (g->sub_progress_node != nullptr) {
+        stage2_progress_end(g->sub_progress_node);
+    }
+    g->sub_progress_node = node;
+}
+

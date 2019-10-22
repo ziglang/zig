@@ -2008,7 +2008,8 @@ struct CodeGen {
 
     ZigFn *largest_frame_fn;
 
-    Stage2ProgressNode *progress_node;
+    Stage2ProgressNode *main_progress_node;
+    Stage2ProgressNode *sub_progress_node;
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;
