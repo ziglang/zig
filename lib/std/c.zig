@@ -80,6 +80,7 @@ pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint
 pub extern "c" fn munmap(addr: *align(page_size) c_void, len: usize) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) c_void, len: usize, prot: c_uint) c_int;
 pub extern "c" fn unlink(path: [*]const u8) c_int;
+pub extern "c" fn unlinkat(dirfd: fd_t, path: [*]const u8, flags: c_uint) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
 pub extern "c" fn waitpid(pid: c_int, stat_loc: *c_uint, options: c_uint) c_int;
 pub extern "c" fn fork() c_int;

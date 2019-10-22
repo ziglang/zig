@@ -127,6 +127,7 @@ pub fn OutStream(comptime WriteError: type) type {
     };
 }
 
+/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {
     var file = try File.openWrite(path);
     defer file.close();
@@ -134,11 +135,13 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 }
 
 /// On success, caller owns returned buffer.
+/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
     return readFileAllocAligned(allocator, path, @alignOf(u8));
 }
 
 /// On success, caller owns returned buffer.
+/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
 pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
     var file = try File.openRead(path);
     defer file.close();

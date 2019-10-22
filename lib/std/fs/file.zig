@@ -243,6 +243,7 @@ pub const File = struct {
             switch (rc) {
                 windows.STATUS.SUCCESS => {},
                 windows.STATUS.BUFFER_OVERFLOW => {},
+                windows.STATUS.INVALID_PARAMETER => unreachable,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
