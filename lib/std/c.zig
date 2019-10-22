@@ -10,6 +10,7 @@ pub usingnamespace switch (builtin.os) {
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
     .freebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
+    .dragonfly => @import("c/dragonfly.zig"),
     else => struct {},
 };
 

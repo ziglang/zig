@@ -1050,6 +1050,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsZen:
         case OsFreeBSD:
         case OsNetBSD:
+        case OsDragonFly:
         case OsOpenBSD:
         case OsWASI:
         case OsEmscripten:
@@ -1104,7 +1105,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsKFreeBSD:
         case OsLv2:
         case OsSolaris:
@@ -1267,6 +1267,8 @@ const char *target_dynamic_linker(const ZigTarget *target) {
             return "/libexec/ld-elf.so.1";
         case OsNetBSD:
             return "/libexec/ld.elf_so";
+        case OsDragonFly:
+            return "/libexec/ld-elf.so.2";
         case OsLinux: {
             const ZigLLVM_EnvironmentType abi = target->abi;
             switch (target->arch) {
@@ -1383,7 +1385,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
 
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsFuchsia:
         case OsKFreeBSD:
         case OsLv2:
@@ -1579,7 +1580,7 @@ bool target_os_requires_libc(Os os) {
     // On Darwin, we always link libSystem which contains libc.
     // Similarly on FreeBSD and NetBSD we always link system libc
     // since this is the stable syscall interface.
-    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD);
+    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsDragonFly);
 }
 
 bool target_supports_fpic(const ZigTarget *target) {
@@ -1636,7 +1637,6 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFreestanding:
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsLv2:
         case OsSolaris:
         case OsHaiku:
@@ -1665,6 +1665,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFuchsia:
         case OsKFreeBSD:
         case OsNetBSD:
+        case OsDragonFly:
         case OsHurd:
             return ZigLLVM_GNU;
         case OsUefi:

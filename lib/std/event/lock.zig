@@ -116,6 +116,7 @@ pub const Lock = struct {
 };
 
 test "std.event.Lock" {
+    if (builtin.os == .dragonfly) return error.SkipZigTest;
     // TODO https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
     // TODO https://github.com/ziglang/zig/issues/3251
