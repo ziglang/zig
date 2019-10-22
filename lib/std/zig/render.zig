@@ -254,10 +254,6 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
 
             try renderDocComments(tree, stream, field, indent, start_col);
 
-            if (field.visib_token) |visib_token| {
-                try renderToken(tree, stream, visib_token, indent, start_col, Space.Space); // pub
-            }
-
             if (field.type_expr == null and field.value_expr == null) {
                 return renderToken(tree, stream, field.name_token, indent, start_col, Space.Comma); // name,
             } else if (field.type_expr != null and field.value_expr == null) {
@@ -2206,8 +2202,8 @@ const FindByteOutStream = struct {
     pub const Error = error{};
     pub const Stream = std.io.OutStream(Error);
 
-    pub stream: Stream,
-    pub byte_found: bool,
+    stream: Stream,
+    byte_found: bool,
     byte: u8,
 
     pub fn init(byte: u8) Self {

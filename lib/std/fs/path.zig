@@ -136,6 +136,25 @@ pub fn isAbsolute(path: []const u8) bool {
     }
 }
 
+pub fn isAbsoluteW(path_w: [*]const u16) bool {
+    if (path_w[0] == '/')
+        return true;
+
+    if (path_w[0] == '\\') {
+        return true;
+    }
+    if (path_w[0] == 0 or path_w[1] == 0 or path_w[2] == 0) {
+        return false;
+    }
+    if (path_w[1] == ':') {
+        if (path_w[2] == '/')
+            return true;
+        if (path_w[2] == '\\')
+            return true;
+    }
+    return false;
+}
+
 pub fn isAbsoluteWindows(path: []const u8) bool {
     if (path[0] == '/')
         return true;

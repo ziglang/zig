@@ -300,6 +300,44 @@ pub const FILE_SHARE_DELETE = 0x00000004;
 pub const FILE_SHARE_READ = 0x00000001;
 pub const FILE_SHARE_WRITE = 0x00000002;
 
+pub const DELETE = 0x00010000;
+pub const READ_CONTROL = 0x00020000;
+pub const WRITE_DAC = 0x00040000;
+pub const WRITE_OWNER = 0x00080000;
+pub const SYNCHRONIZE = 0x00100000;
+pub const STANDARD_RIGHTS_REQUIRED = 0x000f0000;
+
+// disposition for NtCreateFile
+pub const FILE_SUPERSEDE = 0;
+pub const FILE_OPEN = 1;
+pub const FILE_CREATE = 2;
+pub const FILE_OPEN_IF = 3;
+pub const FILE_OVERWRITE = 4;
+pub const FILE_OVERWRITE_IF = 5;
+pub const FILE_MAXIMUM_DISPOSITION = 5;
+
+// flags for NtCreateFile and NtOpenFile
+pub const FILE_DIRECTORY_FILE = 0x00000001;
+pub const FILE_WRITE_THROUGH = 0x00000002;
+pub const FILE_SEQUENTIAL_ONLY = 0x00000004;
+pub const FILE_NO_INTERMEDIATE_BUFFERING = 0x00000008;
+pub const FILE_SYNCHRONOUS_IO_ALERT = 0x00000010;
+pub const FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
+pub const FILE_NON_DIRECTORY_FILE = 0x00000040;
+pub const FILE_CREATE_TREE_CONNECTION = 0x00000080;
+pub const FILE_COMPLETE_IF_OPLOCKED = 0x00000100;
+pub const FILE_NO_EA_KNOWLEDGE = 0x00000200;
+pub const FILE_OPEN_FOR_RECOVERY = 0x00000400;
+pub const FILE_RANDOM_ACCESS = 0x00000800;
+pub const FILE_DELETE_ON_CLOSE = 0x00001000;
+pub const FILE_OPEN_BY_FILE_ID = 0x00002000;
+pub const FILE_OPEN_FOR_BACKUP_INTENT = 0x00004000;
+pub const FILE_NO_COMPRESSION = 0x00008000;
+pub const FILE_RESERVE_OPFILTER = 0x00100000;
+pub const FILE_TRANSACTED_MODE = 0x00200000;
+pub const FILE_OPEN_OFFLINE_FILE = 0x00400000;
+pub const FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000;
+
 pub const CREATE_ALWAYS = 2;
 pub const CREATE_NEW = 1;
 pub const OPEN_ALWAYS = 4;
@@ -720,15 +758,119 @@ pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_P
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
-    RootDirectory: HANDLE,
+    RootDirectory: ?HANDLE,
     ObjectName: *UNICODE_STRING,
     Attributes: ULONG,
     SecurityDescriptor: ?*c_void,
     SecurityQualityOfService: ?*c_void,
 };
 
+pub const OBJ_INHERIT = 0x00000002;
+pub const OBJ_PERMANENT = 0x00000010;
+pub const OBJ_EXCLUSIVE = 0x00000020;
+pub const OBJ_CASE_INSENSITIVE = 0x00000040;
+pub const OBJ_OPENIF = 0x00000080;
+pub const OBJ_OPENLINK = 0x00000100;
+pub const OBJ_KERNEL_HANDLE = 0x00000200;
+pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
+
 pub const UNICODE_STRING = extern struct {
-    Length: USHORT,
-    MaximumLength: USHORT,
+    Length: c_ushort,
+    MaximumLength: c_ushort,
     Buffer: [*]WCHAR,
 };
+
+pub const PEB = extern struct {
+    Reserved1: [2]BYTE,
+    BeingDebugged: BYTE,
+    Reserved2: [1]BYTE,
+    Reserved3: [2]PVOID,
+    Ldr: *PEB_LDR_DATA,
+    ProcessParameters: *RTL_USER_PROCESS_PARAMETERS,
+    Reserved4: [3]PVOID,
+    AtlThunkSListPtr: PVOID,
+    Reserved5: PVOID,
+    Reserved6: ULONG,
+    Reserved7: PVOID,
+    Reserved8: ULONG,
+    AtlThunkSListPtr32: ULONG,
+    Reserved9: [45]PVOID,
+    Reserved10: [96]BYTE,
+    PostProcessInitRoutine: PPS_POST_PROCESS_INIT_ROUTINE,
+    Reserved11: [128]BYTE,
+    Reserved12: [1]PVOID,
+    SessionId: ULONG,
+};
+
+pub const PEB_LDR_DATA = extern struct {
+    Reserved1: [8]BYTE,
+    Reserved2: [3]PVOID,
+    InMemoryOrderModuleList: LIST_ENTRY,
+};
+
+pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
+    AllocationSize: ULONG,
+    Size: ULONG,
+    Flags: ULONG,
+    DebugFlags: ULONG,
+    ConsoleHandle: HANDLE,
+    ConsoleFlags: ULONG,
+    hStdInput: HANDLE,
+    hStdOutput: HANDLE,
+    hStdError: HANDLE,
+    CurrentDirectory: CURDIR,
+    DllPath: UNICODE_STRING,
+    ImagePathName: UNICODE_STRING,
+    CommandLine: UNICODE_STRING,
+    Environment: [*]WCHAR,
+    dwX: ULONG,
+    dwY: ULONG,
+    dwXSize: ULONG,
+    dwYSize: ULONG,
+    dwXCountChars: ULONG,
+    dwYCountChars: ULONG,
+    dwFillAttribute: ULONG,
+    dwFlags: ULONG,
+    dwShowWindow: ULONG,
+    WindowTitle: UNICODE_STRING,
+    Desktop: UNICODE_STRING,
+    ShellInfo: UNICODE_STRING,
+    RuntimeInfo: UNICODE_STRING,
+    DLCurrentDirectory: [0x20]RTL_DRIVE_LETTER_CURDIR,
+};
+
+pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
+    Flags: c_ushort,
+    Length: c_ushort,
+    TimeStamp: ULONG,
+    DosPath: UNICODE_STRING,
+};
+
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?extern fn () void;
+
+pub const FILE_BOTH_DIR_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex: ULONG,
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    AllocationSize: LARGE_INTEGER,
+    FileAttributes: ULONG,
+    FileNameLength: ULONG,
+    EaSize: ULONG,
+    ShortNameLength: CHAR,
+    ShortName: [12]WCHAR,
+    FileName: [1]WCHAR,
+};
+pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
+
+pub const IO_APC_ROUTINE = extern fn (PVOID, *IO_STATUS_BLOCK, ULONG) void;
+
+pub const CURDIR = extern struct {
+    DosPath: UNICODE_STRING,
+    Handle: HANDLE,
+};
+
+pub const DUPLICATE_SAME_ACCESS = 2;

@@ -119,3 +119,21 @@ Slice<uint8_t> SplitIterator_rest(SplitIterator *self) {
 SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
     return SplitIterator{0, buffer, split_bytes};
 }
+
+void zig_pretty_print_bytes(FILE *f, double n) {
+    if (n > 1024.0 * 1024.0 * 1024.0) {
+        fprintf(f, "%.02f GiB", n / 1024.0 / 1024.0 / 1024.0);
+        return;
+    }
+    if (n > 1024.0 * 1024.0) {
+        fprintf(f, "%.02f MiB", n / 1024.0 / 1024.0);
+        return;
+    }
+    if (n > 1024.0) {
+        fprintf(f, "%.02f KiB", n / 1024.0);
+        return;
+    }
+    fprintf(f, "%.02f bytes", n );
+    return;
+}
+

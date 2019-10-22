@@ -338,7 +338,7 @@ pub const HeapAllocator = switch (builtin.os) {
 /// This allocator takes an existing allocator, wraps it, and provides an interface
 /// where you can allocate without freeing, and then free it all together.
 pub const ArenaAllocator = struct {
-    pub allocator: Allocator,
+    allocator: Allocator,
 
     child_allocator: *Allocator,
     buffer_list: std.SinglyLinkedList([]u8),

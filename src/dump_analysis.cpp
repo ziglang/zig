@@ -240,23 +240,6 @@ static void jw_string(JsonWriter *jw, const char *s) {
 
 static void tree_print(FILE *f, ZigType *ty, size_t indent);
 
-static void pretty_print_bytes(FILE *f, double n) {
-    if (n > 1024.0 * 1024.0 * 1024.0) {
-        fprintf(f, "%.02f GiB", n / 1024.0 / 1024.0 / 1024.0);
-        return;
-    }
-    if (n > 1024.0 * 1024.0) {
-        fprintf(f, "%.02f MiB", n / 1024.0 / 1024.0);
-        return;
-    }
-    if (n > 1024.0) {
-        fprintf(f, "%.02f KiB", n / 1024.0);
-        return;
-    }
-    fprintf(f, "%.02f bytes", n );
-    return;
-}
-
 static int compare_type_abi_sizes_desc(const void *a, const void *b) {
     uint64_t size_a = (*(ZigType * const*)(a))->abi_size;
     uint64_t size_b = (*(ZigType * const*)(b))->abi_size;
@@ -322,7 +305,7 @@ static void tree_print(FILE *f, ZigType *ty, size_t indent) {
 
     start_peer(f, indent);
     fprintf(f, "\"sizef\": \"");
-    pretty_print_bytes(f, ty->abi_size);
+    zig_pretty_print_bytes(f, ty->abi_size);
     fprintf(f, "\"");
 
     start_peer(f, indent);

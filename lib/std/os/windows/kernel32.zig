@@ -47,6 +47,8 @@ pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_
 
 pub extern "kernel32" stdcallcc fn DeleteFileW(lpFileName: [*]const u16) BOOL;
 
+pub extern "kernel32" stdcallcc fn DuplicateHandle(hSourceProcessHandle: HANDLE, hSourceHandle: HANDLE, hTargetProcessHandle: HANDLE, lpTargetHandle: *HANDLE, dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwOptions: DWORD) BOOL;
+
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) noreturn;
 
 pub extern "kernel32" stdcallcc fn FindFirstFileW(lpFileName: [*]const u16, lpFindFileData: *WIN32_FIND_DATAW) HANDLE;

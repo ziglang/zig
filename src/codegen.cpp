@@ -6355,12 +6355,17 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
     ConstParent *parent = &union_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, union_const_val, parent);
 
+    // Slot in the structure where the payload is stored, if equal to SIZE_MAX
+    // the union has no tag and a single field and is collapsed into the field
+    // itself
+    size_t union_payload_index = union_const_val->type->data.unionation.gen_union_index;
+
     ZigType *u32 = g->builtin_types.entry_u32;
     LLVMValueRef indices[] = {
         LLVMConstNull(get_llvm_type(g, u32)),
-        LLVMConstInt(get_llvm_type(g, u32), 0, false), // TODO test const union with more aligned tag type than payload
+        LLVMConstInt(get_llvm_type(g, u32), union_payload_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    return LLVMConstInBoundsGEP(base_ptr, indices, (union_payload_index != SIZE_MAX) ? 2 : 1);
 }
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {

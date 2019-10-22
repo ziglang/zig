@@ -340,7 +340,7 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.fs.Dir.open(allocator, full_dir_name) catch |err| switch (err) {
+                var dir = std.fs.Dir.open(full_dir_name) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,

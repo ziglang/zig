@@ -20,6 +20,8 @@ pub const shell32 = @import("windows/shell32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
+pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
+
 /// `builtin` is missing `subsystem` when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
 /// used rather than `builtin.subsystem`.
@@ -42,7 +44,6 @@ pub const subsystem: ?builtin.SubSystem = blk: {
                 break :blk builtin.SubSystem.Console;
             }
         },
-        .uefi => break :blk builtin.SubSystem.EfiApplication,
         else => break :blk null,
     }
 };
@@ -792,6 +793,25 @@ pub fn SetFileTime(
     }
 }
 
+pub fn peb() *PEB {
+    switch (builtin.arch) {
+        .i386 => {
+            return asm (
+                \\ mov %%fs:0x18, %[ptr]
+                \\ mov %%ds:0x30(%[ptr]), %[ptr]
+                : [ptr] "=r" (-> *PEB)
+            );
+        },
+        .x86_64 => {
+            return asm (
+                \\ mov %%gs:0x60, %[ptr]
+                : [ptr] "=r" (-> *PEB)
+            );
+        },
+        else => @compileError("unsupported architecture"),
+    }
+}
+
 /// A file time is a 64-bit value that represents the number of 100-nanosecond
 /// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
 /// Universal Time (UTC).
@@ -844,8 +864,8 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
             else => {},
         }
     }
-    const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
+    const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
     };
@@ -879,7 +899,7 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS={}\n", status);
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", status);
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
