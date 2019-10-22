@@ -61,6 +61,7 @@ pub const StaticallyInitializedMutex = switch (builtin.os) {
 };
 
 test "std.StaticallyInitializedMutex" {
+    if (builtin.os == .dragonfly) return error.SkipZigTest;
     const TestContext = struct {
         data: i128,
 

@@ -130,6 +130,7 @@ const TestContext = struct {
 };
 
 test "std.Mutex" {
+    if (builtin.os == .dragonfly) return error.SkipZigTest;
     var plenty_of_memory = try std.heap.direct_allocator.alloc(u8, 300 * 1024);
     defer std.heap.direct_allocator.free(plenty_of_memory);
 

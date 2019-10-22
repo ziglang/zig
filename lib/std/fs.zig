@@ -28,7 +28,7 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// All file system operations which return a path are guaranteed to
 /// fit into a UTF-8 encoded array of this length.
 pub const MAX_PATH_BYTES = switch (builtin.os) {
-    .linux, .macosx, .ios, .freebsd, .netbsd => os.PATH_MAX,
+    .linux, .macosx, .ios, .freebsd, .netbsd, .dragonfly => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -380,7 +380,7 @@ pub const Dir = struct {
     const IteratorError = error{AccessDenied} || os.UnexpectedError;
 
     pub const Iterator = switch (builtin.os) {
-        .macosx, .ios, .freebsd, .netbsd => struct {
+        .macosx, .ios, .freebsd, .netbsd, .dragonfly => struct {
             dir: Dir,
             seek: i64,
             buf: [8192]u8, // TODO align(@alignOf(os.dirent)),
@@ -396,7 +396,8 @@ pub const Dir = struct {
             pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os) {
                     .macosx, .ios => return self.nextDarwin(),
-                    .freebsd, .netbsd => return self.nextBsd(),
+                    .freebsd, .netbsd, => return self.nextBsd(),
+                    .dragonfly => return self.nextDragonFly(),
                     else => @compileError("unimplemented"),
                 }
             }
@@ -434,6 +435,55 @@ pub const Dir = struct {
                     }
 
                     const entry_kind = switch (darwin_entry.d_type) {
+                        os.DT_BLK => Entry.Kind.BlockDevice,
+                        os.DT_CHR => Entry.Kind.CharacterDevice,
+                        os.DT_DIR => Entry.Kind.Directory,
+                        os.DT_FIFO => Entry.Kind.NamedPipe,
+                        os.DT_LNK => Entry.Kind.SymLink,
+                        os.DT_REG => Entry.Kind.File,
+                        os.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                        os.DT_WHT => Entry.Kind.Whiteout,
+                        else => Entry.Kind.Unknown,
+                    };
+                    return Entry{
+                        .name = name,
+                        .kind = entry_kind,
+                    };
+                }
+            }
+
+            fn nextDragonFly(self: *Self) !?Entry {
+                start_over: while (true) {
+                    if (self.index >= self.end_index) {
+                        const rc = os.system.getdirentries(
+                            self.dir.fd,
+                            self.buf[0..].ptr,
+                            self.buf.len,
+                            &self.seek,
+                        );
+                        switch (os.errno(rc)) {
+                            0 => {},
+                            os.EBADF => unreachable,
+                            os.EFAULT => unreachable,
+                            os.ENOTDIR => unreachable,
+                            os.EINVAL => unreachable,
+                            else => |err| return os.unexpectedErrno(err),
+                        }
+                        if (rc == 0) return null;
+                        self.index = 0;
+                        self.end_index = @intCast(usize, rc);
+                    }
+                    const dragonfly_entry = @ptrCast(*align(1) os.dirent, &self.buf[self.index]);
+                    const next_index = self.index + ((@byteOffsetOf(os.dirent, "d_name") + dragonfly_entry.d_namlen + 1 + 7) & ~usize(7));
+                    self.index = next_index;
+        
+                    const name = @ptrCast([*]u8, &dragonfly_entry.d_name)[0..dragonfly_entry.d_namlen];
+        
+                    if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                        continue :start_over;
+                    }
+        
+                    const entry_kind = switch (dragonfly_entry.d_type) {
                         os.DT_BLK => Entry.Kind.BlockDevice,
                         os.DT_CHR => Entry.Kind.CharacterDevice,
                         os.DT_DIR => Entry.Kind.Directory,
@@ -630,7 +680,7 @@ pub const Dir = struct {
 
     pub fn iterate(self: Dir) Iterator {
         switch (builtin.os) {
-            .macosx, .ios, .freebsd, .netbsd => return Iterator{
+            .macosx, .ios, .freebsd, .netbsd, .dragonfly => return Iterator{
                 .dir = self,
                 .seek = 0,
                 .index = 0,
@@ -1162,7 +1212,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
 
 test "openSelfExe" {
     switch (builtin.os) {
-        .linux, .macosx, .ios, .windows, .freebsd => (try openSelfExe()).close(),
+        .linux, .macosx, .ios, .windows, .freebsd, .dragonfly => (try openSelfExe()).close(),
         else => return error.SkipZigTest, // Unsupported OS.
     }
 }
@@ -1188,7 +1238,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
     }
     switch (builtin.os) {
         .linux => return os.readlinkC(c"/proc/self/exe", out_buffer),
-        .freebsd => {
+        .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer, &out_len, null, 0);

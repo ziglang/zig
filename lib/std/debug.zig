@@ -1062,7 +1062,6 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
         var self_exe_file: File = undefined;
         var self_exe_mmap_seekable: io.SliceSeekableInStream = undefined;
     };
-
     S.self_exe_file = try fs.openSelfExe();
     errdefer S.self_exe_file.close();
 
@@ -1272,7 +1271,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    .linux, .freebsd, .netbsd => DwarfInfo,
+    .linux, .freebsd, .netbsd, .dragonfly => DwarfInfo,
     else => @compileError("Unsupported OS"),
 };
 

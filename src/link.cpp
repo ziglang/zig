@@ -1800,6 +1800,12 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 lj->args.append("-lm");
                 lj->args.append("--end-group");
             } else {
+                if(g->zig_target->os == OsDragonFly) {
+                    lj->args.append("-L");
+                    lj->args.append(buf_ptr(&g->libc->static_crt_dir));
+                    lj->args.append("-L");
+                    lj->args.append(buf_ptr(&g->libc->shared_gcc_dir));
+                }
                 if (!target_is_android(g->zig_target)) {
                     lj->args.append("-lgcc");
                     lj->args.append("--as-needed");

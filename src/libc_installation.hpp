@@ -20,6 +20,7 @@ struct ZigLibCInstallation {
     Buf sys_include_dir;
     Buf crt_dir;
     Buf static_crt_dir;
+    Buf shared_gcc_dir;
     Buf msvc_lib_dir;
     Buf kernel32_lib_dir;
 };
