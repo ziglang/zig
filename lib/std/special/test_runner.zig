@@ -31,8 +31,9 @@ pub fn main() anyerror!void {
         }
     }
     root_node.end();
-    if (ok_count != test_fn_list.len) {
-        progress.log("{} passed; {} skipped.\n", ok_count, skip_count);
-        if (progress.terminal == null) std.debug.warn("{} passed; {} skipped.\n", ok_count, skip_count);
+    if (ok_count == test_fn_list.len) {
+        std.debug.warn("All tests passed.\n");
+    } else {
+        std.debug.warn("{} passed; {} skipped.\n", ok_count, skip_count);
     }
 }
