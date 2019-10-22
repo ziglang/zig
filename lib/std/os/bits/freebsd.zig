@@ -939,3 +939,23 @@ pub fn S_IWHT(m: u32) bool {
 }
 
 pub const HOST_NAME_MAX = 255;
+
+/// Magic value that specify the use of the current working directory
+/// to determine the target of relative file paths in the openat() and
+/// similar syscalls.
+pub const AT_FDCWD = -100;
+
+/// Check access using effective user and group ID
+pub const AT_EACCESS = 0x0100;
+
+/// Do not follow symbolic links
+pub const AT_SYMLINK_NOFOLLOW = 0x0200;
+
+/// Follow symbolic link
+pub const AT_SYMLINK_FOLLOW = 0x0400;
+
+/// Remove directory instead of file
+pub const AT_REMOVEDIR = 0x0800;
+
+/// Fail if not under dirfd
+pub const AT_BENEATH = 0x1000;
