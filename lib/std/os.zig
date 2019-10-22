@@ -1045,11 +1045,24 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatErro
         w.ULONG(w.FILE_DELETE_ON_CLOSE)
     else
         w.ULONG(w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
-    var nt_name: w.UNICODE_STRING = undefined;
-    if (w.ntdll.RtlDosPathNameToNtPathName_U(sub_path_w, &nt_name, null, null) == 0) {
-        return error.FileNotFound;
+
+    const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
+    var nt_name = w.UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        // The Windows API makes this mutable, but it will not mutate here.
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
     }
-    defer w.ntdll.RtlFreeUnicodeString(&nt_name);
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        // Can't remove the parent directory with an open handle.
+        return error.FileBusy;
+    }
+
 
     var attr = w.OBJECT_ATTRIBUTES{
         .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
@@ -1082,6 +1095,7 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatErro
         w.STATUS.OBJECT_NAME_INVALID => unreachable,
         w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         w.STATUS.INVALID_PARAMETER => unreachable,
+        w.STATUS.FILE_IS_A_DIRECTORY => return error.IsDir,
         else => return w.unexpectedStatus(rc),
     }
 }
