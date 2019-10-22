@@ -17,35 +17,35 @@ const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 
 pub const ChildProcess = struct {
-    pub pid: if (os.windows.is_the_target) void else i32,
-    pub handle: if (os.windows.is_the_target) windows.HANDLE else void,
-    pub thread_handle: if (os.windows.is_the_target) windows.HANDLE else void,
+    pid: if (os.windows.is_the_target) void else i32,
+    handle: if (os.windows.is_the_target) windows.HANDLE else void,
+    thread_handle: if (os.windows.is_the_target) windows.HANDLE else void,
 
-    pub allocator: *mem.Allocator,
+    allocator: *mem.Allocator,
 
-    pub stdin: ?File,
-    pub stdout: ?File,
-    pub stderr: ?File,
+    stdin: ?File,
+    stdout: ?File,
+    stderr: ?File,
 
-    pub term: ?(SpawnError!Term),
+    term: ?(SpawnError!Term),
 
-    pub argv: []const []const u8,
+    argv: []const []const u8,
 
     /// Leave as null to use the current env map using the supplied allocator.
-    pub env_map: ?*const BufMap,
+    env_map: ?*const BufMap,
 
-    pub stdin_behavior: StdIo,
-    pub stdout_behavior: StdIo,
-    pub stderr_behavior: StdIo,
+    stdin_behavior: StdIo,
+    stdout_behavior: StdIo,
+    stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    pub uid: if (os.windows.is_the_target) void else ?u32,
+    uid: if (os.windows.is_the_target) void else ?u32,
 
     /// Set to change the group id when spawning the child process.
-    pub gid: if (os.windows.is_the_target) void else ?u32,
+    gid: if (os.windows.is_the_target) void else ?u32,
 
     /// Set to change the current working directory when spawning the child process.
-    pub cwd: ?[]const u8,
+    cwd: ?[]const u8,
 
     err_pipe: if (os.windows.is_the_target) void else [2]os.fd_t,
     llnode: if (os.windows.is_the_target) void else TailQueue(*ChildProcess).Node,

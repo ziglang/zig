@@ -155,11 +155,11 @@ pub const Progress = struct {
                     }
                     if (node.estimated_total_items) |total| {
                         if (need_ellipse) self.bufWrite(&end, " ");
-                        self.bufWrite(&end, "[{}/{}] ", node.completed_items, total);
+                        self.bufWrite(&end, "[{}/{}] ", node.completed_items + 1, total);
                         need_ellipse = false;
                     } else if (node.completed_items != 0) {
                         if (need_ellipse) self.bufWrite(&end, " ");
-                        self.bufWrite(&end, "[{}] ", node.completed_items);
+                        self.bufWrite(&end, "[{}] ", node.completed_items + 1);
                         need_ellipse = false;
                     }
                 }

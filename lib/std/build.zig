@@ -331,7 +331,7 @@ pub const Builder = struct {
             if (self.verbose) {
                 warn("rm {}\n", full_path);
             }
-            fs.deleteTree(self.allocator, full_path) catch {};
+            fs.deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -1491,6 +1491,8 @@ pub const LibExeObjStep = struct {
     /// Position Independent Code
     force_pic: ?bool = null,
 
+    subsystem: ?builtin.SubSystem = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -2325,6 +2327,20 @@ pub const LibExeObjStep = struct {
             }
         }
 
+        if (self.subsystem) |subsystem| {
+            try zig_args.append("--subsystem");
+            try zig_args.append(switch (subsystem) {
+                .Console => "console",
+                .Windows => "windows",
+                .Posix => "posix",
+                .Native => "native",
+                .EfiApplication => "efi_application",
+                .EfiBootServiceDriver => "efi_boot_service_driver",
+                .EfiRom => "efi_rom",
+                .EfiRuntimeDriver => "efi_runtime_driver",
+            });
+        }
+
         if (self.kind == Kind.Test) {
             try builder.spawnChild(zig_args.toSliceConst());
         } else {
@@ -2671,7 +2687,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(self.builder.allocator, full_path) catch |err| {
+        fs.deleteTree(full_path) catch |err| {
             warn("Unable to remove {}: {}\n", full_path, @errorName(err));
             return err;
         };

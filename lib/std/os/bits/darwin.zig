@@ -1178,3 +1178,17 @@ pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
 pub const HOST_NAME_MAX = 72;
+
+pub const AT_FDCWD = -2;
+
+/// Use effective ids in access check
+pub const AT_EACCESS = 0x0010;
+
+/// Act on the symlink itself not the target
+pub const AT_SYMLINK_NOFOLLOW = 0x0020;
+
+/// Act on target of symlink
+pub const AT_SYMLINK_FOLLOW = 0x0040;
+
+/// Path refers to directory
+pub const AT_REMOVEDIR = 0x0080;

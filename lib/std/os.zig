@@ -529,22 +529,36 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
 
 pub const OpenError = error{
     AccessDenied,
-    FileTooBig,
-    IsDir,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
-    NameTooLong,
     SystemFdQuotaExceeded,
     NoDevice,
     FileNotFound,
+
+    /// The path exceeded `MAX_PATH_BYTES` bytes.
+    NameTooLong,
 
     /// Insufficient kernel memory was available, or
     /// the named file is a FIFO and per-user hard limit on
     /// memory allocation for pipes has been reached.
     SystemResources,
 
+    /// The file is too large to be opened. This error is unreachable
+    /// for 64-bit targets, as well as when opening directories.
+    FileTooBig,
+
+    /// The path refers to directory but the `O_DIRECTORY` flag was not provided.
+    IsDir,
+
+    /// A new path cannot be created because the device has no room for the new file.
+    /// This error is only reachable when the `O_CREAT` flag is provided.
     NoSpaceLeft,
+
+    /// A component used as a directory in the path was not, in fact, a directory, or
+    /// `O_DIRECTORY` was specified and the path was not a directory.
     NotDir,
+
+    /// The path already exists and the `O_CREAT` and `O_EXCL` flags were provided.
     PathAlreadyExists,
     DeviceBusy,
 } || UnexpectedError;
@@ -978,6 +992,114 @@ pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
     }
 }
 
+pub const UnlinkatError = UnlinkError || error{
+    /// When passing `AT_REMOVEDIR`, this error occurs when the named directory is not empty.
+    DirNotEmpty,
+};
+
+/// Delete a file name and possibly the file it refers to, based on an open directory handle.
+pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.sliceToPrefixedFileW(file_path);
+        return unlinkatW(dirfd, &file_path_w, flags);
+    }
+    const file_path_c = try toPosixPath(file_path);
+    return unlinkatC(dirfd, &file_path_c, flags);
+}
+
+/// Same as `unlinkat` but `file_path` is a null-terminated string.
+pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatError!void {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
+        return unlinkatW(dirfd, &file_path_w, flags);
+    }
+    switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EPERM => return error.AccessDenied,
+        EBUSY => return error.FileBusy,
+        EFAULT => unreachable,
+        EIO => return error.FileSystem,
+        EISDIR => return error.IsDir,
+        ELOOP => return error.SymLinkLoop,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.NotDir,
+        ENOMEM => return error.SystemResources,
+        EROFS => return error.ReadOnlyFileSystem,
+        ENOTEMPTY => return error.DirNotEmpty,
+
+        EINVAL => unreachable, // invalid flags, or pathname has . as last component
+        EBADF => unreachable, // always a race condition
+
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
+pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatError!void {
+    const w = windows;
+
+    const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
+    const create_options_flags = if (want_rmdir_behavior)
+        w.ULONG(w.FILE_DELETE_ON_CLOSE)
+    else
+        w.ULONG(w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+
+    const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
+    var nt_name = w.UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        // The Windows API makes this mutable, but it will not mutate here.
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        // Windows does not recognize this, but it does work with empty string.
+        nt_name.Length = 0;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        // Can't remove the parent directory with an open handle.
+        return error.FileBusy;
+    }
+
+
+    var attr = w.OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+        .RootDirectory = dirfd,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var io: w.IO_STATUS_BLOCK = undefined;
+    var tmp_handle: w.HANDLE = undefined;
+    var rc = w.ntdll.NtCreateFile(
+        &tmp_handle,
+        w.SYNCHRONIZE | w.DELETE,
+        &attr,
+        &io,
+        null,
+        0,
+        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+        w.FILE_OPEN,
+        create_options_flags,
+        null,
+        0,
+    );
+    if (rc == w.STATUS.SUCCESS) {
+        rc = w.ntdll.NtClose(tmp_handle);
+    }
+    switch (rc) {
+        w.STATUS.SUCCESS => return,
+        w.STATUS.OBJECT_NAME_INVALID => unreachable,
+        w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        w.STATUS.INVALID_PARAMETER => unreachable,
+        w.STATUS.FILE_IS_A_DIRECTORY => return error.IsDir,
+        else => return w.unexpectedStatus(rc),
+    }
+}
+
 const RenameError = error{
     AccessDenied,
     FileBusy,
@@ -1237,6 +1359,27 @@ pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     }
 }
 
+pub fn readlinkatC(dirfd: fd_t, file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+    if (windows.is_the_target) {
+        const file_path_w = try windows.cStrToPrefixedFileW(file_path);
+        @compileError("TODO implement readlink for Windows");
+    }
+    const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
+    switch (errno(rc)) {
+        0 => return out_buffer[0..@bitCast(usize, rc)],
+        EACCES => return error.AccessDenied,
+        EFAULT => unreachable,
+        EINVAL => unreachable,
+        EIO => return error.FileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOTDIR => return error.NotDir,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const SetIdError = error{
     ResourceLimitReached,
     InvalidUserId,
@@ -1476,18 +1619,46 @@ pub const AcceptError = error{
     BlockedByFirewall,
 } || UnexpectedError;
 
-/// Accept a connection on a socket. `fd` must be opened in blocking mode.
-/// See also `accept4_async`.
-pub fn accept4(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
+/// Accept a connection on a socket.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+pub fn accept4(
+    /// This argument is a socket that has been created with `socket`, bound to a local address
+    /// with `bind`, and is listening for connections after a `listen`.
+    sockfd: i32,
+    /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
+    /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
+    /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
+    /// respective  protocol  man  pages).
+    addr: *sockaddr,
+    /// This argument is a value-result argument: the caller must initialize it to contain  the
+    /// size (in bytes) of the structure pointed to by addr; on return it will contain the actual size
+    /// of the peer address.
+    ///
+    /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
+    /// will return a value greater than was supplied to the call.
+    addr_size: *usize,
+    /// If  flags  is  0, then `accept4` is the same as `accept`.  The following values can be bitwise
+    /// ORed in flags to obtain different behavior:
+    /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
+    ///   referred  to by the new file descriptor.  Using this flag saves extra calls to `fcntl` to achieve
+    ///   the same result.
+    /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
+    ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
+    flags: u32,
+) AcceptError!i32 {
     while (true) {
-        var sockaddr_size = u32(@sizeOf(sockaddr));
-        const rc = system.accept4(fd, addr, &sockaddr_size, flags);
+        const rc = system.accept4(sockfd, addr, addr_size, flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
-            else => |err| return unexpectedErrno(err),
 
-            EAGAIN => unreachable, // This function is for blocking only.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(sockfd) catch return error.WouldBlock;
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // always a race condition
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
@@ -1500,34 +1671,8 @@ pub fn accept4(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
             EOPNOTSUPP => return error.OperationNotSupported,
             EPROTO => return error.ProtocolFailure,
             EPERM => return error.BlockedByFirewall,
-        }
-    }
-}
 
-/// This is the same as `accept4` except `fd` is expected to be non-blocking.
-/// Returns -1 if would block.
-pub fn accept4_async(fd: i32, addr: *sockaddr, flags: u32) AcceptError!i32 {
-    while (true) {
-        var sockaddr_size = u32(@sizeOf(sockaddr));
-        const rc = system.accept4(fd, addr, &sockaddr_size, flags);
-        switch (errno(rc)) {
-            0 => return @intCast(i32, rc),
-            EINTR => continue,
             else => |err| return unexpectedErrno(err),
-
-            EAGAIN => return -1,
-            EBADF => unreachable, // always a race condition
-            ECONNABORTED => return error.ConnectionAborted,
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            ENFILE => return error.SystemFdQuotaExceeded,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            ENOTSOCK => return error.FileDescriptorNotASocket,
-            EOPNOTSUPP => return error.OperationNotSupported,
-            EPROTO => return error.ProtocolFailure,
-            EPERM => return error.BlockedByFirewall,
         }
     }
 }

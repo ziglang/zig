@@ -518,8 +518,8 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
 //      / KEYWORD_pub? TopLevelDecl ContainerMembers
-//      / KEYWORD_pub? ContainerField COMMA ContainerMembers
-//      / KEYWORD_pub? ContainerField
+//      / ContainerField COMMA ContainerMembers
+//      / ContainerField
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
@@ -548,10 +548,13 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
             continue;
         }
 
+        if (visib_token != nullptr) {
+            ast_error(pc, peek_token(pc), "expected function or variable declaration after pub");
+        }
+
         AstNode *container_field = ast_parse_container_field(pc);
         if (container_field != nullptr) {
             assert(container_field->type == NodeTypeStructField);
-            container_field->data.struct_field.visib_mod = visib_mod;
             container_field->data.struct_field.doc_comments = doc_comment_buf;
             res.fields.append(container_field);
             if (eat_token_if(pc, TokenIdComma) != nullptr) {
@@ -561,12 +564,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
             }
         }
 
-        // We visib_token wasn't eaten, then we haven't consumed the first token in this rule yet.
-        // It is therefore safe to return and let the caller continue parsing.
-        if (visib_token == nullptr)
-            break;
-
-        ast_invalid_token_error(pc, peek_token(pc));
+        break;
     }
 
     return res;

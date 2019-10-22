@@ -39,8 +39,8 @@ pub const SliceSeekableInStream = struct {
     pub const Stream = InStream(Error);
     pub const SeekableInStream = SeekableStream(SeekError, GetSeekPosError);
 
-    pub stream: Stream,
-    pub seekable_stream: SeekableInStream,
+    stream: Stream,
+    seekable_stream: SeekableInStream,
 
     pos: usize,
     slice: []const u8,
