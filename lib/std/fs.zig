@@ -377,6 +377,8 @@ pub const Dir = struct {
         };
     };
 
+    const IteratorError = error{AccessDenied} || os.UnexpectedError;
+
     pub const Iterator = switch (builtin.os) {
         .macosx, .ios, .freebsd, .netbsd => struct {
             dir: Dir,
@@ -387,9 +389,11 @@ pub const Dir = struct {
 
             const Self = @This();
 
+            pub const Error = IteratorError;
+
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
-            pub fn next(self: *Self) !?Entry {
+            pub fn next(self: *Self) Error!?Entry {
                 switch (builtin.os) {
                     .macosx, .ios => return self.nextDarwin(),
                     .freebsd, .netbsd => return self.nextBsd(),
@@ -504,9 +508,11 @@ pub const Dir = struct {
 
             const Self = @This();
 
+            pub const Error = IteratorError;
+
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
-            pub fn next(self: *Self) !?Entry {
+            pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
                         const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
@@ -560,17 +566,13 @@ pub const Dir = struct {
 
             const Self = @This();
 
-            pub fn next(self: *Self) !?Entry {
+            pub const Error = IteratorError;
+
+            pub fn next(self: *Self) Error!?Entry {
                 start_over: while (true) {
                     const w = os.windows;
                     if (self.index >= self.end_index) {
                         var io: w.IO_STATUS_BLOCK = undefined;
-                        //var mask_buf = [2]u16{ 'a', 0 };
-                        //var mask = w.UNICODE_STRING{
-                        //    .Length = 2,
-                        //    .MaximumLength = 2,
-                        //    .Buffer = &mask_buf,
-                        //};
                         const rc = w.ntdll.NtQueryDirectoryFile(
                             self.dir.fd,
                             null,
@@ -709,7 +711,6 @@ pub const Dir = struct {
 
     /// Call `close` on the result when done.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
-        // std.debug.warn("openDir {}\n", sub_path);
         if (os.windows.is_the_target) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirW(&sub_path_w);
@@ -746,39 +747,7 @@ pub const Dir = struct {
             .fd = undefined,
         };
 
-        const desired_access = w.GENERIC_READ | w.SYNCHRONIZE;
-
-        // if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        //     // Windows gives me STATUS_OBJECT_NAME_INVALID with "." as the object name.
-
-        //     if (w.kernel32.DuplicateHandle(w.self_process_handle, self.fd, w.self_process_handle, &result.fd, desired_access, w.TRUE, 0) == 0) {
-        //         switch (w.kernel32.GetLastError()) {
-        //             else => |err| return w.unexpectedError(err),
-        //         }
-
-        //         @panic("handle DuplicateHandle error");
-        //     }
-        //     return result;
-        // }
-
-        //var mask: ?[*]const u16 = undefined;
-        //var nt_name: w.UNICODE_STRING = undefined;
-        //if (w.ntdll.RtlDosPathNameToNtPathName_U(sub_path_w, &nt_name, null, null) == 0) {
-        //    return error.FileNotFound;
-        //}
-        //defer w.ntdll.RtlFreeUnicodeString(&nt_name);
-        //if (mask) |m| {
-        //    if (m[0] == 0) {
-        //        return error.FileNotFound;
-        //    } else {
-        //        nt_name.Length = @intCast(u16, @ptrToInt(mask) - @ptrToInt(nt_name.Buffer));
-        //    }
-        //} else {
-        //    return error.FileNotFound;
-        //}
-
         const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
-        // std.debug.warn("path_len_bytes = {}\n", path_len_bytes);
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
@@ -796,19 +765,15 @@ pub const Dir = struct {
             // Windows does not recognize this, but it does work with empty string.
             nt_name.Length = 0;
         }
-        // std.debug.warn("RootDirectory = {}\n", attr.RootDirectory);
+        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+            // If you're looking to contribute to zig and fix this, see here for an example of how to
+            // implement this: https://git.midipix.org/ntapi/tree/src/fs/ntapi_tt_open_physical_parent_directory.c
+            @panic("TODO opening '..' with a relative directory handle is not yet implemented on Windows");
+        }
         var io: w.IO_STATUS_BLOCK = undefined;
-        const wide_slice = nt_name.Buffer[0 .. nt_name.Length / 2];
-        //const wide_slice2 = std.mem.toSliceConst(u16, mask.?);
-        var buf: [200]u8 = undefined;
-        //var buf2: [200]u8 = undefined;
-        const len = std.unicode.utf16leToUtf8(&buf, wide_slice) catch unreachable;
-        //const len2 = std.unicode.utf16leToUtf8(&buf2, wide_slice2) catch unreachable;
-        // std.debug.warn("path: {}\n", buf[0..len]);
-        //std.debug.warn("path: {}\nmask: {}\n", buf[0..len], buf2[0..len2]);
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
-            desired_access,
+            w.GENERIC_READ | w.SYNCHRONIZE,
             &attr,
             &io,
             null,
@@ -819,15 +784,12 @@ pub const Dir = struct {
             null,
             0,
         );
-        // std.debug.warn("result.fd = {}\n", result.fd);
         switch (rc) {
             w.STATUS.SUCCESS => return result,
-            w.STATUS.OBJECT_NAME_INVALID => @panic("openDirW invalid object name"),
+            w.STATUS.OBJECT_NAME_INVALID => unreachable,
             w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             w.STATUS.OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            w.STATUS.INVALID_PARAMETER => {
-                @panic("invalid parameter");
-            },
+            w.STATUS.INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
     }
