@@ -632,6 +632,8 @@ set_target_properties(zig PROPERTIES
 target_link_libraries(zig compiler "${LIBUSERLAND}")
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
+elseif(MINGW) 
+  target_link_libraries(zig ntdll)
 endif()
 add_dependencies(zig zig_build_libuserland)
 install(TARGETS zig DESTINATION bin)
