@@ -177,7 +177,17 @@ pub const File = struct {
         if (windows.is_the_target) {
             return os.isCygwinPty(self.handle);
         }
-        return self.isTty();
+        if (self.isTty()) {
+            if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
+                // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
+                if (os.getenvC(c"TERM")) |term| {
+                    if (std.mem.eql(u8, term, "dumb"))
+                        return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     pub const SeekError = os.SeekError;
