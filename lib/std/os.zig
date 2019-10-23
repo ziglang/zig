@@ -23,10 +23,6 @@ const elf = std.elf;
 const dl = @import("dynamic_library.zig");
 const MAX_PATH_BYTES = std.fs.MAX_PATH_BYTES;
 
-comptime {
-    assert(@import("std") == std); // std lib tests require --override-lib-dir
-}
-
 pub const darwin = @import("os/darwin.zig");
 pub const freebsd = @import("os/freebsd.zig");
 pub const linux = @import("os/linux.zig");
@@ -35,6 +31,22 @@ pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
 pub const zen = @import("os/zen.zig");
+
+comptime {
+    assert(@import("std") == std); // std lib tests require --override-lib-dir
+    if (builtin.is_test) {
+        _ = darwin;
+        _ = freebsd;
+        _ = linux;
+        _ = netbsd;
+        _ = uefi;
+        _ = wasi;
+        _ = windows;
+        _ = zen;
+
+        _ = @import("os/test.zig");
+    }
+}
 
 /// When linking libc, this is the C API. Otherwise, it is the OS-specific system interface.
 pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
@@ -1062,7 +1074,6 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatErro
         // Can't remove the parent directory with an open handle.
         return error.FileBusy;
     }
-
 
     var attr = w.OBJECT_ATTRIBUTES{
         .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
@@ -2812,17 +2823,4 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     }
 
     @compileError("TODO implement gethostname for this OS");
-}
-
-test "" {
-    _ = @import("os/darwin.zig");
-    _ = @import("os/freebsd.zig");
-    _ = @import("os/linux.zig");
-    _ = @import("os/netbsd.zig");
-    _ = @import("os/uefi.zig");
-    _ = @import("os/wasi.zig");
-    _ = @import("os/windows.zig");
-    _ = @import("os/zen.zig");
-
-    _ = @import("os/test.zig");
 }

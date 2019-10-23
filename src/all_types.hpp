@@ -1930,7 +1930,6 @@ struct CodeGen {
     ZigList<ZigType *> type_resolve_stack;
 
     ZigPackage *std_package;
-    ZigPackage *panic_package;
     ZigPackage *test_runner_package;
     ZigPackage *compile_var_package;
     ZigType *compile_var_import;
@@ -2006,7 +2005,6 @@ struct CodeGen {
     ZigFn *cur_fn;
     ZigFn *main_fn;
     ZigFn *panic_fn;
-    TldFn *panic_tld_fn;
 
     ZigFn *largest_frame_fn;
 
@@ -2030,7 +2028,6 @@ struct CodeGen {
     bool have_winmain;
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
-    bool have_pub_panic;
     bool have_err_ret_tracing;
     bool c_want_stdint;
     bool c_want_stdbool;

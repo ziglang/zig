@@ -3232,21 +3232,6 @@ static bool scope_is_root_decls(Scope *scope) {
     zig_unreachable();
 }
 
-void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn) {
-    ConstExprValue *panic_fn_type_val = get_builtin_value(g, "PanicFn");
-    assert(panic_fn_type_val != nullptr);
-    assert(panic_fn_type_val->type->id == ZigTypeIdMetaType);
-    ZigType *panic_fn_type = panic_fn_type_val->data.x_type;
-
-    AstNode *fake_decl = allocate<AstNode>(1);
-    *fake_decl = *panic_fn->proto_node;
-    fake_decl->type = NodeTypeSymbol;
-    fake_decl->data.symbol_expr.symbol = tld_fn->base.name;
-
-    // call this for the side effects of casting to panic_fn_type
-    analyze_const_value(g, tld_fn->base.parent_scope, fake_decl, panic_fn_type, nullptr, UndefBad);
-}
-
 ZigType *get_test_fn_type(CodeGen *g) {
     if (g->test_fn_type)
         return g->test_fn_type;
@@ -3356,16 +3341,9 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
         }
 
-        if (scope_is_root_decls(tld_fn->base.parent_scope) &&
-            (import == g->root_import || import->data.structure.root_struct->package == g->panic_package))
-        {
+        if (scope_is_root_decls(tld_fn->base.parent_scope) && import == g->root_import) {
             if (g->have_pub_main && buf_eql_str(tld_fn->base.name, "main")) {
                 g->main_fn = fn_table_entry;
-            } else if ((import->data.structure.root_struct->package == g->panic_package || g->have_pub_panic) &&
-                    buf_eql_str(tld_fn->base.name, "panic"))
-            {
-                g->panic_fn = fn_table_entry;
-                g->panic_tld_fn = tld_fn;
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
@@ -4710,8 +4688,8 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
         ast_print(stderr, root_node, 0);
     }
 
-    if (source_kind == SourceKindRoot || package == g->panic_package) {
-        // Look for panic and main
+    if (source_kind == SourceKindRoot) {
+        // Look for main
         for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
             AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
 
@@ -4724,8 +4702,6 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
                 if (is_pub) {
                     if (buf_eql_str(proto_name, "main")) {
                         g->have_pub_main = true;
-                    } else if (buf_eql_str(proto_name, "panic")) {
-                        g->have_pub_panic = true;
                     }
                 }
             }
@@ -8930,5 +8906,64 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
     alloca_gen->name_hint = name_hint;
     fn->alloca_gen_list.append(alloca_gen);
     return &alloca_gen->base;
+}
+
+Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
+        ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path)
+{
+    Error err;
+
+    Buf *search_dir;
+    ZigPackage *cur_scope_pkg = source_import->data.structure.root_struct->package;
+    assert(cur_scope_pkg);
+    ZigPackage *target_package;
+    auto package_entry = cur_scope_pkg->package_table.maybe_get(import_target_str);
+    SourceKind source_kind;
+    if (package_entry) {
+        target_package = package_entry->value;
+        *out_import_target_path = &target_package->root_src_path;
+        search_dir = &target_package->root_src_dir;
+        source_kind = SourceKindPkgMain;
+    } else {
+        // try it as a filename
+        target_package = cur_scope_pkg;
+        *out_import_target_path = import_target_str;
+
+        // search relative to importing file
+        search_dir = buf_alloc();
+        os_path_dirname(source_import->data.structure.root_struct->path, search_dir);
+
+        source_kind = SourceKindNonRoot;
+    }
+
+    buf_resize(out_full_path, 0);
+    os_path_join(search_dir, *out_import_target_path, out_full_path);
+
+    Buf *import_code = buf_alloc();
+    Buf *resolved_path = buf_alloc();
+
+    Buf *resolve_paths[] = { out_full_path, };
+    *resolved_path = os_path_resolve(resolve_paths, 1);
+
+    auto import_entry = g->import_table.maybe_get(resolved_path);
+    if (import_entry) {
+        *out_import = import_entry->value;
+        return ErrorNone;
+    }
+
+    if (source_kind == SourceKindNonRoot) {
+        Buf *pkg_root_src_dir = &cur_scope_pkg->root_src_dir;
+        Buf resolved_root_src_dir = os_path_resolve(&pkg_root_src_dir, 1);
+        if (!buf_starts_with_buf(resolved_path, &resolved_root_src_dir)) {
+            return ErrorImportOutsidePkgPath;
+        }
+    }
+
+    if ((err = file_fetch(g, resolved_path, import_code))) {
+        return err;
+    }
+
+    *out_import = add_source_file(g, target_package, resolved_path, import_code, source_kind);
+    return ErrorNone;
 }
 

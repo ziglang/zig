@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const llvm = @import("llvm.zig");
 const CInt = @import("c_int.zig").CInt;
 
+// TODO delete this file and use std.Target
+
 pub const FloatAbi = enum {
     Hard,
     Soft,
