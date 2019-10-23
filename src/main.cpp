@@ -626,6 +626,10 @@ int main(int argc, char **argv) {
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);
+        if (root_progress_node != nullptr) {
+            stage2_progress_end(root_progress_node);
+            root_progress_node = nullptr;
+        }
 
         Termination term;
         args.items[0] = buf_ptr(&g->output_file_path);
@@ -1280,6 +1284,10 @@ int main(int argc, char **argv) {
 
                 g->enable_cache = get_cache_opt(enable_cache, cmd == CmdRun);
                 codegen_build_and_link(g);
+                if (root_progress_node != nullptr) {
+                    stage2_progress_end(root_progress_node);
+                    root_progress_node = nullptr;
+                }
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
                 if (stack_report)
