@@ -1715,6 +1715,7 @@ enum PanicMsgId {
     PanicMsgIdFrameTooSmall,
     PanicMsgIdResumedFnPendingAwait,
     PanicMsgIdBadNoAsyncCall,
+    PanicMsgIdResumeNotSuspendedFn,
 
     PanicMsgIdCount,
 };
@@ -1886,6 +1887,7 @@ struct CodeGen {
     size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
+    LLVMValueRef cur_bad_not_suspended_index;
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
