@@ -7,6 +7,7 @@
     <style type="text/css">
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        margin: 0;
       }
       a:not(:hover) {
         text-decoration: none;
@@ -80,9 +81,33 @@
           font-weight: bold;
       }
 
+      #main-wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      #contents-wrapper {
+        flex-grow: 1;
+        padding: 0 2em;
+      }
+
       #contents {
         max-width: 60em;
         margin: auto;
+      }
+
+      #index {
+        padding: 0 1em;
+      }
+
+      @media screen and (min-width: 1025px) {
+        #main-wrapper {
+            flex-direction: row;
+        }
+        #contents-wrapper, #index {
+            overflow: auto;
+        }
       }
 
       h1 a, h2 a, h3 a, h4 a, h5 a {
@@ -155,13 +180,18 @@
     </style>
   </head>
   <body>
-    <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
-    <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
-    <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
-    <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
-    <a href="https://ziglang.org/documentation/0.5.0">0.5.0</a> |
-    master
-    <div id="contents">
+    <div id="main-wrapper">
+      <div id="index">
+        <a href="https://ziglang.org/documentation/0.1.1">0.1.1</a> |
+        <a href="https://ziglang.org/documentation/0.2.0">0.2.0</a> |
+        <a href="https://ziglang.org/documentation/0.3.0">0.3.0</a> |
+        <a href="https://ziglang.org/documentation/0.4.0">0.4.0</a> |
+        <a href="https://ziglang.org/documentation/0.5.0">0.5.0</a> |
+        master
+        <h1>Index</h1>
+        {#nav#}
+      </div>
+      <div id="contents-wrapper"><div id="contents">
       {#header_open|Introduction#}
       <p>
       Zig is a general-purpose programming language designed for <strong>robustness</strong>,
@@ -190,10 +220,6 @@
       <p>
       <a href="https://github.com/ziglang/zig/wiki/FAQ#where-is-the-documentation-for-the-zig-standard-library">Where is the documentation for the Zig standard library?</a>
       </p>
-      {#header_close#}
-
-      {#header_open|Index#}
-      {#nav#}
       {#header_close#}
 
       {#header_open|Hello World#}
@@ -6381,7 +6407,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
       {#header_close#}
 
       {#header_close#}
-      {#header_open|Builtin Functions|3col#}
+        {#header_open|Builtin Functions|2col#}
       <p>
       Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
       The {#syntax#}comptime{#endsyntax#} keyword on a parameter means that the parameter must be known
@@ -10613,6 +10639,7 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
         <li>Together we serve end users.</li>
       </ul>
       {#header_close#}
+      </div></div>
     </div>
   </body>
 </html>
