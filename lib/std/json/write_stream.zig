@@ -197,6 +197,34 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
             try self.stream.writeByte('"');
         }
 
+        /// Writes the complete json into the output stream
+        pub fn writeJson(self: *Self, json: std.json.Value) std.os.WriteError!void {
+            switch (json) {
+                std.json.Value.Null => try self.emitNull(),
+                std.json.Value.Bool => |inner| try self.emitBool(inner),
+                std.json.Value.Integer => |inner| try self.emitNumber(inner),
+                std.json.Value.Float => |inner| try self.emitNumber(inner),
+                std.json.Value.String => |inner| try self.emitString(inner),
+                std.json.Value.Array => |inner| {
+                    try self.beginArray();
+                    for (inner.toSliceConst()) |elem| {
+                        try self.arrayElem();
+                        try self.writeJson(elem);
+                    }
+                    try self.endArray();
+                },
+                std.json.Value.Object => |inner| {
+                    try self.beginObject();
+                    var it = inner.iterator();
+                    while (it.next()) |entry| {
+                        try self.objectField(entry.key);
+                        try self.writeJson(entry.value);
+                    }
+                    try self.endObject();
+                },
+            }
+        }
+
         fn indent(self: *Self) !void {
             assert(self.state_index >= 1);
             try self.stream.write(self.newline);
