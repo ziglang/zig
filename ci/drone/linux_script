@@ -15,7 +15,7 @@ pip3 install s3cmd
 
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR"
 
 make -j$(nproc) install
 ./zig build test
