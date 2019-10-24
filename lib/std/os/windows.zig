@@ -11,7 +11,6 @@ const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
 
-pub const is_the_target = builtin.os == .windows;
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
@@ -21,32 +20,6 @@ pub const shell32 = @import("windows/shell32.zig");
 pub usingnamespace @import("windows/bits.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
-
-/// `builtin` is missing `subsystem` when the subsystem is automatically detected,
-/// so Zig standard library has the subsystem detection logic here. This should generally be
-/// used rather than `builtin.subsystem`.
-/// On non-windows targets, this is `null`.
-pub const subsystem: ?builtin.SubSystem = blk: {
-    if (@hasDecl(builtin, "subsystem")) break :blk builtin.subsystem;
-    switch (builtin.os) {
-        .windows => {
-            if (builtin.is_test) {
-                break :blk builtin.SubSystem.Console;
-            }
-            const root = @import("root");
-            if (@hasDecl(root, "WinMain") or
-                @hasDecl(root, "wWinMain") or
-                @hasDecl(root, "WinMainCRTStartup") or
-                @hasDecl(root, "wWinMainCRTStartup"))
-            {
-                break :blk builtin.SubSystem.Windows;
-            } else {
-                break :blk builtin.SubSystem.Console;
-            }
-        },
-        else => break :blk null,
-    }
-};
 
 pub const CreateFileError = error{
     SharingViolation,

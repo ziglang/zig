@@ -77,6 +77,7 @@ enum Error {
     ErrorNoSpaceLeft,
     ErrorNotLazy,
     ErrorIsAsync,
+    ErrorImportOutsidePkgPath,
 };
 
 // ABI warning

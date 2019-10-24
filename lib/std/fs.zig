@@ -255,7 +255,7 @@ pub const AtomicFile = struct {
         assert(!self.finished);
         self.file.close();
         self.finished = true;
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const dest_path_w = try os.windows.sliceToPrefixedFileW(self.dest_path);
             const tmp_path_w = try os.windows.cStrToPrefixedFileW(&self.tmp_path_buf);
             return os.renameW(&tmp_path_w, &dest_path_w);
@@ -659,7 +659,7 @@ pub const Dir = struct {
     /// Closing the returned `Dir` is checked illegal behavior.
     /// On POSIX targets, this function is comptime-callable.
     pub fn cwd() Dir {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
         } else {
             return Dir{ .fd = os.AT_FDCWD };
@@ -711,7 +711,7 @@ pub const Dir = struct {
 
     /// Call `close` on the result when done.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirW(&sub_path_w);
         }
@@ -722,7 +722,7 @@ pub const Dir = struct {
 
     /// Same as `openDir` except the parameter is null-terminated.
     pub fn openDirC(self: Dir, sub_path_c: [*]const u8) OpenError!Dir {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(&sub_path_w);
         }
@@ -829,7 +829,7 @@ pub const Dir = struct {
     /// Returns `error.DirNotEmpty` if the directory is not empty.
     /// To delete a directory recursively, see `deleteTree`.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(&sub_path_w);
         }
@@ -1146,10 +1146,10 @@ pub fn readLinkC(pathname_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
 pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfExePathError;
 
 pub fn openSelfExe() OpenSelfExeError!File {
-    if (os.linux.is_the_target) {
+    if (builtin.os == .linux) {
         return File.openReadC(c"/proc/self/exe");
     }
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         var buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
         const wide_slice = try selfExePathW(&buf);
         return File.openReadW(wide_slice.ptr);
@@ -1180,7 +1180,7 @@ pub const SelfExePathError = os.ReadLinkError || os.SysCtlError;
 /// been deleted, the file path looks something like `/a/b/c/exe (deleted)`.
 /// TODO make the return type of this a null terminated pointer
 pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         var u32_len: u32 = out_buffer.len;
         const rc = std.c._NSGetExecutablePath(out_buffer, &u32_len);
         if (rc != 0) return error.NameTooLong;
@@ -1228,7 +1228,7 @@ pub fn selfExeDirPathAlloc(allocator: *Allocator) ![]u8 {
 /// Get the directory path that contains the current executable.
 /// Returned value is a slice of out_buffer.
 pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const u8 {
-    if (os.linux.is_the_target) {
+    if (builtin.os == .linux) {
         // If the currently executing binary has been deleted,
         // the file path looks something like `/a/b/c/exe (deleted)`
         // This path cannot be opened, but it's valid for determining the directory

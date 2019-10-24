@@ -909,7 +909,7 @@ fn hashString(s: []const u16) u32 {
 //            var close_op_consumed = false;
 //            defer if (!close_op_consumed) close_op.finish();
 //
-//            const flags = if (os.darwin.is_the_target) os.O_SYMLINK | os.O_EVTONLY else 0;
+//            const flags = if (comptime std.Target.current.isDarwin()) os.O_SYMLINK | os.O_EVTONLY else 0;
 //            const mode = 0;
 //            const fd = try await (async openPosix(self.channel.loop, resolved_path, flags, mode) catch unreachable);
 //            close_op.setHandle(fd);

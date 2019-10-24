@@ -262,5 +262,7 @@ void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn);
 
 IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
         ZigType *var_type, const char *name_hint);
+Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
+        ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 
 #endif

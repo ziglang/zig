@@ -57,6 +57,7 @@ const char *err_str(Error err) {
         case ErrorNoCCompilerInstalled: return "no C compiler installed";
         case ErrorNotLazy: return "not lazy";
         case ErrorIsAsync: return "is async";
+        case ErrorImportOutsidePkgPath: return "import of file outside package path";
     }
     return "(invalid error)";
 }

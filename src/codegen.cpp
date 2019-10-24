@@ -8125,55 +8125,37 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
     Buf *contents = buf_alloc();
-
-    // NOTE: when editing this file, you may need to make modifications to the
-    // cache input parameters in define_builtin_compile_vars
-
-    // Modifications to this struct must be coordinated with code that does anything with
-    // g->stack_trace_type. There are hard-coded references to the field indexes.
-    buf_append_str(contents,
-        "pub const StackTrace = struct {\n"
-        "    index: usize,\n"
-        "    instruction_addresses: []usize,\n"
-        "};\n\n");
-
-    buf_append_str(contents, "pub const PanicFn = fn([]const u8, ?*StackTrace) noreturn;\n\n");
+    buf_appendf(contents, "usingnamespace @import(\"std\").builtin;\n\n");
 
     const char *cur_os = nullptr;
     {
-        buf_appendf(contents, "pub const Os = enum {\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             Os os_type = target_os_enum(i);
             const char *name = target_os_name(os_type);
-            buf_appendf(contents, "    %s,\n", name);
 
             if (os_type == g->zig_target->os) {
                 g->target_os_index = i;
                 cur_os = name;
             }
         }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_os != nullptr);
 
     const char *cur_arch = nullptr;
     {
-        buf_appendf(contents, "pub const Arch = union(enum) {\n");
         uint32_t field_count = (uint32_t)target_arch_count();
         for (uint32_t arch_i = 0; arch_i < field_count; arch_i += 1) {
             ZigLLVM_ArchType arch = target_arch_enum(arch_i);
             const char *arch_name = target_arch_name(arch);
             SubArchList sub_arch_list = target_subarch_list(arch);
             if (sub_arch_list == SubArchListNone) {
-                buf_appendf(contents, "    %s,\n", arch_name);
                 if (arch == g->zig_target->arch) {
                     g->target_arch_index = arch_i;
                     cur_arch = buf_ptr(buf_sprintf("Arch.%s", arch_name));
                 }
             } else {
                 const char *sub_arch_list_name = target_subarch_list_name(sub_arch_list);
-                buf_appendf(contents, "    %s: %s,\n", arch_name, sub_arch_list_name);
                 if (arch == g->zig_target->arch) {
                     size_t sub_count = target_subarch_count(sub_arch_list);
                     for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
@@ -8187,50 +8169,30 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
                 }
             }
         }
-
-        uint32_t list_count = target_subarch_list_count();
-        // start at index 1 to skip None
-        for (uint32_t list_i = 1; list_i < list_count; list_i += 1) {
-            SubArchList sub_arch_list = target_subarch_list_enum(list_i);
-            const char *subarch_list_name = target_subarch_list_name(sub_arch_list);
-            buf_appendf(contents, "    pub const %s = enum {\n", subarch_list_name);
-            size_t sub_count = target_subarch_count(sub_arch_list);
-            for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
-                ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                buf_appendf(contents, "        %s,\n", target_subarch_name(sub));
-            }
-            buf_appendf(contents, "    };\n");
-        }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_arch != nullptr);
 
     const char *cur_abi = nullptr;
     {
-        buf_appendf(contents, "pub const Abi = enum {\n");
         uint32_t field_count = (uint32_t)target_abi_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_EnvironmentType abi = target_abi_enum(i);
             const char *name = target_abi_name(abi);
-            buf_appendf(contents, "    %s,\n", name);
 
             if (abi == g->zig_target->abi) {
                 g->target_abi_index = i;
                 cur_abi = name;
             }
         }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_abi != nullptr);
 
     const char *cur_obj_fmt = nullptr;
     {
-        buf_appendf(contents, "pub const ObjectFormat = enum {\n");
         uint32_t field_count = (uint32_t)target_oformat_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_ObjectFormatType oformat = target_oformat_enum(i);
             const char *name = target_oformat_name(oformat);
-            buf_appendf(contents, "    %s,\n", name);
 
             ZigLLVM_ObjectFormatType target_oformat = target_object_format(g->zig_target);
             if (oformat == target_oformat) {
@@ -8239,311 +8201,39 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             }
         }
 
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_obj_fmt != nullptr);
 
-    {
-        buf_appendf(contents, "pub const GlobalLinkage = enum {\n");
-        uint32_t field_count = array_length(global_linkage_values);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            const GlobalLinkageValue *value = &global_linkage_values[i];
-            buf_appendf(contents, "    %s,\n", value->name);
-        }
-        buf_appendf(contents, "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const AtomicOrder = enum {\n"
-            "    Unordered,\n"
-            "    Monotonic,\n"
-            "    Acquire,\n"
-            "    Release,\n"
-            "    AcqRel,\n"
-            "    SeqCst,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const AtomicRmwOp = enum {\n"
-            "    Xchg,\n"
-            "    Add,\n"
-            "    Sub,\n"
-            "    And,\n"
-            "    Nand,\n"
-            "    Or,\n"
-            "    Xor,\n"
-            "    Max,\n"
-            "    Min,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const Mode = enum {\n"
-            "    Debug,\n"
-            "    ReleaseSafe,\n"
-            "    ReleaseFast,\n"
-            "    ReleaseSmall,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents, "pub const TypeId = enum {\n");
-        size_t field_count = type_id_len();
-        for (size_t i = 0; i < field_count; i += 1) {
-            const ZigTypeId id = type_id_at_index(i);
-            buf_appendf(contents, "    %s,\n", type_id_name(id));
-        }
-        buf_appendf(contents, "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const TypeInfo = union(TypeId) {\n"
-            "    Type: void,\n"
-            "    Void: void,\n"
-            "    Bool: void,\n"
-            "    NoReturn: void,\n"
-            "    Int: Int,\n"
-            "    Float: Float,\n"
-            "    Pointer: Pointer,\n"
-            "    Array: Array,\n"
-            "    Struct: Struct,\n"
-            "    ComptimeFloat: void,\n"
-            "    ComptimeInt: void,\n"
-            "    Undefined: void,\n"
-            "    Null: void,\n"
-            "    Optional: Optional,\n"
-            "    ErrorUnion: ErrorUnion,\n"
-            "    ErrorSet: ErrorSet,\n"
-            "    Enum: Enum,\n"
-            "    Union: Union,\n"
-            "    Fn: Fn,\n"
-            "    BoundFn: Fn,\n"
-            "    ArgTuple: void,\n"
-            "    Opaque: void,\n"
-            "    Frame: void,\n"
-            "    AnyFrame: AnyFrame,\n"
-            "    Vector: Vector,\n"
-            "    EnumLiteral: void,\n"
-            "\n\n"
-            "    pub const Int = struct {\n"
-            "        is_signed: bool,\n"
-            "        bits: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Float = struct {\n"
-            "        bits: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Pointer = struct {\n"
-            "        size: Size,\n"
-            "        is_const: bool,\n"
-            "        is_volatile: bool,\n"
-            "        alignment: comptime_int,\n"
-            "        child: type,\n"
-            "        is_allowzero: bool,\n"
-            "\n"
-            "        pub const Size = enum {\n"
-            "            One,\n"
-            "            Many,\n"
-            "            Slice,\n"
-            "            C,\n"
-            "        };\n"
-            "    };\n"
-            "\n"
-            "    pub const Array = struct {\n"
-            "        len: comptime_int,\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const ContainerLayout = enum {\n"
-            "        Auto,\n"
-            "        Extern,\n"
-            "        Packed,\n"
-            "    };\n"
-            "\n"
-            "    pub const StructField = struct {\n"
-            "        name: []const u8,\n"
-            "        offset: ?comptime_int,\n"
-            "        field_type: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Struct = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        fields: []StructField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const Optional = struct {\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const ErrorUnion = struct {\n"
-            "        error_set: type,\n"
-            "        payload: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Error = struct {\n"
-            "        name: []const u8,\n"
-            "        value: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const ErrorSet = ?[]Error;\n"
-            "\n"
-            "    pub const EnumField = struct {\n"
-            "        name: []const u8,\n"
-            "        value: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Enum = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        tag_type: type,\n"
-            "        fields: []EnumField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const UnionField = struct {\n"
-            "        name: []const u8,\n"
-            "        enum_field: ?EnumField,\n"
-            "        field_type: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Union = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        tag_type: ?type,\n"
-            "        fields: []UnionField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const CallingConvention = enum {\n"
-            "        Unspecified,\n"
-            "        C,\n"
-            "        Cold,\n"
-            "        Naked,\n"
-            "        Stdcall,\n"
-            "        Async,\n"
-            "    };\n"
-            "\n"
-            "    pub const FnArg = struct {\n"
-            "        is_generic: bool,\n"
-            "        is_noalias: bool,\n"
-            "        arg_type: ?type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Fn = struct {\n"
-            "        calling_convention: CallingConvention,\n"
-            "        is_generic: bool,\n"
-            "        is_var_args: bool,\n"
-            "        return_type: ?type,\n"
-            "        args: []FnArg,\n"
-            "    };\n"
-            "\n"
-            "    pub const AnyFrame = struct {\n"
-            "        child: ?type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Vector = struct {\n"
-            "        len: comptime_int,\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Declaration = struct {\n"
-            "        name: []const u8,\n"
-            "        is_pub: bool,\n"
-            "        data: Data,\n"
-            "\n"
-            "        pub const Data = union(enum) {\n"
-            "            Type: type,\n"
-            "            Var: type,\n"
-            "            Fn: FnDecl,\n"
-            "\n"
-            "            pub const FnDecl = struct {\n"
-            "                fn_type: type,\n"
-            "                inline_type: Inline,\n"
-            "                calling_convention: CallingConvention,\n"
-            "                is_var_args: bool,\n"
-            "                is_extern: bool,\n"
-            "                is_export: bool,\n"
-            "                lib_name: ?[]const u8,\n"
-            "                return_type: type,\n"
-            "                arg_names: [][] const u8,\n"
-            "\n"
-            "                pub const Inline = enum {\n"
-            "                    Auto,\n"
-            "                    Always,\n"
-            "                    Never,\n"
-            "                };\n"
-            "            };\n"
-            "        };\n"
-            "    };\n"
-            "};\n\n");
-        static_assert(ContainerLayoutAuto == 0, "");
-        static_assert(ContainerLayoutExtern == 1, "");
-        static_assert(ContainerLayoutPacked == 2, "");
+    // If any of these asserts trip then you need to either fix the internal compiler enum
+    // or the corresponding one in std.Target or std.builtin.
+    static_assert(ContainerLayoutAuto == 0, "");
+    static_assert(ContainerLayoutExtern == 1, "");
+    static_assert(ContainerLayoutPacked == 2, "");
 
-        static_assert(CallingConventionUnspecified == 0, "");
-        static_assert(CallingConventionC == 1, "");
-        static_assert(CallingConventionCold == 2, "");
-        static_assert(CallingConventionNaked == 3, "");
-        static_assert(CallingConventionStdcall == 4, "");
-        static_assert(CallingConventionAsync == 5, "");
+    static_assert(CallingConventionUnspecified == 0, "");
+    static_assert(CallingConventionC == 1, "");
+    static_assert(CallingConventionCold == 2, "");
+    static_assert(CallingConventionNaked == 3, "");
+    static_assert(CallingConventionStdcall == 4, "");
+    static_assert(CallingConventionAsync == 5, "");
 
-        static_assert(FnInlineAuto == 0, "");
-        static_assert(FnInlineAlways == 1, "");
-        static_assert(FnInlineNever == 2, "");
+    static_assert(FnInlineAuto == 0, "");
+    static_assert(FnInlineAlways == 1, "");
+    static_assert(FnInlineNever == 2, "");
 
-        static_assert(BuiltinPtrSizeOne == 0, "");
-        static_assert(BuiltinPtrSizeMany == 1, "");
-        static_assert(BuiltinPtrSizeSlice == 2, "");
-        static_assert(BuiltinPtrSizeC == 3, "");
-    }
-    {
-        buf_appendf(contents,
-            "pub const FloatMode = enum {\n"
-            "    Strict,\n"
-            "    Optimized,\n"
-            "};\n\n");
-        assert(FloatModeStrict == 0);
-        assert(FloatModeOptimized == 1);
-    }
-    {
-        buf_appendf(contents,
-            "pub const Endian = enum {\n"
-            "    Big,\n"
-            "    Little,\n"
-            "};\n\n");
-        //assert(EndianBig == 0);
-        //assert(EndianLittle == 1);
-    }
-    {
-        buf_appendf(contents,
-            "pub const Version = struct {\n"
-            "    major: u32,\n"
-            "    minor: u32,\n"
-            "    patch: u32,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-        "pub const SubSystem = enum {\n"
-        "    Console,\n"
-        "    Windows,\n"
-        "    Posix,\n"
-        "    Native,\n"
-        "    EfiApplication,\n"
-        "    EfiBootServiceDriver,\n"
-        "    EfiRom,\n"
-        "    EfiRuntimeDriver,\n"
-        "};\n\n");
+    static_assert(BuiltinPtrSizeOne == 0, "");
+    static_assert(BuiltinPtrSizeMany == 1, "");
+    static_assert(BuiltinPtrSizeSlice == 2, "");
+    static_assert(BuiltinPtrSizeC == 3, "");
 
-        assert(TargetSubsystemConsole == 0);
-        assert(TargetSubsystemWindows == 1);
-        assert(TargetSubsystemPosix == 2);
-        assert(TargetSubsystemNative == 3);
-        assert(TargetSubsystemEfiApplication == 4);
-        assert(TargetSubsystemEfiBootServiceDriver == 5);
-        assert(TargetSubsystemEfiRom == 6);
-        assert(TargetSubsystemEfiRuntimeDriver == 7);
-    }
+    static_assert(TargetSubsystemConsole == 0, "");
+    static_assert(TargetSubsystemWindows == 1, "");
+    static_assert(TargetSubsystemPosix == 2, "");
+    static_assert(TargetSubsystemNative == 3, "");
+    static_assert(TargetSubsystemEfiApplication == 4, "");
+    static_assert(TargetSubsystemEfiBootServiceDriver == 5, "");
+    static_assert(TargetSubsystemEfiRom == 6, "");
+    static_assert(TargetSubsystemEfiRuntimeDriver == 7, "");
     {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
@@ -8573,7 +8263,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     {
         TargetSubsystem detected_subsystem = detect_subsystem(g);
         if (detected_subsystem != TargetSubsystemAuto) {
-            buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
+            buf_appendf(contents, "pub const explicit_subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
         }
     }
 
@@ -8592,10 +8282,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
 static ZigPackage *create_test_runner_pkg(CodeGen *g) {
     return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig", "std.special");
-}
-
-static ZigPackage *create_panic_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig", "std.special");
 }
 
 static Error define_builtin_compile_vars(CodeGen *g) {
@@ -8679,6 +8365,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     assert(g->root_package);
     assert(g->std_package);
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename, "builtin");
+    g->compile_var_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
@@ -9377,16 +9064,43 @@ static void gen_root_source(CodeGen *g) {
 
     if (!g->is_dummy_so) {
         // Zig has lazy top level definitions. Here we semantically analyze the panic function.
-        ZigType *import_with_panic;
-        if (g->have_pub_panic) {
-            import_with_panic = g->root_import;
-        } else {
-            g->panic_package = create_panic_pkg(g);
-            import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
+        Buf *import_target_path;
+        Buf full_path = BUF_INIT;
+        ZigType *std_import;
+        if ((err = analyze_import(g, g->root_import, buf_create_from_str("std"), &std_import,
+            &import_target_path, &full_path)))
+        {
+            if (err == ErrorFileNotFound) {
+                fprintf(stderr, "unable to find '%s'", buf_ptr(import_target_path));
+            } else {
+                fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&full_path), err_str(err));
+            }
+            exit(1);
         }
-        Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
+
+        Tld *builtin_tld = find_decl(g, &get_container_scope(std_import)->base,
+                buf_create_from_str("builtin"));
+        assert(builtin_tld != nullptr);
+        resolve_top_level_decl(g, builtin_tld, nullptr, false);
+        report_errors_and_maybe_exit(g);
+        assert(builtin_tld->id == TldIdVar);
+        TldVar *builtin_tld_var = (TldVar*)builtin_tld;
+        ConstExprValue *builtin_val = builtin_tld_var->var->const_value;
+        assert(builtin_val->type->id == ZigTypeIdMetaType);
+        ZigType *builtin_type = builtin_val->data.x_type;
+
+        Tld *panic_tld = find_decl(g, &get_container_scope(builtin_type)->base,
+                buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
         resolve_top_level_decl(g, panic_tld, nullptr, false);
+        report_errors_and_maybe_exit(g);
+        assert(panic_tld->id == TldIdVar);
+        TldVar *panic_tld_var = (TldVar*)panic_tld;
+        ConstExprValue *panic_fn_val = panic_tld_var->var->const_value;
+        assert(panic_fn_val->type->id == ZigTypeIdFn);
+        assert(panic_fn_val->data.x_ptr.special == ConstPtrSpecialFunction);
+        g->panic_fn = panic_fn_val->data.x_ptr.data.fn.fn_entry;
+        assert(g->panic_fn != nullptr);
     }
 
 
@@ -9414,10 +9128,6 @@ static void gen_root_source(CodeGen *g) {
         if (!g->error_during_imports) {
             semantic_analyze(g);
         }
-    }
-
-    if (!g->is_dummy_so) {
-        typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
     }
 
     report_errors_and_maybe_exit(g);

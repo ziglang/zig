@@ -13,7 +13,6 @@ const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 
-pub const is_the_target = builtin.os == .linux;
 pub usingnamespace switch (builtin.arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
@@ -1079,7 +1078,7 @@ pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32
 }
 
 test "" {
-    if (is_the_target) {
+    if (builtin.os == .linux) {
         _ = @import("linux/test.zig");
     }
 }

@@ -1,16 +1,15 @@
 /// A protocol is an interface identified by a GUID.
 pub const protocols = @import("uefi/protocols.zig");
+
 /// Status codes returned by EFI interfaces
 pub const status = @import("uefi/status.zig");
 pub const tables = @import("uefi/tables.zig");
 
 const fmt = @import("std").fmt;
 
-const builtin = @import("builtin");
-pub const is_the_target = builtin.os == .uefi;
-
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: Handle = undefined;
+
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *tables.SystemTable = undefined;
 
@@ -50,26 +49,35 @@ pub const Handle = *@OpaqueType();
 pub const Time = extern struct {
     /// 1900 - 9999
     year: u16,
+
     /// 1 - 12
     month: u8,
+
     /// 1 - 31
     day: u8,
+
     /// 0 - 23
     hour: u8,
+
     /// 0 - 59
     minute: u8,
+
     /// 0 - 59
     second: u8,
     _pad1: u8,
+
     /// 0 - 999999999
     nanosecond: u32,
+
     /// The time's offset in minutes from UTC.
     /// Allowed values are -1440 to 1440 or unspecified_timezone
     timezone: i16,
     daylight: packed struct {
         _pad1: u6,
+
         /// If true, the time has been adjusted for daylight savings time.
         in_daylight: bool,
+
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
     },
@@ -83,8 +91,10 @@ pub const Time = extern struct {
 pub const TimeCapabilities = extern struct {
     /// Resolution in Hz
     resolution: u32,
+
     /// Accuracy in an error rate of 1e-6 parts per million.
     accuracy: u32,
+
     /// If true, a time set operation clears the device's time below the resolution level.
     sets_to_zero: bool,
 };

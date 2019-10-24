@@ -37,7 +37,7 @@ pub const is_async = mode != .blocking;
 pub const GetStdIoError = os.windows.GetStdHandleError;
 
 pub fn getStdOut() GetStdIoError!File {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const handle = try os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE);
         return File.openHandle(handle);
     }
@@ -45,7 +45,7 @@ pub fn getStdOut() GetStdIoError!File {
 }
 
 pub fn getStdErr() GetStdIoError!File {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const handle = try os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE);
         return File.openHandle(handle);
     }
@@ -53,7 +53,7 @@ pub fn getStdErr() GetStdIoError!File {
 }
 
 pub fn getStdIn() GetStdIoError!File {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const handle = try os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE);
         return File.openHandle(handle);
     }
