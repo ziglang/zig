@@ -133,7 +133,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
@@ -310,7 +310,7 @@ pub const StackIterator = struct {
 };
 
 pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr);
     }
     var it = StackIterator.init(start_addr);
@@ -342,10 +342,10 @@ pub fn writeCurrentStackTraceWindows(
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
     }
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         return noasync printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
     }
     return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
@@ -832,10 +832,10 @@ pub const OpenSelfDebugInfoError = error{
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (builtin.strip_debug_info)
         return error.MissingDebugInfo;
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         return noasync openSelfDebugInfoWindows(allocator);
     }
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         return noasync openSelfDebugInfoMacOs(allocator);
     }
     return noasync openSelfDebugInfoPosix(allocator);
@@ -2364,7 +2364,7 @@ pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
@@ -2378,7 +2378,7 @@ pub fn attachSegfaultHandler() void {
 }
 
 fn resetSegfaultHandler() void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;

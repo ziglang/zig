@@ -39,7 +39,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const ptr = try os.windows.GetEnvironmentStringsW();
         defer os.windows.FreeEnvironmentStringsW(ptr);
 
@@ -129,7 +129,7 @@ pub const GetEnvVarOwnedError = error{
 /// Caller must free returned memory.
 /// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
         defer allocator.free(key_with_null);
 

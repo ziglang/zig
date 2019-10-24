@@ -1,6 +1,9 @@
 const std = @import("std.zig");
 const builtin = std.builtin;
 
+/// TODO Nearly all the functions in this namespace would be
+/// better off if https://github.com/ziglang/zig/issues/425
+/// was solved.
 pub const Target = union(enum) {
     Native: void,
     Cross: Cross,

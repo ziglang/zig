@@ -11,7 +11,6 @@ const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
 
-pub const is_the_target = builtin.os == .windows;
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");

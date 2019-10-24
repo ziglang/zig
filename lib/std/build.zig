@@ -2000,7 +2000,7 @@ pub const RunStep = struct {
     }
 
     pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-        const PATH = if (std.os.windows.is_the_target) "Path" else "PATH";
+        const PATH = if (builtin.os == .windows) "Path" else "PATH";
         const env_map = self.getEnvMap();
         const prev_path = env_map.get(PATH) orelse {
             env_map.set(PATH, search_path) catch unreachable;

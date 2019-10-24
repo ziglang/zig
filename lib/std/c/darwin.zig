@@ -36,7 +36,7 @@ const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 /// export a weak symbol here, to be overridden by the real one.
 pub extern "c" var _mh_execute_header: mach_hdr = undefined;
 comptime {
-    if (std.os.darwin.is_the_target) {
+    if (std.Target.current.isDarwin()) {
         @export("_mh_execute_header", _mh_execute_header, .Weak);
     }
 }
