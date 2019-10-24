@@ -1,0 +1,25 @@
+---
+kind: pipeline
+name: test-aarch64-linux-gnu
+
+platform:
+  arch: arm64
+
+steps:
+- name: build-and-test
+  image: alpine:edge
+  commands:
+  - ./ci/drone/linux_script aarch64 linux musl
+
+---
+kind: pipeline
+name: test-arm-linux-gnueabihf
+
+platform:
+  arch: arm
+
+steps:
+- name: build-and-test
+  image: alpine:edge
+  commands:
+  - ./ci/drone/linux_script arm linux musleabihf
