@@ -74,6 +74,7 @@ enum UndefAllowed {
 enum X64CABIClass {
     X64CABIClass_Unknown,
     X64CABIClass_MEMORY,
+    X64CABIClass_MEMORY_nobyval,
     X64CABIClass_INTEGER,
     X64CABIClass_SSE,
 };

@@ -1847,51 +1847,64 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         return true;
     }
 
-    // Arrays are just pointers
-    if (ty->id == ZigTypeIdArray) {
-        assert(handle_is_ptr(ty));
-        switch (fn_walk->id) {
-            case FnWalkIdAttrs:
-                // arrays passed to C ABI functions may not be at address 0
-                addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
-                addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
-                fn_walk->data.attrs.gen_i += 1;
-                break;
-            case FnWalkIdCall:
-                fn_walk->data.call.gen_param_values->append(val);
-                break;
-            case FnWalkIdTypes: {
-                ZigType *gen_type = get_pointer_to_type(g, ty, true);
-                fn_walk->data.types.gen_param_types->append(get_llvm_type(g, gen_type));
-                fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, gen_type));
-                break;
-            }
-            case FnWalkIdVars: {
-                var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
-                di_arg_index = fn_walk->data.vars.gen_i;
-                dest_ty = get_pointer_to_type(g, ty, false);
-                fn_walk->data.vars.gen_i += 1;
-                goto var_ok;
-            }
-            case FnWalkIdInits:
-                if (var->decl_node) {
-                    gen_var_debug_decl(g, var);
-                }
-                fn_walk->data.inits.gen_i += 1;
-                break;
-        }
-        return true;
-    }
-
-    if (g->zig_target->arch == ZigLLVM_x86_64) {
-        X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
-        size_t ty_size = type_size(g, ty);
-        if (abi_class == X64CABIClass_MEMORY) {
+    {
+        // Arrays are just pointers
+        if (ty->id == ZigTypeIdArray) {
             assert(handle_is_ptr(ty));
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
-                    ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                    // arrays passed to C ABI functions may not be at address 0
+                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    fn_walk->data.attrs.gen_i += 1;
+                    break;
+                case FnWalkIdCall:
+                    fn_walk->data.call.gen_param_values->append(val);
+                    break;
+                case FnWalkIdTypes: {
+                    ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                    fn_walk->data.types.gen_param_types->append(get_llvm_type(g, gen_type));
+                    fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, gen_type));
+                    break;
+                }
+                case FnWalkIdVars: {
+                    var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
+                    di_arg_index = fn_walk->data.vars.gen_i;
+                    dest_ty = get_pointer_to_type(g, ty, false);
+                    fn_walk->data.vars.gen_i += 1;
+                    goto var_ok;
+                }
+                case FnWalkIdInits:
+                    if (var->decl_node) {
+                        gen_var_debug_decl(g, var);
+                    }
+                    fn_walk->data.inits.gen_i += 1;
+                    break;
+            }
+            return true;
+        }
+
+        X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
+        size_t ty_size = type_size(g, ty);
+        if (abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval) {
+            assert(handle_is_ptr(ty));
+            switch (fn_walk->id) {
+                case FnWalkIdAttrs:
+                    if (abi_class != X64CABIClass_MEMORY_nobyval) {
+                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                        addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
+                            g->zig_target->arch == ZigLLVM_aarch64_be)
+                    {
+                        // no attrs needed
+                    } else {
+                        if (source_node != nullptr) {
+                            give_up_with_c_abi_error(g, source_node);
+                        }
+                        // otherwise allow codegen code to report a compile error
+                        return false;
+                    }
+
                     // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     fn_walk->data.attrs.gen_i += 1;

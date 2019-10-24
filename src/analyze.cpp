@@ -919,14 +919,13 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     if (type_is_c_abi_int(g, fn_type_id->return_type)) {
         return false;
     }
-    if (g->zig_target->arch == ZigLLVM_x86) {
+    if (g->zig_target->arch == ZigLLVM_x86 ||
+        g->zig_target->arch == ZigLLVM_x86_64 ||
+        target_is_arm(g->zig_target) ||
+        target_is_riscv(g->zig_target))
+    {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
-        return abi_class == X64CABIClass_MEMORY;
-    } else if (g->zig_target->arch == ZigLLVM_x86_64) {
-        X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
-        return abi_class == X64CABIClass_MEMORY;
-    } else if (target_is_arm(g->zig_target) || target_is_riscv(g->zig_target)) {
-        return type_size(g, fn_type_id->return_type) > 16;
+        return abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval;
     } else if (g->zig_target->arch == ZigLLVM_mipsel) {
         return false;
     }
@@ -7509,6 +7508,11 @@ X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
 
     if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
         return type_windows_abi_x86_64_class(g, ty, ty_size);
+    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
+            g->zig_target->arch == ZigLLVM_aarch64_be)
+    {
+        X64CABIClass result = type_system_V_abi_x86_64_class(g, ty, ty_size);
+        return (result == X64CABIClass_MEMORY) ? X64CABIClass_MEMORY_nobyval : result;
     } else {
         return type_system_V_abi_x86_64_class(g, ty, ty_size);
     }
