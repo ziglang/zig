@@ -17590,7 +17590,10 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             false);
                     array_ptr_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.mut = ConstPtrMutInfer;
                 } else {
-                    zig_unreachable();
+                    ir_add_error(ira, elem_ptr_instruction->init_array_type,
+                        buf_sprintf("expected array type or [_], found '%s'",
+                            buf_ptr(&array_type->name)));
+                    return ira->codegen->invalid_instruction;
                 }
             }
 

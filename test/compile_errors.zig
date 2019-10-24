@@ -3,6 +3,19 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "using an unknown len ptr type instead of array",
+        \\const resolutions = [*][*]const u8{
+        \\    c"[320 240  ]",
+        \\    null,
+        \\};
+        \\comptime {
+        \\    _ = resolutions;
+        \\}
+    ,
+        "tmp.zig:1:21: error: expected array type or [_], found '[*][*]const u8'",
+    );
+
+    cases.add(
         "comparison with error union and error value",
         \\export fn entry() void {
         \\    var number_or_error: anyerror!i32 = error.SomethingAwful;
