@@ -65,6 +65,6 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 
-comptime {
+test "" {
     meta.refAllDecls(@This());
 }

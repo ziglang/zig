@@ -34,18 +34,19 @@ pub const zen = @import("os/zen.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --override-lib-dir
-    if (builtin.is_test) {
-        _ = darwin;
-        _ = freebsd;
-        _ = linux;
-        _ = netbsd;
-        _ = uefi;
-        _ = wasi;
-        _ = windows;
-        _ = zen;
+}
 
-        _ = @import("os/test.zig");
-    }
+test "" {
+    _ = darwin;
+    _ = freebsd;
+    _ = linux;
+    _ = netbsd;
+    _ = uefi;
+    _ = wasi;
+    _ = windows;
+    _ = zen;
+
+    _ = @import("os/test.zig");
 }
 
 /// When linking libc, this is the C API. Otherwise, it is the OS-specific system interface.
