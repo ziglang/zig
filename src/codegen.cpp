@@ -8762,7 +8762,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     if (g->zig_target->is_native) {
-        args.append("-march=native");
+        if (target_supports_clang_march_native(g->zig_target)) {
+            args.append("-march=native");
+        }
     } else {
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));

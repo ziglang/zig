@@ -182,6 +182,7 @@ bool target_can_build_libc(const ZigTarget *target);
 const char *target_libc_generic_name(const ZigTarget *target);
 bool target_is_libc_lib_name(const ZigTarget *target, const char *name);
 bool target_supports_fpic(const ZigTarget *target);
+bool target_supports_clang_march_native(const ZigTarget *target);
 bool target_requires_pic(const ZigTarget *target, bool linking_libc);
 bool target_requires_pie(const ZigTarget *target);
 bool target_abi_is_gnu(ZigLLVM_EnvironmentType abi);
