@@ -25,7 +25,7 @@ make -j2 install
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"
   mkdir "$ARTIFACTSDIR"
-  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm9-1 -j2 $BUILD_SOURCEVERSION
+  docker run -i --mount type=bind,source="$ARTIFACTSDIR",target=/z ziglang/static-base:llvm9-x86_64 -j2 $BUILD_SOURCEVERSION
   TARBALL="$(ls $ARTIFACTSDIR)"
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$ARTIFACTSDIR/$TARBALL" s3://ziglang.org/builds/
