@@ -16,10 +16,13 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
 
 make -j$(nproc) install
-./zig build test-behavior
+# TODO disabled temporarily to test the CI
+#./zig build test-behavior
+./zig build docs
+# TODO full test suite:
 #./zig build test
 
-if [ -n "$DRONE_PULL_REQUEST" ]; then
+if [ -z "$DRONE_PULL_REQUEST" ]; then
   mv ../LICENSE "$DISTDIR/"
   mv ../zig-cache/langref.html "$DISTDIR/"
   mv "$DISTDIR/bin/zig" "$DISTDIR/"
