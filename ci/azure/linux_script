@@ -14,6 +14,10 @@ sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
 sudo apt-get install -y libxml2-dev libclang-9-dev llvm-9 llvm-9-dev cmake s3cmd gcc-7 g++-7 qemu
 
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+
 export CC=gcc-7
 export CXX=g++-7
 mkdir build
