@@ -74,6 +74,7 @@ enum UndefAllowed {
 enum X64CABIClass {
     X64CABIClass_Unknown,
     X64CABIClass_MEMORY,
+    X64CABIClass_MEMORY_nobyval,
     X64CABIClass_INTEGER,
     X64CABIClass_SSE,
 };
@@ -1715,6 +1716,7 @@ enum PanicMsgId {
     PanicMsgIdFrameTooSmall,
     PanicMsgIdResumedFnPendingAwait,
     PanicMsgIdBadNoAsyncCall,
+    PanicMsgIdResumeNotSuspendedFn,
 
     PanicMsgIdCount,
 };
@@ -1886,6 +1888,7 @@ struct CodeGen {
     size_t cur_resume_block_count;
     LLVMValueRef cur_err_ret_trace_val_arg;
     LLVMValueRef cur_err_ret_trace_val_stack;
+    LLVMValueRef cur_bad_not_suspended_index;
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
@@ -1928,7 +1931,6 @@ struct CodeGen {
     ZigList<ZigType *> type_resolve_stack;
 
     ZigPackage *std_package;
-    ZigPackage *panic_package;
     ZigPackage *test_runner_package;
     ZigPackage *compile_var_package;
     ZigType *compile_var_import;
@@ -2004,11 +2006,11 @@ struct CodeGen {
     ZigFn *cur_fn;
     ZigFn *main_fn;
     ZigFn *panic_fn;
-    TldFn *panic_tld_fn;
 
     ZigFn *largest_frame_fn;
 
-    Stage2ProgressNode *progress_node;
+    Stage2ProgressNode *main_progress_node;
+    Stage2ProgressNode *sub_progress_node;
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;
@@ -2027,7 +2029,6 @@ struct CodeGen {
     bool have_winmain;
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
-    bool have_pub_panic;
     bool have_err_ret_tracing;
     bool c_want_stdint;
     bool c_want_stdbool;

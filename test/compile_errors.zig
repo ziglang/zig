@@ -3,6 +3,19 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "using an unknown len ptr type instead of array",
+        \\const resolutions = [*][*]const u8{
+        \\    c"[320 240  ]",
+        \\    null,
+        \\};
+        \\comptime {
+        \\    _ = resolutions;
+        \\}
+    ,
+        "tmp.zig:1:21: error: expected array type or [_], found '[*][*]const u8'",
+    );
+
+    cases.add(
         "comparison with error union and error value",
         \\export fn entry() void {
         \\    var number_or_error: anyerror!i32 = error.SomethingAwful;
@@ -64,7 +77,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @Type(0);
         \\}
     ,
-        "tmp.zig:2:15: error: expected type 'builtin.TypeInfo', found 'comptime_int'",
+        "tmp.zig:2:15: error: expected type 'std.builtin.TypeInfo', found 'comptime_int'",
     );
 
     cases.add(
@@ -88,7 +101,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    });
         \\}
     ,
-        "tmp.zig:3:36: error: expected type 'builtin.TypeInfo', found 'builtin.Int'",
+        "tmp.zig:3:36: error: expected type 'std.builtin.TypeInfo', found 'std.builtin.Int'",
     );
 
     cases.add(
@@ -806,7 +819,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn panic() void {}
         \\
     ,
-        "tmp.zig:3:5: error: expected type 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn() void'",
+        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn() void'",
     );
 
     cases.add(
@@ -815,8 +828,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (true) {}
         \\}
     ,
-        "tmp.zig:1:5: error: expected type 'fn([]const u8, ?*builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
-        "tmp.zig:1:5: note: only one of the functions is generic",
+        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        "note: only one of the functions is generic",
     );
 
     cases.add(
@@ -1473,7 +1486,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const field = @typeInfo(Struct).Struct.fields[index];
         \\}
     ,
-        "tmp.zig:9:51: error: values of type 'builtin.StructField' must be comptime known, but index value is runtime known",
+        "tmp.zig:9:51: error: values of type 'std.builtin.StructField' must be comptime known, but index value is runtime known",
     );
 
     cases.add(
@@ -3743,13 +3756,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "missing function name and param name",
+        "missing function name",
         \\fn () void {}
-        \\fn f(i32) void {}
         \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
     ,
         "tmp.zig:1:1: error: missing function name",
-        "tmp.zig:2:6: error: missing parameter name",
+    );
+
+    cases.add(
+        "missing param name",
+        \\fn f(i32) void {}
+        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+    ,
+        "tmp.zig:1:6: error: missing parameter name",
     );
 
     cases.add(
@@ -3782,7 +3801,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() usize { return @sizeOf(@typeOf(func)); }
     ,
         "tmp.zig:2:1: error: redefinition of 'func'",
-        "tmp.zig:1:11: error: use of undeclared identifier 'bogus'",
     );
 
     cases.add(
@@ -5086,7 +5104,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const foo = builtin.Arch.x86;
         \\}
     ,
-        "tmp.zig:3:29: error: container 'builtin.Arch' has no member called 'x86'",
+        "tmp.zig:3:29: error: container 'std.target.Arch' has no member called 'x86'",
     );
 
     cases.add(
@@ -5731,7 +5749,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
         \\}
     ,
-        "tmp.zig:3:50: error: expected type 'builtin.AtomicOrder', found 'u32'",
+        "tmp.zig:3:50: error: expected type 'std.builtin.AtomicOrder', found 'u32'",
     );
 
     cases.add(
@@ -5741,7 +5759,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @export("entry", entry, u32(1234));
         \\}
     ,
-        "tmp.zig:3:32: error: expected type 'builtin.GlobalLinkage', found 'u32'",
+        "tmp.zig:3:32: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
     );
 
     cases.add(

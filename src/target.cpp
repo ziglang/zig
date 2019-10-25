@@ -1583,9 +1583,19 @@ bool target_os_requires_libc(Os os) {
 }
 
 bool target_supports_fpic(const ZigTarget *target) {
-  // This is not whether the target supports Position Independent Code, but whether the -fPIC
-  // C compiler argument is valid.
-  return target->os != OsWindows;
+    // This is not whether the target supports Position Independent Code, but whether the -fPIC
+    // C compiler argument is valid.
+    return target->os != OsWindows;
+}
+
+bool target_supports_clang_march_native(const ZigTarget *target) {
+    // Whether clang supports -march=native on this target.
+    // Arguably it should always work, but in reality it gives:
+    // error: the clang compiler does not support '-march=native'
+    // If we move CPU detection logic into Zig itelf, we will not need this,
+    // instead we will always pass target features and CPU configuration explicitly.
+    return target->arch != ZigLLVM_aarch64 &&
+        target->arch != ZigLLVM_aarch64_be;
 }
 
 bool target_supports_stack_probing(const ZigTarget *target) {

@@ -44,7 +44,7 @@ const DirectAllocator = struct {
         if (n == 0)
             return (([*]u8)(undefined))[0..0];
 
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const w = os.windows;
 
             // Although officially it's at least aligned to page boundary,
@@ -130,7 +130,7 @@ const DirectAllocator = struct {
 
     fn shrink(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             const w = os.windows;
             if (new_size == 0) {
                 // From the docs:
@@ -170,7 +170,7 @@ const DirectAllocator = struct {
 
     fn realloc(allocator: *Allocator, old_mem_unaligned: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         const old_mem = @alignCast(mem.page_size, old_mem_unaligned);
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             if (old_mem.len == 0) {
                 return alloc(allocator, new_size, new_align);
             }

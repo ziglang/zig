@@ -933,6 +933,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("resumed an async function which can only be awaited");
         case PanicMsgIdBadNoAsyncCall:
             return buf_create_from_str("async function called with noasync suspended");
+        case PanicMsgIdResumeNotSuspendedFn:
+            return buf_create_from_str("resumed a non-suspended function");
     }
     zig_unreachable();
 }
@@ -1845,51 +1847,64 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         return true;
     }
 
-    // Arrays are just pointers
-    if (ty->id == ZigTypeIdArray) {
-        assert(handle_is_ptr(ty));
-        switch (fn_walk->id) {
-            case FnWalkIdAttrs:
-                // arrays passed to C ABI functions may not be at address 0
-                addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
-                addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
-                fn_walk->data.attrs.gen_i += 1;
-                break;
-            case FnWalkIdCall:
-                fn_walk->data.call.gen_param_values->append(val);
-                break;
-            case FnWalkIdTypes: {
-                ZigType *gen_type = get_pointer_to_type(g, ty, true);
-                fn_walk->data.types.gen_param_types->append(get_llvm_type(g, gen_type));
-                fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, gen_type));
-                break;
-            }
-            case FnWalkIdVars: {
-                var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
-                di_arg_index = fn_walk->data.vars.gen_i;
-                dest_ty = get_pointer_to_type(g, ty, false);
-                fn_walk->data.vars.gen_i += 1;
-                goto var_ok;
-            }
-            case FnWalkIdInits:
-                if (var->decl_node) {
-                    gen_var_debug_decl(g, var);
-                }
-                fn_walk->data.inits.gen_i += 1;
-                break;
-        }
-        return true;
-    }
-
-    if (g->zig_target->arch == ZigLLVM_x86_64) {
-        X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
-        size_t ty_size = type_size(g, ty);
-        if (abi_class == X64CABIClass_MEMORY) {
+    {
+        // Arrays are just pointers
+        if (ty->id == ZigTypeIdArray) {
             assert(handle_is_ptr(ty));
             switch (fn_walk->id) {
                 case FnWalkIdAttrs:
-                    ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                    // arrays passed to C ABI functions may not be at address 0
+                    addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    fn_walk->data.attrs.gen_i += 1;
+                    break;
+                case FnWalkIdCall:
+                    fn_walk->data.call.gen_param_values->append(val);
+                    break;
+                case FnWalkIdTypes: {
+                    ZigType *gen_type = get_pointer_to_type(g, ty, true);
+                    fn_walk->data.types.gen_param_types->append(get_llvm_type(g, gen_type));
+                    fn_walk->data.types.param_di_types->append(get_llvm_di_type(g, gen_type));
+                    break;
+                }
+                case FnWalkIdVars: {
+                    var->value_ref = LLVMGetParam(llvm_fn,  fn_walk->data.vars.gen_i);
+                    di_arg_index = fn_walk->data.vars.gen_i;
+                    dest_ty = get_pointer_to_type(g, ty, false);
+                    fn_walk->data.vars.gen_i += 1;
+                    goto var_ok;
+                }
+                case FnWalkIdInits:
+                    if (var->decl_node) {
+                        gen_var_debug_decl(g, var);
+                    }
+                    fn_walk->data.inits.gen_i += 1;
+                    break;
+            }
+            return true;
+        }
+
+        X64CABIClass abi_class = type_c_abi_x86_64_class(g, ty);
+        size_t ty_size = type_size(g, ty);
+        if (abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval) {
+            assert(handle_is_ptr(ty));
+            switch (fn_walk->id) {
+                case FnWalkIdAttrs:
+                    if (abi_class != X64CABIClass_MEMORY_nobyval) {
+                        ZigLLVMAddByValAttr(llvm_fn, fn_walk->data.attrs.gen_i + 1, get_llvm_type(g, ty));
+                        addLLVMArgAttrInt(llvm_fn, fn_walk->data.attrs.gen_i, "align", get_abi_alignment(g, ty));
+                    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
+                            g->zig_target->arch == ZigLLVM_aarch64_be)
+                    {
+                        // no attrs needed
+                    } else {
+                        if (source_node != nullptr) {
+                            give_up_with_c_abi_error(g, source_node);
+                        }
+                        // otherwise allow codegen code to report a compile error
+                        return false;
+                    }
+
                     // Byvalue parameters must not have address 0
                     addLLVMArgAttr(llvm_fn, fn_walk->data.attrs.gen_i, "nonnull");
                     fn_walk->data.attrs.gen_i += 1;
@@ -2234,6 +2249,12 @@ static void gen_assert_resume_id(CodeGen *g, IrInstruction *source_instr, Resume
         LLVMBasicBlockRef end_bb)
 {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+
+    if (ir_want_runtime_safety(g, source_instr)) {
+        // Write a value to the resume index which indicates the function was resumed while not suspended.
+        LLVMBuildStore(g->builder, g->cur_bad_not_suspended_index, g->cur_async_resume_index_ptr);
+    }
+
     LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
     if (end_bb == nullptr) end_bb = LLVMAppendBasicBlock(g->cur_fn_val, "OkResume");
     LLVMValueRef expected_value = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
@@ -5764,6 +5785,9 @@ static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutable *executabl
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, instruction->begin->resume_bb);
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        LLVMBuildStore(g->builder, g->cur_bad_not_suspended_index, g->cur_async_resume_index_ptr);
+    }
     render_async_var_decls(g, instruction->base.scope);
     return nullptr;
 }
@@ -7303,8 +7327,12 @@ static void do_code_gen(CodeGen *g) {
     }
 
     // Generate function definitions.
+    stage2_progress_update_node(g->sub_progress_node, 0, g->fn_defs.length);
     for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         ZigFn *fn_table_entry = g->fn_defs.at(fn_i);
+        Stage2ProgressNode *fn_prog_node = stage2_progress_start(g->sub_progress_node,
+                buf_ptr(&fn_table_entry->symbol_name), buf_len(&fn_table_entry->symbol_name), 0);
+
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         CallingConvention cc = fn_type_id->cc;
         bool is_c_abi = cc == CallingConventionC;
@@ -7538,7 +7566,20 @@ static void do_code_gen(CodeGen *g) {
             IrBasicBlock *entry_block = executable->basic_block_list.at(0);
             LLVMAddCase(switch_instr, zero, entry_block->llvm_block);
             g->cur_resume_block_count += 1;
+
+            {
+                LLVMBasicBlockRef bad_not_suspended_bb = LLVMAppendBasicBlock(g->cur_fn_val, "NotSuspended");
+                size_t new_block_index = g->cur_resume_block_count;
+                g->cur_resume_block_count += 1;
+                g->cur_bad_not_suspended_index = LLVMConstInt(usize_type_ref, new_block_index, false);
+                LLVMAddCase(g->cur_async_switch_instr, g->cur_bad_not_suspended_index, bad_not_suspended_bb);
+
+                LLVMPositionBuilderAtEnd(g->builder, bad_not_suspended_bb);
+                gen_assertion_scope(g, PanicMsgIdResumeNotSuspendedFn, fn_table_entry->child_scope);
+            }
+
             LLVMPositionBuilderAtEnd(g->builder, entry_block->llvm_block);
+            LLVMBuildStore(g->builder, g->cur_bad_not_suspended_index, g->cur_async_resume_index_ptr);
             if (trace_field_index_stack != UINT32_MAX) {
                 if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
                     LLVMValueRef trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
@@ -7568,6 +7609,7 @@ static void do_code_gen(CodeGen *g) {
 
         ir_render(g, fn_table_entry);
 
+        stage2_progress_end(fn_prog_node);
     }
 
     assert(!g->errors.length);
@@ -7615,7 +7657,7 @@ static void zig_llvm_emit_output(CodeGen *g) {
             if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
                 (g->out_type == OutTypeLib && !g->is_dynamic)))
             {
-                zig_link_add_compiler_rt(g, g->progress_node);
+                zig_link_add_compiler_rt(g, g->sub_progress_node);
             }
             break;
 
@@ -8096,55 +8138,37 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
     Buf *contents = buf_alloc();
-
-    // NOTE: when editing this file, you may need to make modifications to the
-    // cache input parameters in define_builtin_compile_vars
-
-    // Modifications to this struct must be coordinated with code that does anything with
-    // g->stack_trace_type. There are hard-coded references to the field indexes.
-    buf_append_str(contents,
-        "pub const StackTrace = struct {\n"
-        "    index: usize,\n"
-        "    instruction_addresses: []usize,\n"
-        "};\n\n");
-
-    buf_append_str(contents, "pub const PanicFn = fn([]const u8, ?*StackTrace) noreturn;\n\n");
+    buf_appendf(contents, "usingnamespace @import(\"std\").builtin;\n\n");
 
     const char *cur_os = nullptr;
     {
-        buf_appendf(contents, "pub const Os = enum {\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             Os os_type = target_os_enum(i);
             const char *name = target_os_name(os_type);
-            buf_appendf(contents, "    %s,\n", name);
 
             if (os_type == g->zig_target->os) {
                 g->target_os_index = i;
                 cur_os = name;
             }
         }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_os != nullptr);
 
     const char *cur_arch = nullptr;
     {
-        buf_appendf(contents, "pub const Arch = union(enum) {\n");
         uint32_t field_count = (uint32_t)target_arch_count();
         for (uint32_t arch_i = 0; arch_i < field_count; arch_i += 1) {
             ZigLLVM_ArchType arch = target_arch_enum(arch_i);
             const char *arch_name = target_arch_name(arch);
             SubArchList sub_arch_list = target_subarch_list(arch);
             if (sub_arch_list == SubArchListNone) {
-                buf_appendf(contents, "    %s,\n", arch_name);
                 if (arch == g->zig_target->arch) {
                     g->target_arch_index = arch_i;
                     cur_arch = buf_ptr(buf_sprintf("Arch.%s", arch_name));
                 }
             } else {
                 const char *sub_arch_list_name = target_subarch_list_name(sub_arch_list);
-                buf_appendf(contents, "    %s: %s,\n", arch_name, sub_arch_list_name);
                 if (arch == g->zig_target->arch) {
                     size_t sub_count = target_subarch_count(sub_arch_list);
                     for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
@@ -8158,50 +8182,30 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
                 }
             }
         }
-
-        uint32_t list_count = target_subarch_list_count();
-        // start at index 1 to skip None
-        for (uint32_t list_i = 1; list_i < list_count; list_i += 1) {
-            SubArchList sub_arch_list = target_subarch_list_enum(list_i);
-            const char *subarch_list_name = target_subarch_list_name(sub_arch_list);
-            buf_appendf(contents, "    pub const %s = enum {\n", subarch_list_name);
-            size_t sub_count = target_subarch_count(sub_arch_list);
-            for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
-                ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                buf_appendf(contents, "        %s,\n", target_subarch_name(sub));
-            }
-            buf_appendf(contents, "    };\n");
-        }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_arch != nullptr);
 
     const char *cur_abi = nullptr;
     {
-        buf_appendf(contents, "pub const Abi = enum {\n");
         uint32_t field_count = (uint32_t)target_abi_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_EnvironmentType abi = target_abi_enum(i);
             const char *name = target_abi_name(abi);
-            buf_appendf(contents, "    %s,\n", name);
 
             if (abi == g->zig_target->abi) {
                 g->target_abi_index = i;
                 cur_abi = name;
             }
         }
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_abi != nullptr);
 
     const char *cur_obj_fmt = nullptr;
     {
-        buf_appendf(contents, "pub const ObjectFormat = enum {\n");
         uint32_t field_count = (uint32_t)target_oformat_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
             ZigLLVM_ObjectFormatType oformat = target_oformat_enum(i);
             const char *name = target_oformat_name(oformat);
-            buf_appendf(contents, "    %s,\n", name);
 
             ZigLLVM_ObjectFormatType target_oformat = target_object_format(g->zig_target);
             if (oformat == target_oformat) {
@@ -8210,311 +8214,39 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             }
         }
 
-        buf_appendf(contents, "};\n\n");
     }
     assert(cur_obj_fmt != nullptr);
 
-    {
-        buf_appendf(contents, "pub const GlobalLinkage = enum {\n");
-        uint32_t field_count = array_length(global_linkage_values);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            const GlobalLinkageValue *value = &global_linkage_values[i];
-            buf_appendf(contents, "    %s,\n", value->name);
-        }
-        buf_appendf(contents, "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const AtomicOrder = enum {\n"
-            "    Unordered,\n"
-            "    Monotonic,\n"
-            "    Acquire,\n"
-            "    Release,\n"
-            "    AcqRel,\n"
-            "    SeqCst,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const AtomicRmwOp = enum {\n"
-            "    Xchg,\n"
-            "    Add,\n"
-            "    Sub,\n"
-            "    And,\n"
-            "    Nand,\n"
-            "    Or,\n"
-            "    Xor,\n"
-            "    Max,\n"
-            "    Min,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const Mode = enum {\n"
-            "    Debug,\n"
-            "    ReleaseSafe,\n"
-            "    ReleaseFast,\n"
-            "    ReleaseSmall,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents, "pub const TypeId = enum {\n");
-        size_t field_count = type_id_len();
-        for (size_t i = 0; i < field_count; i += 1) {
-            const ZigTypeId id = type_id_at_index(i);
-            buf_appendf(contents, "    %s,\n", type_id_name(id));
-        }
-        buf_appendf(contents, "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-            "pub const TypeInfo = union(TypeId) {\n"
-            "    Type: void,\n"
-            "    Void: void,\n"
-            "    Bool: void,\n"
-            "    NoReturn: void,\n"
-            "    Int: Int,\n"
-            "    Float: Float,\n"
-            "    Pointer: Pointer,\n"
-            "    Array: Array,\n"
-            "    Struct: Struct,\n"
-            "    ComptimeFloat: void,\n"
-            "    ComptimeInt: void,\n"
-            "    Undefined: void,\n"
-            "    Null: void,\n"
-            "    Optional: Optional,\n"
-            "    ErrorUnion: ErrorUnion,\n"
-            "    ErrorSet: ErrorSet,\n"
-            "    Enum: Enum,\n"
-            "    Union: Union,\n"
-            "    Fn: Fn,\n"
-            "    BoundFn: Fn,\n"
-            "    ArgTuple: void,\n"
-            "    Opaque: void,\n"
-            "    Frame: void,\n"
-            "    AnyFrame: AnyFrame,\n"
-            "    Vector: Vector,\n"
-            "    EnumLiteral: void,\n"
-            "\n\n"
-            "    pub const Int = struct {\n"
-            "        is_signed: bool,\n"
-            "        bits: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Float = struct {\n"
-            "        bits: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Pointer = struct {\n"
-            "        size: Size,\n"
-            "        is_const: bool,\n"
-            "        is_volatile: bool,\n"
-            "        alignment: comptime_int,\n"
-            "        child: type,\n"
-            "        is_allowzero: bool,\n"
-            "\n"
-            "        pub const Size = enum {\n"
-            "            One,\n"
-            "            Many,\n"
-            "            Slice,\n"
-            "            C,\n"
-            "        };\n"
-            "    };\n"
-            "\n"
-            "    pub const Array = struct {\n"
-            "        len: comptime_int,\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const ContainerLayout = enum {\n"
-            "        Auto,\n"
-            "        Extern,\n"
-            "        Packed,\n"
-            "    };\n"
-            "\n"
-            "    pub const StructField = struct {\n"
-            "        name: []const u8,\n"
-            "        offset: ?comptime_int,\n"
-            "        field_type: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Struct = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        fields: []StructField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const Optional = struct {\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const ErrorUnion = struct {\n"
-            "        error_set: type,\n"
-            "        payload: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Error = struct {\n"
-            "        name: []const u8,\n"
-            "        value: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const ErrorSet = ?[]Error;\n"
-            "\n"
-            "    pub const EnumField = struct {\n"
-            "        name: []const u8,\n"
-            "        value: comptime_int,\n"
-            "    };\n"
-            "\n"
-            "    pub const Enum = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        tag_type: type,\n"
-            "        fields: []EnumField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const UnionField = struct {\n"
-            "        name: []const u8,\n"
-            "        enum_field: ?EnumField,\n"
-            "        field_type: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Union = struct {\n"
-            "        layout: ContainerLayout,\n"
-            "        tag_type: ?type,\n"
-            "        fields: []UnionField,\n"
-            "        decls: []Declaration,\n"
-            "    };\n"
-            "\n"
-            "    pub const CallingConvention = enum {\n"
-            "        Unspecified,\n"
-            "        C,\n"
-            "        Cold,\n"
-            "        Naked,\n"
-            "        Stdcall,\n"
-            "        Async,\n"
-            "    };\n"
-            "\n"
-            "    pub const FnArg = struct {\n"
-            "        is_generic: bool,\n"
-            "        is_noalias: bool,\n"
-            "        arg_type: ?type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Fn = struct {\n"
-            "        calling_convention: CallingConvention,\n"
-            "        is_generic: bool,\n"
-            "        is_var_args: bool,\n"
-            "        return_type: ?type,\n"
-            "        args: []FnArg,\n"
-            "    };\n"
-            "\n"
-            "    pub const AnyFrame = struct {\n"
-            "        child: ?type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Vector = struct {\n"
-            "        len: comptime_int,\n"
-            "        child: type,\n"
-            "    };\n"
-            "\n"
-            "    pub const Declaration = struct {\n"
-            "        name: []const u8,\n"
-            "        is_pub: bool,\n"
-            "        data: Data,\n"
-            "\n"
-            "        pub const Data = union(enum) {\n"
-            "            Type: type,\n"
-            "            Var: type,\n"
-            "            Fn: FnDecl,\n"
-            "\n"
-            "            pub const FnDecl = struct {\n"
-            "                fn_type: type,\n"
-            "                inline_type: Inline,\n"
-            "                calling_convention: CallingConvention,\n"
-            "                is_var_args: bool,\n"
-            "                is_extern: bool,\n"
-            "                is_export: bool,\n"
-            "                lib_name: ?[]const u8,\n"
-            "                return_type: type,\n"
-            "                arg_names: [][] const u8,\n"
-            "\n"
-            "                pub const Inline = enum {\n"
-            "                    Auto,\n"
-            "                    Always,\n"
-            "                    Never,\n"
-            "                };\n"
-            "            };\n"
-            "        };\n"
-            "    };\n"
-            "};\n\n");
-        static_assert(ContainerLayoutAuto == 0, "");
-        static_assert(ContainerLayoutExtern == 1, "");
-        static_assert(ContainerLayoutPacked == 2, "");
+    // If any of these asserts trip then you need to either fix the internal compiler enum
+    // or the corresponding one in std.Target or std.builtin.
+    static_assert(ContainerLayoutAuto == 0, "");
+    static_assert(ContainerLayoutExtern == 1, "");
+    static_assert(ContainerLayoutPacked == 2, "");
 
-        static_assert(CallingConventionUnspecified == 0, "");
-        static_assert(CallingConventionC == 1, "");
-        static_assert(CallingConventionCold == 2, "");
-        static_assert(CallingConventionNaked == 3, "");
-        static_assert(CallingConventionStdcall == 4, "");
-        static_assert(CallingConventionAsync == 5, "");
+    static_assert(CallingConventionUnspecified == 0, "");
+    static_assert(CallingConventionC == 1, "");
+    static_assert(CallingConventionCold == 2, "");
+    static_assert(CallingConventionNaked == 3, "");
+    static_assert(CallingConventionStdcall == 4, "");
+    static_assert(CallingConventionAsync == 5, "");
 
-        static_assert(FnInlineAuto == 0, "");
-        static_assert(FnInlineAlways == 1, "");
-        static_assert(FnInlineNever == 2, "");
+    static_assert(FnInlineAuto == 0, "");
+    static_assert(FnInlineAlways == 1, "");
+    static_assert(FnInlineNever == 2, "");
 
-        static_assert(BuiltinPtrSizeOne == 0, "");
-        static_assert(BuiltinPtrSizeMany == 1, "");
-        static_assert(BuiltinPtrSizeSlice == 2, "");
-        static_assert(BuiltinPtrSizeC == 3, "");
-    }
-    {
-        buf_appendf(contents,
-            "pub const FloatMode = enum {\n"
-            "    Strict,\n"
-            "    Optimized,\n"
-            "};\n\n");
-        assert(FloatModeStrict == 0);
-        assert(FloatModeOptimized == 1);
-    }
-    {
-        buf_appendf(contents,
-            "pub const Endian = enum {\n"
-            "    Big,\n"
-            "    Little,\n"
-            "};\n\n");
-        //assert(EndianBig == 0);
-        //assert(EndianLittle == 1);
-    }
-    {
-        buf_appendf(contents,
-            "pub const Version = struct {\n"
-            "    major: u32,\n"
-            "    minor: u32,\n"
-            "    patch: u32,\n"
-            "};\n\n");
-    }
-    {
-        buf_appendf(contents,
-        "pub const SubSystem = enum {\n"
-        "    Console,\n"
-        "    Windows,\n"
-        "    Posix,\n"
-        "    Native,\n"
-        "    EfiApplication,\n"
-        "    EfiBootServiceDriver,\n"
-        "    EfiRom,\n"
-        "    EfiRuntimeDriver,\n"
-        "};\n\n");
+    static_assert(BuiltinPtrSizeOne == 0, "");
+    static_assert(BuiltinPtrSizeMany == 1, "");
+    static_assert(BuiltinPtrSizeSlice == 2, "");
+    static_assert(BuiltinPtrSizeC == 3, "");
 
-        assert(TargetSubsystemConsole == 0);
-        assert(TargetSubsystemWindows == 1);
-        assert(TargetSubsystemPosix == 2);
-        assert(TargetSubsystemNative == 3);
-        assert(TargetSubsystemEfiApplication == 4);
-        assert(TargetSubsystemEfiBootServiceDriver == 5);
-        assert(TargetSubsystemEfiRom == 6);
-        assert(TargetSubsystemEfiRuntimeDriver == 7);
-    }
+    static_assert(TargetSubsystemConsole == 0, "");
+    static_assert(TargetSubsystemWindows == 1, "");
+    static_assert(TargetSubsystemPosix == 2, "");
+    static_assert(TargetSubsystemNative == 3, "");
+    static_assert(TargetSubsystemEfiApplication == 4, "");
+    static_assert(TargetSubsystemEfiBootServiceDriver == 5, "");
+    static_assert(TargetSubsystemEfiRom == 6, "");
+    static_assert(TargetSubsystemEfiRuntimeDriver == 7, "");
     {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
@@ -8544,7 +8276,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     {
         TargetSubsystem detected_subsystem = detect_subsystem(g);
         if (detected_subsystem != TargetSubsystemAuto) {
-            buf_appendf(contents, "pub const subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
+            buf_appendf(contents, "pub const explicit_subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
         }
     }
 
@@ -8563,10 +8295,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
 static ZigPackage *create_test_runner_pkg(CodeGen *g) {
     return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig", "std.special");
-}
-
-static ZigPackage *create_panic_pkg(CodeGen *g) {
-    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig", "std.special");
 }
 
 static Error define_builtin_compile_vars(CodeGen *g) {
@@ -8650,6 +8378,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     assert(g->root_package);
     assert(g->std_package);
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename, "builtin");
+    g->compile_var_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
@@ -9033,7 +8762,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     }
 
     if (g->zig_target->is_native) {
-        args.append("-march=native");
+        if (target_supports_clang_march_native(g->zig_target)) {
+            args.append("-march=native");
+        }
     } else {
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
@@ -9348,16 +9079,43 @@ static void gen_root_source(CodeGen *g) {
 
     if (!g->is_dummy_so) {
         // Zig has lazy top level definitions. Here we semantically analyze the panic function.
-        ZigType *import_with_panic;
-        if (g->have_pub_panic) {
-            import_with_panic = g->root_import;
-        } else {
-            g->panic_package = create_panic_pkg(g);
-            import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
+        Buf *import_target_path;
+        Buf full_path = BUF_INIT;
+        ZigType *std_import;
+        if ((err = analyze_import(g, g->root_import, buf_create_from_str("std"), &std_import,
+            &import_target_path, &full_path)))
+        {
+            if (err == ErrorFileNotFound) {
+                fprintf(stderr, "unable to find '%s'", buf_ptr(import_target_path));
+            } else {
+                fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&full_path), err_str(err));
+            }
+            exit(1);
         }
-        Tld *panic_tld = find_decl(g, &get_container_scope(import_with_panic)->base, buf_create_from_str("panic"));
+
+        Tld *builtin_tld = find_decl(g, &get_container_scope(std_import)->base,
+                buf_create_from_str("builtin"));
+        assert(builtin_tld != nullptr);
+        resolve_top_level_decl(g, builtin_tld, nullptr, false);
+        report_errors_and_maybe_exit(g);
+        assert(builtin_tld->id == TldIdVar);
+        TldVar *builtin_tld_var = (TldVar*)builtin_tld;
+        ConstExprValue *builtin_val = builtin_tld_var->var->const_value;
+        assert(builtin_val->type->id == ZigTypeIdMetaType);
+        ZigType *builtin_type = builtin_val->data.x_type;
+
+        Tld *panic_tld = find_decl(g, &get_container_scope(builtin_type)->base,
+                buf_create_from_str("panic"));
         assert(panic_tld != nullptr);
         resolve_top_level_decl(g, panic_tld, nullptr, false);
+        report_errors_and_maybe_exit(g);
+        assert(panic_tld->id == TldIdVar);
+        TldVar *panic_tld_var = (TldVar*)panic_tld;
+        ConstExprValue *panic_fn_val = panic_tld_var->var->const_value;
+        assert(panic_fn_val->type->id == ZigTypeIdFn);
+        assert(panic_fn_val->data.x_ptr.special == ConstPtrSpecialFunction);
+        g->panic_fn = panic_fn_val->data.x_ptr.data.fn.fn_entry;
+        assert(g->panic_fn != nullptr);
     }
 
 
@@ -9385,10 +9143,6 @@ static void gen_root_source(CodeGen *g) {
         if (!g->error_during_imports) {
             semantic_analyze(g);
         }
-    }
-
-    if (!g->is_dummy_so) {
-        typecheck_panic_fn(g, g->panic_tld_fn, g->panic_fn);
     }
 
     report_errors_and_maybe_exit(g);
@@ -9458,7 +9212,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
 }
 
 // returns true if it was a cache miss
-static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file, Stage2ProgressNode *parent_prog_node) {
+static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file) {
     Error err;
 
     Buf *artifact_dir;
@@ -9470,7 +9224,7 @@ static void gen_c_object(CodeGen *g, Buf *self_exe_path, CFile *c_file, Stage2Pr
     Buf *c_source_basename = buf_alloc();
     os_path_split(c_source_file, nullptr, c_source_basename);
 
-    Stage2ProgressNode *child_prog_node = stage2_progress_start(parent_prog_node, buf_ptr(c_source_basename),
+    Stage2ProgressNode *child_prog_node = stage2_progress_start(g->sub_progress_node, buf_ptr(c_source_basename),
             buf_len(c_source_basename), 0);
 
     Buf *final_o_basename = buf_alloc();
@@ -9606,17 +9360,15 @@ static void gen_c_objects(CodeGen *g) {
         exit(1);
     }
 
-    codegen_add_time_event(g, "Compile C Code");
-    const char *c_prog_name = "compiling C objects";
-    Stage2ProgressNode *c_prog_node = stage2_progress_start(g->progress_node, c_prog_name, strlen(c_prog_name),
-            g->c_source_files.length);
+    codegen_add_time_event(g, "Compile C Objects");
+    const char *c_prog_name = "Compile C Objects";
+    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node, c_prog_name, strlen(c_prog_name),
+            g->c_source_files.length));
 
     for (size_t c_file_i = 0; c_file_i < g->c_source_files.length; c_file_i += 1) {
         CFile *c_file = g->c_source_files.at(c_file_i);
-        gen_c_object(g, self_exe_path, c_file, c_prog_node);
+        gen_c_object(g, self_exe_path, c_file);
     }
-
-    stage2_progress_end(c_prog_node);
 }
 
 void codegen_add_object(CodeGen *g, Buf *object_path) {
@@ -10337,9 +10089,8 @@ void codegen_build_and_link(CodeGen *g) {
 
             codegen_add_time_event(g, "Semantic Analysis");
             const char *progress_name = "Semantic Analysis";
-            Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                    progress_name, strlen(progress_name), 0);
-            (void)child_progress_node;
+            codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                    progress_name, strlen(progress_name), 0));
 
             gen_root_source(g);
 
@@ -10365,18 +10116,16 @@ void codegen_build_and_link(CodeGen *g) {
             codegen_add_time_event(g, "Code Generation");
             {
                 const char *progress_name = "Code Generation";
-                Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                        progress_name, strlen(progress_name), 0);
-                (void)child_progress_node;
+                codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                        progress_name, strlen(progress_name), 0));
             }
 
             do_code_gen(g);
             codegen_add_time_event(g, "LLVM Emit Output");
             {
                 const char *progress_name = "LLVM Emit Output";
-                Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                        progress_name, strlen(progress_name), 0);
-                (void)child_progress_node;
+                codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                        progress_name, strlen(progress_name), 0));
             }
             zig_llvm_emit_output(g);
 
@@ -10384,9 +10133,8 @@ void codegen_build_and_link(CodeGen *g) {
                 codegen_add_time_event(g, "Generate .h");
                 {
                     const char *progress_name = "Generate .h";
-                    Stage2ProgressNode *child_progress_node = stage2_progress_start(g->progress_node,
-                            progress_name, strlen(progress_name), 0);
-                    (void)child_progress_node;
+                    codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                            progress_name, strlen(progress_name), 0));
                 }
                 gen_h_file(g);
             }
@@ -10458,6 +10206,7 @@ void codegen_build_and_link(CodeGen *g) {
 
     codegen_release_caches(g);
     codegen_add_time_event(g, "Done");
+    codegen_switch_sub_prog_node(g, nullptr);
 }
 
 void codegen_release_caches(CodeGen *g) {
@@ -10487,7 +10236,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
         ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *parent_progress_node)
 {
     Stage2ProgressNode *child_progress_node = stage2_progress_start(
-            parent_progress_node ? parent_progress_node : parent_gen->progress_node,
+            parent_progress_node ? parent_progress_node : parent_gen->sub_progress_node,
             name, strlen(name), 0);
 
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
@@ -10524,9 +10273,14 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node)
 {
     CodeGen *g = allocate<CodeGen>(1);
-    g->progress_node = progress_node;
+    g->main_progress_node = progress_node;
 
     codegen_add_time_event(g, "Initialize");
+    {
+        const char *progress_name = "Initialize";
+        codegen_switch_sub_prog_node(g, stage2_progress_start(g->main_progress_node,
+                progress_name, strlen(progress_name), 0));
+    }
 
     g->subsystem = TargetSubsystemAuto;
     g->libc = libc;
@@ -10651,3 +10405,11 @@ bool codegen_fn_has_err_ret_tracing_stack(CodeGen *g, ZigFn *fn, bool is_async) 
             !codegen_fn_has_err_ret_tracing_arg(g, fn->type_entry->data.fn.fn_type_id.return_type);
     }
 }
+
+void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
+    if (g->sub_progress_node != nullptr) {
+        stage2_progress_end(g->sub_progress_node);
+    }
+    g->sub_progress_node = node;
+}
+

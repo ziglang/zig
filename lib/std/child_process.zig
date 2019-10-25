@@ -17,9 +17,9 @@ const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 
 pub const ChildProcess = struct {
-    pid: if (os.windows.is_the_target) void else i32,
-    handle: if (os.windows.is_the_target) windows.HANDLE else void,
-    thread_handle: if (os.windows.is_the_target) windows.HANDLE else void,
+    pid: if (builtin.os == .windows) void else i32,
+    handle: if (builtin.os == .windows) windows.HANDLE else void,
+    thread_handle: if (builtin.os == .windows) windows.HANDLE else void,
 
     allocator: *mem.Allocator,
 
@@ -39,16 +39,16 @@ pub const ChildProcess = struct {
     stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    uid: if (os.windows.is_the_target) void else ?u32,
+    uid: if (builtin.os == .windows) void else ?u32,
 
     /// Set to change the group id when spawning the child process.
-    gid: if (os.windows.is_the_target) void else ?u32,
+    gid: if (builtin.os == .windows) void else ?u32,
 
     /// Set to change the current working directory when spawning the child process.
     cwd: ?[]const u8,
 
-    err_pipe: if (os.windows.is_the_target) void else [2]os.fd_t,
-    llnode: if (os.windows.is_the_target) void else TailQueue(*ChildProcess).Node,
+    err_pipe: if (builtin.os == .windows) void else [2]os.fd_t,
+    llnode: if (builtin.os == .windows) void else TailQueue(*ChildProcess).Node,
 
     pub const SpawnError = error{OutOfMemory} || os.ExecveError || os.SetIdError ||
         os.ChangeCurDirError || windows.CreateProcessError;
@@ -82,8 +82,8 @@ pub const ChildProcess = struct {
             .term = null,
             .env_map = null,
             .cwd = null,
-            .uid = if (os.windows.is_the_target) {} else null,
-            .gid = if (os.windows.is_the_target) {} else null,
+            .uid = if (builtin.os == .windows) {} else null,
+            .gid = if (builtin.os == .windows) {} else null,
             .stdin = null,
             .stdout = null,
             .stderr = null,
@@ -103,7 +103,7 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) !void {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return self.spawnWindows();
         } else {
             return self.spawnPosix();
@@ -117,7 +117,7 @@ pub const ChildProcess = struct {
 
     /// Forcibly terminates child process and then cleans up all resources.
     pub fn kill(self: *ChildProcess) !Term {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return self.killWindows(1);
         } else {
             return self.killPosix();
@@ -147,7 +147,7 @@ pub const ChildProcess = struct {
 
     /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: *ChildProcess) !Term {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return self.waitWindows();
         } else {
             return self.waitPosix();

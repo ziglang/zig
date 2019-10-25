@@ -53,7 +53,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
-    } else if (os.windows.is_the_target) {
+    } else if (builtin.os == .windows) {
         expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -212,7 +212,7 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (os.windows.is_the_target)
+    if (builtin.os == .windows)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
@@ -221,7 +221,7 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (os.windows.is_the_target)
+    if (builtin.os == .windows)
         return error.SkipZigTest;
 
     var fds = try os.pipe();

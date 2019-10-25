@@ -9,7 +9,7 @@ pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         const ns_per_ms = ns_per_s / ms_per_s;
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
@@ -30,7 +30,7 @@ pub fn timestamp() u64 {
 /// Get the posix timestamp, UTC, in milliseconds
 /// TODO audit this function. is it possible to return an error?
 pub fn milliTimestamp() u64 {
-    if (os.windows.is_the_target) {
+    if (builtin.os == .windows) {
         //FileTime has a granularity of 100 nanoseconds
         //  and uses the NTFS/Windows epoch
         var ft: os.windows.FILETIME = undefined;
@@ -41,7 +41,7 @@ pub fn milliTimestamp() u64 {
         const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
         return @divFloor(ft64, hns_per_ms) - -epoch_adj;
     }
-    if (os.wasi.is_the_target and !builtin.link_libc) {
+    if (builtin.os == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
 
         // TODO: Verify that precision is ignored
@@ -51,7 +51,7 @@ pub fn milliTimestamp() u64 {
         const ns_per_ms = 1000;
         return @divFloor(ns, ns_per_ms);
     }
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         var tv: os.darwin.timeval = undefined;
         var err = os.darwin.gettimeofday(&tv, null);
         assert(err == 0);
@@ -126,11 +126,11 @@ pub const Timer = struct {
     pub fn start() Error!Timer {
         var self: Timer = undefined;
 
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             self.frequency = os.windows.QueryPerformanceFrequency();
             self.resolution = @divFloor(ns_per_s, self.frequency);
             self.start_time = os.windows.QueryPerformanceCounter();
-        } else if (os.darwin.is_the_target) {
+        } else if (comptime std.Target.current.isDarwin()) {
             os.darwin.mach_timebase_info(&self.frequency);
             self.resolution = @divFloor(self.frequency.numer, self.frequency.denom);
             self.start_time = os.darwin.mach_absolute_time();
@@ -154,10 +154,10 @@ pub const Timer = struct {
     /// Reads the timer value since start or the last reset in nanoseconds
     pub fn read(self: *Timer) u64 {
         var clock = clockNative() - self.start_time;
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return @divFloor(clock * ns_per_s, self.frequency);
         }
-        if (os.darwin.is_the_target) {
+        if (comptime std.Target.current.isDarwin()) {
             return @divFloor(clock * self.frequency.numer, self.frequency.denom);
         }
         return clock;
@@ -177,10 +177,10 @@ pub const Timer = struct {
     }
 
     fn clockNative() u64 {
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             return os.windows.QueryPerformanceCounter();
         }
-        if (os.darwin.is_the_target) {
+        if (comptime std.Target.current.isDarwin()) {
             return os.darwin.mach_absolute_time();
         }
         var ts: os.timespec = undefined;

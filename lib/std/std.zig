@@ -22,11 +22,13 @@ pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig").StaticallyInitializedMutex;
 pub const StringHashMap = @import("hash_map.zig").StringHashMap;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
+pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
 
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
+pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const crypto = @import("crypto.zig");
@@ -63,6 +65,6 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
 
-comptime {
+test "" {
     meta.refAllDecls(@This());
 }

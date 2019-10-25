@@ -22,6 +22,12 @@ tar cfJ "$SRC_TARBALL" "$SRCTARBALLDIR"
 export SRC_SHASUM=$(sha256sum $SRC_TARBALL | cut '-d ' -f1)
 export SRC_BYTESIZE=$(wc -c < $SRC_TARBALL)
 
+# the aarch64 build has to be there too
+AARCH64_LINUX_JSON=$(curl --fail "https://ziglang.org/builds/aarch64-linux-$VERSION.json" || exit 1)
+export AARCH64_LINUX_TARBALL="$(echo "$AARCH64_LINUX_JSON" | jq .tarball -r)"
+export AARCH64_LINUX_BYTESIZE="$(echo "$AARCH64_LINUX_JSON" | jq .size -r)"
+export AARCH64_LINUX_SHASUM="$(echo "$AARCH64_LINUX_JSON" | jq .shasum -r)"
+
 # the freebsd build has to be there too
 FREEBSD_JSON=$(curl --fail "https://ziglang.org/builds/freebsd-$VERSION.json" || exit 1)
 export FREEBSD_TARBALL="$(echo "$FREEBSD_JSON" | jq .tarball -r)"

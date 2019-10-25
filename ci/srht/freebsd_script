@@ -13,9 +13,14 @@ wget -nv "https://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
 tar xf "$CACHE_BASENAME.tar.xz"
 
 cd $ZIGDIR
+
+# Make the `zig version` number consistent.
+# This will affect the cmake command below.
+git config core.abbrev 9
+
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" -DZIG_STATIC=ON
 make $JOBS install
 
 release/bin/zig build test-fmt

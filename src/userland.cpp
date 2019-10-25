@@ -88,3 +88,4 @@ Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
 void stage2_progress_end(Stage2ProgressNode *node) {}
 void stage2_progress_complete_one(Stage2ProgressNode *node) {}
 void stage2_progress_disable_tty(Stage2Progress *progress) {}
+void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_count, size_t estimated_total_items){}

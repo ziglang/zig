@@ -1,6 +1,54 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("resuming a non-suspended function which never been suspended",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\fn foo() void {
+        \\    var f = async bar(@frame());
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\fn bar(frame: anyframe) void {
+        \\    suspend {
+        \\        resume frame;
+        \\    }
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    _ = async foo();
+        \\}
+    );
+
+    cases.addRuntimeSafety("resuming a non-suspended function which has been suspended and resumed",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\fn foo() void {
+        \\    suspend {
+        \\        global_frame = @frame();
+        \\    }
+        \\    var f = async bar(@frame());
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\fn bar(frame: anyframe) void {
+        \\    suspend {
+        \\        resume frame;
+        \\    }
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\var global_frame: anyframe = undefined;
+        \\pub fn main() void {
+        \\    _ = async foo();
+        \\    resume global_frame;
+        \\    @import("std").os.exit(0);
+        \\}
+    );
+
     cases.addRuntimeSafety("noasync function call, callee suspends",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);

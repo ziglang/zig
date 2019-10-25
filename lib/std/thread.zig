@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 pub const Thread = struct {
     data: Data,
 
-    pub const use_pthreads = !windows.is_the_target and builtin.link_libc;
+    pub const use_pthreads = builtin.os != .windows and builtin.link_libc;
 
     /// Represents a kernel thread handle.
     /// May be an integer or a pointer depending on the platform.
@@ -309,7 +309,7 @@ pub const Thread = struct {
                 os.EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (os.linux.is_the_target) {
+        } else if (builtin.os == .linux) {
             var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
                 os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
                 os.CLONE_DETACHED;
@@ -342,18 +342,18 @@ pub const Thread = struct {
     };
 
     pub fn cpuCount() CpuCountError!usize {
-        if (os.linux.is_the_target) {
+        if (builtin.os == .linux) {
             const cpu_set = try os.sched_getaffinity(0);
             return usize(os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             var system_info: windows.SYSTEM_INFO = undefined;
             windows.kernel32.GetSystemInfo(&system_info);
             return @intCast(usize, system_info.dwNumberOfProcessors);
         }
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
-        const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
+        const name = if (comptime std.Target.current.isDarwin()) c"hw.logicalcpu" else c"hw.ncpu";
         os.sysctlbynameC(name, &count, &count_len, null, 0) catch |err| switch (err) {
             error.NameTooLong => unreachable,
             else => |e| return e,

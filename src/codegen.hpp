@@ -67,4 +67,6 @@ bool codegen_fn_has_err_ret_tracing_stack(CodeGen *g, ZigFn *fn, bool is_async);
 ATTRIBUTE_NORETURN
 void codegen_report_errors_and_exit(CodeGen *g);
 
+void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node);
+
 #endif

@@ -77,6 +77,7 @@ enum Error {
     ErrorNoSpaceLeft,
     ErrorNotLazy,
     ErrorIsAsync,
+    ErrorImportOutsidePkgPath,
 };
 
 // ABI warning
@@ -176,5 +177,8 @@ ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
 ZIG_EXTERN_C void stage2_progress_end(Stage2ProgressNode *node);
 // ABI warning
 ZIG_EXTERN_C void stage2_progress_complete_one(Stage2ProgressNode *node);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
+        size_t completed_count, size_t estimated_total_items);
 
 #endif
