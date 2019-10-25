@@ -663,7 +663,8 @@ pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
             0 => return,
             EBUSY, EINTR => continue,
             EMFILE => return error.ProcessFdQuotaExceeded,
-            EINVAL => unreachable,
+            EINVAL => unreachable, // invalid parameters passed to dup2
+            EBADF => unreachable, // always a race condition
             else => |err| return unexpectedErrno(err),
         }
     }
