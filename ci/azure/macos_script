@@ -67,11 +67,12 @@ else
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$CACHE_BASENAME.tar.xz" "s3://ziglang.org/builds/$CACHE_BASENAME.tar.xz"
 fi
 
+cd $ZIGDIR
+
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
 git config core.abbrev 9
 
-cd $ZIGDIR
 mkdir build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_INSTALL_PREFIX=$(pwd)/release -DZIG_STATIC=ON
