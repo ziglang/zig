@@ -1294,7 +1294,6 @@ int main(int argc, char **argv) {
                     zig_print_stack_report(g, stdout);
 
                 if (cmd == CmdRun) {
-                    stage2_progress_end(root_progress_node);
 #ifdef ZIG_ENABLE_MEM_PROFILE
                     memprof_dump_stats(stderr);
 #endif
