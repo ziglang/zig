@@ -20,9 +20,16 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
 
 make -j$(nproc) install
-./zig build test-behavior
-# TODO figure out why running docs is causing EBADF on dup2 in the child
-# ./zig build docs
+./zig build test-fmt test-behavior test-std test-compiler-rt
+# TODO test-compare-output is hitting https://github.com/ziglang/zig/issues/3526
+./zig build test-compare-output test-standalone test-stack-traces
+# TODO test-cli is hitting https://github.com/ziglang/zig/issues/3526
+./zig build test-asm-link test-runtime-safety
+# TODO test-translate-c is hitting https://github.com/ziglang/zig/issues/3526
+./zig build test-gen-h
+# TODO test-compile-errors is hitting https://github.com/ziglang/zig/issues/3526
+# TODO building docs is hitting https://github.com/ziglang/zig/issues/3526
+
 # TODO full test suite:
 #./zig build test
 
