@@ -864,7 +864,7 @@ pub const sockaddr_in6 = extern struct {
     family: sa_family_t,
     port: in_port_t,
     flowinfo: u32,
-    addr: [16]u8,
+    addr: [8]u16,
     scope_id: u32,
 };
 
@@ -1384,3 +1384,85 @@ pub const Statx = extern struct {
 
     __pad2: [14]u64,
 };
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    addr: ?*sockaddr,
+    canonname: ?[*]u8,
+    next: ?*addrinfo,
+};
+
+pub const AI_PASSIVE = 0x01;
+pub const AI_CANONNAME = 0x02;
+pub const AI_NUMERICHOST = 0x04;
+pub const AI_V4MAPPED = 0x08;
+pub const AI_ALL = 0x10;
+pub const AI_ADDRCONFIG = 0x20;
+pub const AI_NUMERICSERV = 0x400;
+
+pub const NI_NUMERICHOST = 0x01;
+pub const NI_NUMERICSERV = 0x02;
+pub const NI_NOFQDN = 0x04;
+pub const NI_NAMEREQD = 0x08;
+pub const NI_DGRAM = 0x10;
+pub const NI_NUMERICSCOPE = 0x100;
+
+pub const EAI_BADFLAGS = -1;
+pub const EAI_NONAME = -2;
+pub const EAI_AGAIN = -3;
+pub const EAI_FAIL = -4;
+pub const EAI_FAMILY = -6;
+pub const EAI_SOCKTYPE = -7;
+pub const EAI_SERVICE = -8;
+pub const EAI_MEMORY = -10;
+pub const EAI_SYSTEM = -11;
+pub const EAI_OVERFLOW = -12;
+
+pub const EAI_NODATA = -5;
+pub const EAI_ADDRFAMILY = -9;
+pub const EAI_INPROGRESS = -100;
+pub const EAI_CANCELED = -101;
+pub const EAI_NOTCANCELED = -102;
+pub const EAI_ALLDONE = -103;
+pub const EAI_INTR = -104;
+pub const EAI_IDN_ENCODE = -105;
+
+pub const IPPORT_RESERVED = 1024;
+
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_HOPOPTS = 0;
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const IPPROTO_IPIP = 4;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_EGP = 8;
+pub const IPPROTO_PUP = 12;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IDP = 22;
+pub const IPPROTO_TP = 29;
+pub const IPPROTO_DCCP = 33;
+pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO_ROUTING = 43;
+pub const IPPROTO_FRAGMENT = 44;
+pub const IPPROTO_RSVP = 46;
+pub const IPPROTO_GRE = 47;
+pub const IPPROTO_ESP = 50;
+pub const IPPROTO_AH = 51;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_NONE = 59;
+pub const IPPROTO_DSTOPTS = 60;
+pub const IPPROTO_MTP = 92;
+pub const IPPROTO_BEETPH = 94;
+pub const IPPROTO_ENCAP = 98;
+pub const IPPROTO_PIM = 103;
+pub const IPPROTO_COMP = 108;
+pub const IPPROTO_SCTP = 132;
+pub const IPPROTO_MH = 135;
+pub const IPPROTO_UDPLITE = 136;
+pub const IPPROTO_MPLS = 137;
+pub const IPPROTO_RAW = 255;
+pub const IPPROTO_MAX = 256;

@@ -148,3 +148,24 @@ pub extern "c" fn kevent(
     nevents: c_int,
     timeout: ?*const timespec,
 ) c_int;
+
+pub extern "c" fn getaddrinfo(
+    noalias node: [*]const u8,
+    noalias service: [*]const u8,
+    noalias hints: *const addrinfo,
+    noalias res: **addrinfo,
+) c_int;
+
+pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
+
+pub extern "c" fn getnameinfo(
+    noalias addr: *const sockaddr,
+    addrlen: socklen_t,
+    noalias host: [*]u8,
+    hostlen: socklen_t,
+    noalias serv: [*]u8,
+    servlen: socklen_t,
+    flags: u32,
+) c_int;
+
+pub extern "c" fn gai_strerror(errcode: c_int) [*]const u8;

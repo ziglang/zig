@@ -11,10 +11,12 @@ pub const TmpWinAddr = struct {
 };
 
 pub const OsAddress = switch (builtin.os) {
-    builtin.Os.windows => TmpWinAddr,
+    .windows => TmpWinAddr,
     else => os.sockaddr,
 };
 
+/// This data structure is a "view". The underlying data might have references
+/// to owned memory which must live longer than this struct.
 pub const Address = struct {
     os_addr: OsAddress,
 
@@ -31,7 +33,7 @@ pub const Address = struct {
         };
     }
 
-    pub fn initIp6(ip6: *const Ip6Addr, _port: u16) Address {
+    pub fn initIp6(ip6: Ip6Addr, _port: u16) Address {
         return Address{
             .os_addr = os.sockaddr{
                 .in6 = os.sockaddr_in6{
@@ -53,18 +55,89 @@ pub const Address = struct {
         return Address{ .os_addr = addr };
     }
 
-    pub fn format(self: *const Address, out_stream: var) !void {
+    pub fn format(
+        self: Address,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@typeOf(context), []const u8) Errors!void,
+    ) !void {
         switch (self.os_addr.in.family) {
             os.AF_INET => {
                 const native_endian_port = mem.bigToNative(u16, self.os_addr.in.port);
-                const bytes = ([]const u8)((*self.os_addr.in.addr)[0..1]);
-                try out_stream.print("{}.{}.{}.{}:{}", bytes[0], bytes[1], bytes[2], bytes[3], native_endian_port);
+                const bytes = @ptrCast(*const [4]u8, &self.os_addr.in.addr);
+                try std.fmt.format(
+                    context,
+                    Errors,
+                    output,
+                    "{}.{}.{}.{}:{}",
+                    bytes[0],
+                    bytes[1],
+                    bytes[2],
+                    bytes[3],
+                    native_endian_port,
+                );
             },
             os.AF_INET6 => {
+                const ZeroRun = struct {
+                    index: usize,
+                    count: usize,
+                };
                 const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
-                try out_stream.print("[TODO render ip6 address]:{}", native_endian_port);
+                const big_endian_parts = &self.os_addr.in6.addr;
+                const native_endian_parts = switch (builtin.endian) {
+                    .Big => big_endian_parts,
+                    .Little => blk: {
+                        var buf: [8]u16 = undefined;
+                        for (big_endian_parts) |part, i| {
+                            buf[i] = mem.bigToNative(u16, part);
+                        }
+                        break :blk buf;
+                    },
+                };
+
+                var longest_zero_run: ?ZeroRun = null;
+                var this_zero_run: ?ZeroRun = null;
+                for (native_endian_parts) |part, i| {
+                    if (part == 0) {
+                        if (this_zero_run) |*zr| {
+                            zr.count += 1;
+                        } else {
+                            this_zero_run = ZeroRun{
+                                .index = i,
+                                .count = 1,
+                            };
+                        }
+                    } else if (this_zero_run) |zr| {
+                        if (longest_zero_run) |lzr| {
+                            if (zr.count > lzr.count and zr.count > 1) {
+                                longest_zero_run = zr;
+                            }
+                        } else {
+                            longest_zero_run = zr;
+                        }
+                    }
+                }
+                try output(context, "[");
+                var i: usize = 0;
+                while (i < native_endian_parts.len) {
+                    if (i != 0) try output(context, ":");
+
+                    if (longest_zero_run) |lzr| {
+                        if (lzr.index == i) {
+                            i += lzr.count;
+                            continue;
+                        }
+                    }
+
+                    const part = native_endian_parts[i];
+                    try std.fmt.format(context, Errors, output, "{x}", part);
+                    i += 1;
+                }
+                try std.fmt.format(context, Errors, output, "]:{}", native_endian_port);
             },
-            else => try out_stream.write("(unrecognized address family)"),
+            else => return output(context, "(unrecognized address family)"),
         }
     }
 };
@@ -111,13 +184,13 @@ pub fn parseIp4(buf: []const u8) !u32 {
 
 pub const Ip6Addr = struct {
     scope_id: u32,
-    addr: [16]u8,
+    addr: [8]u16,
 };
 
 pub fn parseIp6(buf: []const u8) !Ip6Addr {
     var result: Ip6Addr = undefined;
     result.scope_id = 0;
-    const ip_slice = result.addr[0..];
+    const ip_slice = @sliceToBytes(result.addr[0..]);
 
     var x: u16 = 0;
     var saw_any_digits = false;
@@ -210,10 +283,11 @@ fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
 }
 
 test "std.net.parseIp6" {
-    const addr = try parseIp6("FF01:0:0:0:0:0:0:FB");
-    assert(addr.addr[0] == 0xff);
-    assert(addr.addr[1] == 0x01);
-    assert(addr.addr[2] == 0x00);
+    const ip6 = try parseIp6("FF01:0:0:0:0:0:0:FB");
+    const addr = Address.initIp6(ip6, 80);
+    var buf: [100]u8 = undefined;
+    const printed = try std.fmt.bufPrint(&buf, "{}", addr);
+    std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
 }
 
 pub fn connectUnixSocket(path: []const u8) !std.fs.File {
@@ -244,4 +318,108 @@ pub fn connectUnixSocket(path: []const u8) !std.fs.File {
     }
 
     return std.fs.File.openHandle(sockfd);
+}
+
+pub const AddressList = struct {
+    arena: std.heap.ArenaAllocator,
+    addrs: []Address,
+    canon_names: []?[]u8,
+
+    fn deinit(self: *AddressList) void {
+        // Here we copy the arena allocator into stack memory, because
+        // otherwise it would destroy itself while it was still working.
+        var arena = self.arena;
+        arena.deinit();
+        // self is destroyed
+    }
+};
+
+/// Call `AddressList.deinit` on the result.
+pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
+    if (builtin.link_libc) {
+        const hints = os.addrinfo{
+            .flags = os.AI_NUMERICSERV,
+            .family = os.AF_UNSPEC,
+            .socktype = os.SOCK_STREAM,
+            .protocol = os.IPPROTO_TCP,
+            .canonname = null,
+            .addr = null,
+            .addrlen = 0,
+            .next = null,
+        };
+        const result = blk: {
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            errdefer arena.deinit();
+
+            const result = try arena.allocator.create(AddressList);
+            result.* = AddressList{
+                .arena = arena,
+                .addrs = undefined,
+                .canon_names = undefined,
+            };
+            break :blk result;
+        };
+        const arena = &result.arena.allocator;
+        errdefer result.arena.deinit();
+
+        const name_c = try std.cstr.addNullByte(allocator, name);
+        defer allocator.free(name_c);
+
+        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", port);
+        defer allocator.free(port_c);
+
+        var res: *os.addrinfo = undefined;
+        switch (os.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+            0 => {},
+            os.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
+            os.EAI_AGAIN => return error.TemporaryNameServerFailure,
+            os.EAI_BADFLAGS => unreachable, // Invalid hints
+            os.EAI_FAIL => return error.NameServerFailure,
+            os.EAI_FAMILY => return error.AddressFamilyNotSupported,
+            os.EAI_MEMORY => return error.OutOfMemory,
+            os.EAI_NODATA => return error.HostLacksNetworkAddresses,
+            // The  node or service is not known; or both node and service are NULL; or AI_NUMERICSERV
+            // was specified in hints.ai_flags and service was not a numeric port-number string.
+            os.EAI_NONAME => unreachable, // Invalid hints
+            os.EAI_SERVICE => return error.ServiceUnavailable,
+            os.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
+            os.EAI_SYSTEM => switch (os.errno(-1)) {
+                else => |e| return os.unexpectedErrno(e),
+            },
+            else => unreachable,
+        }
+        defer os.system.freeaddrinfo(res);
+
+        const addr_count = blk: {
+            var count: usize = 0;
+            var it: ?*os.addrinfo = res;
+            while (it) |info| : (it = info.next) {
+                if (info.addr != null) {
+                    count += 1;
+                }
+            }
+            break :blk count;
+        };
+        result.addrs = try arena.alloc(Address, addr_count);
+        result.canon_names = try arena.alloc(?[]u8, addr_count);
+
+        var it: ?*os.addrinfo = res;
+        var i: usize = 0;
+        while (it) |info| : (it = info.next) {
+            const addr = info.addr orelse continue;
+            result.addrs[i] = std.net.Address.initPosix(addr.*);
+            result.canon_names[i] = null;
+
+            if (info.canonname) |n| {
+                const name_len = mem.len(u8, n);
+                const new_slice = try arena.alloc(u8, name_len + 1);
+                @memcpy(new_slice.ptr, n, name_len + 1);
+                result.canon_names[i] = new_slice[0..name_len];
+            }
+            i += 1;
+        }
+
+        return result;
+    }
+    @compileError("TODO implement std.net.getAddresses for this OS");
 }
