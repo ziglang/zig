@@ -22,7 +22,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STAT
 make -j$(nproc) install
 ./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release
 # TODO test-compare-output is hitting https://github.com/ziglang/zig/issues/3526
-./zig build test-compare-output test-standalone test-stack-traces
+./zig build test-standalone test-stack-traces
 # TODO test-cli is hitting https://github.com/ziglang/zig/issues/3526
 ./zig build test-asm-link test-runtime-safety
 # TODO test-translate-c is hitting https://github.com/ziglang/zig/issues/3526
