@@ -4209,15 +4209,19 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (instruction->modifier == CallModifierAsync) {
         zig_panic("TODO @asyncCall of non-async function");
     } else {
-        LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
-        LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
-
         LLVMValueRef new_stack_addr = get_new_stack_addr(g, ir_llvm_value(g, instruction->new_stack));
-        LLVMValueRef old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+        LLVMValueRef old_stack_ref;
+        if (src_return_type->id != ZigTypeIdUnreachable) {
+            LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
+            old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+        }
         gen_set_stack_pointer(g, new_stack_addr);
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
-        LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+        if (src_return_type->id != ZigTypeIdUnreachable) {
+            LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
+            LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+        }
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -10409,4 +10413,3 @@ void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
     }
     g->sub_progress_node = node;
 }
-
