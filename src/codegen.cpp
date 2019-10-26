@@ -8469,7 +8469,12 @@ static void init(CodeGen *g) {
         // uses as base cpu.
         // TODO https://github.com/ziglang/zig/issues/2883
         target_specific_cpu_args = "pentium4";
-        target_specific_features = "";
+        if (g->zig_target->os == OsFreestanding) {
+            target_specific_features = "-sse";
+        }
+        else {
+            target_specific_features = "";
+        }
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";
