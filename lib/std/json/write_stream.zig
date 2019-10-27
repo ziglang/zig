@@ -198,7 +198,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         /// Writes the complete json into the output stream
-        pub fn writeJson(self: *Self, json: std.json.Value) std.os.WriteError!void {
+        pub fn emitJson(self: *Self, json: std.json.Value) Stream.Error!void {
             switch (json) {
                 .Null => try self.emitNull(),
                 .Bool => |inner| try self.emitBool(inner),
@@ -209,7 +209,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     try self.beginArray();
                     for (inner.toSliceConst()) |elem| {
                         try self.arrayElem();
-                        try self.writeJson(elem);
+                        try self.emitJson(elem);
                     }
                     try self.endArray();
                 },
@@ -218,7 +218,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     var it = inner.iterator();
                     while (it.next()) |entry| {
                         try self.objectField(entry.key);
-                        try self.writeJson(entry.value);
+                        try self.emitJson(entry.value);
                     }
                     try self.endObject();
                 },
