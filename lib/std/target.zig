@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const mem = std.mem;
 const builtin = std.builtin;
 
 /// TODO Nearly all the functions in this namespace would be
