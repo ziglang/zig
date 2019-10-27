@@ -1407,6 +1407,7 @@ test "json.parser.dynamic" {
 
 test "import more json tests" {
     _ = @import("json/test.zig");
+    _ = @import("json/write_stream.zig");
 }
 
 test "write json then parse it" {
