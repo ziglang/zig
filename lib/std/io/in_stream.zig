@@ -130,6 +130,47 @@ pub fn InStream(comptime ReadError: type) type {
             return buf.toOwnedSlice();
         }
 
+        /// Reads from the stream until specified byte is found. If the buffer is not
+        /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
+        /// If end-of-stream is found, returns the rest of the stream. If this
+        /// function is called again after that, returns null.
+        /// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
+        /// delimiter byte is not included in the returned slice.
+        pub fn readUntilDelimiterOrEof(self: *Self, buf: []u8, delimiter: u8) !?[]u8 {
+            var index: usize = 0;
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => {
+                        if (index == 0) {
+                            return null;
+                        } else {
+                            return buf[0..index];
+                        }
+                    },
+                    else => |e| return e,
+                };
+
+                if (byte == delimiter) return buf[0..index];
+                if (index >= buf.len) return error.StreamTooLong;
+
+                buf[index] = byte;
+                index += 1;
+            }
+        }
+
+        /// Reads from the stream until specified byte is found, discarding all data,
+        /// including the delimiter.
+        /// If end-of-stream is found, this function succeeds.
+        pub fn skipUntilDelimiterOrEof(self: *Self, delimiter: u8) !void {
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => |e| return e,
+                };
+                if (byte == delimiter) return;
+            }
+        }
+
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
         pub fn readByte(self: *Self) !u8 {
             var result: [1]u8 = undefined;

@@ -85,9 +85,9 @@ pub const Address = struct {
                     count: usize,
                 };
                 const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
-                const big_endian_parts = &self.os_addr.in6.addr;
+                const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.os_addr.in6.addr);
                 const native_endian_parts = switch (builtin.endian) {
-                    .Big => big_endian_parts,
+                    .Big => big_endian_parts.*,
                     .Little => blk: {
                         var buf: [8]u16 = undefined;
                         for (big_endian_parts) |part, i| {
@@ -163,13 +163,8 @@ pub fn parseIp4(buf: []const u8) !u32 {
             saw_any_digits = false;
         } else if (c >= '0' and c <= '9') {
             saw_any_digits = true;
-            const digit = c - '0';
-            if (@mulWithOverflow(u8, x, 10, &x)) {
-                return error.Overflow;
-            }
-            if (@addWithOverflow(u8, x, digit, &x)) {
-                return error.Overflow;
-            }
+            x = try std.math.mul(u8, x, 10);
+            x = try std.math.add(u8, x, c - '0');
         } else {
             return error.InvalidCharacter;
         }
@@ -184,13 +179,13 @@ pub fn parseIp4(buf: []const u8) !u32 {
 
 pub const Ip6Addr = struct {
     scope_id: u32,
-    addr: [8]u16,
+    addr: [16]u8,
 };
 
 pub fn parseIp6(buf: []const u8) !Ip6Addr {
     var result: Ip6Addr = undefined;
     result.scope_id = 0;
-    const ip_slice = @sliceToBytes(result.addr[0..]);
+    const ip_slice = result.addr[0..];
 
     var x: u16 = 0;
     var saw_any_digits = false;
@@ -323,7 +318,7 @@ pub fn connectUnixSocket(path: []const u8) !std.fs.File {
 pub const AddressList = struct {
     arena: std.heap.ArenaAllocator,
     addrs: []Address,
-    canon_names: []?[]u8,
+    canon_name: ?[]u8,
 
     fn deinit(self: *AddressList) void {
         // Here we copy the arena allocator into stack memory, because
@@ -336,7 +331,28 @@ pub const AddressList = struct {
 
 /// Call `AddressList.deinit` on the result.
 pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
+    const result = blk: {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+
+        const result = try arena.allocator.create(AddressList);
+        result.* = AddressList{
+            .arena = arena,
+            .addrs = undefined,
+            .canon_name = null,
+        };
+        break :blk result;
+    };
+    const arena = &result.arena.allocator;
+    errdefer result.arena.deinit();
+
     if (builtin.link_libc) {
+        const name_c = try std.cstr.addNullByte(allocator, name);
+        defer allocator.free(name_c);
+
+        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", port);
+        defer allocator.free(port_c);
+
         const hints = os.addrinfo{
             .flags = os.AI_NUMERICSERV,
             .family = os.AF_UNSPEC,
@@ -347,27 +363,6 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .addrlen = 0,
             .next = null,
         };
-        const result = blk: {
-            var arena = std.heap.ArenaAllocator.init(allocator);
-            errdefer arena.deinit();
-
-            const result = try arena.allocator.create(AddressList);
-            result.* = AddressList{
-                .arena = arena,
-                .addrs = undefined,
-                .canon_names = undefined,
-            };
-            break :blk result;
-        };
-        const arena = &result.arena.allocator;
-        errdefer result.arena.deinit();
-
-        const name_c = try std.cstr.addNullByte(allocator, name);
-        defer allocator.free(name_c);
-
-        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", port);
-        defer allocator.free(port_c);
-
         var res: *os.addrinfo = undefined;
         switch (os.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
             0 => {},
@@ -378,9 +373,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             os.EAI_FAMILY => return error.AddressFamilyNotSupported,
             os.EAI_MEMORY => return error.OutOfMemory,
             os.EAI_NODATA => return error.HostLacksNetworkAddresses,
-            // The  node or service is not known; or both node and service are NULL; or AI_NUMERICSERV
-            // was specified in hints.ai_flags and service was not a numeric port-number string.
-            os.EAI_NONAME => unreachable, // Invalid hints
+            os.EAI_NONAME => return error.UnknownName,
             os.EAI_SERVICE => return error.ServiceUnavailable,
             os.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
             os.EAI_SYSTEM => switch (os.errno(-1)) {
@@ -401,25 +394,250 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             break :blk count;
         };
         result.addrs = try arena.alloc(Address, addr_count);
-        result.canon_names = try arena.alloc(?[]u8, addr_count);
 
         var it: ?*os.addrinfo = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
-            result.addrs[i] = std.net.Address.initPosix(addr.*);
-            result.canon_names[i] = null;
+            result.addrs[i] = Address.initPosix(addr.*);
 
             if (info.canonname) |n| {
-                const name_len = mem.len(u8, n);
-                const new_slice = try arena.alloc(u8, name_len + 1);
-                @memcpy(new_slice.ptr, n, name_len + 1);
-                result.canon_names[i] = new_slice[0..name_len];
+                if (result.canon_name == null) {
+                    result.canon_name = try mem.dupe(arena, u8, mem.toSliceConst(u8, n));
+                }
             }
             i += 1;
         }
 
         return result;
     }
-    @compileError("TODO implement std.net.getAddresses for this OS");
+    if (builtin.os == .linux) {
+        const flags = os.AI_NUMERICSERV;
+        const family = os.AF_INET; //TODO os.AF_UNSPEC;
+        // The limit of 48 results is a non-sharp bound on the number of addresses
+        // that can fit in one 512-byte DNS packet full of v4 results and a second
+        // packet full of v6 results. Due to headers, the actual limit is lower.
+        var buf: [48]LookupAddr = undefined;
+        var canon_buf: [256]u8 = undefined;
+        var canon_len: usize = 0;
+        const cnt = try linuxLookupName(buf[0..], &canon_buf, &canon_len, name, family, flags);
+
+        result.addrs = try arena.alloc(Address, cnt);
+
+        if (canon_len != 0) {
+            result.canon_name = try mem.dupe(arena, u8, canon_buf[0..canon_len]);
+        }
+
+        var i: usize = 0;
+        while (i < cnt) : (i += 1) {
+            const os_addr = if (buf[i].family == os.AF_INET6)
+                os.sockaddr{
+                    .in6 = os.sockaddr_in6{
+                        .family = buf[i].family,
+                        .port = mem.nativeToBig(u16, port),
+                        .flowinfo = 0,
+                        .addr = buf[i].addr,
+                        .scope_id = buf[i].scope_id,
+                    },
+                }
+            else
+                os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .family = buf[i].family,
+                        .port = mem.nativeToBig(u16, port),
+                        .addr = @ptrCast(*align(1) u32, &buf[i].addr).*,
+                        .zero = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+                    },
+                };
+            result.addrs[i] = Address.initPosix(os_addr);
+        }
+
+        return result;
+    }
+    @compileError("std.net.getAddresses unimplemented for this OS");
+}
+
+const LookupAddr = struct {
+    family: os.sa_family_t,
+    scope_id: u32 = 0,
+    addr: [16]u8, // could be IPv4 or IPv6
+    sortkey: i32 = 0,
+};
+
+fn linuxLookupName(
+    buf: []LookupAddr,
+    canon_buf: []u8,
+    canon_len: *usize,
+    opt_name: ?[]const u8,
+    family: i32,
+    flags: u32,
+) !usize {
+    var cnt: usize = 0;
+    if (opt_name) |name| {
+        // reject empty name and check len so it fits into temp bufs
+        if (name.len >= 254) return error.UnknownName;
+        mem.copy(u8, canon_buf, name);
+        canon_len.* = name.len;
+
+        cnt = (linuxLookupNameFromNumeric(buf, name, family) catch |err| switch (err) {
+            error.ExpectedIPv6ButFoundIPv4 => unreachable,
+            error.ExpectedIPv4ButFoundIPv6 => unreachable,
+        });
+        if (cnt == 0 and (flags & os.AI_NUMERICHOST) == 0) {
+            cnt = try linuxLookupNameFromHosts(buf, canon_buf, canon_len, name, family);
+        }
+    } else {
+        canon_len.* = 0;
+        cnt = linuxLookupNameFromNull(buf, family, flags);
+    }
+    if (cnt == 0) return error.UnknownName;
+
+    // No further processing is needed if there are fewer than 2
+    // results or if there are only IPv4 results.
+    if (cnt == 1 or family == os.AF_INET) return cnt;
+
+    @panic("port the RFC 3484/6724 destination address selection from musl libc");
+}
+
+fn linuxLookupNameFromNumeric(buf: []LookupAddr, name: []const u8, family: i32) !usize {
+    if (parseIp4(name)) |ip4| {
+        if (family == os.AF_INET6) return error.ExpectedIPv6ButFoundIPv4;
+        // TODO [0..4] should return *[4]u8, making this pointer cast unnecessary
+        mem.writeIntNative(u32, @ptrCast(*[4]u8, &buf[0].addr), ip4);
+        buf[0].family = os.AF_INET;
+        buf[0].scope_id = 0;
+        return 1;
+    } else |err| switch (err) {
+        error.Overflow,
+        error.InvalidEnd,
+        error.InvalidCharacter,
+        error.Incomplete,
+        => {},
+    }
+
+    if (parseIp6(name)) |ip6| {
+        if (family == os.AF_INET) return error.ExpectedIPv4ButFoundIPv6;
+        @memcpy(&buf[0].addr, &ip6.addr, 16);
+        buf[0].family = os.AF_INET6;
+        buf[0].scope_id = ip6.scope_id;
+        return 1;
+    } else |err| switch (err) {
+        error.Overflow,
+        error.InvalidEnd,
+        error.InvalidCharacter,
+        error.Incomplete,
+        => {},
+    }
+
+    return 0;
+}
+
+fn linuxLookupNameFromNull(buf: []LookupAddr, family: i32, flags: u32) usize {
+    var cnt: usize = 0;
+    if ((flags & os.AI_PASSIVE) != 0) {
+        if (family != os.AF_INET6) {
+            buf[cnt] = LookupAddr{
+                .family = os.AF_INET,
+                .addr = [1]u8{0} ** 16,
+            };
+            cnt += 1;
+        }
+        if (family != os.AF_INET) {
+            buf[cnt] = LookupAddr{
+                .family = os.AF_INET6,
+                .addr = [1]u8{0} ** 16,
+            };
+            cnt += 1;
+        }
+    } else {
+        if (family != os.AF_INET6) {
+            buf[cnt] = LookupAddr{
+                .family = os.AF_INET,
+                .addr = [4]u8{ 127, 0, 0, 1 } ++ ([1]u8{0} ** 12),
+            };
+            cnt += 1;
+        }
+        if (family != os.AF_INET) {
+            buf[cnt] = LookupAddr{
+                .family = os.AF_INET6,
+                .addr = ([1]u8{0} ** 15) ++ [1]u8{1},
+            };
+            cnt += 1;
+        }
+    }
+    return cnt;
+}
+
+fn linuxLookupNameFromHosts(
+    buf: []LookupAddr,
+    canon_buf: []u8,
+    canon_len: *usize,
+    name: []const u8,
+    family: i32,
+) !usize {
+    const file = std.fs.File.openReadC(c"/etc/hosts") catch |err| switch (err) {
+        error.FileNotFound,
+        error.NotDir,
+        error.AccessDenied,
+        => return 0,
+        else => |e| return e,
+    };
+    defer file.close();
+
+    var cnt: usize = 0;
+    const stream = &std.io.BufferedInStream(std.fs.File.ReadError).init(&file.inStream().stream).stream;
+    var line_buf: [512]u8 = undefined;
+    while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
+        error.StreamTooLong => blk: {
+            // Skip to the delimiter in the stream, to fix parsing
+            try stream.skipUntilDelimiterOrEof('\n');
+            // Use the truncated line. A truncated comment or hostname will be handled correctly.
+            break :blk line_buf[0..];
+        },
+        else => |e| return e,
+    }) |line| {
+        const no_comment_line = mem.separate(line, "#").next().?;
+
+        var line_it = mem.tokenize(no_comment_line, " \t");
+        const ip_text = line_it.next() orelse continue;
+        var first_name_text: ?[]const u8 = null;
+        while (line_it.next()) |name_text| {
+            if (first_name_text == null) first_name_text = name_text;
+            if (mem.eql(u8, name_text, name)) {
+                break;
+            }
+        } else continue;
+
+        switch (linuxLookupNameFromNumeric(buf[cnt..], ip_text, family) catch |err| switch (err) {
+            error.ExpectedIPv6ButFoundIPv4 => continue,
+            error.ExpectedIPv4ButFoundIPv6 => continue,
+        }) {
+            0 => continue,
+            1 => {
+                // first name is canonical name
+                const name_text = first_name_text.?;
+                if (isValidHostName(name_text)) {
+                    mem.copy(u8, canon_buf, name_text);
+                    canon_len.* = name_text.len;
+                }
+
+                cnt += 1;
+                if (cnt == buf.len) break;
+            },
+            else => unreachable,
+        }
+    }
+    return cnt;
+}
+
+pub fn isValidHostName(hostname: []const u8) bool {
+    if (hostname.len >= 254) return false;
+    if (!std.unicode.utf8ValidateSlice(hostname)) return false;
+    for (hostname) |byte| {
+        if (byte >= 0x80 or byte == '.' or byte == '-' or std.ascii.isAlNum(byte)) {
+            continue;
+        }
+        return false;
+    }
+    return true;
 }

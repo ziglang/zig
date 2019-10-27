@@ -864,7 +864,7 @@ pub const sockaddr_in6 = extern struct {
     family: sa_family_t,
     port: in_port_t,
     flowinfo: u32,
-    addr: [8]u16,
+    addr: [16]u8,
     scope_id: u32,
 };
 
