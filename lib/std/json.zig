@@ -1453,7 +1453,7 @@ test "write json then parse it" {
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
 
-test "parsing empty string does not crash" {
+test "parsing empty string gives appropriate error" {
     var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
     testing.expectError(error.Incomplete, p.parse(""));
