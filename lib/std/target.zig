@@ -205,7 +205,7 @@ pub const Target = union(enum) {
         },
     };
 
-    pub fn zigTriple(self: Target, allocator: *std.mem.Allocator) ![]u8 {
+    pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(
             allocator,
             "{}{}-{}-{}",
@@ -216,13 +216,13 @@ pub const Target = union(enum) {
         );
     }
 
-    pub fn allocDescription(self: Target, allocator: *std.mem.Allocator) ![]u8 {
+    pub fn allocDescription(self: Target, allocator: *mem.Allocator) ![]u8 {
         // TODO is there anything else worthy of the description that is not
         // already captured in the triple?
         return self.zigTriple(allocator);
     }
 
-    pub fn zigTripleNoSubArch(self: Target, allocator: *std.mem.Allocator) ![]u8 {
+    pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(
             allocator,
             "{}-{}-{}",
@@ -232,7 +232,7 @@ pub const Target = union(enum) {
         );
     }
 
-    pub fn linuxTriple(self: Target, allocator: *std.mem.Allocator) ![]u8 {
+    pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(
             allocator,
             "{}-{}-{}",
