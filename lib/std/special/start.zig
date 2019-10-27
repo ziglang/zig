@@ -222,6 +222,3 @@ inline fn callMain() u8 {
         else => @compileError(bad_main_ret),
     }
 }
-
-const main_thread_tls_align = 32;
-var main_thread_tls_bytes: [64]u8 align(main_thread_tls_align) = [1]u8{0} ** 64;
