@@ -1654,7 +1654,7 @@ pub fn accept4(
     ///
     /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
     /// will return a value greater than was supplied to the call.
-    addr_size: *usize,
+    addr_size: *socklen_t,
     /// If  flags  is  0, then `accept4` is the same as `accept`.  The following values can be bitwise
     /// ORed in flags to obtain different behavior:
     /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
@@ -1665,7 +1665,7 @@ pub fn accept4(
     flags: u32,
 ) AcceptError!i32 {
     while (true) {
-        const rc = system.accept4(sockfd, addr, @ptrCast(*system.socklen_t, addr_size), flags);
+        const rc = system.accept4(sockfd, addr, addr_size, flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
