@@ -1630,6 +1630,10 @@ pub const AcceptError = error{
 
     /// Firewall rules forbid connection.
     BlockedByFirewall,
+
+    /// This error occurs when no global event loop is configured,
+    /// and accepting from the socket would block.
+    WouldBlock,
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
@@ -1661,7 +1665,7 @@ pub fn accept4(
     flags: u32,
 ) AcceptError!i32 {
     while (true) {
-        const rc = system.accept4(sockfd, addr, addr_size, flags);
+        const rc = system.accept4(sockfd, addr, @ptrCast(*system.socklen_t, addr_size), flags);
         switch (errno(rc)) {
             0 => return @intCast(i32, rc),
             EINTR => continue,
