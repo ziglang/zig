@@ -347,6 +347,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     errdefer result.arena.deinit();
 
     if (builtin.link_libc) {
+        const c = std.c;
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
@@ -354,7 +355,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         defer allocator.free(port_c);
 
         const hints = os.addrinfo{
-            .flags = os.AI_NUMERICSERV,
+            .flags = c.AI_NUMERICSERV,
             .family = os.AF_UNSPEC,
             .socktype = os.SOCK_STREAM,
             .protocol = os.IPPROTO_TCP,
@@ -366,17 +367,17 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         var res: *os.addrinfo = undefined;
         switch (os.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
             0 => {},
-            os.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
-            os.EAI_AGAIN => return error.TemporaryNameServerFailure,
-            os.EAI_BADFLAGS => unreachable, // Invalid hints
-            os.EAI_FAIL => return error.NameServerFailure,
-            os.EAI_FAMILY => return error.AddressFamilyNotSupported,
-            os.EAI_MEMORY => return error.OutOfMemory,
-            os.EAI_NODATA => return error.HostLacksNetworkAddresses,
-            os.EAI_NONAME => return error.UnknownName,
-            os.EAI_SERVICE => return error.ServiceUnavailable,
-            os.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
-            os.EAI_SYSTEM => switch (os.errno(-1)) {
+            c.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
+            c.EAI_AGAIN => return error.TemporaryNameServerFailure,
+            c.EAI_BADFLAGS => unreachable, // Invalid hints
+            c.EAI_FAIL => return error.NameServerFailure,
+            c.EAI_FAMILY => return error.AddressFamilyNotSupported,
+            c.EAI_MEMORY => return error.OutOfMemory,
+            c.EAI_NODATA => return error.HostLacksNetworkAddresses,
+            c.EAI_NONAME => return error.UnknownName,
+            c.EAI_SERVICE => return error.ServiceUnavailable,
+            c.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
+            c.EAI_SYSTEM => switch (os.errno(-1)) {
                 else => |e| return os.unexpectedErrno(e),
             },
             else => unreachable,
@@ -485,6 +486,9 @@ fn linuxLookupName(
         });
         if (cnt == 0 and (flags & os.AI_NUMERICHOST) == 0) {
             cnt = try linuxLookupNameFromHosts(buf, canon_buf, canon_len, name, family);
+            if (cnt == 0) {
+                cnt = try linuxLookupNameFromDnsSearch(buf, canon_buf, canon_len, name, family);
+            }
         }
     } else {
         canon_len.* = 0;
@@ -640,4 +644,53 @@ pub fn isValidHostName(hostname: []const u8) bool {
         return false;
     }
     return true;
+}
+
+fn linuxLookupNameFromDnsSearch(
+    buf: []LookupAddr,
+    canon_buf: []u8,
+    canon_len: *usize,
+    name: []const u8,
+    family: i32,
+) !usize {
+    var search: [256]u8 = undefined;
+    const resolv_conf = try getResolvConf(&search);
+
+    // Count dots, suppress search when >=ndots or name ends in
+    // a dot, which is an explicit request for global scope.
+    //var dots: usize = 0;
+    //for (name) |byte| {
+    //    if (byte == '.') dots += 1;
+    //}
+
+    //if (dots >= conf.ndots || name[l-1]=='.') *search = 0;
+
+    //// Strip final dot for canon, fail if multiple trailing dots.
+    //if (name[l-1]=='.') l--;
+    //if (!l || name[l-1]=='.') return EAI_NONAME;
+
+    //// This can never happen; the caller already checked length.
+    //if (l >= 256) return EAI_NONAME;
+
+    //// Name with search domain appended is setup in canon[]. This both
+    //// provides the desired default canonical name (if the requested
+    //// name is not a CNAME record) and serves as a buffer for passing
+    //// the full requested name to name_from_dns.
+    //memcpy(canon, name, l);
+    //canon[l] = '.';
+
+    //for (p=search; *p; p=z) {
+    //    for (; isspace(*p); p++);
+    //    for (z=p; *z && !isspace(*z); z++);
+    //    if (z==p) break;
+    //    if (z-p < 256 - l - 1) {
+    //        memcpy(canon+l+1, p, z-p);
+    //        canon[z-p+1+l] = 0;
+    //        int cnt = name_from_dns(buf, canon, canon, family, &conf);
+    //        if (cnt) return cnt;
+    //    }
+    //}
+
+    //canon[l] = 0;
+    //return name_from_dns(buf, canon, name, family, &conf);
 }
