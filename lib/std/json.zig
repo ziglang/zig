@@ -867,7 +867,7 @@ pub const TokenStream = struct {
     parser: StreamingParser,
     token: ?Token,
 
-    pub const Error = StreamingParser.Error || error.Incomplete;
+    pub const Error = StreamingParser.Error || error{UnexpectedEndOfJson};
 
     pub fn init(slice: []const u8) TokenStream {
         return TokenStream{
@@ -878,7 +878,7 @@ pub const TokenStream = struct {
         };
     }
 
-    pub fn next(self: *TokenStream) !?Token {
+    pub fn next(self: *TokenStream) Error!?Token {
         if (self.token) |token| {
             const copy = token;
             self.token = null;
@@ -901,7 +901,7 @@ pub const TokenStream = struct {
         if(self.parser.complete){
             return null;
         } else {
-            return error.Incomplete;
+            return error.UnexpectedEndOfJson;
         }
     }
 };
@@ -1456,5 +1456,5 @@ test "write json then parse it" {
 test "parsing empty string gives appropriate error" {
     var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
-    testing.expectError(error.Incomplete, p.parse(""));
+    testing.expectError(error.UnexpectedEndOfJson, p.parse(""));
 }
