@@ -3917,6 +3917,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             if (instruction->modifier == CallModifierAsync) {
                 frame_result_loc = result_loc;
             } else {
+                src_assert(instruction->frame_result_loc != nullptr, instruction->base.source_node);
                 frame_result_loc_uncasted = ir_llvm_value(g, instruction->frame_result_loc);
                 src_assert(instruction->fn_entry != nullptr, instruction->base.source_node);
                 frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,

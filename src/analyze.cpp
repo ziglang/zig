@@ -4398,12 +4398,19 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
         }
     }
     if (callee_is_async) {
+        bool bad_recursion = (fn->inferred_async_node == inferred_async_none);
         fn->inferred_async_node = call_node;
         fn->inferred_async_fn = callee;
         if (must_not_be_async) {
             ErrorMsg *msg = add_node_error(g, fn->proto_node,
                 buf_sprintf("function with calling convention '%s' cannot be async",
                     calling_convention_name(fn->type_entry->data.fn.fn_type_id.cc)));
+            add_async_error_notes(g, msg, fn);
+            return ErrorSemanticAnalyzeFail;
+        }
+        if (bad_recursion) {
+            ErrorMsg *msg = add_node_error(g, fn->proto_node,
+                buf_sprintf("recursive function cannot be async"));
             add_async_error_notes(g, msg, fn);
             return ErrorSemanticAnalyzeFail;
         }
