@@ -166,7 +166,7 @@ pub fn translate(
         break :blk tree;
     };
     const arena = &tree.arena_allocator.allocator; // now we can reference the allocator
-    errdefer arena.deinit();
+    errdefer tree.arena_allocator.deinit();
     tree.tokens = ast.Tree.TokenList.init(arena);
     tree.errors = ast.Tree.ErrorList.init(arena);
 
