@@ -244,3 +244,61 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
     };
 }
+
+test "json write stream" {
+    var out_buf: [1024]u8 = undefined;
+    var slice_stream = std.io.SliceOutStream.init(&out_buf);
+    const out = &slice_stream.stream;
+
+    var mem_buf: [1024 * 10]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buf).allocator;
+
+    var w = std.json.WriteStream(@typeOf(out).Child, 10).init(out);
+    try w.emitJson(try getJson(allocator));
+
+    const result = slice_stream.getWritten();
+    const expected =
+        \\{
+        \\ "object": {
+        \\  "one": 1,
+        \\  "two": 2.0e+00
+        \\ },
+        \\ "string": "This is a string",
+        \\ "array": [
+        \\  "Another string",
+        \\  1,
+        \\  3.14e+00
+        \\ ],
+        \\ "int": 10,
+        \\ "float": 3.14e+00
+        \\}
+    ;
+    std.testing.expect(std.mem.eql(u8, expected, result));
+}
+
+fn getJson(allocator: *std.mem.Allocator) !std.json.Value {
+    var value = std.json.Value{ .Object = std.json.ObjectMap.init(allocator) };
+    _ = try value.Object.put("string", std.json.Value{ .String = "This is a string" });
+    _ = try value.Object.put("int", std.json.Value{ .Integer = @intCast(i64, 10) });
+    _ = try value.Object.put("float", std.json.Value{ .Float = 3.14 });
+    _ = try value.Object.put("array", try getJsonArray(allocator));
+    _ = try value.Object.put("object", try getJsonObject(allocator));
+    return value;
+}
+
+fn getJsonObject(allocator: *std.mem.Allocator) !std.json.Value {
+    var value = std.json.Value{ .Object = std.json.ObjectMap.init(allocator) };
+    _ = try value.Object.put("one", std.json.Value{ .Integer = @intCast(i64, 1) });
+    _ = try value.Object.put("two", std.json.Value{ .Float = 2.0 });
+    return value;
+}
+
+fn getJsonArray(allocator: *std.mem.Allocator) !std.json.Value {
+    var value = std.json.Value{ .Array = std.json.Array.init(allocator) };
+    var array = &value.Array;
+    _ = try array.append(std.json.Value{ .String = "Another string" });
+    _ = try array.append(std.json.Value{ .Integer = @intCast(i64, 1) });
+    _ = try array.append(std.json.Value{ .Float = 3.14 });
+
+    return value;
+}
