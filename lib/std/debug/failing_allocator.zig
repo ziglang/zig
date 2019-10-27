@@ -3,6 +3,14 @@ const mem = std.mem;
 
 /// Allocator that fails after N allocations, useful for making sure out of
 /// memory conditions are handled correctly.
+///
+/// To use this, first initialize it and get an allocator with
+/// 
+/// `var failing_allocator = &FailingAllocator.init(<allocator>,
+///                                                 <fail_index>).allocator;`
+/// 
+/// Then use `failing_allocator` anywhere you would have used a
+/// different allocator.
 pub const FailingAllocator = struct {
     allocator: mem.Allocator,
     index: usize,
@@ -13,6 +21,9 @@ pub const FailingAllocator = struct {
     allocations: usize,
     deallocations: usize,
 
+    /// fail_index is the number of successful allocations you can
+    /// expect from this allocator. Allocation <fail_index> + 1 will
+    /// fail.
     pub fn init(allocator: *mem.Allocator, fail_index: usize) FailingAllocator {
         return FailingAllocator{
             .internal_allocator = allocator,

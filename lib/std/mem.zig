@@ -93,6 +93,8 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
+    /// Returns an uninitialized array of T. Call `free` to free the
+    /// memory.
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
         return self.alignedAlloc(T, null, n);
     }
@@ -218,6 +220,7 @@ pub const Allocator = struct {
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
+    /// Free an array allocated with `alloc`.
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@typeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
