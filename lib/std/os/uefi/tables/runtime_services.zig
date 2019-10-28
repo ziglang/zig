@@ -14,22 +14,30 @@ const TimeCapabilities = uefi.TimeCapabilities;
 /// Some functions may not be called while other functions are running.
 pub const RuntimeServices = extern struct {
     hdr: TableHeader,
+
     /// Returns the current time and date information, and the time-keeping capabilities of the hardware platform.
     getTime: extern fn (*uefi.Time, ?*TimeCapabilities) usize,
+
     setTime: usize, // TODO
     getWakeupTime: usize, // TODO
     setWakeupTime: usize, // TODO
     setVirtualAddressMap: usize, // TODO
     convertPointer: usize, // TODO
+
     /// Returns the value of a variable.
     getVariable: extern fn ([*]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) usize,
+
     /// Enumerates the current variable names.
     getNextVariableName: extern fn (*usize, [*]u16, *align(8) Guid) usize,
+
     /// Sets the value of a variable.
     setVariable: extern fn ([*]const u16, *align(8) const Guid, u32, usize, *c_void) usize,
+
     getNextHighMonotonicCount: usize, // TODO
+
     /// Resets the entire platform.
     resetSystem: extern fn (ResetType, usize, usize, ?*const c_void) noreturn,
+
     updateCapsule: usize, // TODO
     queryCapsuleCapabilities: usize, // TODO
     queryVariableInfo: usize, // TODO
