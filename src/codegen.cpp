@@ -4209,15 +4209,19 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (instruction->modifier == CallModifierAsync) {
         zig_panic("TODO @asyncCall of non-async function");
     } else {
-        LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
-        LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
-
         LLVMValueRef new_stack_addr = get_new_stack_addr(g, ir_llvm_value(g, instruction->new_stack));
-        LLVMValueRef old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+        LLVMValueRef old_stack_ref;
+        if (src_return_type->id != ZigTypeIdUnreachable) {
+            LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
+            old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+        }
         gen_set_stack_pointer(g, new_stack_addr);
         result = ZigLLVMBuildCall(g->builder, fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
-        LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+        if (src_return_type->id != ZigTypeIdUnreachable) {
+            LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
+            LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+        }
     }
 
     if (src_return_type->id == ZigTypeIdUnreachable) {
@@ -7710,13 +7714,6 @@ struct GlobalLinkageValue {
     const char *name;
 };
 
-static const GlobalLinkageValue global_linkage_values[] = {
-    {GlobalLinkageIdInternal, "Internal"},
-    {GlobalLinkageIdStrong, "Strong"},
-    {GlobalLinkageIdWeak, "Weak"},
-    {GlobalLinkageIdLinkOnce, "LinkOnce"},
-};
-
 static void add_fp_entry(CodeGen *g, const char *name, uint32_t bit_count, LLVMTypeRef type_ref,
         ZigType **field)
 {
@@ -8472,7 +8469,12 @@ static void init(CodeGen *g) {
         // uses as base cpu.
         // TODO https://github.com/ziglang/zig/issues/2883
         target_specific_cpu_args = "pentium4";
-        target_specific_features = "";
+        if (g->zig_target->os == OsFreestanding) {
+            target_specific_features = "-sse";
+        }
+        else {
+            target_specific_features = "";
+        }
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";
@@ -8901,12 +8903,16 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
     if (err == ErrorCCompileErrors && errors_len > 0) {
         for (size_t i = 0; i < errors_len; i += 1) {
             Stage2ErrorMsg *clang_err = &errors_ptr[i];
-            ErrorMsg *err_msg = err_msg_create_with_offset(
-                    clang_err->filename_ptr ?
-                        buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
-                    clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
-                    buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
-            print_err_msg(err_msg, g->err_color);
+
+            // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+            if (clang_err->source && clang_err->filename_ptr) {
+                ErrorMsg *err_msg = err_msg_create_with_offset(
+                        clang_err->filename_ptr ?
+                            buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
+                        clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                        buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+                print_err_msg(err_msg, g->err_color);
+            }
         }
         exit(1);
     }
@@ -10412,4 +10418,3 @@ void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
     }
     g->sub_progress_node = node;
 }
-

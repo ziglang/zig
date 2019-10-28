@@ -1630,6 +1630,10 @@ pub const AcceptError = error{
 
     /// Firewall rules forbid connection.
     BlockedByFirewall,
+
+    /// This error occurs when no global event loop is configured,
+    /// and accepting from the socket would block.
+    WouldBlock,
 } || UnexpectedError;
 
 /// Accept a connection on a socket.
@@ -1650,7 +1654,7 @@ pub fn accept4(
     ///
     /// The returned address is truncated if the buffer provided is too small; in this  case,  `addr_size`
     /// will return a value greater than was supplied to the call.
-    addr_size: *usize,
+    addr_size: *socklen_t,
     /// If  flags  is  0, then `accept4` is the same as `accept`.  The following values can be bitwise
     /// ORed in flags to obtain different behavior:
     /// * `SOCK_NONBLOCK` - Set the `O_NONBLOCK` file status flag on the open file description (see `open`)
