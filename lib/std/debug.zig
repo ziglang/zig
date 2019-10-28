@@ -45,6 +45,7 @@ var stderr_file_out_stream: File.OutStream = undefined;
 
 var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
+
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
     defer held.release();
@@ -62,6 +63,10 @@ pub fn getStderrStream() !*io.OutStream(File.WriteError) {
         stderr_stream = st;
         return st;
     }
+}
+
+pub fn getStderrMutex() *std.Mutex {
+    return &stderr_mutex;
 }
 
 /// TODO multithreaded awareness

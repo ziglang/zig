@@ -27,6 +27,9 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         /// The string used as a newline character.
         newline: []const u8 = "\n",
 
+        /// The string used as spacing.
+        space: []const u8 = " ",
+
         stream: *OutStream,
         state_index: usize,
         state: [max_depth]State,
@@ -87,7 +90,8 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
                     self.pushState(.Value);
                     try self.indent();
                     try self.writeEscapedString(name);
-                    try self.stream.write(": ");
+                    try self.stream.write(":");
+                    try self.stream.write(self.space);
                 },
             }
         }
