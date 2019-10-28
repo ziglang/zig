@@ -2778,6 +2778,7 @@ test "simple union" {
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
       obtain the enum type from the union type.
+      Tagged unions implicitly cast to their enum {#link|Implicit Cast: unions and enums#}
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -2804,6 +2805,14 @@ test "switch on tagged union" {
 
 test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
+}
+
+test "implicit cast to enum" {
+    const c1 = ComplexType{ .Ok = 42 };
+    const c2 = ComplexType.NotOk;
+
+    assert(c1 == .Ok);
+    assert(c2 == .NotOk);
 }
       {#code_end#}
       <p>In order to modify the payload of a tagged union in a switch expression,

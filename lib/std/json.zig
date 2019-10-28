@@ -867,6 +867,8 @@ pub const TokenStream = struct {
     parser: StreamingParser,
     token: ?Token,
 
+    pub const Error = StreamingParser.Error || error{UnexpectedEndOfJson};
+
     pub fn init(slice: []const u8) TokenStream {
         return TokenStream{
             .i = 0,
@@ -876,7 +878,7 @@ pub const TokenStream = struct {
         };
     }
 
-    pub fn next(self: *TokenStream) !?Token {
+    pub fn next(self: *TokenStream) Error!?Token {
         if (self.token) |token| {
             const copy = token;
             self.token = null;
@@ -896,16 +898,11 @@ pub const TokenStream = struct {
             }
         }
 
-        if (self.i > self.slice.len) {
-            try self.parser.feed(' ', &t1, &t2);
-            self.i += 1;
-
-            if (t1) |token| {
-                return token;
-            }
+        if(self.parser.complete){
+            return null;
+        } else {
+            return error.UnexpectedEndOfJson;
         }
-
-        return null;
     }
 };
 
@@ -1455,4 +1452,10 @@ test "write json then parse it" {
     testing.expect(tree.root.Object.get("array").?.value.Array.at(0).Null == {});
     testing.expect(tree.root.Object.get("array").?.value.Array.at(1).Float == 12.34);
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
+}
+
+test "parsing empty string gives appropriate error" {
+    var p = Parser.init(debug.global_allocator, false);
+    defer p.deinit();
+    testing.expectError(error.UnexpectedEndOfJson, p.parse(""));
 }
