@@ -8469,12 +8469,7 @@ static void init(CodeGen *g) {
         // uses as base cpu.
         // TODO https://github.com/ziglang/zig/issues/2883
         target_specific_cpu_args = "pentium4";
-        if (g->zig_target->os == OsFreestanding) {
-            target_specific_features = "-sse";
-        }
-        else {
-            target_specific_features = "";
-        }
+        target_specific_features = (g->zig_target->os == OsFreestanding) ? "-sse": "";
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";
@@ -8779,6 +8774,11 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             args.append("-target-feature");
             args.append("-Xclang");
             args.append(riscv_default_features);
+        } else if (g->zig_target->os == OsFreestanding && g->zig_target->arch == ZigLLVM_x86) {
+            args.append("-Xclang");
+            args.append("-target-feature");
+            args.append("-Xclang");
+            args.append("-sse");
         }
     }
     if (g->zig_target->os == OsFreestanding) {
