@@ -93,8 +93,14 @@ pub const Allocator = struct {
         assert(shrink_result.len == 0);
     }
 
-    /// Returns an uninitialized array of T. Call `free` to free the
-    /// memory.
+    /// Allocates an array of `n` items of type `T` and sets all the
+    /// items to `undefined`. Depending on the Allocator
+    /// implementation, it may be required to call `free` once the
+    /// memory is no longer needed, to avoid a resource leak. If the
+    /// `Allocator` implementation is unknown, then correct code will
+    /// call `free` when done.
+    /// 
+    /// For allocating a single item, see `create`.
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
         return self.alignedAlloc(T, null, n);
     }
@@ -220,7 +226,8 @@ pub const Allocator = struct {
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
-    /// Free an array allocated with `alloc`.
+    /// Free an array allocated with `alloc`. To free a single item,
+    /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@typeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
