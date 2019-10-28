@@ -1,3 +1,7 @@
+pub const LoadedImageProtocol = @import("protocols/loaded_image_protocol.zig").LoadedImageProtocol;
+
+pub const DevicePathProtocol = @import("protocols/device_path_protocol.zig").DevicePathProtocol;
+
 pub const InputKey = @import("protocols/simple_text_input_ex_protocol.zig").InputKey;
 pub const KeyData = @import("protocols/simple_text_input_ex_protocol.zig").KeyData;
 pub const KeyState = @import("protocols/simple_text_input_ex_protocol.zig").KeyState;
