@@ -22,16 +22,31 @@ pub const Address = struct {
     os_addr: OsAddress,
 
     pub fn initIp4(ip4: u32, _port: u16) Address {
-        return Address{
-            .os_addr = os.sockaddr{
-                .in = os.sockaddr_in{
-                    .family = os.AF_INET,
-                    .port = mem.nativeToBig(u16, _port),
-                    .addr = ip4,
-                    .zero = [_]u8{0} ** 8,
+        switch (builtin.os) {
+            .macosx, .ios, .watchos, .tvos,
+            .freebsd, .netbsd => return Address{
+                .os_addr = os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .len = @sizeOf(os.sockaddr_in),
+                        .family = os.AF_INET,
+                        .port = mem.nativeToBig(u16, _port),
+                        .addr = ip4,
+                        .zero = [_]u8{0} ** 8,
+                    },
                 },
             },
-        };
+            .linux => return Address{
+                .os_addr = os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .family = os.AF_INET,
+                        .port = mem.nativeToBig(u16, _port),
+                        .addr = ip4,
+                        .zero = [_]u8{0} ** 8,
+                    },
+                },
+            },
+            else => @compileError("Address.initIp4 not implemented for this platform"),
+        }
     }
 
     pub fn initIp6(ip6: Ip6Addr, _port: u16) Address {
@@ -286,6 +301,23 @@ test "std.net.parseIp6" {
     std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
 }
 
+fn testIp4s(ips: []const []const u8) void {
+    var buffer : [18]u8 = undefined;
+    for (ips) |ip| {
+        var addr = Address.initIp4(parseIp4(ip) catch unreachable, 0);
+        var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
+        std.testing.expect(std.mem.eql(u8, ip, newIp[0..newIp.len - 2]));
+    }
+}
+
+test "std.net.ip4s" {
+    testIp4s(([_][]const u8 {
+        "0.0.0.0" ,
+        "255.255.255.255" ,
+        "1.2.3.4",
+        "123.255.0.91",
+    })[0..]);
+}
 pub fn connectUnixSocket(path: []const u8) !fs.File {
     const opt_non_block = if (std.event.Loop.instance != null) os.SOCK_NONBLOCK else 0;
     const sockfd = try os.socket(
