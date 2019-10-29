@@ -3076,3 +3076,51 @@ pub fn recvfrom(
         }
     }
 }
+
+pub const DnExpandError = error{InvalidDnsPacket};
+
+pub fn dn_expand(
+    msg: []const u8,
+    comp_dn: []const u8,
+    exp_dn: []u8,
+) DnExpandError!usize {
+    var p = comp_dn.ptr;
+    var len: usize = std.math.maxInt(usize);
+    const end = msg.ptr + msg.len;
+    if (p == end or exp_dn.len == 0) return error.InvalidDnsPacket;
+    var dest = exp_dn.ptr;
+    const dend = dest + std.math.min(exp_dn.len, 254);
+    // detect reference loop using an iteration counter
+    var i: usize = 0;
+    while (i < msg.len) : (i += 2) {
+        // loop invariants: p<end, dest<dend
+        if ((p[0] & 0xc0) != 0) {
+            if (p + 1 == end) return error.InvalidDnsPacket;
+            var j = ((p[0] & usize(0x3f)) << 8) | p[1];
+            if (len == std.math.maxInt(usize)) len = @ptrToInt(p) + 2 - @ptrToInt(comp_dn.ptr);
+            if (j >= msg.len) return error.InvalidDnsPacket;
+            p = msg.ptr + j;
+        } else if (p[0] != 0) {
+            if (dest != exp_dn.ptr) {
+                dest.* = '.';
+                dest += 1;
+            }
+            var j = p[0];
+            p += 1;
+            if (j >= @ptrToInt(end) - @ptrToInt(p) or j >= @ptrToInt(dend) - @ptrToInt(dest)) {
+                return error.InvalidDnsPacket;
+            }
+            while (j != 0) {
+                j -= 1;
+                dest.* = p[0];
+                dest += 1;
+                p += 1;
+            }
+        } else {
+            dest.* = 0;
+            if (len == std.math.maxInt(usize)) len = @ptrToInt(p) + 1 - @ptrToInt(comp_dn.ptr);
+            return len;
+        }
+    }
+    return error.InvalidDnsPacket;
+}

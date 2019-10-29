@@ -191,3 +191,11 @@ pub extern "c" fn getnameinfo(
 pub extern "c" fn gai_strerror(errcode: c_int) [*]const u8;
 
 pub extern "c" fn poll(fds: [*]pollfd, nfds: nfds_t, timeout: c_int) c_int;
+
+pub extern "c" fn dn_expand(
+    msg: [*]const u8,
+    eomorig: [*]const u8,
+    comp_dn: [*]const u8,
+    exp_dn: [*]u8,
+    length: c_int,
+) c_int;

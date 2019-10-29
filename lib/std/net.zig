@@ -1017,7 +1017,6 @@ fn dnsParse(
 }
 
 fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) !void {
-    var tmp: [256]u8 = undefined;
     switch (rr) {
         os.RR_A => {
             if (data.len != 4) return error.InvalidDnsARecord;
@@ -1038,10 +1037,13 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             mem.copy(u8, &new_addr.addr, data);
         },
         os.RR_CNAME => {
-            @panic("TODO dn_expand");
-            //if (__dn_expand(packet, (const unsigned char *)packet + 512,
-            //    data, tmp, sizeof tmp) > 0 && is_valid_hostname(tmp))
-            //    strcpy(ctx->canon, tmp);
+            var tmp: [256]u8 = undefined;
+            // Returns len of compressed name. strlen to get canon name.
+            _ = try os.dn_expand(packet, data, &tmp);
+            const canon_name = mem.toSliceConst(u8, &tmp);
+            if (isValidHostName(canon_name)) {
+                try ctx.canon.replaceContents(canon_name);
+            }
         },
         else => return,
     }
