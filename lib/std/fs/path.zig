@@ -253,27 +253,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
         return relative_path;
     }
 
-    // TODO when I combined these together with `inline for` the compiler crashed
-    {
-        const this_sep = '/';
-        const two_sep = [_]u8{ this_sep, this_sep };
-        if (mem.startsWith(u8, path, two_sep)) {
-            if (path[2] == this_sep) {
-                return relative_path;
-            }
-
-            var it = mem.tokenize(path, [_]u8{this_sep});
-            _ = (it.next() orelse return relative_path);
-            _ = (it.next() orelse return relative_path);
-            return WindowsPath{
-                .is_abs = isAbsoluteWindows(path),
-                .kind = WindowsPath.Kind.NetworkShare,
-                .disk_designator = path[0..it.index],
-            };
-        }
-    }
-    {
-        const this_sep = '\\';
+    inline for ("/\\") |this_sep| {
         const two_sep = [_]u8{ this_sep, this_sep };
         if (mem.startsWith(u8, path, two_sep)) {
             if (path[2] == this_sep) {
