@@ -1808,11 +1808,9 @@ pub const GetSockNameError = error{
     SystemResources,
 } || UnexpectedError;
 
-pub fn getsockname(sockfd: i32) GetSockNameError!sockaddr {
-    var addr: sockaddr = undefined;
-    var addrlen: socklen_t = @sizeOf(sockaddr);
-    switch (errno(system.getsockname(sockfd, &addr, &addrlen))) {
-        0 => return addr,
+pub fn getsockname(sockfd: fd_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
+    switch (errno(system.getsockname(sockfd, addr, addrlen))) {
+        0 => return,
         else => |err| return unexpectedErrno(err),
 
         EBADF => unreachable, // always a race condition
@@ -2844,6 +2842,8 @@ pub fn res_mkquery(
     newrr: ?[*]const u8,
     buf: []u8,
 ) usize {
+    // This implementation is ported from musl libc.
+    // A more idiomatic "ziggy" implementation would be welcome.
     var name = dname;
     if (mem.endsWith(u8, name, ".")) name.len -= 1;
     assert(name.len <= 253);
@@ -3084,6 +3084,8 @@ pub fn dn_expand(
     comp_dn: []const u8,
     exp_dn: []u8,
 ) DnExpandError!usize {
+    // This implementation is ported from musl libc.
+    // A more idiomatic "ziggy" implementation would be welcome.
     var p = comp_dn.ptr;
     var len: usize = std.math.maxInt(usize);
     const end = msg.ptr + msg.len;

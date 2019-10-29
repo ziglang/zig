@@ -357,7 +357,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         const hints = os.addrinfo{
             .flags = c.AI_NUMERICSERV,
-            .family = os.AF_INET, // TODO os.AF_UNSPEC,
+            .family = os.AF_UNSPEC,
             .socktype = os.SOCK_STREAM,
             .protocol = os.IPPROTO_TCP,
             .canonname = null,
@@ -415,14 +415,11 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     }
     if (builtin.os == .linux) {
         const flags = std.c.AI_NUMERICSERV;
-        const family = os.AF_INET; //TODO os.AF_UNSPEC;
-        // The limit of 48 results is a non-sharp bound on the number of addresses
-        // that can fit in one 512-byte DNS packet full of v4 results and a second
-        // packet full of v6 results. Due to headers, the actual limit is lower.
+        const family = os.AF_UNSPEC;
         var addrs = std.ArrayList(LookupAddr).init(allocator);
         defer addrs.deinit();
 
-        var canon = std.Buffer.initNull(allocator);
+        var canon = std.Buffer.initNull(arena);
         defer canon.deinit();
 
         try linuxLookupName(&addrs, &canon, name, family, flags);
@@ -467,6 +464,14 @@ const LookupAddr = struct {
     sortkey: i32 = 0,
 };
 
+const DAS_USABLE = 0x40000000;
+const DAS_MATCHINGSCOPE = 0x20000000;
+const DAS_MATCHINGLABEL = 0x10000000;
+const DAS_PREC_SHIFT = 20;
+const DAS_SCOPE_SHIFT = 16;
+const DAS_PREFIX_SHIFT = 8;
+const DAS_ORDER_SHIFT = 0;
+
 fn linuxLookupName(
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
@@ -493,8 +498,201 @@ fn linuxLookupName(
     // No further processing is needed if there are fewer than 2
     // results or if there are only IPv4 results.
     if (addrs.len == 1 or family == os.AF_INET) return;
+    const all_ip4 = for (addrs.toSliceConst()) |addr| {
+        if (addr.family != os.AF_INET) break false;
+    } else true;
+    if (all_ip4) return;
 
-    @panic("port the RFC 3484/6724 destination address selection from musl libc");
+    // The following implements a subset of RFC 3484/6724 destination
+    // address selection by generating a single 31-bit sort key for
+    // each address. Rules 3, 4, and 7 are omitted for having
+    // excessive runtime and code size cost and dubious benefit.
+    // So far the label/precedence table cannot be customized.
+    // This implementation is ported from musl libc.
+    // A more idiomatic "ziggy" implementation would be welcome.
+    for (addrs.toSlice()) |*addr, i| {
+        var key: i32 = 0;
+        var sa6: os.sockaddr_in6 = undefined;
+        @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr_in6));
+        var da6 = os.sockaddr_in6{
+            .family = os.AF_INET6,
+            .scope_id = addr.scope_id,
+            .port = 65535,
+            .flowinfo = 0,
+            .addr = [1]u8{0} ** 16,
+        };
+        var sa4: os.sockaddr_in = undefined;
+        @memset(@ptrCast([*]u8, &sa4), 0, @sizeOf(os.sockaddr_in));
+        var da4 = os.sockaddr_in{
+            .family = os.AF_INET,
+            .port = 65535,
+            .addr = 0,
+            .zero = [1]u8{0} ** 8,
+        };
+        var sa: *os.sockaddr = undefined;
+        var da: *os.sockaddr = undefined;
+        var salen: os.socklen_t = undefined;
+        var dalen: os.socklen_t = undefined;
+        if (addr.family == os.AF_INET6) {
+            mem.copy(u8, &da6.addr, &addr.addr);
+            da = @ptrCast(*os.sockaddr, &da6);
+            dalen = @sizeOf(os.sockaddr_in6);
+            sa = @ptrCast(*os.sockaddr, &sa6);
+            salen = @sizeOf(os.sockaddr_in6);
+        } else {
+            mem.copy(u8, &sa6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+            mem.copy(u8, &da6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+            mem.copy(u8, da6.addr[12..], addr.addr[0..4]);
+            da4.addr = mem.readIntNative(u32, @ptrCast(*const [4]u8, &addr.addr));
+            da = @ptrCast(*os.sockaddr, &da4);
+            dalen = @sizeOf(os.sockaddr_in);
+            sa = @ptrCast(*os.sockaddr, &sa4);
+            salen = @sizeOf(os.sockaddr_in);
+        }
+        const dpolicy = policyOf(da6.addr);
+        const dscope: i32 = scopeOf(da6.addr);
+        const dlabel = dpolicy.label;
+        const dprec: i32 = dpolicy.prec;
+        const MAXADDRS = 3;
+        var prefixlen: i32 = 0;
+        if (os.socket(addr.family, os.SOCK_DGRAM | os.SOCK_CLOEXEC, os.IPPROTO_UDP)) |fd| syscalls: {
+            defer os.close(fd);
+            os.connect(fd, da, dalen) catch break :syscalls;
+            key |= DAS_USABLE;
+            os.getsockname(fd, sa, &salen) catch break :syscalls;
+            if (addr.family == os.AF_INET) {
+                // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
+                mem.writeIntNative(u32, @ptrCast(*[4]u8, &sa6.addr[12]), sa4.addr);
+            }
+            if (dscope == i32(scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
+            if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
+            prefixlen = prefixMatch(sa6.addr, da6.addr);
+        } else |_| {}
+        key |= dprec << DAS_PREC_SHIFT;
+        key |= (15 - dscope) << DAS_SCOPE_SHIFT;
+        key |= prefixlen << DAS_PREFIX_SHIFT;
+        key |= (MAXADDRS - @intCast(i32, i)) << DAS_ORDER_SHIFT;
+        addr.sortkey = key;
+    }
+    std.sort.sort(LookupAddr, addrs.toSlice(), addrCmpLessThan);
+}
+
+const Policy = struct {
+    addr: [16]u8,
+    len: u8,
+    mask: u8,
+    prec: u8,
+    label: u8,
+};
+
+const defined_policies = [_]Policy{
+    Policy{
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01",
+        .len = 15,
+        .mask = 0xff,
+        .prec = 50,
+        .label = 0,
+    },
+    Policy{
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00",
+        .len = 11,
+        .mask = 0xff,
+        .prec = 35,
+        .label = 4,
+    },
+    Policy{
+        .addr = "\x20\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .len = 1,
+        .mask = 0xff,
+        .prec = 30,
+        .label = 2,
+    },
+    Policy{
+        .addr = "\x20\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .len = 3,
+        .mask = 0xff,
+        .prec = 5,
+        .label = 5,
+    },
+    Policy{
+        .addr = "\xfc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .len = 0,
+        .mask = 0xfe,
+        .prec = 3,
+        .label = 13,
+    },
+    //  These are deprecated and/or returned to the address
+    //  pool, so despite the RFC, treating them as special
+    //  is probably wrong.
+    // { "", 11, 0xff, 1, 3 },
+    // { "\xfe\xc0", 1, 0xc0, 1, 11 },
+    // { "\x3f\xfe", 1, 0xff, 1, 12 },
+    // Last rule must match all addresses to stop loop.
+    Policy{
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .len = 0,
+        .mask = 0,
+        .prec = 40,
+        .label = 1,
+    },
+};
+
+fn policyOf(a: [16]u8) *const Policy {
+    for (defined_policies) |*policy| {
+        if (!mem.eql(u8, a[0..policy.len], policy.addr[0..policy.len])) continue;
+        if ((a[policy.len] & policy.mask) != policy.addr[policy.len]) continue;
+        return policy;
+    }
+    unreachable;
+}
+
+fn scopeOf(a: [16]u8) u8 {
+    if (IN6_IS_ADDR_MULTICAST(a)) return a[1] & 15;
+    if (IN6_IS_ADDR_LINKLOCAL(a)) return 2;
+    if (IN6_IS_ADDR_LOOPBACK(a)) return 2;
+    if (IN6_IS_ADDR_SITELOCAL(a)) return 5;
+    return 14;
+}
+
+fn prefixMatch(s: [16]u8, d: [16]u8) u8 {
+    // TODO: This FIXME inherited from porting from musl libc.
+    // I don't want this to go into zig std lib 1.0.0.
+
+    // FIXME: The common prefix length should be limited to no greater
+    // than the nominal length of the prefix portion of the source
+    // address. However the definition of the source prefix length is
+    // not clear and thus this limiting is not yet implemented.
+    var i: u8 = 0;
+    while (i < 128 and ((s[i / 8] ^ d[i / 8]) & (u8(128) >> @intCast(u3, i % 8))) == 0) : (i += 1) {}
+    return i;
+}
+
+fn labelOf(a: [16]u8) u8 {
+    return policyOf(a).label;
+}
+
+fn IN6_IS_ADDR_MULTICAST(a: [16]u8) bool {
+    return a[0] == 0xff;
+}
+
+fn IN6_IS_ADDR_LINKLOCAL(a: [16]u8) bool {
+    return a[0] == 0xfe and (a[1] & 0xc0) == 0x80;
+}
+
+fn IN6_IS_ADDR_LOOPBACK(a: [16]u8) bool {
+    return a[0] == 0 and a[1] == 0 and
+        a[2] == 0 and
+        a[12] == 0 and a[13] == 0 and
+        a[14] == 0 and a[15] == 1;
+}
+
+fn IN6_IS_ADDR_SITELOCAL(a: [16]u8) bool {
+    return a[0] == 0xfe and (a[1] & 0xc0) == 0xc0;
+}
+
+// Parameters `b` and `a` swapped to make this descending.
+fn addrCmpLessThan(b: LookupAddr, a: LookupAddr) bool {
+    return a.sortkey < b.sortkey;
 }
 
 fn linuxLookupNameFromNumericUnspec(addrs: *std.ArrayList(LookupAddr), name: []const u8) !void {
@@ -770,7 +968,6 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     };
     defer file.close();
 
-    var cnt: usize = 0;
     const stream = &std.io.BufferedInStream(fs.File.ReadError).init(&file.inStream().stream).stream;
     var line_buf: [512]u8 = undefined;
     while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
@@ -990,6 +1187,8 @@ fn dnsParse(
     ctx: var,
     comptime callback: var,
 ) !void {
+    // This implementation is ported from musl libc.
+    // A more idiomatic "ziggy" implementation would be welcome.
     if (r.len < 12) return error.InvalidDnsPacket;
     if ((r[3] & 15) != 0) return;
     var p = r.ptr + 12;
