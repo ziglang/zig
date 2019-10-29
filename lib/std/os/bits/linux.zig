@@ -1431,3 +1431,23 @@ pub const IPPROTO_UDPLITE = 136;
 pub const IPPROTO_MPLS = 137;
 pub const IPPROTO_RAW = 255;
 pub const IPPROTO_MAX = 256;
+
+pub const RR_A = 1;
+pub const RR_CNAME = 5;
+pub const RR_AAAA = 28;
+
+pub const nfds_t = usize;
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLLIN = 0x001;
+pub const POLLPRI = 0x002;
+pub const POLLOUT = 0x004;
+pub const POLLERR = 0x008;
+pub const POLLHUP = 0x010;
+pub const POLLNVAL = 0x020;
+pub const POLLRDNORM = 0x040;
+pub const POLLRDBAND = 0x080;

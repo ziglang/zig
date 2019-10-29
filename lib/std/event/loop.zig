@@ -466,6 +466,10 @@ pub const Loop = struct {
         return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLIN);
     }
 
+    pub fn waitUntilFdWritable(self: *Loop, fd: os.fd_t) !void {
+        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLOUT);
+    }
+
     pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{

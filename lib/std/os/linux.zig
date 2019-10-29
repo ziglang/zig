@@ -226,6 +226,28 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(SYS_munmap, @ptrToInt(address), length);
 }
 
+pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
+    if (@hasDecl(@This(), "SYS_poll")) {
+        return syscall3(SYS_poll, @ptrToInt(fds), n, @bitCast(u32, timeout));
+    } else {
+        return syscall6(
+            SYS_ppoll,
+            @ptrToInt(fds),
+            n,
+            @ptrToInt(if (timeout >= 0)
+                &timespec{
+                    .tv_sec = timeout / 1000,
+                    .tv_nsec = (timeout % 1000) * 1000000,
+                }
+            else
+                null),
+            0,
+            0,
+            NSIG / 8,
+        );
+    }
+}
+
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
     return syscall3(SYS_read, @bitCast(usize, isize(fd)), @ptrToInt(buf), count);
 }

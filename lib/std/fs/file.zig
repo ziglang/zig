@@ -41,7 +41,7 @@ pub const File = struct {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openReadW(&path_w);
         }
-        const flags = os.O_LARGEFILE | os.O_RDONLY;
+        const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
         const fd = try os.openC(path, flags, 0);
         return openHandle(fd);
     }
