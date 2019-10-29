@@ -356,6 +356,17 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
+/// Compares two slices and returns whether they are equal. The time taken is
+/// a function of the length of the slices and is independent of the contents.
+pub fn secureEql(comptime T: type, a: []const T, b: []const T) bool {
+    if (a.len != b.len) return false;
+    var s: T = 0;
+    for (a) |_, i| {
+        s |= a[i] ^ b[i];
+    }
+    return s == 0;
+}
+
 pub fn len(comptime T: type, ptr: [*]const T) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
