@@ -42,7 +42,7 @@ test "listen on a port, send bytes, receive bytes" {
     // TODO doing this at comptime crashed the compiler
     const localhost = net.Address.initIp4(net.parseIp4("127.0.0.1") catch unreachable, 0);
 
-    var server = try net.Server.init(net.Server.Options{});
+    var server = net.TcpServer.init(net.TcpServer.Options{});
     defer server.deinit();
     try server.listen(localhost);
 
@@ -63,8 +63,8 @@ fn testClient(addr: net.Address) anyerror!void {
     testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
-fn testServer(server: *net.Server) anyerror!void {
-    var client_file = try server.connections.get();
+fn testServer(server: *net.TcpServer) anyerror!void {
+    var client_file = try server.accept();
 
     const stream = &client_file.outStream().stream;
     try stream.print("hello from server\n");

@@ -1254,11 +1254,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
 
 /// This API only works when `std.io.mode` is `std.io.Mode.evented`.
 /// This struct is immovable after calling `listen`.
-pub const Server = struct {
-    /// This field is meant to be accessed directly.
-    /// Call `connections.get` to accept a connection.
-    connections: *ConnectionChannel,
-
+pub const TcpServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u32,
 
@@ -1266,9 +1262,56 @@ pub const Server = struct {
     listen_address: Address,
 
     sockfd: ?os.fd_t,
-    accept_frame: @Frame(acceptConnections),
 
-    pub const ConnectionChannel = std.event.Channel(AcceptError!fs.File);
+    pub const Options = struct {
+        /// How many connections the kernel will accept on the application's behalf.
+        /// If more than this many connections pool in the kernel, clients will start
+        /// seeing "Connection refused".
+        kernel_backlog: u32 = 128,
+    };
+
+    /// After this call succeeds, resources have been acquired and must
+    /// be released with `deinit`.
+    pub fn init(options: Options) TcpServer {
+        return TcpServer{
+            .sockfd = null,
+            .kernel_backlog = options.kernel_backlog,
+            .listen_address = undefined,
+        };
+    }
+
+    /// Release all resources. The `TcpServer` memory becomes `undefined`.
+    pub fn deinit(self: *TcpServer) void {
+        self.close();
+        self.* = undefined;
+    }
+
+    pub fn listen(self: *TcpServer, address: Address) !void {
+        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
+        const sockfd = try os.socket(os.AF_INET, sock_flags, os.PROTO_tcp);
+        self.sockfd = sockfd;
+        errdefer {
+            os.close(sockfd);
+            self.sockfd = null;
+        }
+
+        var socklen = address.getOsSockLen();
+        try os.bind(sockfd, &address.os_addr, socklen);
+        try os.listen(sockfd, self.kernel_backlog);
+        try os.getsockname(sockfd, &self.listen_address.os_addr, &socklen);
+    }
+
+    /// Stop listening. It is still necessary to call `deinit` after stopping listening.
+    /// Calling `deinit` will automatically call `close`. It is safe to call `close` when
+    /// not listening.
+    pub fn close(self: *TcpServer) void {
+        if (self.sockfd) |fd| {
+            os.close(fd);
+            self.sockfd = null;
+            self.listen_address = undefined;
+        }
+    }
 
     pub const AcceptError = error{
         ConnectionAborted,
@@ -1289,83 +1332,19 @@ pub const Server = struct {
         BlockedByFirewall,
     } || os.UnexpectedError;
 
-    pub const Options = struct {
-        /// How many connections the kernel will accept on the application's behalf.
-        /// If more than this many connections pool in the kernel, clients will start
-        /// seeing "Connection refused".
-        kernel_backlog: u32 = 128,
-
-        /// How many connections this `Server` will accept from the kernel even before
-        /// they are requested from the `connections` channel.
-        eager_connections: usize = 16,
-    };
-
-    /// After this call succeeds, resources have been acquired and must
-    /// be released with `deinit`.
-    pub fn init(options: Options) !Server {
-        const loop = std.event.Loop.instance orelse
-            @compileError("std.net.Server only works in evented I/O mode");
-        return Server{
-            .connections = try ConnectionChannel.create(loop, options.eager_connections),
-            .sockfd = null,
-            .kernel_backlog = options.kernel_backlog,
-            .listen_address = undefined,
-            .accept_frame = undefined,
-        };
-    }
-
-    /// After calling this function, one must call `init` to do anything else with this `Server`.
-    pub fn deinit(self: *Server) void {
-        self.close();
-        self.connections.destroy();
-        self.* = undefined;
-    }
-
-    pub fn listen(self: *Server, address: Address) !void {
-        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK;
-        const sockfd = try os.socket(os.AF_INET, sock_flags, os.PROTO_tcp);
-        self.sockfd = sockfd;
-        errdefer {
-            os.close(sockfd);
-            self.sockfd = null;
-        }
-
-        var socklen = address.getOsSockLen();
-        try os.bind(sockfd, &address.os_addr, socklen);
-        try os.listen(sockfd, self.kernel_backlog);
-        try os.getsockname(sockfd, &self.listen_address.os_addr, &socklen);
-
-        // acceptConnections loops, calling os.accept().
-        self.accept_frame = async self.acceptConnections();
-        errdefer await self.accept_frame;
-    }
-
-    /// Stop listening. It is still necessary to call `deinit` after stopping listening.
-    /// Calling `deinit` will automatically call `close`. It is safe to call `close` when
-    /// not listening.
-    pub fn close(self: *Server) void {
-        if (self.sockfd) |fd| {
-            os.close(fd);
-            self.sockfd = null;
-            await self.accept_frame;
-            self.accept_frame = undefined;
-            self.listen_address = undefined;
-        }
-    }
-
-    fn acceptConnections(self: *Server) void {
-        const sockfd = self.sockfd.?;
-        const accept_flags = os.SOCK_NONBLOCK | os.SOCK_CLOEXEC;
-        while (true) {
-            var accepted_addr: Address = undefined;
-            var addr_len: os.socklen_t = @sizeOf(os.sockaddr);
-            const conn = if (os.accept4(sockfd, &accepted_addr.os_addr, &addr_len, accept_flags)) |fd|
-                fs.File.openHandle(fd)
-            else |err| switch (err) {
-                error.WouldBlock => unreachable, // we asserted earlier about non-blocking I/O mode
-                else => |e| e,
-            };
-            self.connections.put(conn);
+    /// If this function succeeds, the returned `fs.File` is a caller-managed resource.
+    pub fn accept(self: *TcpServer) AcceptError!fs.File {
+        const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+        const accept_flags = nonblock | os.SOCK_CLOEXEC;
+        var accepted_addr: Address = undefined;
+        var adr_len: os.socklen_t = @sizeOf(os.sockaddr);
+        if (os.accept4(self.sockfd.?, &accepted_addr.os_addr, &adr_len, accept_flags)) |fd| {
+            return fs.File.openHandle(fd);
+        } else |err| switch (err) {
+            // We only give SOCK_NONBLOCK when I/O mode is async, in which case this error
+            // is handled by os.accept4.
+            error.WouldBlock => unreachable,
+            else => |e| return e,
         }
     }
 };
