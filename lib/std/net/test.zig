@@ -37,7 +37,7 @@ test "ip4s" {
         "1.2.3.4",
         "123.255.0.91",
     }) |ip| {
-        var addr = Address.initIp4(parseIp4(ip) catch unreachable, 0);
+        var addr = net.Address.initIp4(net.parseIp4(ip) catch unreachable, 0);
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
         std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }

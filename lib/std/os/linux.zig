@@ -236,8 +236,8 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
             n,
             @ptrToInt(if (timeout >= 0)
                 &timespec{
-                    .tv_sec = timeout / 1000,
-                    .tv_nsec = (timeout % 1000) * 1000000,
+                    .tv_sec = @divTrunc(timeout, 1000),
+                    .tv_nsec = @rem(timeout, 1000) * 1000000,
                 }
             else
                 null),
