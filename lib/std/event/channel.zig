@@ -4,9 +4,11 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const Loop = std.event.Loop;
 
-/// many producer, many consumer, thread-safe, runtime configurable buffer size
-/// when buffer is empty, consumers suspend and are resumed by producers
-/// when buffer is full, producers suspend and are resumed by consumers
+/// Many producer, many consumer, thread-safe, runtime configurable buffer size.
+/// When buffer is empty, consumers suspend and are resumed by producers.
+/// When buffer is full, producers suspend and are resumed by consumers.
+/// TODO now that async function rewrite has landed, this API should be adjusted
+/// to not use the event loop's allocator, and to not require allocation.
 pub fn Channel(comptime T: type) type {
     return struct {
         loop: *Loop,
@@ -48,7 +50,7 @@ pub fn Channel(comptime T: type) type {
             tick_node: *Loop.NextTickNode,
         };
 
-        /// call destroy when done
+        /// Call `destroy` when done.
         pub fn create(loop: *Loop, capacity: usize) !*SelfChannel {
             const buffer_nodes = try loop.allocator.alloc(T, capacity);
             errdefer loop.allocator.free(buffer_nodes);

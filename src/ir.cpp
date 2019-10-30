@@ -17692,7 +17692,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             {
                                 size_t offset = ptr_field->data.x_ptr.data.base_array.elem_index;
                                 uint64_t new_index = offset + index;
-                                assert(new_index < ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len);
+                                ir_assert(new_index < ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len,
+                                        &elem_ptr_instruction->base);
                                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                                 out_val->data.x_ptr.data.base_array.array_val =
                                     ptr_field->data.x_ptr.data.base_array.array_val;
@@ -17854,7 +17855,10 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         case OnePossibleValueNo:
             break;
     }
-    if ((err = type_resolve(ira->codegen, struct_type, ResolveStatusAlignmentKnown)))
+    ResolveStatus needed_resolve_status =
+        (struct_type->data.structure.layout == ContainerLayoutAuto) ?
+            ResolveStatusZeroBitsKnown : ResolveStatusSizeKnown;
+    if ((err = type_resolve(ira->codegen, struct_type, needed_resolve_status)))
         return ira->codegen->invalid_instruction;
     assert(struct_ptr->value.type->id == ZigTypeIdPointer);
     uint32_t ptr_bit_offset = struct_ptr->value.type->data.pointer.bit_offset_in_host;
@@ -17873,6 +17877,9 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
             return ira->codegen->invalid_instruction;
 
         if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            if ((err = type_resolve(ira->codegen, struct_type, ResolveStatusSizeKnown)))
+                return ira->codegen->invalid_instruction;
+
             ConstExprValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (struct_val == nullptr)
                 return ira->codegen->invalid_instruction;
@@ -17919,7 +17926,7 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
     Error err;
 
     ZigType *bare_type = container_ref_type(container_type);
-    if ((err = type_resolve(ira->codegen, bare_type, ResolveStatusSizeKnown)))
+    if ((err = type_resolve(ira->codegen, bare_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
     assert(container_ptr->value.type->id == ZigTypeIdPointer);

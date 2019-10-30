@@ -4381,6 +4381,10 @@ static Error analyze_callee_async(CodeGen *g, ZigFn *fn, ZigFn *callee, AstNode 
         if (callee->anal_state == FnAnalStateComplete) {
             analyze_fn_async(g, callee, true);
             if (callee->anal_state == FnAnalStateInvalid) {
+                if (g->trace_err != nullptr) {
+                    g->trace_err = add_error_note(g, g->trace_err, call_node,
+                        buf_sprintf("while checking if '%s' is async", buf_ptr(&fn->symbol_name)));
+                }
                 return ErrorSemanticAnalyzeFail;
             }
             callee_is_async = fn_is_async(callee);
@@ -7538,7 +7542,9 @@ bool type_is_c_abi_int(CodeGen *g, ZigType *ty) {
 
 uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *field) {
     assert(struct_type->id == ZigTypeIdStruct);
-    assert(type_is_resolved(struct_type, ResolveStatusSizeKnown));
+    if (struct_type->data.structure.layout != ContainerLayoutAuto) {
+        assert(type_is_resolved(struct_type, ResolveStatusSizeKnown));
+    }
     if (struct_type->data.structure.host_int_bytes == nullptr)
         return 0;
     return struct_type->data.structure.host_int_bytes[field->gen_index];

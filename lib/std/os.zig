@@ -308,7 +308,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             EINVAL => unreachable,
             EFAULT => unreachable,
             EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd) catch return error.WouldBlock;
+                loop.waitUntilFdReadable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
@@ -325,7 +325,36 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
-/// This function is for blocking file descriptors only.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
+    while (true) {
+        // TODO handle the case when iov_len is too large and get rid of this @intCast
+        const rc = system.readv(fd, iov.ptr, @intCast(u32, iov.len));
+        switch (errno(rc)) {
+            0 => return @bitCast(usize, rc),
+            EINTR => continue,
+            EINVAL => unreachable,
+            EFAULT => unreachable,
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
+            EBADF => unreachable, // always a race condition
+            EIO => return error.InputOutput,
+            EISDIR => return error.IsDir,
+            ENOBUFS => return error.SystemResources,
+            ENOMEM => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+/// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
     if (comptime std.Target.current.isDarwin()) {
         // Darwin does not have preadv but it does have pread.
@@ -355,7 +384,12 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 ESPIPE => unreachable, // fd is not seekable
-                EAGAIN => unreachable, // This function is for blocking reads.
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdReadable(fd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
                 EBADF => unreachable, // always a race condition
                 EIO => return error.InputOutput,
                 EISDIR => return error.IsDir,
@@ -373,7 +407,12 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => unreachable, // This function is for blocking reads.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // always a race condition
             EIO => return error.InputOutput,
             EISDIR => return error.IsDir,
@@ -393,10 +432,17 @@ pub const WriteError = error{
     BrokenPipe,
     SystemResources,
     OperationAborted,
+
+    /// This error occurs when no global event loop is configured,
+    /// and reading from the file descriptor would block.
+    WouldBlock,
 } || UnexpectedError;
 
 /// Write to a file descriptor. Keeps trying if it gets interrupted.
-/// This function is for blocking file descriptors only.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+/// TODO evented I/O integration is disabled until
+/// https://github.com/ziglang/zig/issues/3557 is solved.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     if (builtin.os == .windows) {
         return windows.WriteFile(fd, bytes);
@@ -432,7 +478,14 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => unreachable, // This function is for blocking writes.
+            // TODO https://github.com/ziglang/zig/issues/3557
+            EAGAIN => return error.WouldBlock,
+            //EAGAIN => if (std.event.Loop.instance) |loop| {
+            //    loop.waitUntilFdWritable(fd);
+            //    continue;
+            //} else {
+            //    return error.WouldBlock;
+            //},
             EBADF => unreachable, // Always a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -446,9 +499,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     }
 }
 
-/// Write multiple buffers to a file descriptor. Keeps trying if it gets interrupted.
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `writevAsync`.
+/// Write multiple buffers to a file descriptor.
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
@@ -458,7 +511,12 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => unreachable, // This function is for blocking writes.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdWritable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // Always a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -474,8 +532,6 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
 
 /// Write multiple buffers to a file descriptor, with a position offset.
 /// Keeps trying if it gets interrupted.
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `pwritevAsync`.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void {
     if (comptime std.Target.current.isDarwin()) {
         // Darwin does not have pwritev but it does have pwrite.
@@ -504,7 +560,12 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
                 ESPIPE => unreachable, // `fd` is not seekable.
                 EINVAL => unreachable,
                 EFAULT => unreachable,
-                EAGAIN => unreachable, // This function is for blocking writes.
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdWritable(fd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
                 EBADF => unreachable, // Always a race condition.
                 EDESTADDRREQ => unreachable, // `connect` was never called.
                 EDQUOT => return error.DiskQuota,
@@ -526,7 +587,12 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => unreachable, // This function is for blocking writes.
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdWritable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // Always a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -1621,12 +1687,6 @@ pub const AcceptError = error{
     /// by the socket buffer limits, not by the system memory.
     SystemResources,
 
-    /// The file descriptor sockfd does not refer to a socket.
-    FileDescriptorNotASocket,
-
-    /// The referenced socket is not of type SOCK_STREAM.
-    OperationNotSupported,
-
     ProtocolFailure,
 
     /// Firewall rules forbid connection.
@@ -1643,7 +1703,7 @@ pub const AcceptError = error{
 pub fn accept4(
     /// This argument is a socket that has been created with `socket`, bound to a local address
     /// with `bind`, and is listening for connections after a `listen`.
-    sockfd: i32,
+    sockfd: fd_t,
     /// This argument is a pointer to a sockaddr structure.  This structure is filled in with  the
     /// address  of  the  peer  socket, as known to the communications layer.  The exact format of the
     /// address returned addr is determined by the socket's address  family  (see  `socket`  and  the
@@ -1664,15 +1724,15 @@ pub fn accept4(
     /// * `SOCK_CLOEXEC`  - Set the close-on-exec (`FD_CLOEXEC`) flag on the new file descriptor.   See  the
     ///   description  of the `O_CLOEXEC` flag in `open` for reasons why this may be useful.
     flags: u32,
-) AcceptError!i32 {
+) AcceptError!fd_t {
     while (true) {
         const rc = system.accept4(sockfd, addr, addr_size, flags);
         switch (errno(rc)) {
-            0 => return @intCast(i32, rc),
+            0 => return @intCast(fd_t, rc),
             EINTR => continue,
 
             EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd) catch return error.WouldBlock;
+                loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;
@@ -1681,12 +1741,12 @@ pub fn accept4(
             ECONNABORTED => return error.ConnectionAborted,
             EFAULT => unreachable,
             EINVAL => unreachable,
+            ENOTSOCK => unreachable,
             EMFILE => return error.ProcessFdQuotaExceeded,
             ENFILE => return error.SystemFdQuotaExceeded,
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
-            ENOTSOCK => return error.FileDescriptorNotASocket,
-            EOPNOTSUPP => return error.OperationNotSupported,
+            EOPNOTSUPP => unreachable,
             EPROTO => return error.ProtocolFailure,
             EPERM => return error.BlockedByFirewall,
 
@@ -1853,55 +1913,32 @@ pub const ConnectError = error{
     /// Timeout  while  attempting  connection.   The server may be too busy to accept new connections.  Note
     /// that for IP sockets the timeout may be very long when syncookies are enabled on the server.
     ConnectionTimedOut,
+
+    /// This error occurs when no global event loop is configured,
+    /// and connecting to the socket would block.
+    WouldBlock,
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
-/// This is for blocking file descriptors only.
-/// For non-blocking, see `connect_async`.
-pub fn connect(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
+pub fn connect(sockfd: fd_t, sock_addr: sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, sock_addr, len))) {
+        switch (errno(system.connect(sockfd, &sock_addr, len))) {
             0 => return,
             EACCES => return error.PermissionDenied,
             EPERM => return error.PermissionDenied,
             EADDRINUSE => return error.AddressInUse,
             EADDRNOTAVAIL => return error.AddressNotAvailable,
             EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            EAGAIN => return error.SystemResources,
+            EAGAIN, EINPROGRESS => {
+                const loop = std.event.Loop.instance orelse return error.WouldBlock;
+                loop.waitUntilFdWritableOrReadable(sockfd);
+                return getsockoptError(sockfd);
+            },
             EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
             EBADF => unreachable, // sockfd is not a valid open file descriptor.
             ECONNREFUSED => return error.ConnectionRefused,
             EFAULT => unreachable, // The socket structure address is outside the user's address space.
-            EINPROGRESS => unreachable, // The socket is nonblocking and the connection cannot be completed immediately.
             EINTR => continue,
-            EISCONN => unreachable, // The socket is already connected.
-            ENETUNREACH => return error.NetworkUnreachable,
-            ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            ETIMEDOUT => return error.ConnectionTimedOut,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-}
-
-/// Same as `connect` except it is for non-blocking socket file descriptors.
-/// It expects to receive EINPROGRESS`.
-pub fn connect_async(sockfd: i32, sock_addr: *sockaddr, len: socklen_t) ConnectError!void {
-    while (true) {
-        switch (errno(system.connect(sockfd, sock_addr, len))) {
-            EINVAL => unreachable,
-            EINTR => continue,
-            0, EINPROGRESS => return,
-            EACCES => return error.PermissionDenied,
-            EPERM => return error.PermissionDenied,
-            EADDRINUSE => return error.AddressInUse,
-            EADDRNOTAVAIL => return error.AddressNotAvailable,
-            EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            EAGAIN => return error.SystemResources,
-            EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
-            EBADF => unreachable, // sockfd is not a valid open file descriptor.
-            ECONNREFUSED => return error.ConnectionRefused,
-            EFAULT => unreachable, // The socket structure address is outside the user's address space.
             EISCONN => unreachable, // The socket is already connected.
             ENETUNREACH => return error.NetworkUnreachable,
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
@@ -2962,7 +2999,7 @@ pub fn sendto(
 
             EACCES => return error.AccessDenied,
             EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdWritable(sockfd) catch return error.WouldBlock;
+                loop.waitUntilFdWritable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;
@@ -3065,7 +3102,7 @@ pub fn recvfrom(
             ENOTSOCK => unreachable,
             EINTR => continue,
             EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(sockfd) catch return error.WouldBlock;
+                loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;

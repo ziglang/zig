@@ -6,6 +6,10 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 
+test "" {
+    _ = @import("net/test.zig");
+}
+
 pub const TmpWinAddr = struct {
     family: u8,
     data: [14]u8,
@@ -20,6 +24,9 @@ pub const OsAddress = switch (builtin.os) {
 /// to owned memory which must live longer than this struct.
 pub const Address = struct {
     os_addr: OsAddress,
+
+    // TODO this crashed the compiler
+    //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
     pub fn initIp4(ip4: u32, _port: u16) Address {
         return Address{
@@ -141,6 +148,14 @@ pub const Address = struct {
             else => return output(context, "(unrecognized address family)"),
         }
     }
+
+    fn getOsSockLen(self: Address) os.socklen_t {
+        switch (self.os_addr.un.family) {
+            os.AF_INET => return @sizeOf(os.sockaddr_in),
+            os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
+            else => unreachable,
+        }
+    }
 };
 
 pub fn parseIp4(buf: []const u8) !u32 {
@@ -260,34 +275,8 @@ pub fn parseIp6(buf: []const u8) !Ip6Addr {
     return error.Incomplete;
 }
 
-test "std.net.parseIp4" {
-    assert((try parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
-
-    testParseIp4Fail("256.0.0.1", error.Overflow);
-    testParseIp4Fail("x.0.0.1", error.InvalidCharacter);
-    testParseIp4Fail("127.0.0.1.1", error.InvalidEnd);
-    testParseIp4Fail("127.0.0.", error.Incomplete);
-    testParseIp4Fail("100..0.1", error.InvalidCharacter);
-}
-
-fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
-    if (parseIp4(buf)) |_| {
-        @panic("expected error");
-    } else |e| {
-        assert(e == expected_err);
-    }
-}
-
-test "std.net.parseIp6" {
-    const ip6 = try parseIp6("FF01:0:0:0:0:0:0:FB");
-    const addr = Address.initIp6(ip6, 80);
-    var buf: [100]u8 = undefined;
-    const printed = try std.fmt.bufPrint(&buf, "{}", addr);
-    std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
-}
-
 pub fn connectUnixSocket(path: []const u8) !fs.File {
-    const opt_non_block = if (std.event.Loop.instance != null) os.SOCK_NONBLOCK else 0;
+    const opt_non_block = if (std.io.mode == .evented) os.SOCK_NONBLOCK else 0;
     const sockfd = try os.socket(
         os.AF_UNIX,
         os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
@@ -305,13 +294,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
     mem.copy(u8, sock_addr.un.path[0..], path);
     const size = @intCast(u32, @sizeOf(os.sa_family_t) + path.len);
-    if (std.event.Loop.instance) |loop| {
-        try os.connect_async(sockfd, &sock_addr, size);
-        try loop.linuxWaitFd(sockfd, os.EPOLLIN | os.EPOLLOUT | os.EPOLLET);
-        try os.getsockoptError(sockfd);
-    } else {
-        try os.connect(sockfd, &sock_addr, size);
-    }
+    try os.connect(sockfd, &sock_addr, size);
 
     return fs.File.openHandle(sockfd);
 }
@@ -329,6 +312,27 @@ pub const AddressList = struct {
         // self is destroyed
     }
 };
+
+/// All memory allocated with `allocator` will be freed before this function returns.
+pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) !fs.File {
+    const list = getAddressList(allocator, name, port);
+    defer list.deinit();
+
+    const addrs = list.addrs.toSliceConst();
+    if (addrs.len == 0) return error.UnknownHostName;
+
+    return tcpConnectToAddress(addrs[0], port);
+}
+
+pub fn tcpConnectToAddress(address: Address) !fs.File {
+    const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
+    const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
+    const sockfd = try os.socket(address.os_addr.un.family, sock_flags, os.IPPROTO_TCP);
+    errdefer os.close(sockfd);
+    try os.connect(sockfd, address.os_addr, address.getOsSockLen());
+
+    return fs.File{ .handle = sockfd };
+}
 
 /// Call `AddressList.deinit` on the result.
 pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*AddressList {
@@ -375,7 +379,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             c.EAI_FAMILY => return error.AddressFamilyNotSupported,
             c.EAI_MEMORY => return error.OutOfMemory,
             c.EAI_NODATA => return error.HostLacksNetworkAddresses,
-            c.EAI_NONAME => return error.UnknownName,
+            c.EAI_NONAME => return error.UnknownHostName,
             c.EAI_SERVICE => return error.ServiceUnavailable,
             c.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
             c.EAI_SYSTEM => switch (os.errno(-1)) {
@@ -493,7 +497,7 @@ fn linuxLookupName(
         try canon.resize(0);
         try linuxLookupNameFromNull(addrs, family, flags);
     }
-    if (addrs.len == 0) return error.UnknownName;
+    if (addrs.len == 0) return error.UnknownHostName;
 
     // No further processing is needed if there are fewer than 2
     // results or if there are only IPv4 results.
@@ -858,7 +862,7 @@ fn linuxLookupNameFromDnsSearch(
 
     // Strip final dot for canon, fail if multiple trailing dots.
     if (mem.endsWith(u8, canon_name, ".")) canon_name.len -= 1;
-    if (mem.endsWith(u8, canon_name, ".")) return error.UnknownName;
+    if (mem.endsWith(u8, canon_name, ".")) return error.UnknownHostName;
 
     // Name with search domain appended is setup in canon[]. This both
     // provides the desired default canonical name (if the requested
@@ -928,7 +932,7 @@ fn linuxLookupNameFromDns(
 
     if (addrs.len != 0) return;
     if (ap[0].len < 4 or (ap[0][3] & 15) == 2) return error.TemporaryNameServerFailure;
-    if ((ap[0][3] & 15) == 0) return error.UnknownName;
+    if ((ap[0][3] & 15) == 0) return error.UnknownHostName;
     if ((ap[0][3] & 15) == 3) return;
     return error.NameServerFailure;
 }
@@ -1247,3 +1251,121 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
         else => return,
     }
 }
+
+/// This API only works when `std.io.mode` is `std.io.Mode.evented`.
+/// This struct is immovable after calling `listen`.
+pub const Server = struct {
+    /// This field is meant to be accessed directly.
+    /// Call `connections.get` to accept a connection.
+    connections: *ConnectionChannel,
+
+    /// Copied from `Options` on `init`.
+    kernel_backlog: u32,
+
+    /// `undefined` until `listen` returns successfully.
+    listen_address: Address,
+
+    sockfd: ?os.fd_t,
+    accept_frame: @Frame(acceptConnections),
+
+    pub const ConnectionChannel = std.event.Channel(AcceptError!fs.File);
+
+    pub const AcceptError = error{
+        ConnectionAborted,
+
+        /// The per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+
+        /// The system-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+
+        /// Not enough free memory.  This often means that the memory allocation  is  limited
+        /// by the socket buffer limits, not by the system memory.
+        SystemResources,
+
+        ProtocolFailure,
+
+        /// Firewall rules forbid connection.
+        BlockedByFirewall,
+    } || os.UnexpectedError;
+
+    pub const Options = struct {
+        /// How many connections the kernel will accept on the application's behalf.
+        /// If more than this many connections pool in the kernel, clients will start
+        /// seeing "Connection refused".
+        kernel_backlog: u32 = 128,
+
+        /// How many connections this `Server` will accept from the kernel even before
+        /// they are requested from the `connections` channel.
+        eager_connections: usize = 16,
+    };
+
+    /// After this call succeeds, resources have been acquired and must
+    /// be released with `deinit`.
+    pub fn init(options: Options) !Server {
+        const loop = std.event.Loop.instance orelse
+            @compileError("std.net.Server only works in evented I/O mode");
+        return Server{
+            .connections = try ConnectionChannel.create(loop, options.eager_connections),
+            .sockfd = null,
+            .kernel_backlog = options.kernel_backlog,
+            .listen_address = undefined,
+            .accept_frame = undefined,
+        };
+    }
+
+    /// After calling this function, one must call `init` to do anything else with this `Server`.
+    pub fn deinit(self: *Server) void {
+        self.close();
+        self.connections.destroy();
+        self.* = undefined;
+    }
+
+    pub fn listen(self: *Server, address: Address) !void {
+        const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK;
+        const sockfd = try os.socket(os.AF_INET, sock_flags, os.PROTO_tcp);
+        self.sockfd = sockfd;
+        errdefer {
+            os.close(sockfd);
+            self.sockfd = null;
+        }
+
+        var socklen = address.getOsSockLen();
+        try os.bind(sockfd, &address.os_addr, socklen);
+        try os.listen(sockfd, self.kernel_backlog);
+        try os.getsockname(sockfd, &self.listen_address.os_addr, &socklen);
+
+        // acceptConnections loops, calling os.accept().
+        self.accept_frame = async self.acceptConnections();
+        errdefer await self.accept_frame;
+    }
+
+    /// Stop listening. It is still necessary to call `deinit` after stopping listening.
+    /// Calling `deinit` will automatically call `close`. It is safe to call `close` when
+    /// not listening.
+    pub fn close(self: *Server) void {
+        if (self.sockfd) |fd| {
+            os.close(fd);
+            self.sockfd = null;
+            await self.accept_frame;
+            self.accept_frame = undefined;
+            self.listen_address = undefined;
+        }
+    }
+
+    fn acceptConnections(self: *Server) void {
+        const sockfd = self.sockfd.?;
+        const accept_flags = os.SOCK_NONBLOCK | os.SOCK_CLOEXEC;
+        while (true) {
+            var accepted_addr: Address = undefined;
+            var addr_len: os.socklen_t = @sizeOf(os.sockaddr);
+            const conn = if (os.accept4(sockfd, &accepted_addr.os_addr, &addr_len, accept_flags)) |fd|
+                fs.File.openHandle(fd)
+            else |err| switch (err) {
+                error.WouldBlock => unreachable, // we asserted earlier about non-blocking I/O mode
+                else => |e| e,
+            };
+            self.connections.put(conn);
+        }
+    }
+};

@@ -1,0 +1,71 @@
+const std = @import("../std.zig");
+const net = std.net;
+const mem = std.mem;
+const testing = std.testing;
+
+test "std.net.parseIp4" {
+    assert((try parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
+
+    testParseIp4Fail("256.0.0.1", error.Overflow);
+    testParseIp4Fail("x.0.0.1", error.InvalidCharacter);
+    testParseIp4Fail("127.0.0.1.1", error.InvalidEnd);
+    testParseIp4Fail("127.0.0.", error.Incomplete);
+    testParseIp4Fail("100..0.1", error.InvalidCharacter);
+}
+
+fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
+    if (parseIp4(buf)) |_| {
+        @panic("expected error");
+    } else |e| {
+        assert(e == expected_err);
+    }
+}
+
+test "std.net.parseIp6" {
+    const ip6 = try parseIp6("FF01:0:0:0:0:0:0:FB");
+    const addr = Address.initIp6(ip6, 80);
+    var buf: [100]u8 = undefined;
+    const printed = try std.fmt.bufPrint(&buf, "{}", addr);
+    std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
+}
+
+test "listen on a port, send bytes, receive bytes" {
+    if (std.builtin.os != .linux) {
+        // TODO build abstractions for other operating systems
+        return error.SkipZigTest;
+    }
+    if (std.io.mode != .evented) {
+        // TODO add ability to run tests in non-blocking I/O mode
+        return error.SkipZigTest;
+    }
+
+    // TODO doing this at comptime crashed the compiler
+    const localhost = net.Address.initIp4(net.parseIp4("127.0.0.1") catch unreachable, 0);
+
+    var server = try net.Server.init(net.Server.Options{});
+    defer server.deinit();
+    try server.listen(localhost);
+
+    var server_frame = async testServer(&server);
+    var client_frame = async testClient(server.listen_address);
+
+    try await server_frame;
+    try await client_frame;
+}
+
+fn testClient(addr: net.Address) anyerror!void {
+    const socket_file = try net.tcpConnectToAddress(addr);
+    defer socket_file.close();
+
+    var buf: [100]u8 = undefined;
+    const len = try socket_file.read(&buf);
+    const msg = buf[0..len];
+    testing.expect(mem.eql(u8, msg, "hello from server\n"));
+}
+
+fn testServer(server: *net.Server) anyerror!void {
+    var client_file = try server.connections.get();
+
+    const stream = &client_file.outStream().stream;
+    try stream.print("hello from server\n");
+}

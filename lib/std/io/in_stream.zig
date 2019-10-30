@@ -11,7 +11,6 @@ pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_InStream"))
     root.stack_size_std_io_InStream
 else
     default_stack_size;
-pub const stack_align = 16;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -34,7 +33,7 @@ pub fn InStream(comptime ReadError: type) type {
             if (std.io.is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
                 @setRuntimeSafety(false);
-                var stack_frame: [stack_size]u8 align(stack_align) = undefined;
+                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                 return await @asyncCall(&stack_frame, {}, self.readFn, self, buffer);
             } else {
                 return self.readFn(self, buffer);
