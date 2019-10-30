@@ -6132,6 +6132,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             param_name = buf_sprintf("@arg%" ZIG_PRI_usize, arg_i);
         }
         ZigType *param_type = param_info->type;
+        if ((err = type_resolve(g, param_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
 
         fields.append({buf_ptr(param_name), param_type, 0});
     }
