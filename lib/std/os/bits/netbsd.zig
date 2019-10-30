@@ -134,25 +134,43 @@ pub const in_port_t = u16;
 pub const sa_family_t = u8;
 
 pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
+    /// total length
+    len: u8,
+
+    /// address family
+    family: sa_family_t,
+
+    /// actually longer; address value
+    data: [14]u8,
 };
 
 pub const sockaddr_in = extern struct {
-    len: u8,
+    len: u8 = @sizeOf(sockaddr_in),
     family: sa_family_t,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
 pub const sockaddr_in6 = extern struct {
-    len: u8,
+    len: u8 = @sizeOf(sockaddr_in6),
     family: sa_family_t,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+/// Definitions for UNIX IPC domain.
+pub const sockaddr_un = extern struct {
+    /// total sockaddr length
+    len: u8 = @sizeOf(sockaddr_un),
+
+    /// AF_LOCAL
+    family: sa_family_t,
+
+    /// path name
+    path: [104]u8,
 };
 
 pub const CTL_KERN = 1;

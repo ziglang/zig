@@ -161,3 +161,63 @@ pub const F_OK = 0;
 
 /// Remove directory instead of unlinking file
 pub const AT_REMOVEDIR = 0x200;
+
+pub const in_port_t = u16;
+pub const sa_family_t = u16;
+pub const socklen_t = u32;
+
+pub const sockaddr = extern struct {
+    family: sa_family_t,
+    data: [14]u8,
+};
+pub const sockaddr_in = extern struct {
+    family: sa_family_t = AF_INET,
+    port: in_port_t,
+    addr: in_addr,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+};
+pub const sockaddr_in6 = extern struct {
+    family: sa_family_t = AF_INET6,
+    port: in_port_t,
+    flowinfo: u32,
+    addr: in6_addr,
+    scope_id: u32,
+};
+pub const in6_addr = [16]u8;
+pub const in_addr = u32;
+
+pub const AF_UNSPEC = 0;
+pub const AF_UNIX = 1;
+pub const AF_INET = 2;
+pub const AF_IMPLINK = 3;
+pub const AF_PUP = 4;
+pub const AF_CHAOS = 5;
+pub const AF_NS = 6;
+pub const AF_IPX = AF_NS;
+pub const AF_ISO = 7;
+pub const AF_OSI = AF_ISO;
+pub const AF_ECMA = 8;
+pub const AF_DATAKIT = 9;
+pub const AF_CCITT = 10;
+pub const AF_SNA = 11;
+pub const AF_DECnet = 12;
+pub const AF_DLI = 13;
+pub const AF_LAT = 14;
+pub const AF_HYLINK = 15;
+pub const AF_APPLETALK = 16;
+pub const AF_NETBIOS = 17;
+pub const AF_VOICEVIEW = 18;
+pub const AF_FIREFOX = 19;
+pub const AF_UNKNOWN1 = 20;
+pub const AF_BAN = 21;
+pub const AF_ATM = 22;
+pub const AF_INET6 = 23;
+pub const AF_CLUSTER = 24;
+pub const AF_12844 = 25;
+pub const AF_IRDA = 26;
+pub const AF_NETDES = 28;
+pub const AF_TCNPROCESS = 29;
+pub const AF_TCNMESSAGE = 30;
+pub const AF_ICLFXBM = 31;
+pub const AF_BTH = 32;
+pub const AF_MAX = 33;

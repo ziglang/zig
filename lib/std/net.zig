@@ -10,98 +10,229 @@ test "" {
     _ = @import("net/test.zig");
 }
 
-pub const TmpWinAddr = struct {
-    family: u8,
-    data: [14]u8,
-};
-
-pub const OsAddress = switch (builtin.os) {
-    .windows => TmpWinAddr,
-    else => os.sockaddr,
-};
-
-/// This data structure is a "view". The underlying data might have references
-/// to owned memory which must live longer than this struct.
-pub const Address = struct {
-    os_addr: OsAddress,
+pub const IpAddress = extern union {
+    any: os.sockaddr,
+    in: os.sockaddr_in,
+    in6: os.sockaddr_in6,
 
     // TODO this crashed the compiler
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
-    pub fn initIp4(ip4: u32, _port: u16) Address {
-        switch (builtin.os) {
-            .linux => return Address{
-                .os_addr = os.sockaddr{
-                    .in = os.sockaddr_in{
-                        .family = os.AF_INET,
-                        .port = mem.nativeToBig(u16, _port),
-                        .addr = ip4,
-                        .zero = [_]u8{0} ** 8,
-                    },
-                },
-            },
-            else => return Address{
-                .os_addr = os.sockaddr{
-                    .in = os.sockaddr_in{
-                        .len = @sizeOf(os.sockaddr_in),
-                        .family = os.AF_INET,
-                        .port = mem.nativeToBig(u16, _port),
-                        .addr = ip4,
-                        .zero = [_]u8{0} ** 8,
-                    },
-                },
-            },
+    pub fn parse(name: []const u8, port: u16) !IpAddress {
+        if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            => {},
+        }
+
+        if (parseIp6(name, port)) |ip6| return ip6 else |err| switch (err) {
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            => {},
+        }
+
+        return error.InvalidIPAddressFormat;
+    }
+
+    pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !IpAddress {
+        switch (family) {
+            os.AF_INET => return parseIp4(name, port),
+            os.AF_INET6 => return parseIp6(name, port),
+            os.AF_UNSPEC => return parse(name, port),
+            else => unreachable,
         }
     }
 
-    pub fn initIp6(ip6: Ip6Addr, _port: u16) Address {
-        switch (builtin.os) {
-            .linux => return Address{
-                .os_addr = os.sockaddr{
-                    .in6 = os.sockaddr_in6{
-                        .family = os.AF_INET6,
-                        .port = mem.nativeToBig(u16, _port),
-                        .flowinfo = 0,
-                        .addr = ip6.addr,
-                        .scope_id = ip6.scope_id,
-                    },
-                },
+    pub fn parseIp6(buf: []const u8, port: u16) !IpAddress {
+        var result = IpAddress{
+            .in6 = os.sockaddr_in6{
+                .scope_id = undefined,
+                .port = mem.nativeToBig(u16, port),
+                .flowinfo = 0,
+                .addr = undefined,
             },
-            else => return Address{
-                .os_addr = os.sockaddr{
-                    .in6 = os.sockaddr_in6{
-                        .len = @sizeOf(os.sockaddr_in6),
-                        .family = os.AF_INET6,
-                        .port = mem.nativeToBig(u16, _port),
-                        .flowinfo = 0,
-                        .addr = ip6.addr,
-                        .scope_id = ip6.scope_id,
-                    },
-                },
-            },
+        };
+        const ip_slice = result.in6.addr[0..];
+
+        var x: u16 = 0;
+        var saw_any_digits = false;
+        var index: u8 = 0;
+        var scope_id = false;
+        for (buf) |c| {
+            if (scope_id) {
+                if (c >= '0' and c <= '9') {
+                    const digit = c - '0';
+                    if (@mulWithOverflow(u32, result.in6.scope_id, 10, &result.in6.scope_id)) {
+                        return error.Overflow;
+                    }
+                    if (@addWithOverflow(u32, result.in6.scope_id, digit, &result.in6.scope_id)) {
+                        return error.Overflow;
+                    }
+                } else {
+                    return error.InvalidCharacter;
+                }
+            } else if (c == ':') {
+                if (!saw_any_digits) {
+                    return error.InvalidCharacter;
+                }
+                if (index == 14) {
+                    return error.InvalidEnd;
+                }
+                ip_slice[index] = @truncate(u8, x >> 8);
+                index += 1;
+                ip_slice[index] = @truncate(u8, x);
+                index += 1;
+
+                x = 0;
+                saw_any_digits = false;
+            } else if (c == '%') {
+                if (!saw_any_digits) {
+                    return error.InvalidCharacter;
+                }
+                if (index == 14) {
+                    ip_slice[index] = @truncate(u8, x >> 8);
+                    index += 1;
+                    ip_slice[index] = @truncate(u8, x);
+                    index += 1;
+                }
+                scope_id = true;
+                saw_any_digits = false;
+            } else {
+                const digit = try std.fmt.charToDigit(c, 16);
+                if (@mulWithOverflow(u16, x, 16, &x)) {
+                    return error.Overflow;
+                }
+                if (@addWithOverflow(u16, x, digit, &x)) {
+                    return error.Overflow;
+                }
+                saw_any_digits = true;
+            }
         }
+
+        if (!saw_any_digits) {
+            return error.Incomplete;
+        }
+
+        if (scope_id) {
+            return result;
+        }
+
+        if (index == 14) {
+            ip_slice[14] = @truncate(u8, x >> 8);
+            ip_slice[15] = @truncate(u8, x);
+            return result;
+        }
+
+        return error.Incomplete;
     }
 
-    pub fn port(self: Address) u16 {
-        return mem.bigToNative(u16, self.os_addr.in.port);
+    pub fn parseIp4(buf: []const u8, port: u16) !IpAddress {
+        var result = IpAddress{
+            .in = os.sockaddr_in{
+                .port = mem.nativeToBig(u16, port),
+                .addr = undefined,
+            },
+        };
+        const out_ptr = @sliceToBytes((*[1]u32)(&result.in.addr)[0..]);
+
+        var x: u8 = 0;
+        var index: u8 = 0;
+        var saw_any_digits = false;
+        for (buf) |c| {
+            if (c == '.') {
+                if (!saw_any_digits) {
+                    return error.InvalidCharacter;
+                }
+                if (index == 3) {
+                    return error.InvalidEnd;
+                }
+                out_ptr[index] = x;
+                index += 1;
+                x = 0;
+                saw_any_digits = false;
+            } else if (c >= '0' and c <= '9') {
+                saw_any_digits = true;
+                x = try std.math.mul(u8, x, 10);
+                x = try std.math.add(u8, x, c - '0');
+            } else {
+                return error.InvalidCharacter;
+            }
+        }
+        if (index == 3 and saw_any_digits) {
+            out_ptr[index] = x;
+            return result;
+        }
+
+        return error.Incomplete;
     }
 
-    pub fn initPosix(addr: os.sockaddr) Address {
-        return Address{ .os_addr = addr };
+    pub fn initIp4(addr: [4]u8, port: u16) IpAddress {
+        return IpAddress{
+            .in = os.sockaddr_in{
+                .port = mem.nativeToBig(u16, port),
+                .addr = @ptrCast(*align(1) const u32, &addr).*,
+            },
+        };
+    }
+
+    pub fn initIp6(addr: [16]u8, port: u16, flowinfo: u32, scope_id: u32) IpAddress {
+        return IpAddress{
+            .in6 = os.sockaddr_in6{
+                .addr = addr,
+                .port = mem.nativeToBig(u16, port),
+                .flowinfo = flowinfo,
+                .scope_id = scope_id,
+            },
+        };
+    }
+
+    /// Returns the port in native endian.
+    pub fn getPort(self: IpAddress) u16 {
+        const big_endian_port = switch (self.any.family) {
+            os.AF_INET => self.in.port,
+            os.AF_INET6 => self.in6.port,
+            else => unreachable,
+        };
+        return mem.bigToNative(u16, big_endian_port);
+    }
+
+    /// `port` is native-endian.
+    pub fn setPort(self: *IpAddress, port: u16) void {
+        const ptr = switch (self.any.family) {
+            os.AF_INET => &self.in.port,
+            os.AF_INET6 => &self.in6.port,
+            else => unreachable,
+        };
+        ptr.* = mem.nativeToBig(u16, port);
+    }
+
+    /// Asserts that `addr` is an IP address.
+    /// This function will read past the end of the pointer, with a size depending
+    /// on the address family.
+    pub fn initPosix(addr: *align(4) const os.sockaddr) IpAddress {
+        switch (addr.family) {
+            os.AF_INET => return IpAddress{ .in = @ptrCast(*const os.sockaddr_in, addr).* },
+            os.AF_INET6 => return IpAddress{ .in6 = @ptrCast(*const os.sockaddr_in6, addr).* },
+            else => unreachable,
+        }
     }
 
     pub fn format(
-        self: Address,
+        self: IpAddress,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
         output: fn (@typeOf(context), []const u8) Errors!void,
     ) !void {
-        switch (self.os_addr.in.family) {
+        switch (self.any.family) {
             os.AF_INET => {
-                const native_endian_port = mem.bigToNative(u16, self.os_addr.in.port);
-                const bytes = @ptrCast(*const [4]u8, &self.os_addr.in.addr);
+                const port = mem.bigToNative(u16, self.in.port);
+                const bytes = @ptrCast(*const [4]u8, &self.in.addr);
                 try std.fmt.format(
                     context,
                     Errors,
@@ -111,7 +242,7 @@ pub const Address = struct {
                     bytes[1],
                     bytes[2],
                     bytes[3],
-                    native_endian_port,
+                    port,
                 );
             },
             os.AF_INET6 => {
@@ -119,8 +250,8 @@ pub const Address = struct {
                     index: usize,
                     count: usize,
                 };
-                const native_endian_port = mem.bigToNative(u16, self.os_addr.in6.port);
-                const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.os_addr.in6.addr);
+                const port = mem.bigToNative(u16, self.in6.port);
+                const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.in6.addr);
                 const native_endian_parts = switch (builtin.endian) {
                     .Big => big_endian_parts.*,
                     .Little => blk: {
@@ -170,137 +301,26 @@ pub const Address = struct {
                     try std.fmt.format(context, Errors, output, "{x}", part);
                     i += 1;
                 }
-                try std.fmt.format(context, Errors, output, "]:{}", native_endian_port);
+                try std.fmt.format(context, Errors, output, "]:{}", port);
             },
-            else => return output(context, "(unrecognized address family)"),
+            else => unreachable,
         }
     }
 
-    fn getOsSockLen(self: Address) os.socklen_t {
-        switch (self.os_addr.un.family) {
+    pub fn eql(a: IpAddress, b: IpAddress) bool {
+        const a_bytes = @ptrCast([*]const u8, &a.any)[0..a.getOsSockLen()];
+        const b_bytes = @ptrCast([*]const u8, &b.any)[0..b.getOsSockLen()];
+        return mem.eql(u8, a_bytes, b_bytes);
+    }
+
+    fn getOsSockLen(self: IpAddress) os.socklen_t {
+        switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
             else => unreachable,
         }
     }
 };
-
-pub fn parseIp4(buf: []const u8) !u32 {
-    var result: u32 = undefined;
-    const out_ptr = @sliceToBytes((*[1]u32)(&result)[0..]);
-
-    var x: u8 = 0;
-    var index: u8 = 0;
-    var saw_any_digits = false;
-    for (buf) |c| {
-        if (c == '.') {
-            if (!saw_any_digits) {
-                return error.InvalidCharacter;
-            }
-            if (index == 3) {
-                return error.InvalidEnd;
-            }
-            out_ptr[index] = x;
-            index += 1;
-            x = 0;
-            saw_any_digits = false;
-        } else if (c >= '0' and c <= '9') {
-            saw_any_digits = true;
-            x = try std.math.mul(u8, x, 10);
-            x = try std.math.add(u8, x, c - '0');
-        } else {
-            return error.InvalidCharacter;
-        }
-    }
-    if (index == 3 and saw_any_digits) {
-        out_ptr[index] = x;
-        return result;
-    }
-
-    return error.Incomplete;
-}
-
-pub const Ip6Addr = struct {
-    scope_id: u32,
-    addr: [16]u8,
-};
-
-pub fn parseIp6(buf: []const u8) !Ip6Addr {
-    var result: Ip6Addr = undefined;
-    result.scope_id = 0;
-    const ip_slice = result.addr[0..];
-
-    var x: u16 = 0;
-    var saw_any_digits = false;
-    var index: u8 = 0;
-    var scope_id = false;
-    for (buf) |c| {
-        if (scope_id) {
-            if (c >= '0' and c <= '9') {
-                const digit = c - '0';
-                if (@mulWithOverflow(u32, result.scope_id, 10, &result.scope_id)) {
-                    return error.Overflow;
-                }
-                if (@addWithOverflow(u32, result.scope_id, digit, &result.scope_id)) {
-                    return error.Overflow;
-                }
-            } else {
-                return error.InvalidCharacter;
-            }
-        } else if (c == ':') {
-            if (!saw_any_digits) {
-                return error.InvalidCharacter;
-            }
-            if (index == 14) {
-                return error.InvalidEnd;
-            }
-            ip_slice[index] = @truncate(u8, x >> 8);
-            index += 1;
-            ip_slice[index] = @truncate(u8, x);
-            index += 1;
-
-            x = 0;
-            saw_any_digits = false;
-        } else if (c == '%') {
-            if (!saw_any_digits) {
-                return error.InvalidCharacter;
-            }
-            if (index == 14) {
-                ip_slice[index] = @truncate(u8, x >> 8);
-                index += 1;
-                ip_slice[index] = @truncate(u8, x);
-                index += 1;
-            }
-            scope_id = true;
-            saw_any_digits = false;
-        } else {
-            const digit = try std.fmt.charToDigit(c, 16);
-            if (@mulWithOverflow(u16, x, 16, &x)) {
-                return error.Overflow;
-            }
-            if (@addWithOverflow(u16, x, digit, &x)) {
-                return error.Overflow;
-            }
-            saw_any_digits = true;
-        }
-    }
-
-    if (!saw_any_digits) {
-        return error.Incomplete;
-    }
-
-    if (scope_id) {
-        return result;
-    }
-
-    if (index == 14) {
-        ip_slice[14] = @truncate(u8, x >> 8);
-        ip_slice[15] = @truncate(u8, x);
-        return result;
-    }
-
-    return error.Incomplete;
-}
 
 pub fn connectUnixSocket(path: []const u8) !fs.File {
     const opt_non_block = if (std.io.mode == .evented) os.SOCK_NONBLOCK else 0;
@@ -311,24 +331,23 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     );
     errdefer os.close(sockfd);
 
-    var sock_addr = os.sockaddr{
-        .un = os.sockaddr_un{
-            .family = os.AF_UNIX,
-            .path = undefined,
-        },
+    var sock_addr = os.sockaddr_un{
+        .family = os.AF_UNIX,
+        .path = undefined,
     };
 
-    if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
-    mem.copy(u8, sock_addr.un.path[0..], path);
-    const size = @intCast(u32, @sizeOf(os.sa_family_t) + path.len);
-    try os.connect(sockfd, sock_addr, size);
+    if (path.len > sock_addr.path.len) return error.NameTooLong;
+    mem.copy(u8, &sock_addr.path, path);
+
+    const size = @intCast(u32, @sizeOf(os.sockaddr_un) - sock_addr.path.len + path.len);
+    try os.connect(sockfd, &sock_addr, size);
 
     return fs.File.openHandle(sockfd);
 }
 
 pub const AddressList = struct {
     arena: std.heap.ArenaAllocator,
-    addrs: []Address,
+    addrs: []IpAddress,
     canon_name: ?[]u8,
 
     fn deinit(self: *AddressList) void {
@@ -351,12 +370,12 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
     return tcpConnectToAddress(addrs[0], port);
 }
 
-pub fn tcpConnectToAddress(address: Address) !fs.File {
+pub fn tcpConnectToAddress(address: IpAddress) !fs.File {
     const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-    const sockfd = try os.socket(address.os_addr.un.family, sock_flags, os.IPPROTO_TCP);
+    const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
     errdefer os.close(sockfd);
-    try os.connect(sockfd, address.os_addr, address.getOsSockLen());
+    try os.connect(sockfd, &address.any, address.getOsSockLen());
 
     return fs.File{ .handle = sockfd };
 }
@@ -426,13 +445,13 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             }
             break :blk count;
         };
-        result.addrs = try arena.alloc(Address, addr_count);
+        result.addrs = try arena.alloc(IpAddress, addr_count);
 
         var it: ?*os.addrinfo = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
-            result.addrs[i] = Address.initPosix(addr.*);
+            result.addrs[i] = IpAddress.initPosix(@alignCast(4, addr));
 
             if (info.canonname) |n| {
                 if (result.canon_name == null) {
@@ -447,40 +466,22 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
     if (builtin.os == .linux) {
         const flags = std.c.AI_NUMERICSERV;
         const family = os.AF_UNSPEC;
-        var addrs = std.ArrayList(LookupAddr).init(allocator);
-        defer addrs.deinit();
+        var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
+        defer lookup_addrs.deinit();
 
         var canon = std.Buffer.initNull(arena);
         defer canon.deinit();
 
-        try linuxLookupName(&addrs, &canon, name, family, flags);
+        try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
-        result.addrs = try arena.alloc(Address, addrs.len);
+        result.addrs = try arena.alloc(IpAddress, lookup_addrs.len);
         if (!canon.isNull()) {
             result.canon_name = canon.toOwnedSlice();
         }
 
-        for (addrs.toSliceConst()) |addr, i| {
-            const os_addr = if (addr.family == os.AF_INET6)
-                os.sockaddr{
-                    .in6 = os.sockaddr_in6{
-                        .family = addr.family,
-                        .port = mem.nativeToBig(u16, port),
-                        .flowinfo = 0,
-                        .addr = addr.addr,
-                        .scope_id = addr.scope_id,
-                    },
-                }
-            else
-                os.sockaddr{
-                    .in = os.sockaddr_in{
-                        .family = addr.family,
-                        .port = mem.nativeToBig(u16, port),
-                        .addr = @ptrCast(*align(1) const u32, &addr.addr).*,
-                        .zero = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-                    },
-                };
-            result.addrs[i] = Address.initPosix(os_addr);
+        for (lookup_addrs.toSliceConst()) |lookup_addr, i| {
+            result.addrs[i] = lookup_addr.addr;
+            assert(result.addrs[i].getPort() == port);
         }
 
         return result;
@@ -489,9 +490,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 }
 
 const LookupAddr = struct {
-    family: os.sa_family_t,
-    scope_id: u32 = 0,
-    addr: [16]u8, // could be IPv4 or IPv6
+    addr: IpAddress,
     sortkey: i32 = 0,
 };
 
@@ -507,22 +506,26 @@ fn linuxLookupName(
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
     opt_name: ?[]const u8,
-    family: i32,
+    family: os.sa_family_t,
     flags: u32,
+    port: u16,
 ) !void {
     if (opt_name) |name| {
         // reject empty name and check len so it fits into temp bufs
         try canon.replaceContents(name);
-        try linuxLookupNameFromNumeric(addrs, name, family);
-        if (addrs.len == 0 and (flags & std.c.AI_NUMERICHOST) == 0) {
-            try linuxLookupNameFromHosts(addrs, canon, name, family);
+        if (IpAddress.parseExpectingFamily(name, family, port)) |addr| {
+            try addrs.append(LookupAddr{ .addr = addr });
+        } else |name_err| if ((flags & std.c.AI_NUMERICHOST) != 0) {
+            return name_err;
+        } else {
+            try linuxLookupNameFromHosts(addrs, canon, name, family, port);
             if (addrs.len == 0) {
-                try linuxLookupNameFromDnsSearch(addrs, canon, name, family);
+                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
             }
         }
     } else {
         try canon.resize(0);
-        try linuxLookupNameFromNull(addrs, family, flags);
+        try linuxLookupNameFromNull(addrs, family, flags, port);
     }
     if (addrs.len == 0) return error.UnknownHostName;
 
@@ -530,7 +533,7 @@ fn linuxLookupName(
     // results or if there are only IPv4 results.
     if (addrs.len == 1 or family == os.AF_INET) return;
     const all_ip4 = for (addrs.toSliceConst()) |addr| {
-        if (addr.family != os.AF_INET) break false;
+        if (addr.addr.any.family != os.AF_INET) break false;
     } else true;
     if (all_ip4) return;
 
@@ -547,7 +550,7 @@ fn linuxLookupName(
         @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr_in6));
         var da6 = os.sockaddr_in6{
             .family = os.AF_INET6,
-            .scope_id = addr.scope_id,
+            .scope_id = addr.addr.in6.scope_id,
             .port = 65535,
             .flowinfo = 0,
             .addr = [1]u8{0} ** 16,
@@ -560,12 +563,12 @@ fn linuxLookupName(
             .addr = 0,
             .zero = [1]u8{0} ** 8,
         };
-        var sa: *os.sockaddr = undefined;
-        var da: *os.sockaddr = undefined;
+        var sa: *align(4) os.sockaddr = undefined;
+        var da: *align(4) os.sockaddr = undefined;
         var salen: os.socklen_t = undefined;
         var dalen: os.socklen_t = undefined;
-        if (addr.family == os.AF_INET6) {
-            mem.copy(u8, &da6.addr, &addr.addr);
+        if (addr.addr.any.family == os.AF_INET6) {
+            mem.copy(u8, &da6.addr, &addr.addr.in6.addr);
             da = @ptrCast(*os.sockaddr, &da6);
             dalen = @sizeOf(os.sockaddr_in6);
             sa = @ptrCast(*os.sockaddr, &sa6);
@@ -573,8 +576,9 @@ fn linuxLookupName(
         } else {
             mem.copy(u8, &sa6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
             mem.copy(u8, &da6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
-            mem.copy(u8, da6.addr[12..], addr.addr[0..4]);
-            da4.addr = mem.readIntNative(u32, @ptrCast(*const [4]u8, &addr.addr));
+            // TODO https://github.com/ziglang/zig/issues/863
+            mem.writeIntNative(u32, @ptrCast(*[4]u8, da6.addr[12..].ptr), addr.addr.in.addr);
+            da4.addr = addr.addr.in.addr;
             da = @ptrCast(*os.sockaddr, &da4);
             dalen = @sizeOf(os.sockaddr_in);
             sa = @ptrCast(*os.sockaddr, &sa4);
@@ -586,12 +590,13 @@ fn linuxLookupName(
         const dprec: i32 = dpolicy.prec;
         const MAXADDRS = 3;
         var prefixlen: i32 = 0;
-        if (os.socket(addr.family, os.SOCK_DGRAM | os.SOCK_CLOEXEC, os.IPPROTO_UDP)) |fd| syscalls: {
+        const sock_flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC;
+        if (os.socket(addr.addr.any.family, sock_flags, os.IPPROTO_UDP)) |fd| syscalls: {
             defer os.close(fd);
-            os.connect(fd, da.*, dalen) catch break :syscalls;
+            os.connect(fd, da, dalen) catch break :syscalls;
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
-            if (addr.family == os.AF_INET) {
+            if (addr.addr.any.family == os.AF_INET) {
                 // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
                 mem.writeIntNative(u32, @ptrCast(*[4]u8, &sa6.addr[12]), sa4.addr);
             }
@@ -726,72 +731,32 @@ fn addrCmpLessThan(b: LookupAddr, a: LookupAddr) bool {
     return a.sortkey < b.sortkey;
 }
 
-fn linuxLookupNameFromNumericUnspec(addrs: *std.ArrayList(LookupAddr), name: []const u8) !void {
-    return linuxLookupNameFromNumeric(addrs, name, os.AF_UNSPEC) catch |err| switch (err) {
-        error.ExpectedIPv6ButFoundIPv4 => unreachable,
-        error.ExpectedIPv4ButFoundIPv6 => unreachable,
-        else => |e| return e,
-    };
-}
-
-fn linuxLookupNameFromNumeric(addrs: *std.ArrayList(LookupAddr), name: []const u8, family: i32) !void {
-    if (parseIp4(name)) |ip4| {
-        if (family == os.AF_INET6) return error.ExpectedIPv6ButFoundIPv4;
-        const item = try addrs.addOne();
-        // TODO [0..4] should return *[4]u8, making this pointer cast unnecessary
-        mem.writeIntNative(u32, @ptrCast(*[4]u8, &item.addr), ip4);
-        item.family = os.AF_INET;
-        item.scope_id = 0;
-        return;
-    } else |err| switch (err) {
-        error.Overflow,
-        error.InvalidEnd,
-        error.InvalidCharacter,
-        error.Incomplete,
-        => {},
-    }
-
-    if (parseIp6(name)) |ip6| {
-        if (family == os.AF_INET) return error.ExpectedIPv4ButFoundIPv6;
-        const item = try addrs.addOne();
-        @memcpy(&item.addr, &ip6.addr, 16);
-        item.family = os.AF_INET6;
-        item.scope_id = ip6.scope_id;
-        return;
-    } else |err| switch (err) {
-        error.Overflow,
-        error.InvalidEnd,
-        error.InvalidCharacter,
-        error.Incomplete,
-        => {},
-    }
-}
-
-fn linuxLookupNameFromNull(addrs: *std.ArrayList(LookupAddr), family: i32, flags: u32) !void {
+fn linuxLookupNameFromNull(
+    addrs: *std.ArrayList(LookupAddr),
+    family: os.sa_family_t,
+    flags: u32,
+    port: u16,
+) !void {
     if ((flags & std.c.AI_PASSIVE) != 0) {
         if (family != os.AF_INET6) {
             (try addrs.addOne()).* = LookupAddr{
-                .family = os.AF_INET,
-                .addr = [1]u8{0} ** 16,
+                .addr = IpAddress.initIp4([1]u8{0} ** 4, port),
             };
         }
         if (family != os.AF_INET) {
             (try addrs.addOne()).* = LookupAddr{
-                .family = os.AF_INET6,
-                .addr = [1]u8{0} ** 16,
+                .addr = IpAddress.initIp6([1]u8{0} ** 16, port, 0, 0),
             };
         }
     } else {
         if (family != os.AF_INET6) {
             (try addrs.addOne()).* = LookupAddr{
-                .family = os.AF_INET,
-                .addr = [4]u8{ 127, 0, 0, 1 } ++ ([1]u8{0} ** 12),
+                .addr = IpAddress.initIp4([4]u8{ 127, 0, 0, 1 }, port),
             };
         }
         if (family != os.AF_INET) {
             (try addrs.addOne()).* = LookupAddr{
-                .family = os.AF_INET6,
-                .addr = ([1]u8{0} ** 15) ++ [1]u8{1},
+                .addr = IpAddress.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
             };
         }
     }
@@ -801,7 +766,8 @@ fn linuxLookupNameFromHosts(
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
     name: []const u8,
-    family: i32,
+    family: os.sa_family_t,
+    port: u16,
 ) !void {
     const file = fs.File.openReadC(c"/etc/hosts") catch |err| switch (err) {
         error.FileNotFound,
@@ -835,18 +801,20 @@ fn linuxLookupNameFromHosts(
             }
         } else continue;
 
-        const prev_len = addrs.len;
-        linuxLookupNameFromNumeric(addrs, ip_text, family) catch |err| switch (err) {
-            error.ExpectedIPv6ButFoundIPv4 => continue,
-            error.ExpectedIPv4ButFoundIPv6 => continue,
-            error.OutOfMemory => |e| return e,
+        const addr = IpAddress.parseExpectingFamily(ip_text, family, port) catch |err| switch (err) {
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.InvalidIPAddressFormat,
+            => continue,
         };
-        if (addrs.len > prev_len) {
-            // first name is canonical name
-            const name_text = first_name_text.?;
-            if (isValidHostName(name_text)) {
-                try canon.replaceContents(name_text);
-            }
+        try addrs.append(LookupAddr{ .addr = addr });
+
+        // first name is canonical name
+        const name_text = first_name_text.?;
+        if (isValidHostName(name_text)) {
+            try canon.replaceContents(name_text);
         }
     }
 }
@@ -867,7 +835,8 @@ fn linuxLookupNameFromDnsSearch(
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
     name: []const u8,
-    family: i32,
+    family: os.sa_family_t,
+    port: u16,
 ) !void {
     var rc: ResolvConf = undefined;
     try getResolvConf(addrs.allocator, &rc);
@@ -903,32 +872,35 @@ fn linuxLookupNameFromDnsSearch(
     while (tok_it.next()) |tok| {
         canon.shrink(canon_name.len + 1);
         try canon.append(tok);
-        try linuxLookupNameFromDns(addrs, canon, canon.toSliceConst(), family, rc);
+        try linuxLookupNameFromDns(addrs, canon, canon.toSliceConst(), family, rc, port);
         if (addrs.len != 0) return;
     }
 
     canon.shrink(canon_name.len);
-    return linuxLookupNameFromDns(addrs, canon, name, family, rc);
+    return linuxLookupNameFromDns(addrs, canon, name, family, rc, port);
 }
 
 const dpc_ctx = struct {
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
+    port: u16,
 };
 
 fn linuxLookupNameFromDns(
     addrs: *std.ArrayList(LookupAddr),
     canon: *std.Buffer,
     name: []const u8,
-    family: i32,
+    family: os.sa_family_t,
     rc: ResolvConf,
+    port: u16,
 ) !void {
     var ctx = dpc_ctx{
         .addrs = addrs,
         .canon = canon,
+        .port = port,
     };
     const AfRr = struct {
-        af: i32,
+        af: os.sa_family_t,
         rr: u8,
     };
     const afrrs = [_]AfRr{
@@ -994,7 +966,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
-        => return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1"),
+        => return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53),
         else => |e| return e,
     };
     defer file.close();
@@ -1033,21 +1005,24 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
             }
         } else if (mem.eql(u8, token, "nameserver")) {
             const ip_txt = line_it.next() orelse continue;
-            try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt);
+            try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt, 53);
         } else if (mem.eql(u8, token, "domain") or mem.eql(u8, token, "search")) {
             try rc.search.replaceContents(line_it.rest());
         }
     }
 
     if (rc.ns.len == 0) {
-        return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1");
+        return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
     }
 }
 
-fn eqlSockAddr(a: *const os.sockaddr, b: *const os.sockaddr, len: usize) bool {
-    const a_bytes = @ptrCast([*]const u8, a)[0..len];
-    const b_bytes = @ptrCast([*]const u8, b)[0..len];
-    return mem.eql(u8, a_bytes, b_bytes);
+fn linuxLookupNameFromNumericUnspec(
+    addrs: *std.ArrayList(LookupAddr),
+    name: []const u8,
+    port: u16,
+) !void {
+    const addr = try IpAddress.parse(name, port);
+    (try addrs.addOne()).* = LookupAddr{ .addr = addr };
 }
 
 fn resMSendRc(
@@ -1062,41 +1037,25 @@ fn resMSendRc(
     var sl: os.socklen_t = @sizeOf(os.sockaddr_in);
     var family: os.sa_family_t = os.AF_INET;
 
-    var ns_list = std.ArrayList(os.sockaddr).init(rc.ns.allocator);
+    var ns_list = std.ArrayList(IpAddress).init(rc.ns.allocator);
     defer ns_list.deinit();
 
     try ns_list.resize(rc.ns.len);
     const ns = ns_list.toSlice();
 
     for (rc.ns.toSliceConst()) |iplit, i| {
-        if (iplit.family == os.AF_INET) {
-            ns[i] = os.sockaddr{
-                .in = os.sockaddr_in{
-                    .family = os.AF_INET,
-                    .port = mem.nativeToBig(u16, 53),
-                    .addr = mem.readIntNative(u32, @ptrCast(*const [4]u8, &iplit.addr)),
-                    .zero = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-                },
-            };
-        } else {
-            ns[i] = os.sockaddr{
-                .in6 = os.sockaddr_in6{
-                    .family = os.AF_INET6,
-                    .port = mem.nativeToBig(u16, 53),
-                    .flowinfo = 0,
-                    .addr = iplit.addr,
-                    .scope_id = iplit.scope_id,
-                },
-            };
+        ns[i] = iplit.addr;
+        assert(ns[i].getPort() == 53);
+        if (iplit.addr.any.family != os.AF_INET) {
             sl = @sizeOf(os.sockaddr_in6);
             family = os.AF_INET6;
         }
     }
 
     // Get local address and open/bind a socket
-    var sa: os.sockaddr = undefined;
-    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(os.sockaddr));
-    sa.in.family = family;
+    var sa: IpAddress = undefined;
+    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(IpAddress));
+    sa.any.family = family;
     const flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK;
     const fd = os.socket(family, flags, 0) catch |err| switch (err) {
         error.AddressFamilyNotSupported => blk: {
@@ -1110,7 +1069,7 @@ fn resMSendRc(
         else => |e| return e,
     };
     defer os.close(fd);
-    try os.bind(fd, &sa, sl);
+    try os.bind(fd, &sa.any, sl);
 
     // Past this point, there are no errors. Each individual query will
     // yield either no reply (indicated by zero length) or an answer
@@ -1153,7 +1112,7 @@ fn resMSendRc(
                 if (answers[i].len == 0) {
                     var j: usize = 0;
                     while (j < ns.len) : (j += 1) {
-                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j], sl) catch undefined;
+                        _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
                     }
                 }
             }
@@ -1168,14 +1127,14 @@ fn resMSendRc(
 
         while (true) {
             var sl_copy = sl;
-            const rlen = os.recvfrom(fd, answer_bufs[next], 0, &sa, &sl_copy) catch break;
+            const rlen = os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
 
             // Ignore non-identifiable packets
             if (rlen < 4) continue;
 
             // Ignore replies from addresses we didn't send to
             var j: usize = 0;
-            while (j < ns.len and !eqlSockAddr(&ns[j], &sa, sl)) : (j += 1) {}
+            while (j < ns.len and !ns[j].eql(sa)) : (j += 1) {}
             if (j == ns.len) continue;
 
             // Find which query this answer goes with, if any
@@ -1194,7 +1153,7 @@ fn resMSendRc(
                 0, 3 => {},
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
-                    _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j], sl) catch undefined;
+                    _ = os.sendto(fd, queries[i], os.MSG_NOSIGNAL, &ns[j].any, sl) catch undefined;
                 },
                 else => continue,
             }
@@ -1252,19 +1211,17 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             if (data.len != 4) return error.InvalidDnsARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                .family = os.AF_INET,
-                .addr = undefined,
+                // TODO slice [0..4] to make this *[4]u8 without @ptrCast
+                .addr = IpAddress.initIp4(@ptrCast(*const [4]u8, data.ptr).*, ctx.port),
             };
-            mem.copy(u8, &new_addr.addr, data);
         },
         os.RR_AAAA => {
             if (data.len != 16) return error.InvalidDnsAAAARecord;
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
-                .family = os.AF_INET6,
-                .addr = undefined,
+                // TODO slice [0..16] to make this *[16]u8 without @ptrCast
+                .addr = IpAddress.initIp6(@ptrCast(*const [16]u8, data.ptr).*, ctx.port, 0, 0),
             };
-            mem.copy(u8, &new_addr.addr, data);
         },
         os.RR_CNAME => {
             var tmp: [256]u8 = undefined;
@@ -1284,7 +1241,7 @@ pub const TcpServer = struct {
     kernel_backlog: u32,
 
     /// `undefined` until `listen` returns successfully.
-    listen_address: Address,
+    listen_address: IpAddress,
 
     sockfd: ?os.fd_t,
 
@@ -1311,7 +1268,7 @@ pub const TcpServer = struct {
         self.* = undefined;
     }
 
-    pub fn listen(self: *TcpServer, address: Address) !void {
+    pub fn listen(self: *TcpServer, address: IpAddress) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
         const sockfd = try os.socket(os.AF_INET, sock_flags, os.PROTO_tcp);
@@ -1322,9 +1279,9 @@ pub const TcpServer = struct {
         }
 
         var socklen = address.getOsSockLen();
-        try os.bind(sockfd, &address.os_addr, socklen);
+        try os.bind(sockfd, &address.any, socklen);
         try os.listen(sockfd, self.kernel_backlog);
-        try os.getsockname(sockfd, &self.listen_address.os_addr, &socklen);
+        try os.getsockname(sockfd, &self.listen_address.any, &socklen);
     }
 
     /// Stop listening. It is still necessary to call `deinit` after stopping listening.
@@ -1361,9 +1318,9 @@ pub const TcpServer = struct {
     pub fn accept(self: *TcpServer) AcceptError!fs.File {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const accept_flags = nonblock | os.SOCK_CLOEXEC;
-        var accepted_addr: Address = undefined;
-        var adr_len: os.socklen_t = @sizeOf(os.sockaddr);
-        if (os.accept4(self.sockfd.?, &accepted_addr.os_addr, &adr_len, accept_flags)) |fd| {
+        var accepted_addr: IpAddress = undefined;
+        var adr_len: os.socklen_t = @sizeOf(IpAddress);
+        if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
             return fs.File.openHandle(fd);
         } else |err| switch (err) {
             // We only give SOCK_NONBLOCK when I/O mode is async, in which case this error

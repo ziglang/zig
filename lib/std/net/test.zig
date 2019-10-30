@@ -3,44 +3,32 @@ const net = std.net;
 const mem = std.mem;
 const testing = std.testing;
 
-test "parseIp4" {
-    testing.expect((try net.parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
-
-    testParseIp4Fail("256.0.0.1", error.Overflow);
-    testParseIp4Fail("x.0.0.1", error.InvalidCharacter);
-    testParseIp4Fail("127.0.0.1.1", error.InvalidEnd);
-    testParseIp4Fail("127.0.0.", error.Incomplete);
-    testParseIp4Fail("100..0.1", error.InvalidCharacter);
-}
-
-fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
-    if (net.parseIp4(buf)) |_| {
-        @panic("expected error");
-    } else |e| {
-        testing.expect(e == expected_err);
-    }
-}
-
-test "parseIp6" {
-    const ip6 = try net.parseIp6("FF01:0:0:0:0:0:0:FB");
-    const addr = net.Address.initIp6(ip6, 80);
+test "parse and render IPv6 addresses" {
+    const addr = net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB", 80);
     var buf: [100]u8 = undefined;
     const printed = try std.fmt.bufPrint(&buf, "{}", addr);
     std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
 }
 
-test "ip4s" {
+test "parse and render IPv4 addresses" {
     var buffer: [18]u8 = undefined;
     for ([_][]const u8{
         "0.0.0.0",
         "255.255.255.255",
         "1.2.3.4",
         "123.255.0.91",
+        "127.0.0.1",
     }) |ip| {
-        var addr = net.Address.initIp4(net.parseIp4(ip) catch unreachable, 0);
+        var addr = net.IpAddress.parseIp4(ip, 0);
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
         std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
+
+    testing.expectError(error.Overflow, net.IpAddress.parseIp4("256.0.0.1", 0));
+    testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp4("x.0.0.1", 0));
+    testing.expectError(error.InvalidEnd, net.IpAddress.parseIp4("127.0.0.1.1", 0));
+    testing.expectError(error.Incomplete, net.IpAddress.parseIp4("127.0.0.", 0));
+    testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp4("100..0.1", 0));
 }
 
 test "resolve DNS" {
@@ -72,7 +60,7 @@ test "listen on a port, send bytes, receive bytes" {
     }
 
     // TODO doing this at comptime crashed the compiler
-    const localhost = net.Address.initIp4(net.parseIp4("127.0.0.1") catch unreachable, 0);
+    const localhost = net.IpAddress.parse("127.0.0.1", 0);
 
     var server = net.TcpServer.init(net.TcpServer.Options{});
     defer server.deinit();
@@ -85,7 +73,7 @@ test "listen on a port, send bytes, receive bytes" {
     try await client_frame;
 }
 
-fn testClient(addr: net.Address) anyerror!void {
+fn testClient(addr: net.IpAddress) anyerror!void {
     const socket_file = try net.tcpConnectToAddress(addr);
     defer socket_file.close();
 

@@ -1920,9 +1920,9 @@ pub const ConnectError = error{
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
-pub fn connect(sockfd: fd_t, sock_addr: sockaddr, len: socklen_t) ConnectError!void {
+pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
-        switch (errno(system.connect(sockfd, &sock_addr, len))) {
+        switch (errno(system.connect(sockfd, sock_addr, len))) {
             0 => return,
             EACCES => return error.PermissionDenied,
             EPERM => return error.PermissionDenied,

@@ -846,30 +846,31 @@ pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
-/// This intentionally only has ip4 and ip6
 pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
-    un: sockaddr_un,
+    family: sa_family_t,
+    data: [14]u8,
 };
 
+/// IPv4 socket address
 pub const sockaddr_in = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
+/// IPv6 socket address
 pub const sockaddr_in6 = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
 };
 
+/// UNIX domain socket address
 pub const sockaddr_un = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_UNIX,
     path: [108]u8,
 };
 
