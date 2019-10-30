@@ -1252,8 +1252,6 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
     }
 }
 
-/// This API only works when `std.io.mode` is `std.io.Mode.evented`.
-/// This struct is immovable after calling `listen`.
 pub const TcpServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u32,

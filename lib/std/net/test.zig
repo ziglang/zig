@@ -4,7 +4,7 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "std.net.parseIp4" {
-    assert((try parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
+    testing.expect((try net.parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
 
     testParseIp4Fail("256.0.0.1", error.Overflow);
     testParseIp4Fail("x.0.0.1", error.InvalidCharacter);
@@ -14,16 +14,16 @@ test "std.net.parseIp4" {
 }
 
 fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
-    if (parseIp4(buf)) |_| {
+    if (net.parseIp4(buf)) |_| {
         @panic("expected error");
     } else |e| {
-        assert(e == expected_err);
+        testing.expect(e == expected_err);
     }
 }
 
 test "std.net.parseIp6" {
-    const ip6 = try parseIp6("FF01:0:0:0:0:0:0:FB");
-    const addr = Address.initIp6(ip6, 80);
+    const ip6 = try net.parseIp6("FF01:0:0:0:0:0:0:FB");
+    const addr = net.Address.initIp6(ip6, 80);
     var buf: [100]u8 = undefined;
     const printed = try std.fmt.bufPrint(&buf, "{}", addr);
     std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
