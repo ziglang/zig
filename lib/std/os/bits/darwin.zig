@@ -11,6 +11,7 @@ pub const socklen_t = u32;
 pub const sockaddr = extern union {
     in: sockaddr_in,
     in6: sockaddr_in6,
+    un: sockaddr_un,
 };
 pub const sockaddr_in = extern struct {
     len: u8,
@@ -26,6 +27,10 @@ pub const sockaddr_in6 = extern struct {
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+pub const sockaddr_un = extern struct {
+    len: u8,
+    family: sa_family_t,
 };
 
 pub const timeval = extern struct {
@@ -1192,3 +1197,14 @@ pub const AT_SYMLINK_FOLLOW = 0x0040;
 
 /// Path refers to directory
 pub const AT_REMOVEDIR = 0x0080;
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};

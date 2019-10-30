@@ -30,17 +30,6 @@ pub const Address = struct {
 
     pub fn initIp4(ip4: u32, _port: u16) Address {
         switch (builtin.os) {
-            .macosx, .ios, .watchos, .tvos, .freebsd, .netbsd => return Address{
-                .os_addr = os.sockaddr{
-                    .in = os.sockaddr_in{
-                        .len = @sizeOf(os.sockaddr_in),
-                        .family = os.AF_INET,
-                        .port = mem.nativeToBig(u16, _port),
-                        .addr = ip4,
-                        .zero = [_]u8{0} ** 8,
-                    },
-                },
-            },
             .linux => return Address{
                 .os_addr = os.sockaddr{
                     .in = os.sockaddr_in{
@@ -51,22 +40,46 @@ pub const Address = struct {
                     },
                 },
             },
-            else => @compileError("Address.initIp4 not implemented for this platform"),
+            else => return Address{
+                .os_addr = os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .len = @sizeOf(os.sockaddr_in),
+                        .family = os.AF_INET,
+                        .port = mem.nativeToBig(u16, _port),
+                        .addr = ip4,
+                        .zero = [_]u8{0} ** 8,
+                    },
+                },
+            },
         }
     }
 
     pub fn initIp6(ip6: Ip6Addr, _port: u16) Address {
-        return Address{
-            .os_addr = os.sockaddr{
-                .in6 = os.sockaddr_in6{
-                    .family = os.AF_INET6,
-                    .port = mem.nativeToBig(u16, _port),
-                    .flowinfo = 0,
-                    .addr = ip6.addr,
-                    .scope_id = ip6.scope_id,
+        switch (builtin.os) {
+            .linux => return Address{
+                .os_addr = os.sockaddr{
+                    .in6 = os.sockaddr_in6{
+                        .family = os.AF_INET6,
+                        .port = mem.nativeToBig(u16, _port),
+                        .flowinfo = 0,
+                        .addr = ip6.addr,
+                        .scope_id = ip6.scope_id,
+                    },
                 },
             },
-        };
+            else => return Address{
+                .os_addr = os.sockaddr{
+                    .in6 = os.sockaddr_in6{
+                        .len = @sizeOf(os.sockaddr_in6),
+                        .family = os.AF_INET6,
+                        .port = mem.nativeToBig(u16, _port),
+                        .flowinfo = 0,
+                        .addr = ip6.addr,
+                        .scope_id = ip6.scope_id,
+                    },
+                },
+            },
+        }
     }
 
     pub fn port(self: Address) u16 {
@@ -1126,7 +1139,7 @@ fn resMSendRc(
     }};
     const retry_interval = timeout / attempts;
     var next: u32 = 0;
-    var t2: usize = std.time.milliTimestamp();
+    var t2: u64 = std.time.milliTimestamp();
     var t0 = t2;
     var t1 = t2 - retry_interval;
 
