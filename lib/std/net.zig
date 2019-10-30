@@ -29,16 +29,30 @@ pub const Address = struct {
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
     pub fn initIp4(ip4: u32, _port: u16) Address {
-        return Address{
-            .os_addr = os.sockaddr{
-                .in = os.sockaddr_in{
-                    .family = os.AF_INET,
-                    .port = mem.nativeToBig(u16, _port),
-                    .addr = ip4,
-                    .zero = [_]u8{0} ** 8,
+        switch (builtin.os) {
+            .macosx, .ios, .watchos, .tvos, .freebsd, .netbsd => return Address{
+                .os_addr = os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .len = @sizeOf(os.sockaddr_in),
+                        .family = os.AF_INET,
+                        .port = mem.nativeToBig(u16, _port),
+                        .addr = ip4,
+                        .zero = [_]u8{0} ** 8,
+                    },
                 },
             },
-        };
+            .linux => return Address{
+                .os_addr = os.sockaddr{
+                    .in = os.sockaddr_in{
+                        .family = os.AF_INET,
+                        .port = mem.nativeToBig(u16, _port),
+                        .addr = ip4,
+                        .zero = [_]u8{0} ** 8,
+                    },
+                },
+            },
+            else => @compileError("Address.initIp4 not implemented for this platform"),
+        }
     }
 
     pub fn initIp6(ip6: Ip6Addr, _port: u16) Address {

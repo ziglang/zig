@@ -3,7 +3,7 @@ const net = std.net;
 const mem = std.mem;
 const testing = std.testing;
 
-test "std.net.parseIp4" {
+test "parseIp4" {
     testing.expect((try net.parseIp4("127.0.0.1")) == mem.bigToNative(u32, 0x7f000001));
 
     testParseIp4Fail("256.0.0.1", error.Overflow);
@@ -21,12 +21,26 @@ fn testParseIp4Fail(buf: []const u8, expected_err: anyerror) void {
     }
 }
 
-test "std.net.parseIp6" {
+test "parseIp6" {
     const ip6 = try net.parseIp6("FF01:0:0:0:0:0:0:FB");
     const addr = net.Address.initIp6(ip6, 80);
     var buf: [100]u8 = undefined;
     const printed = try std.fmt.bufPrint(&buf, "{}", addr);
     std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
+}
+
+test "ip4s" {
+    var buffer: [18]u8 = undefined;
+    for ([_][]const u8{
+        "0.0.0.0",
+        "255.255.255.255",
+        "1.2.3.4",
+        "123.255.0.91",
+    }) |ip| {
+        var addr = Address.initIp4(parseIp4(ip) catch unreachable, 0);
+        var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
+        std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
+    }
 }
 
 test "resolve DNS" {
