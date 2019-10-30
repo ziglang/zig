@@ -294,7 +294,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     if (path.len > @typeOf(sock_addr.un.path).len) return error.NameTooLong;
     mem.copy(u8, sock_addr.un.path[0..], path);
     const size = @intCast(u32, @sizeOf(os.sa_family_t) + path.len);
-    try os.connect(sockfd, &sock_addr, size);
+    try os.connect(sockfd, sock_addr, size);
 
     return fs.File.openHandle(sockfd);
 }
@@ -561,7 +561,7 @@ fn linuxLookupName(
         var prefixlen: i32 = 0;
         if (os.socket(addr.family, os.SOCK_DGRAM | os.SOCK_CLOEXEC, os.IPPROTO_UDP)) |fd| syscalls: {
             defer os.close(fd);
-            os.connect(fd, da, dalen) catch break :syscalls;
+            os.connect(fd, da.*, dalen) catch break :syscalls;
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
             if (addr.family == os.AF_INET) {
