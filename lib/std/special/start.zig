@@ -191,25 +191,27 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 // and we want fewer call frames in stack traces.
 inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
-        loop.init() catch |err| {
-            std.debug.warn("error: {}\n", @errorName(err));
-            if (@errorReturnTrace()) |trace| {
-                std.debug.dumpStackTrace(trace.*);
-            }
-            return 1;
-        };
-        defer loop.deinit();
+        if (!@hasDecl(root, "event_loop")) {
+            loop.init() catch |err| {
+                std.debug.warn("error: {}\n", @errorName(err));
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+            defer loop.deinit();
 
-        var result: u8 = undefined;
-        var frame: @Frame(callMain) = undefined;
-        _ = @asyncCall(&frame, &result, callMain);
-        loop.run();
-        return result;
-    } else {
-        // This is marked inline because for some reason LLVM in release mode fails to inline it,
-        // and we want fewer call frames in stack traces.
-        return @inlineCall(callMain);
+            var result: u8 = undefined;
+            var frame: @Frame(callMain) = undefined;
+            _ = @asyncCall(&frame, &result, callMain);
+            loop.run();
+            return result;
+        }
     }
+
+    // This is marked inline because for some reason LLVM in release mode fails to inline it,
+    // and we want fewer call frames in stack traces.
+    return @inlineCall(callMain);
 }
 
 // This is not marked inline because it is called with @asyncCall when
