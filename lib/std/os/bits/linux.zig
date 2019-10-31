@@ -809,7 +809,7 @@ pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
-pub const sockaddr = extern union {
+pub const sockaddr = extern struct {
     family: sa_family_t,
     data: [14]u8,
 };

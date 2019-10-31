@@ -133,7 +133,7 @@ pub const dirent = extern struct {
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 
-pub const sockaddr = extern union {
+pub const sockaddr = extern struct {
     /// total length
     len: u8,
 

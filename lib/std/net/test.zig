@@ -4,7 +4,7 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IPv6 addresses" {
-    const addr = net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB", 80);
+    const addr = try net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB", 80);
     var buf: [100]u8 = undefined;
     const printed = try std.fmt.bufPrint(&buf, "{}", addr);
     std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
