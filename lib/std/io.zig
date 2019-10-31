@@ -64,68 +64,7 @@ pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 pub const SliceSeekableInStream = @import("io/seekable_stream.zig").SliceSeekableInStream;
 pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 pub const InStream = @import("io/in_stream.zig").InStream;
-
-pub fn OutStream(comptime WriteError: type) type {
-    return struct {
-        const Self = @This();
-        pub const Error = WriteError;
-
-        writeFn: fn (self: *Self, bytes: []const u8) Error!void,
-
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
-            return std.fmt.format(self, Error, self.writeFn, format, args);
-        }
-
-        pub fn write(self: *Self, bytes: []const u8) Error!void {
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeByte(self: *Self, byte: u8) Error!void {
-            const slice = (*const [1]u8)(&byte)[0..];
-            return self.writeFn(self, slice);
-        }
-
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
-            const slice = (*const [1]u8)(&byte)[0..];
-            var i: usize = 0;
-            while (i < n) : (i += 1) {
-                try self.writeFn(self, slice);
-            }
-        }
-
-        /// Write a native-endian integer.
-        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntNative(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        /// Write a foreign-endian integer.
-        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntForeign(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntLittle(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntBig(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeInt(T, &bytes, value, endian);
-            return self.writeFn(self, bytes);
-        }
-    };
-}
+pub const OutStream = @import("io/out_stream.zig").OutStream;
 
 /// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {

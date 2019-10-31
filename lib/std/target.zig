@@ -205,6 +205,8 @@ pub const Target = union(enum) {
         },
     };
 
+    pub const stack_align = 16;
+
     pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(
             allocator,

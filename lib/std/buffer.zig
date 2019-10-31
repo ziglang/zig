@@ -72,11 +72,11 @@ pub const Buffer = struct {
         self.list.deinit();
     }
 
-    pub fn toSlice(self: *const Buffer) []u8 {
+    pub fn toSlice(self: Buffer) []u8 {
         return self.list.toSlice()[0..self.len()];
     }
 
-    pub fn toSliceConst(self: *const Buffer) []const u8 {
+    pub fn toSliceConst(self: Buffer) []const u8 {
         return self.list.toSliceConst()[0..self.len()];
     }
 
@@ -91,11 +91,11 @@ pub const Buffer = struct {
         self.list.items[self.len()] = 0;
     }
 
-    pub fn isNull(self: *const Buffer) bool {
+    pub fn isNull(self: Buffer) bool {
         return self.list.len == 0;
     }
 
-    pub fn len(self: *const Buffer) usize {
+    pub fn len(self: Buffer) usize {
         return self.list.len - 1;
     }
 
@@ -111,16 +111,16 @@ pub const Buffer = struct {
         self.list.toSlice()[old_len] = byte;
     }
 
-    pub fn eql(self: *const Buffer, m: []const u8) bool {
+    pub fn eql(self: Buffer, m: []const u8) bool {
         return mem.eql(u8, self.toSliceConst(), m);
     }
 
-    pub fn startsWith(self: *const Buffer, m: []const u8) bool {
+    pub fn startsWith(self: Buffer, m: []const u8) bool {
         if (self.len() < m.len) return false;
         return mem.eql(u8, self.list.items[0..m.len], m);
     }
 
-    pub fn endsWith(self: *const Buffer, m: []const u8) bool {
+    pub fn endsWith(self: Buffer, m: []const u8) bool {
         const l = self.len();
         if (l < m.len) return false;
         const start = l - m.len;
@@ -133,7 +133,7 @@ pub const Buffer = struct {
     }
 
     /// For passing to C functions.
-    pub fn ptr(self: *const Buffer) [*]u8 {
+    pub fn ptr(self: Buffer) [*]u8 {
         return self.list.items.ptr;
     }
 };

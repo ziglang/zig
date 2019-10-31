@@ -99,7 +99,7 @@ pub const Allocator = struct {
     /// memory is no longer needed, to avoid a resource leak. If the
     /// `Allocator` implementation is unknown, then correct code will
     /// call `free` when done.
-    /// 
+    ///
     /// For allocating a single item, see `create`.
     pub fn alloc(self: *Allocator, comptime T: type, n: usize) Error![]T {
         return self.alignedAlloc(T, null, n);

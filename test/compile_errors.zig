@@ -162,9 +162,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const obj = AstObject{ .lhsExpr = lhsExpr };
         \\}
     ,
-        "tmp.zig:1:17: error: struct 'LhsExpr' depends on itself",
-        "tmp.zig:5:5: note: while checking this field",
+        "tmp.zig:4:19: error: union 'AstObject' depends on itself",
         "tmp.zig:2:5: note: while checking this field",
+        "tmp.zig:5:5: note: while checking this field",
     );
 
     cases.add(

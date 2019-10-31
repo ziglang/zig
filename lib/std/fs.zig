@@ -704,7 +704,7 @@ pub const Dir = struct {
 
     /// Call `File.close` on the result when done.
     pub fn openReadC(self: Dir, sub_path: [*]const u8) File.OpenError!File {
-        const flags = os.O_LARGEFILE | os.O_RDONLY;
+        const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
         const fd = try os.openatC(self.fd, sub_path, flags, 0);
         return File.openHandle(fd);
     }

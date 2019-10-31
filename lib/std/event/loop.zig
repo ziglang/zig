@@ -448,22 +448,67 @@ pub const Loop = struct {
         self.finishOneEvent();
     }
 
-    pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) !void {
-        defer self.linuxRemoveFd(fd);
+    pub fn linuxWaitFd(self: *Loop, fd: i32, flags: u32) void {
+        assert(flags & os.EPOLLET == os.EPOLLET);
+        assert(flags & os.EPOLLONESHOT == os.EPOLLONESHOT);
+        var resume_node = ResumeNode.Basic{
+            .base = ResumeNode{
+                .id = .Basic,
+                .handle = @frame(),
+                .overlapped = ResumeNode.overlapped_init,
+            },
+        };
+        var need_to_delete = false;
+        defer if (need_to_delete) self.linuxRemoveFd(fd);
+
         suspend {
-            var resume_node = ResumeNode.Basic{
-                .base = ResumeNode{
-                    .id = .Basic,
-                    .handle = @frame(),
-                    .overlapped = ResumeNode.overlapped_init,
+            if (self.linuxAddFd(fd, &resume_node.base, flags)) |_| {
+                need_to_delete = true;
+            } else |err| switch (err) {
+                error.FileDescriptorNotRegistered => unreachable,
+                error.OperationCausesCircularLoop => unreachable,
+                error.FileDescriptorIncompatibleWithEpoll => unreachable,
+                error.FileDescriptorAlreadyPresentInSet => unreachable, // evented writes to the same fd is not thread-safe
+
+                error.SystemResources,
+                error.UserResourceLimitReached,
+                error.Unexpected,
+                => {
+                    // Fall back to a blocking poll(). Ideally this codepath is never hit, since
+                    // epoll should be just fine. But this is better than incorrect behavior.
+                    var poll_flags: i16 = 0;
+                    if ((flags & os.EPOLLIN) != 0) poll_flags |= os.POLLIN;
+                    if ((flags & os.EPOLLOUT) != 0) poll_flags |= os.POLLOUT;
+                    var pfd = [1]os.pollfd{os.pollfd{
+                        .fd = fd,
+                        .events = poll_flags,
+                        .revents = undefined,
+                    }};
+                    _ = os.poll(&pfd, -1) catch |poll_err| switch (poll_err) {
+                        error.SystemResources,
+                        error.Unexpected,
+                        => {
+                            // Even poll() didn't work. The best we can do now is sleep for a
+                            // small duration and then hope that something changed.
+                            std.time.sleep(1 * std.time.millisecond);
+                        },
+                    };
+                    resume @frame();
                 },
-            };
-            try self.linuxAddFd(fd, &resume_node.base, flags);
+            }
         }
     }
 
-    pub fn waitUntilFdReadable(self: *Loop, fd: os.fd_t) !void {
-        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLIN);
+    pub fn waitUntilFdReadable(self: *Loop, fd: os.fd_t) void {
+        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLIN);
+    }
+
+    pub fn waitUntilFdWritable(self: *Loop, fd: os.fd_t) void {
+        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT);
+    }
+
+    pub fn waitUntilFdWritableOrReadable(self: *Loop, fd: os.fd_t) void {
+        return self.linuxWaitFd(fd, os.EPOLLET | os.EPOLLONESHOT | os.EPOLLOUT | os.EPOLLIN);
     }
 
     pub async fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, fflags: u32) !os.Kevent {
@@ -642,7 +687,7 @@ pub const Loop = struct {
                 .linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    noasync os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
                     return;
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
@@ -790,6 +835,8 @@ pub const Loop = struct {
         }
     }
 
+    // TODO make this whole function noasync
+    // https://github.com/ziglang/zig/issues/3157
     fn posixFsRun(self: *Loop) void {
         while (true) {
             if (builtin.os == .linux) {
@@ -799,27 +846,27 @@ pub const Loop = struct {
                 switch (node.data.msg) {
                     .End => return,
                     .WriteV => |*msg| {
-                        msg.result = os.writev(msg.fd, msg.iov);
+                        msg.result = noasync os.writev(msg.fd, msg.iov);
                     },
                     .PWriteV => |*msg| {
-                        msg.result = os.pwritev(msg.fd, msg.iov, msg.offset);
+                        msg.result = noasync os.pwritev(msg.fd, msg.iov, msg.offset);
                     },
                     .PReadV => |*msg| {
-                        msg.result = os.preadv(msg.fd, msg.iov, msg.offset);
+                        msg.result = noasync os.preadv(msg.fd, msg.iov, msg.offset);
                     },
                     .Open => |*msg| {
-                        msg.result = os.openC(msg.path.ptr, msg.flags, msg.mode);
+                        msg.result = noasync os.openC(msg.path.ptr, msg.flags, msg.mode);
                     },
-                    .Close => |*msg| os.close(msg.fd),
+                    .Close => |*msg| noasync os.close(msg.fd),
                     .WriteFile => |*msg| blk: {
                         const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
                             os.O_CLOEXEC | os.O_TRUNC;
-                        const fd = os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
+                        const fd = noasync os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
                             msg.result = err;
                             break :blk;
                         };
-                        defer os.close(fd);
-                        msg.result = os.write(fd, msg.contents);
+                        defer noasync os.close(fd);
+                        msg.result = noasync os.write(fd, msg.contents);
                     },
                 }
                 switch (node.data.finish) {

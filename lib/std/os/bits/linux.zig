@@ -227,43 +227,6 @@ pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
 
-pub const PROTO_ip = 0o000;
-pub const PROTO_icmp = 0o001;
-pub const PROTO_igmp = 0o002;
-pub const PROTO_ggp = 0o003;
-pub const PROTO_ipencap = 0o004;
-pub const PROTO_st = 0o005;
-pub const PROTO_tcp = 0o006;
-pub const PROTO_egp = 0o010;
-pub const PROTO_pup = 0o014;
-pub const PROTO_udp = 0o021;
-pub const PROTO_hmp = 0o024;
-pub const PROTO_xns_idp = 0o026;
-pub const PROTO_rdp = 0o033;
-pub const PROTO_iso_tp4 = 0o035;
-pub const PROTO_xtp = 0o044;
-pub const PROTO_ddp = 0o045;
-pub const PROTO_idpr_cmtp = 0o046;
-pub const PROTO_ipv6 = 0o051;
-pub const PROTO_ipv6_route = 0o053;
-pub const PROTO_ipv6_frag = 0o054;
-pub const PROTO_idrp = 0o055;
-pub const PROTO_rsvp = 0o056;
-pub const PROTO_gre = 0o057;
-pub const PROTO_esp = 0o062;
-pub const PROTO_ah = 0o063;
-pub const PROTO_skip = 0o071;
-pub const PROTO_ipv6_icmp = 0o072;
-pub const PROTO_ipv6_nonxt = 0o073;
-pub const PROTO_ipv6_opts = 0o074;
-pub const PROTO_rspf = 0o111;
-pub const PROTO_vmtp = 0o121;
-pub const PROTO_ospf = 0o131;
-pub const PROTO_ipip = 0o136;
-pub const PROTO_encap = 0o142;
-pub const PROTO_pim = 0o147;
-pub const PROTO_raw = 0o377;
-
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
 pub const SHUT_RDWR = 2;
@@ -846,30 +809,31 @@ pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
-/// This intentionally only has ip4 and ip6
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
-    un: sockaddr_un,
+pub const sockaddr = extern struct {
+    family: sa_family_t,
+    data: [14]u8,
 };
 
+/// IPv4 socket address
 pub const sockaddr_in = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
+/// IPv6 socket address
 pub const sockaddr_in6 = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
 };
 
+/// UNIX domain socket address
 pub const sockaddr_un = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_UNIX,
     path: [108]u8,
 };
 
@@ -1388,3 +1352,70 @@ pub const Statx = extern struct {
 
     __pad2: [14]u64,
 };
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    addr: ?*sockaddr,
+    canonname: ?[*]u8,
+    next: ?*addrinfo,
+};
+
+pub const IPPORT_RESERVED = 1024;
+
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_HOPOPTS = 0;
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const IPPROTO_IPIP = 4;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_EGP = 8;
+pub const IPPROTO_PUP = 12;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IDP = 22;
+pub const IPPROTO_TP = 29;
+pub const IPPROTO_DCCP = 33;
+pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO_ROUTING = 43;
+pub const IPPROTO_FRAGMENT = 44;
+pub const IPPROTO_RSVP = 46;
+pub const IPPROTO_GRE = 47;
+pub const IPPROTO_ESP = 50;
+pub const IPPROTO_AH = 51;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_NONE = 59;
+pub const IPPROTO_DSTOPTS = 60;
+pub const IPPROTO_MTP = 92;
+pub const IPPROTO_BEETPH = 94;
+pub const IPPROTO_ENCAP = 98;
+pub const IPPROTO_PIM = 103;
+pub const IPPROTO_COMP = 108;
+pub const IPPROTO_SCTP = 132;
+pub const IPPROTO_MH = 135;
+pub const IPPROTO_UDPLITE = 136;
+pub const IPPROTO_MPLS = 137;
+pub const IPPROTO_RAW = 255;
+pub const IPPROTO_MAX = 256;
+
+pub const RR_A = 1;
+pub const RR_CNAME = 5;
+pub const RR_AAAA = 28;
+
+pub const nfds_t = usize;
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLLIN = 0x001;
+pub const POLLPRI = 0x002;
+pub const POLLOUT = 0x004;
+pub const POLLERR = 0x008;
+pub const POLLHUP = 0x010;
+pub const POLLNVAL = 0x020;
+pub const POLLRDNORM = 0x040;
+pub const POLLRDBAND = 0x080;

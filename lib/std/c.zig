@@ -117,6 +117,26 @@ pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias add
 pub extern "c" fn connect(sockfd: fd_t, sock_addr: *const sockaddr, addrlen: socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: fd_t, addr: *sockaddr, addrlen: *socklen_t, flags: c_uint) c_int;
 pub extern "c" fn getsockopt(sockfd: fd_t, level: c_int, optname: c_int, optval: *c_void, optlen: *socklen_t) c_int;
+pub extern "c" fn send(sockfd: fd_t, buf: *const c_void, len: usize, flags: u32) isize;
+pub extern "c" fn sendto(
+    sockfd: fd_t,
+    buf: *const c_void,
+    len: usize,
+    flags: u32,
+    dest_addr: *const sockaddr,
+    addrlen: socklen_t,
+) isize;
+
+pub extern fn recv(sockfd: fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
+pub extern fn recvfrom(
+    sockfd: fd_t,
+    noalias buf: *c_void,
+    len: usize,
+    flags: u32,
+    noalias src_addr: ?*sockaddr,
+    noalias addrlen: ?*socklen_t,
+) isize;
+
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
@@ -148,4 +168,35 @@ pub extern "c" fn kevent(
     eventlist: [*]Kevent,
     nevents: c_int,
     timeout: ?*const timespec,
+) c_int;
+
+pub extern "c" fn getaddrinfo(
+    noalias node: [*]const u8,
+    noalias service: [*]const u8,
+    noalias hints: *const addrinfo,
+    noalias res: **addrinfo,
+) c_int;
+
+pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
+
+pub extern "c" fn getnameinfo(
+    noalias addr: *const sockaddr,
+    addrlen: socklen_t,
+    noalias host: [*]u8,
+    hostlen: socklen_t,
+    noalias serv: [*]u8,
+    servlen: socklen_t,
+    flags: u32,
+) c_int;
+
+pub extern "c" fn gai_strerror(errcode: c_int) [*]const u8;
+
+pub extern "c" fn poll(fds: [*]pollfd, nfds: nfds_t, timeout: c_int) c_int;
+
+pub extern "c" fn dn_expand(
+    msg: [*]const u8,
+    eomorig: [*]const u8,
+    comp_dn: [*]const u8,
+    exp_dn: [*]u8,
+    length: c_int,
 ) c_int;

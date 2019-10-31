@@ -53,7 +53,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// The format string must be comptime known and may contain placeholders following
 /// this format:
 /// `{[position][specifier]:[fill][alignment][width].[precision]}`
-/// 
+///
 /// Each word between `[` and `]` is a parameter you have to replace with something:
 ///
 /// - *position* is the index of the argument that should be inserted
@@ -78,7 +78,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
-/// - `*`: output the address of the value instead of the value itself. 
+/// - `*`: output the address of the value instead of the value itself.
 ///
 /// If a formatted user type contains a function of the type
 /// ```
