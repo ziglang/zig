@@ -304,9 +304,12 @@ pub fn Channel(comptime T: type) type {
 }
 
 test "std.event.Channel" {
+    // https://github.com/ziglang/zig/issues/3563
     if (builtin.os == .dragonfly) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/3251
     if (builtin.os == .freebsd) return error.SkipZigTest;
 

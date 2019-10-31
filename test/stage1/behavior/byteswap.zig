@@ -40,9 +40,11 @@ test "@byteSwap integers" {
 }
 
 test "@byteSwap vectors" {
-    // Disabled because of #3317
+    // https://github.com/ziglang/zig/issues/3563
     if (builtin.os == .dragonfly) return error.SkipZigTest;
-    if (@import("builtin").arch == .mipsel) return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/3317
+    if (builtin.arch == .mipsel) return error.SkipZigTest;
 
     const ByteSwapVectorTest = struct {
         fn run() void {

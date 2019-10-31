@@ -61,7 +61,9 @@ pub const StaticallyInitializedMutex = switch (builtin.os) {
 };
 
 test "std.StaticallyInitializedMutex" {
+    // https://github.com/ziglang/zig/issues/3563
     if (builtin.os == .dragonfly) return error.SkipZigTest;
+
     const TestContext = struct {
         data: i128,
 

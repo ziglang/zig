@@ -112,7 +112,9 @@ test "array to vector" {
 }
 
 test "vector casts of sizes not divisable by 8" {
+    // https://github.com/ziglang/zig/issues/3563
     if (builtin.os == .dragonfly) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() void {
             {
