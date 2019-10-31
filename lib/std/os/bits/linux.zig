@@ -988,7 +988,7 @@ pub const dirent64 = extern struct {
     d_type: u8,
     d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 
-    pub fn reclen(self: dirent) u16 {
+    pub fn reclen(self: dirent64) u16 {
         return self.d_reclen;
     }
 };
