@@ -11,6 +11,7 @@ const Loop = std.event.Loop;
 /// Many readers can hold the lock at the same time; however locking for writing is exclusive.
 /// When a read lock is held, it will not be released until the reader queue is empty.
 /// When a write lock is held, it will not be released until the writer queue is empty.
+/// TODO: make this API also work in blocking I/O mode
 pub const RwLock = struct {
     loop: *Loop,
     shared_state: u8, // TODO make this an enum
@@ -212,10 +213,11 @@ test "std.event.RwLock" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
     var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
+    try loop.initMultiThreaded();
     defer loop.deinit();
 
     var lock = RwLock.init(&loop);

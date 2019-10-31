@@ -87,10 +87,11 @@ test "std.event.Group" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
     var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
+    try loop.initMultiThreaded();
     defer loop.deinit();
 
     const handle = async testGroup(&loop);

@@ -96,11 +96,11 @@ pub const Loop = struct {
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
-    pub fn init(self: *Loop, allocator: *mem.Allocator) !void {
+    pub fn init(self: *Loop) !void {
         if (builtin.single_threaded) {
-            return self.initSingleThreaded(allocator);
+            return self.initSingleThreaded();
         } else {
-            return self.initMultiThreaded(allocator);
+            return self.initMultiThreaded();
         }
     }
 
@@ -108,25 +108,28 @@ pub const Loop = struct {
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
-    pub fn initSingleThreaded(self: *Loop, allocator: *mem.Allocator) !void {
-        return self.initInternal(allocator, 1);
+    pub fn initSingleThreaded(self: *Loop) !void {
+        return self.initThreadPool(1);
     }
 
-    /// The allocator must be thread-safe because we use it for multiplexing
-    /// async functions onto kernel threads.
     /// After initialization, call run().
+    /// This is the same as `initThreadPool` using `Thread.cpuCount` to determine the thread
+    /// pool size.
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
-    pub fn initMultiThreaded(self: *Loop, allocator: *mem.Allocator) !void {
-        if (builtin.single_threaded) @compileError("initMultiThreaded unavailable when building in single-threaded mode");
+    pub fn initMultiThreaded(self: *Loop) !void {
+        if (builtin.single_threaded)
+            @compileError("initMultiThreaded unavailable when building in single-threaded mode");
         const core_count = try Thread.cpuCount();
-        return self.initInternal(allocator, core_count);
+        return self.initThreadPool(core_count);
     }
 
     /// Thread count is the total thread count. The thread pool size will be
     /// max(thread_count - 1, 0)
-    fn initInternal(self: *Loop, allocator: *mem.Allocator, thread_count: usize) !void {
+    pub fn initThreadPool(self: *Loop, thread_count: usize) !void {
+        // TODO: https://github.com/ziglang/zig/issues/3539
+        const allocator = std.heap.direct_allocator;
         self.* = Loop{
             .pending_event_count = 1,
             .allocator = allocator,
@@ -932,10 +935,8 @@ test "std.event.Loop - basic" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
-
     var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
+    try loop.initMultiThreaded();
     defer loop.deinit();
 
     loop.run();
@@ -945,10 +946,8 @@ test "std.event.Loop - call" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
-
     var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
+    try loop.initMultiThreaded();
     defer loop.deinit();
 
     var did_it = false;
