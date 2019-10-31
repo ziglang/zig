@@ -8973,6 +8973,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
     switch (g->build_mode) {
         case BuildModeDebug:
+            args.append("-fsanitize=undefined");
+            args.append("-fsanitize-trap=undefined");
+
             // windows c runtime requires -D_DEBUG if using debug libraries
             args.append("-D_DEBUG");
 
@@ -8985,6 +8988,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
             }
             break;
         case BuildModeSafeRelease:
+            args.append("-fsanitize=undefined");
+            args.append("-fsanitize-trap=undefined");
+
             // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
             // than -O3 here.
             args.append("-O2");

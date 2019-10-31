@@ -2404,6 +2404,7 @@ pub fn attachSegfaultHandler() void {
     };
 
     os.sigaction(os.SIGSEGV, &act, null);
+    os.sigaction(os.SIGILL, &act, null);
 }
 
 fn resetSegfaultHandler() void {
@@ -2420,6 +2421,7 @@ fn resetSegfaultHandler() void {
         .flags = 0,
     };
     os.sigaction(os.SIGSEGV, &act, null);
+    os.sigaction(os.SIGILL, &act, null);
 }
 
 extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
@@ -2429,8 +2431,11 @@ extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *con
     resetSegfaultHandler();
 
     const addr = @ptrToInt(info.fields.sigfault.addr);
-    std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr});
-
+    switch (sig) {
+        os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
+        else => unreachable,
+    }
     switch (builtin.arch) {
         .i386 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
