@@ -5,12 +5,11 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdarg.h>
-
 #include "util.hpp"
 #include "userland.h"
+
+#include <stdio.h>
+#include <stdarg.h>
 
 void zig_panic(const char *format, ...) {
     va_list ap;
