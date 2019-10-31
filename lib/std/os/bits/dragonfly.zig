@@ -314,8 +314,8 @@ pub const dirent = extern struct {
     d_unused2: u32,
     d_name: [256]u8,
 
-    pub fn reclen(self: dirent) usize {
-        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~usize(7);
+    pub fn reclen(self: dirent) u16 {
+        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~u16(7);
     }
 };
 
