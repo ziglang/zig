@@ -167,6 +167,10 @@ pub fn format(
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
+                    if (arg_to_print >= args.len) {
+                        @compileError("Too few arguments");
+                    }
+
                     try formatType(
                         args[arg_to_print],
                         fmt[0..0],
