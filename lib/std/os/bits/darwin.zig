@@ -128,7 +128,7 @@ pub const dirent = extern struct {
     d_type: u8,
     d_name: u8, // field address is address of first byte of name
 
-    pub fn reclen(self: dirent) usize {
+    pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
     }
 };
