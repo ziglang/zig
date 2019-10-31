@@ -1271,7 +1271,7 @@ pub const TcpServer = struct {
     pub fn listen(self: *TcpServer, address: IpAddress) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-        const sockfd = try os.socket(os.AF_INET, sock_flags, os.PROTO_tcp);
+        const sockfd = try os.socket(os.AF_INET, sock_flags, os.IPPROTO_TCP);
         self.sockfd = sockfd;
         errdefer {
             os.close(sockfd);
