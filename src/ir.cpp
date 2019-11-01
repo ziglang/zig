@@ -17744,7 +17744,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             zig_panic("TODO elem ptr on a slice has a null pointer");
                     }
                     return result;
-                } else if (array_type->id == ZigTypeIdArray) {
+                } else if (array_type->id == ZigTypeIdArray || array_type->id == ZigTypeIdVector) {
                     IrInstruction *result;
                     if (orig_array_ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                         result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
