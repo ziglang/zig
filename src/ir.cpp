@@ -12908,18 +12908,18 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         ResultLoc *result_loc)
 {
     Error err;
-    ZigType *type_entry = ptr->value.type;
-    if (type_is_invalid(type_entry))
+    ZigType *ptr_type = ptr->value.type;
+    if (type_is_invalid(ptr_type))
         return ira->codegen->invalid_instruction;
 
-    if (type_entry->id != ZigTypeIdPointer) {
+    if (ptr_type->id != ZigTypeIdPointer) {
         ir_add_error_node(ira, source_instruction->source_node,
             buf_sprintf("attempt to dereference non-pointer type '%s'",
-                buf_ptr(&type_entry->name)));
+                buf_ptr(&ptr_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *child_type = type_entry->data.pointer.child_type;
+    ZigType *child_type = ptr_type->data.pointer.child_type;
     // if the child type has one possible value, the deref is comptime
     switch (type_has_one_possible_value(ira->codegen, child_type)) {
         case OnePossibleValueInvalid:
@@ -12949,14 +12949,29 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
             }
         }
     }
+
     // if the instruction is a const ref instruction we can skip it
     if (ptr->id == IrInstructionIdRef) {
         IrInstructionRef *ref_inst = reinterpret_cast<IrInstructionRef *>(ptr);
         return ref_inst->value;
     }
 
+    // If the instruction is a element pointer instruction to a vector, we emit
+    // vector element extract instruction rather than load pointer. If the
+    // pointer type has non-VECTOR_INDEX_RUNTIME value, it would have been
+    // possible to implement this in the codegen for IrInstructionLoadPtrGen.
+    // However if it has VECTOR_INDEX_RUNTIME then we must emit a compile error
+    // if the vector index cannot be determined right here, right now, because
+    // the type information does not contain enough information to actually
+    // perform a dereference.
+    if (ptr_type->data.pointer.vector_index == VECTOR_INDEX_RUNTIME) {
+        ir_add_error(ira, ptr,
+            buf_sprintf("unable to determine element index in order to dereference vector pointer"));
+        return ira->codegen->invalid_instruction;
+    }
+
     IrInstruction *result_loc_inst;
-    if (type_entry->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
+    if (ptr_type->data.pointer.host_int_bytes != 0 && handle_is_ptr(child_type)) {
         if (result_loc == nullptr) result_loc = no_result_loc();
         result_loc_inst = ir_resolve_result(ira, source_instruction, result_loc, child_type, nullptr,
                 true, false, true);
@@ -17488,6 +17503,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             return ir_get_const_ptr(ira, &elem_ptr_instruction->base, &ira->codegen->const_void_val,
                     ira->codegen->builtin_types.entry_void, ConstPtrMutComptimeConst, is_const, is_volatile, 0);
         }
+    } else if (array_type->id == ZigTypeIdVector) {
+        // This depends on whether the element index is comptime, so it is computed later.
+        return_type = nullptr;
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -17512,8 +17530,14 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             }
             safety_check_on = false;
         }
-
-        if (return_type->data.pointer.explicit_alignment != 0) {
+        if (array_type->id == ZigTypeIdVector) {
+            ZigType *elem_type = array_type->data.vector.elem_type;
+            uint32_t host_vec_len = array_type->data.vector.len;
+            return_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                elem_ptr_instruction->ptr_len,
+                get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, (uint32_t)index);
+        } else if (return_type->data.pointer.explicit_alignment != 0) {
             // figure out the largest alignment possible
 
             if ((err = type_resolve(ira->codegen, return_type->data.pointer.child_type, ResolveStatusSizeKnown)))
@@ -17742,6 +17766,14 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                 }
             }
         }
+    } else if (array_type->id == ZigTypeIdVector) {
+        // runtime known element index
+        ZigType *elem_type = array_type->data.vector.elem_type;
+        uint32_t host_vec_len = array_type->data.vector.len;
+        return_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            elem_ptr_instruction->ptr_len,
+            get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, VECTOR_INDEX_RUNTIME);
     } else {
         // runtime known element index
         switch (type_requires_comptime(ira->codegen, return_type)) {
