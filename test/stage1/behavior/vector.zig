@@ -174,5 +174,5 @@ test "load vector elements via comptime index" {
     };
 
     S.doTheTest();
-    //comptime S.doTheTest();
+    comptime S.doTheTest();
 }
