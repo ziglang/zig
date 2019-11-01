@@ -2363,6 +2363,10 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             };
         }
 
+        if (eatToken(it, .PeriodAsterisk)) |period_asterisk| {
+            break :blk OpAndToken{ .op = Op{ .Deref = {} }, .token = period_asterisk };
+        }
+
         if (eatToken(it, .Period)) |period| {
             if (try parseIdentifier(arena, it, tree)) |identifier| {
                 // TODO: It's a bit weird to return an InfixOp from the SuffixOp parser.
@@ -2377,9 +2381,6 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
                     .rhs = identifier,
                 };
                 return &node.base;
-            }
-            if (eatToken(it, .Asterisk)) |asterisk| {
-                break :blk OpAndToken{ .op = Op{ .Deref = {} }, .token = asterisk };
             }
             if (eatToken(it, .QuestionMark)) |question_mark| {
                 break :blk OpAndToken{ .op = Op{ .UnwrapOptional = {} }, .token = question_mark };

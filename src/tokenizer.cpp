@@ -583,6 +583,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSawDotDot;
                         set_token_id(&t, t.cur_tok, TokenIdEllipsis2);
                         break;
+                    case '*':
+                        t.state = TokenizeStateStart;
+                        set_token_id(&t, t.cur_tok, TokenIdDotStar);
+                        end_token(&t);
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1603,6 +1608,7 @@ const char * token_name(TokenId id) {
         case TokenIdDivEq: return "/=";
         case TokenIdDocComment: return "DocComment";
         case TokenIdDot: return ".";
+        case TokenIdDotStar: return ".*";
         case TokenIdEllipsis2: return "..";
         case TokenIdEllipsis3: return "...";
         case TokenIdEof: return "EOF";
