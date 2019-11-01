@@ -2693,10 +2693,12 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
         return res;
     }
 
+    Token *dot_asterisk = eat_token_if(pc, TokenIdDotStar);
+    if (dot_asterisk != nullptr)
+        return ast_create_node(pc, NodeTypePtrDeref, dot_asterisk);
+
     Token *dot = eat_token_if(pc, TokenIdDot);
     if (dot != nullptr) {
-        if (eat_token_if(pc, TokenIdStar) != nullptr)
-            return ast_create_node(pc, NodeTypePtrDeref, dot);
         if (eat_token_if(pc, TokenIdQuestion) != nullptr)
             return ast_create_node(pc, NodeTypeUnwrapOptional, dot);
 

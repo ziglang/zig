@@ -917,6 +917,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .LBracket,
             .RBracket,
             .Period,
+            .PeriodAsterisk,
             .Ellipsis2,
             .Ellipsis3,
             .Caret,

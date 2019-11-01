@@ -103,6 +103,7 @@ pub const Token = struct {
         LBracket,
         RBracket,
         Period,
+        PeriodAsterisk,
         Ellipsis2,
         Ellipsis3,
         Caret,
@@ -231,6 +232,7 @@ pub const Token = struct {
                 .LBracket => "[",
                 .RBracket => "]",
                 .Period => ".",
+                .PeriodAsterisk => ".*",
                 .Ellipsis2 => "..",
                 .Ellipsis3 => "...",
                 .Caret => "^",
@@ -1032,6 +1034,11 @@ pub const Tokenizer = struct {
                 State.Period => switch (c) {
                     '.' => {
                         state = State.Period2;
+                    },
+                    '*' => {
+                        result.id = Token.Id.PeriodAsterisk;
+                        self.index += 1;
+                        break;
                     },
                     else => {
                         result.id = Token.Id.Period;
