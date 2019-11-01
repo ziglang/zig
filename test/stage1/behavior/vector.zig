@@ -159,3 +159,20 @@ test "vector @splat" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "load vector elements via comptime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
+            expect(v[0] == 1);
+            expect(v[1] == 2);
+            expect(loadv(&v[2]) == 3);
+        }
+        fn loadv(ptr: var) i32 {
+            return ptr.*;
+        }
+    };
+
+    S.doTheTest();
+    //comptime S.doTheTest();
+}
