@@ -480,9 +480,10 @@ ZigType *get_fn_frame_type(CodeGen *g, ZigFn *fn) {
     return entry;
 }
 
-ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
+ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
-        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero)
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero,
+        uint32_t vector_index)
 {
     assert(ptr_len != PtrLenC || allow_zero);
     assert(!type_is_invalid(child_type));
@@ -494,7 +495,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
             byte_alignment = 0;
     }
 
-    if (host_int_bytes != 0) {
+    if (host_int_bytes != 0 && vector_index == VECTOR_INDEX_NONE) {
         uint32_t child_type_bits = type_size_bits(g, child_type);
         if (host_int_bytes * 8 == child_type_bits) {
             assert(bit_offset_in_host == 0);
@@ -504,7 +505,9 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
 
     TypeId type_id = {};
     ZigType **parent_pointer = nullptr;
-    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle || allow_zero) {
+    if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle ||
+        allow_zero || vector_index != VECTOR_INDEX_NONE)
+    {
         type_id.id = ZigTypeIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
@@ -514,6 +517,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         type_id.data.pointer.host_int_bytes = host_int_bytes;
         type_id.data.pointer.ptr_len = ptr_len;
         type_id.data.pointer.allow_zero = allow_zero;
+        type_id.data.pointer.vector_index = vector_index;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
@@ -540,19 +544,36 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
         allow_zero_str = allow_zero ? "allowzero " : "";
     }
     buf_resize(&entry->name, 0);
-    if (host_int_bytes == 0 && byte_alignment == 0) {
+    if (host_int_bytes == 0 && byte_alignment == 0 && vector_index == VECTOR_INDEX_NONE) {
         buf_appendf(&entry->name, "%s%s%s%s%s",
                 star_str, const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
-    } else if (host_int_bytes == 0) {
+    } else if (host_int_bytes == 0 && vector_index == VECTOR_INDEX_NONE) {
         buf_appendf(&entry->name, "%salign(%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
                 const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
     } else if (byte_alignment == 0) {
-        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
+        assert(vector_index == VECTOR_INDEX_NONE);
+        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s",
+                star_str,
+                bit_offset_in_host, host_int_bytes, vector_index,
+                const_str, volatile_str, allow_zero_str,
+                buf_ptr(&child_type->name));
+    } else if (vector_index == VECTOR_INDEX_NONE) {
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s",
+                star_str, byte_alignment,
+                bit_offset_in_host, host_int_bytes,
+                const_str, volatile_str, allow_zero_str,
+                buf_ptr(&child_type->name));
+    } else if (vector_index == VECTOR_INDEX_RUNTIME) {
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ":?) %s%s%s%s",
+                star_str, byte_alignment,
+                bit_offset_in_host, host_int_bytes,
+                const_str, volatile_str, allow_zero_str,
                 buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s", star_str, byte_alignment,
-                bit_offset_in_host, host_int_bytes, const_str, volatile_str, allow_zero_str,
+        buf_appendf(&entry->name, "%salign(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s",
+                star_str, byte_alignment,
+                bit_offset_in_host, host_int_bytes, vector_index,
+                const_str, volatile_str, allow_zero_str,
                 buf_ptr(&child_type->name));
     }
 
@@ -581,6 +602,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     entry->data.pointer.bit_offset_in_host = bit_offset_in_host;
     entry->data.pointer.host_int_bytes = host_int_bytes;
     entry->data.pointer.allow_zero = allow_zero;
+    entry->data.pointer.vector_index = vector_index;
 
     if (parent_pointer) {
         *parent_pointer = entry;
@@ -590,8 +612,17 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_cons
     return entry;
 }
 
+ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type, bool is_const,
+        bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
+        uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero)
+{
+    return get_pointer_to_type_extra2(g, child_type, is_const, is_volatile, ptr_len,
+            byte_alignment, bit_offset_in_host, host_int_bytes, allow_zero, VECTOR_INDEX_NONE);
+}
+
 ZigType *get_pointer_to_type(CodeGen *g, ZigType *child_type, bool is_const) {
-    return get_pointer_to_type_extra(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0, false);
+    return get_pointer_to_type_extra2(g, child_type, is_const, false, PtrLenSingle, 0, 0, 0, false,
+            VECTOR_INDEX_NONE);
 }
 
 ZigType *get_optional_type(CodeGen *g, ZigType *child_type) {
@@ -6910,6 +6941,7 @@ uint32_t type_id_hash(TypeId x) {
                 (x.data.pointer.allow_zero ? (uint32_t)3324284834 : (uint32_t)3584904923) +
                 (((uint32_t)x.data.pointer.alignment) ^ (uint32_t)0x777fbe0e) +
                 (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
+                (((uint32_t)x.data.pointer.vector_index) ^ (uint32_t)0x19199716) +
                 (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881);
         case ZigTypeIdArray:
             return hash_ptr(x.data.array.child_type) +
@@ -6962,6 +6994,7 @@ bool type_id_eql(TypeId a, TypeId b) {
                 a.data.pointer.allow_zero == b.data.pointer.allow_zero &&
                 a.data.pointer.alignment == b.data.pointer.alignment &&
                 a.data.pointer.bit_offset_in_host == b.data.pointer.bit_offset_in_host &&
+                a.data.pointer.vector_index == b.data.pointer.vector_index &&
                 a.data.pointer.host_int_bytes == b.data.pointer.host_int_bytes;
         case ZigTypeIdArray:
             return a.data.array.child_type == b.data.array.child_type &&
@@ -8266,11 +8299,21 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
 
     if (type->data.pointer.is_const || type->data.pointer.is_volatile ||
         type->data.pointer.explicit_alignment != 0 || type->data.pointer.ptr_len != PtrLenSingle ||
-        type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero)
+        type->data.pointer.bit_offset_in_host != 0 || type->data.pointer.allow_zero ||
+        type->data.pointer.vector_index != VECTOR_INDEX_NONE)
     {
         assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
-        ZigType *peer_type = get_pointer_to_type_extra(g, elem_type, false, false,
-                PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false);
+        ZigType *peer_type;
+        if (type->data.pointer.vector_index == VECTOR_INDEX_NONE) {
+            peer_type = get_pointer_to_type_extra2(g, elem_type, false, false,
+                PtrLenSingle, 0, 0, type->data.pointer.host_int_bytes, false,
+                VECTOR_INDEX_NONE);
+        } else {
+            uint32_t host_vec_len = type->data.pointer.host_int_bytes;
+            ZigType *host_vec_type = get_vector_type(g, host_vec_len, elem_type);
+            peer_type = get_pointer_to_type_extra2(g, host_vec_type, false, false,
+                PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE);
+        }
         type->llvm_type = get_llvm_type(g, peer_type);
         type->llvm_di_type = get_llvm_di_type(g, peer_type);
         assertNoError(type_resolve(g, elem_type, wanted_resolve_status));
