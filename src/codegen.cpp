@@ -1640,6 +1640,17 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         return;
     }
 
+    assert(ptr_type->data.pointer.vector_index != VECTOR_INDEX_RUNTIME);
+    if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
+        LLVMValueRef index_val = LLVMConstInt(LLVMInt32Type(),
+                ptr_type->data.pointer.vector_index, false);
+        LLVMValueRef loaded_vector = gen_load(g, ptr, ptr_type, "");
+        LLVMValueRef new_vector = LLVMBuildInsertElement(g->builder, loaded_vector, value,
+                index_val, ""); 
+        gen_store(g, new_vector, ptr, ptr_type);
+        return;
+    }
+
     uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
     if (host_int_bytes == 0) {
         gen_store(g, value, ptr, ptr_type);
@@ -3414,8 +3425,6 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable,
     ZigType *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
 
-    uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
-
     ir_assert(ptr_type->data.pointer.vector_index != VECTOR_INDEX_RUNTIME, &instruction->base);
     if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
         LLVMValueRef index_val = LLVMConstInt(LLVMInt32Type(),
@@ -3424,6 +3433,7 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable,
         return LLVMBuildExtractElement(g->builder, loaded_vector, index_val, "");
     }
 
+    uint32_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
     if (host_int_bytes == 0)
         return get_handle_value(g, ptr, child_type, ptr_type);
 
@@ -3660,7 +3670,6 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     ZigType *array_ptr_type = instruction->array_ptr->value.type;
     assert(array_ptr_type->id == ZigTypeIdPointer);
     ZigType *array_type = array_ptr_type->data.pointer.child_type;
-    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
     assert(subscript_value);
 
@@ -3672,6 +3681,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     if (array_type->id == ZigTypeIdArray ||
         (array_type->id == ZigTypeIdPointer && array_type->data.pointer.ptr_len == PtrLenSingle))
     {
+        LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         if (array_type->id == ZigTypeIdPointer) {
             assert(array_type->data.pointer.child_type->id == ZigTypeIdArray);
             array_type = array_type->data.pointer.child_type;
@@ -3711,12 +3721,14 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         };
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
     } else if (array_type->id == ZigTypeIdPointer) {
+        LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         LLVMValueRef indices[] = {
             subscript_value
         };
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
     } else if (array_type->id == ZigTypeIdStruct) {
+        LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         assert(array_type->data.structure.is_slice);
 
         ZigType *ptr_type = instruction->base.value.type;
