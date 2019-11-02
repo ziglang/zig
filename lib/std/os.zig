@@ -1946,6 +1946,7 @@ pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) Connect
             ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             ETIMEDOUT => return error.ConnectionTimedOut,
+            ENOENT => return error.FileNotFound, // Returned when socket is AF_UNIX and the given path does not exist.
             else => |err| return unexpectedErrno(err),
         }
     }
