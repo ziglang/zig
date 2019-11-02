@@ -1919,6 +1919,9 @@ pub const ConnectError = error{
     /// This error occurs when no global event loop is configured,
     /// and connecting to the socket would block.
     WouldBlock,
+
+    /// The given path for the unix socket does not exist.
+    FileNotFound,
 } || UnexpectedError;
 
 /// Initiate a connection on a socket.
