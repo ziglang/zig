@@ -340,7 +340,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     mem.copy(u8, &sock_addr.path, path);
 
     const size = @intCast(u32, @sizeOf(os.sockaddr_un) - sock_addr.path.len + path.len);
-    try os.connect(sockfd, &sock_addr, size);
+    try os.connect(sockfd, @ptrCast(*os.sockaddr, &sock_addr), size);
 
     return fs.File.openHandle(sockfd);
 }
