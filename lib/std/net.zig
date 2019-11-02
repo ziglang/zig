@@ -335,7 +335,7 @@ fn createUnixSocket() !os.fd_t {
     );
 }
 
-fn createUnixAddress(path: []const u8) !os.sockaddr_un {
+pub fn createUnixAddress(path: []const u8) !os.sockaddr_un {
     var sock_addr = std.os.sockaddr_un{
         .family = std.os.AF_UNIX,
         .path = undefined,
