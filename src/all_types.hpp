@@ -2426,6 +2426,7 @@ enum IrInstructionId {
     IrInstructionIdLoadPtr,
     IrInstructionIdLoadPtrGen,
     IrInstructionIdStorePtr,
+    IrInstructionIdVectorStoreElem,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
     IrInstructionIdUnionFieldPtr,
@@ -2767,6 +2768,14 @@ struct IrInstructionStorePtr {
 
     bool allow_write_through_const;
     IrInstruction *ptr;
+    IrInstruction *value;
+};
+
+struct IrInstructionVectorStoreElem {
+    IrInstruction base;
+
+    IrInstruction *vector_ptr;
+    IrInstruction *index;
     IrInstruction *value;
 };
 
