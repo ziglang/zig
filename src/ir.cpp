@@ -491,6 +491,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionStorePtr *) {
     return IrInstructionIdStorePtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionVectorStoreElem *) {
+    return IrInstructionIdVectorStoreElem;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldPtr *) {
     return IrInstructionIdFieldPtr;
 }
@@ -1629,6 +1633,23 @@ static IrInstructionStorePtr *ir_build_store_ptr(IrBuilder *irb, Scope *scope, A
     ir_ref_instruction(value, irb->current_basic_block);
 
     return instruction;
+}
+
+static IrInstruction *ir_build_vector_store_elem(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *vector_ptr, IrInstruction *index, IrInstruction *value)
+{
+    IrInstructionVectorStoreElem *inst = ir_build_instruction<IrInstructionVectorStoreElem>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    inst->base.value.type = ira->codegen->builtin_types.entry_void;
+    inst->vector_ptr = vector_ptr;
+    inst->index = index;
+    inst->value = value;
+
+    ir_ref_instruction(vector_ptr, ira->new_irb.current_basic_block);
+    ir_ref_instruction(index, ira->new_irb.current_basic_block);
+    ir_ref_instruction(value, ira->new_irb.current_basic_block);
+
+    return &inst->base;
 }
 
 static IrInstruction *ir_build_var_decl_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -16126,6 +16147,24 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         mark_comptime_value_escape(ira, source_instr, &value->value);
     }
 
+    // If this is a store to a pointer with a runtime-known vector index,
+    // we have to figure out the IrInstruction which represents the index and
+    // emit a IrInstructionVectorStoreElem, or emit a compile error
+    // explaining why it is impossible for this store to work. Which is that
+    // the pointer address is of the vector; without the element index being known
+    // we cannot properly perform the insertion.
+    if (ptr->value.type->data.pointer.vector_index == VECTOR_INDEX_RUNTIME) {
+        if (ptr->id == IrInstructionIdElemPtr) {
+            IrInstructionElemPtr *elem_ptr = (IrInstructionElemPtr *)ptr;
+            return ir_build_vector_store_elem(ira, source_instr, elem_ptr->array_ptr,
+                    elem_ptr->elem_index, value);
+        }
+        ir_add_error(ira, ptr,
+            buf_sprintf("unable to determine vector element index of type '%s'",
+                buf_ptr(&ptr->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
     IrInstructionStorePtr *store_ptr = ir_build_store_ptr(&ira->new_irb, source_instr->scope,
             source_instr->source_node, ptr, value);
     return &store_ptr->base;
@@ -26063,6 +26102,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdAwaitGen:
         case IrInstructionIdSplatGen:
         case IrInstructionIdVectorExtractElem:
+        case IrInstructionIdVectorStoreElem:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -26446,6 +26486,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdDeclVarSrc:
         case IrInstructionIdDeclVarGen:
         case IrInstructionIdStorePtr:
+        case IrInstructionIdVectorStoreElem:
         case IrInstructionIdCallSrc:
         case IrInstructionIdCallGen:
         case IrInstructionIdReturn:

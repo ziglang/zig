@@ -3644,6 +3644,19 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     return nullptr;
 }
 
+static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutable *executable,
+        IrInstructionVectorStoreElem *instruction)
+{
+    LLVMValueRef vector_ptr = ir_llvm_value(g, instruction->vector_ptr);
+    LLVMValueRef index = ir_llvm_value(g, instruction->index);
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+
+    LLVMValueRef loaded_vector = gen_load(g, vector_ptr, instruction->vector_ptr->value.type, "");
+    LLVMValueRef modified_vector = LLVMBuildInsertElement(g->builder, loaded_vector, value, index, "");
+    gen_store(g, modified_vector, vector_ptr, instruction->vector_ptr->value.type);
+    return nullptr;
+}
+
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
     if (instruction->base.value.special != ConstValSpecialRuntime)
         return ir_llvm_value(g, &instruction->base);
@@ -6130,6 +6143,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_load_ptr(g, executable, (IrInstructionLoadPtrGen *)instruction);
         case IrInstructionIdStorePtr:
             return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
+        case IrInstructionIdVectorStoreElem:
+            return ir_render_vector_store_elem(g, executable, (IrInstructionVectorStoreElem *)instruction);
         case IrInstructionIdVarPtr:
             return ir_render_var_ptr(g, executable, (IrInstructionVarPtr *)instruction);
         case IrInstructionIdReturnPtr:
