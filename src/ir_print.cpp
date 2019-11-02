@@ -78,6 +78,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "LoadPtrGen";
         case IrInstructionIdStorePtr:
             return "StorePtr";
+        case IrInstructionIdVectorStoreElem:
+            return "VectorStoreElem";
         case IrInstructionIdFieldPtr:
             return "FieldPtr";
         case IrInstructionIdStructFieldPtr:
@@ -787,6 +789,15 @@ static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction)
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
+static void ir_print_vector_store_elem(IrPrint *irp, IrInstructionVectorStoreElem *instruction) {
+    fprintf(irp->f, "vector_ptr=");
+    ir_print_var_instruction(irp, instruction->vector_ptr);
+    fprintf(irp->f, ",index=");
+    ir_print_var_instruction(irp, instruction->index);
+    fprintf(irp->f, ",value=");
     ir_print_other_instruction(irp, instruction->value);
 }
 
@@ -2046,6 +2057,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+            break;
+        case IrInstructionIdVectorStoreElem:
+            ir_print_vector_store_elem(irp, (IrInstructionVectorStoreElem *)instruction);
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);

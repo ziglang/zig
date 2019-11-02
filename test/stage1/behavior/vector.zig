@@ -216,3 +216,21 @@ test "load vector elements via runtime index" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "store vector elements via runtime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+            var i: u32 = 2;
+            v[i] = 1;
+            expect(v[1] == 5);
+            expect(v[2] == 1);
+            i += 1;
+            v[i] = -364;
+            expect(-364 == v[3]);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
