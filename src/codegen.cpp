@@ -6002,6 +6002,14 @@ static LLVMValueRef ir_render_spill_end(CodeGen *g, IrExecutable *executable, Ir
     zig_unreachable();
 }
 
+static LLVMValueRef ir_render_vector_extract_elem(CodeGen *g, IrExecutable *executable,
+        IrInstructionVectorExtractElem *instruction)
+{
+    LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
+    LLVMValueRef index = ir_llvm_value(g, instruction->index);
+    return LLVMBuildExtractElement(g->builder, vector, index, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -6262,6 +6270,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
         case IrInstructionIdSplatGen:
             return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
+        case IrInstructionIdVectorExtractElem:
+            return ir_render_vector_extract_elem(g, executable, (IrInstructionVectorExtractElem *) instruction);
     }
     zig_unreachable();
 }

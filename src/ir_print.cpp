@@ -370,6 +370,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SpillBegin";
         case IrInstructionIdSpillEnd:
             return "SpillEnd";
+        case IrInstructionIdVectorExtractElem:
+            return "VectorExtractElem";
     }
     zig_unreachable();
 }
@@ -1969,6 +1971,14 @@ static void ir_print_spill_end(IrPrint *irp, IrInstructionSpillEnd *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_vector_extract_elem(IrPrint *irp, IrInstructionVectorExtractElem *instruction) {
+    fprintf(irp->f, "@vectorExtractElem(");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->index);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool trailing) {
     ir_print_prefix(irp, instruction, trailing);
     switch (instruction->id) {
@@ -2465,6 +2475,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdSpillEnd:
             ir_print_spill_end(irp, (IrInstructionSpillEnd *)instruction);
+            break;
+        case IrInstructionIdVectorExtractElem:
+            ir_print_vector_extract_elem(irp, (IrInstructionVectorExtractElem *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -199,3 +199,20 @@ test "store vector elements via comptime index" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "load vector elements via runtime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
+            var i: u32 = 0;
+            expect(v[i] == 1);
+            i += 1;
+            expect(v[i] == 2);
+            i += 1;
+            expect(v[i] == 3);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}

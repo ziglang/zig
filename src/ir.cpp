@@ -1083,6 +1083,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSpillEnd *) {
     return IrInstructionIdSpillEnd;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionVectorExtractElem *) {
+    return IrInstructionIdVectorExtractElem;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     const char *name = nullptr;
@@ -3415,6 +3419,21 @@ static IrInstruction *ir_build_spill_end(IrBuilder *irb, Scope *scope, AstNode *
     instruction->begin = begin;
 
     ir_ref_instruction(&begin->base, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_vector_extract_elem(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *vector, IrInstruction *index)
+{
+    IrInstructionVectorExtractElem *instruction = ir_build_instruction<IrInstructionVectorExtractElem>(
+            &ira->new_irb, source_instruction->scope, source_instruction->source_node);
+    instruction->base.value.type = vector->value.type->data.vector.elem_type;
+    instruction->vector = vector;
+    instruction->index = index;
+
+    ir_ref_instruction(vector, ira->new_irb.current_basic_block);
+    ir_ref_instruction(index, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
@@ -12962,8 +12981,15 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
     // the type information does not contain enough information to actually
     // perform a dereference.
     if (ptr_type->data.pointer.vector_index == VECTOR_INDEX_RUNTIME) {
+        if (ptr->id == IrInstructionIdElemPtr) {
+            IrInstructionElemPtr *elem_ptr = (IrInstructionElemPtr *)ptr;
+            IrInstruction *vector_loaded = ir_get_deref(ira, elem_ptr->array_ptr,
+                    elem_ptr->array_ptr, nullptr);
+            IrInstruction *elem_index = elem_ptr->elem_index;
+            return ir_build_vector_extract_elem(ira, source_instruction, vector_loaded, elem_index);
+        }
         ir_add_error(ira, ptr,
-            buf_sprintf("unable to determine element index in order to dereference vector pointer"));
+            buf_sprintf("unable to determine vector element index of type '%s'", buf_ptr(&ptr_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -26023,6 +26049,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdFrameSizeGen:
         case IrInstructionIdAwaitGen:
         case IrInstructionIdSplatGen:
+        case IrInstructionIdVectorExtractElem:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -26558,6 +26585,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdAllocaGen:
         case IrInstructionIdSpillEnd:
+        case IrInstructionIdVectorExtractElem:
             return false;
 
         case IrInstructionIdAsm:

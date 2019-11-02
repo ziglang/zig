@@ -2575,6 +2575,7 @@ enum IrInstructionId {
     IrInstructionIdResume,
     IrInstructionIdSpillBegin,
     IrInstructionIdSpillEnd,
+    IrInstructionIdVectorExtractElem,
 };
 
 struct IrInstruction {
@@ -3900,6 +3901,13 @@ struct IrInstructionSpillEnd {
     IrInstruction base;
 
     IrInstructionSpillBegin *begin;
+};
+
+struct IrInstructionVectorExtractElem {
+    IrInstruction base;
+
+    IrInstruction *vector;
+    IrInstruction *index;
 };
 
 enum ResultLocId {
