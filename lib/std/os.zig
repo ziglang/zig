@@ -2997,7 +2997,7 @@ pub fn sendto(
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @intCast(usize, rc),
 
             EACCES => return error.AccessDenied,
             EAGAIN => if (std.event.Loop.instance) |loop| {
@@ -3063,7 +3063,7 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
         const rc = system.poll(fds.ptr, fds.len, timeout);
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @intCast(usize, rc),
             EFAULT => unreachable,
             EINTR => continue,
             EINVAL => unreachable,
@@ -3096,7 +3096,7 @@ pub fn recvfrom(
     while (true) {
         const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         switch (errno(rc)) {
-            0 => return rc,
+            0 => return @intCast(usize, rc),
             EBADF => unreachable, // always a race condition
             EFAULT => unreachable,
             EINVAL => unreachable,
