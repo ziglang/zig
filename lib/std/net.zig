@@ -342,6 +342,7 @@ fn createUnixAddress(path: []const u8) !os.sockaddr_un {
     };
     if (path.len > sock_addr.path.len) return error.NameTooLong;
     std.mem.copy(u8, &sock_addr.path, path);
+    return sock_addr;
 }
 
 pub fn connectUnixSocket(path: []const u8) !fs.File {
