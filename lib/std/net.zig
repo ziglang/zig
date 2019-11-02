@@ -322,27 +322,56 @@ pub const IpAddress = extern union {
     }
 };
 
-pub fn connectUnixSocket(path: []const u8) !fs.File {
+fn unixSocketSize(sock_addr: *os.sockaddr_un, path: []const u8) u32 {
+    return @intCast(u32, @sizeOf(os.sockaddr_un) - sock_addr.path.len + path.len);
+}
+
+fn createUnixSocket() !os.fd_t {
     const opt_non_block = if (std.io.mode == .evented) os.SOCK_NONBLOCK else 0;
-    const sockfd = try os.socket(
+    return try os.socket(
         os.AF_UNIX,
         os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
         0,
     );
-    errdefer os.close(sockfd);
+}
 
-    var sock_addr = os.sockaddr_un{
-        .family = os.AF_UNIX,
+fn createUnixAddress(path: []const u8) !os.sockaddr_un {
+    var sock_addr = std.os.sockaddr_un{
+        .family = std.os.AF_UNIX,
         .path = undefined,
     };
-
     if (path.len > sock_addr.path.len) return error.NameTooLong;
-    mem.copy(u8, &sock_addr.path, path);
+    std.mem.copy(u8, &sock_addr.path, path);
+}
 
-    const size = @intCast(u32, @sizeOf(os.sockaddr_un) - sock_addr.path.len + path.len);
-    try os.connect(sockfd, @ptrCast(*os.sockaddr, &sock_addr), size);
+pub fn connectUnixSocket(path: []const u8) !fs.File {
+    const sockfd = try createUnixSocket();
+    errdefer os.close(sockfd);
+
+    var sock_addr = try createUnixAddress(path);
+
+    try os.connect(
+        sockfd,
+        @ptrCast(*os.sockaddr, &sock_addr),
+        unixSocketSize(&sock_addr, path),
+    );
 
     return fs.File.openHandle(sockfd);
+}
+
+pub fn bindUnixSocket(path: []const u8) !fs.File {
+    const sockfd = try createUnixSocket();
+    errdefer os.close(sockfd);
+
+    var sock_addr = try createUnixAddress(path);
+
+    try std.os.bind(
+        sockfd,
+        @ptrCast(*os.sockaddr, &sock_addr),
+        unixSocketSize(&sock_addr, path),
+    );
+
+    return std.fs.File.openHandle(sockfd);
 }
 
 pub const AddressList = struct {
