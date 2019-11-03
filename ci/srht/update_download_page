@@ -23,6 +23,7 @@ curl --fail -I "$X86_64_WINDOWS_JSON_URL" || exit 0
 curl --fail -I "$X86_64_MACOS_JSON_URL" || exit 0
 curl --fail -I "$X86_64_FREEBSD_JSON_URL" || exit 0
 
+pip3 install s3cmd
 rm -rf .git
 
 cd "$HOME"
