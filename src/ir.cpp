@@ -16107,6 +16107,9 @@ static IrInstruction *ir_analyze_insert(IrAnalyze *ira, IrInstruction *source_in
         if (instr_is_comptime(agg) && instr_is_comptime(index)) {
             IrInstruction *result = ir_const(ira, source_instr, agg->value.type);
             result->value = agg->value;
+            if (agg->value.data.x_array.data.s_none.elements == nullptr) {
+                agg->value.data.x_array.data.s_none.elements = allocate<ConstExprValue>(agg->value.type->data.vector.len);
+            }
             agg->value.data.x_array.data.s_none.elements[index_int] = value->value;
             result->value.special = ConstValSpecialStatic;
             return result;
@@ -20074,7 +20077,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
     }
 
-    if (container_type->id != ZigTypeIdArray) {
+    if (container_type->id != ZigTypeIdArray && container_type->id != ZigTypeIdVector) {
         ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
@@ -20133,8 +20136,6 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         IrInstruction *elem_result_loc = instruction->elem_result_loc_list[i]->child;
         if (type_is_invalid(elem_result_loc->value.type))
             return ira->codegen->invalid_instruction;
-
-        assert(elem_result_loc->value.type->id == ZigTypeIdPointer);
 
         if (instr_is_comptime(elem_result_loc) &&
             elem_result_loc->value.data.x_ptr.mut != ConstPtrMutRuntimeVar)
