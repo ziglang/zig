@@ -15,6 +15,10 @@ SET "ZIGPREFIXPATH=%SRCROOT%\llvm+clang-9.0.0-win64-msvc-mt"
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
 
+REM Make the `zig version` number consistent.
+REM This will affect the cmake command below.
+git.exe config core.abbrev 9
+
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 16 2019" -A x64 "-DCMAKE_INSTALL_PREFIX=%ZIGINSTALLDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
