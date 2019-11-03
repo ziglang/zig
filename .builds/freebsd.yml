@@ -7,7 +7,7 @@ packages:
   - jq
 secrets:
   - 6c60aaee-92e7-4e7d-812c-114817689b4d
-  - 2cd8c203-ba06-4504-be49-1e2b9b71efdd
+  - dd0bd962-7664-4d3e-b0f3-41c9ee96b8b8
 sources:
   - https://github.com/ziglang/zig
 tasks:

@@ -61,6 +61,9 @@ if [ -z "$DRONE_PULL_REQUEST" ]; then
   s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
   s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/$TRIPLEARCH-linux-$VERSION.json"
   if [ "$GITBRANCH" = "master" ]; then 
+    # avoid leaking oauth token
+    set +x
+
     cd "$BUILDDIR"
     ./ci/srht/on_master_success "$VERSION" "$SRHT_OAUTH_TOKEN"
   fi

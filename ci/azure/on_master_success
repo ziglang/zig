@@ -1,6 +1,8 @@
 #!/bin/sh
 
-set -x
+# We do not set -x because this would leak the oauth access token.
+set +x
+
 set -e
 
 sudo apt-get update -y

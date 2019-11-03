@@ -44,7 +44,7 @@ jobs:
   - script: ci/azure/windows_script.bat
     name: main
     displayName: 'Build and test'
-- job: UpdateDownloadPage
+- job: OnMasterSuccess
   dependsOn:
   - BuildMacOS
   - BuildLinux

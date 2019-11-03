@@ -88,6 +88,9 @@ if [ -f ~/.s3cfg ]; then
   s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-freebsd-$VERSION.json"
 
   if [ "$GITBRANCH" = "master" ]; then 
+    # avoid leaking oauth token
+    set +x
+
     OAUTH_TOKEN="$(cat ~/.oauth_token)"
     cd "$ZIGDIR"
     ./ci/srht/on_master_success "$VERSION" "$OAUTH_TOKEN"

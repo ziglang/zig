@@ -6,7 +6,9 @@
 # * jq
 # * cat
 
-set -x
+# We do not set -x because this would leak the oauth access token.
+set +x
+
 set -e
 
 VERSION="$1"
