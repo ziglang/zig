@@ -25,6 +25,7 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j2 install
 ./zig build test -Denable-qemu
+VERSION="$(./zig version)"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   ARTIFACTSDIR="$BUILDDIR/artifacts"
@@ -44,7 +45,7 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "\"size\": \"$BYTESIZE\"}" >>$JSONFILE
 
   s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
-  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/linux-$VERSION.json"
+  s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-linux-$VERSION.json"
 
   # `set -x` causes these variables to be mangled.
   # See https://developercommunity.visualstudio.com/content/problem/375679/pipeline-variable-incorrectly-inserts-single-quote.html
@@ -52,4 +53,5 @@ if [ "${BUILD_REASON}" != "PullRequest" ]; then
   echo "##vso[task.setvariable variable=tarball;isOutput=true]$TARBALL"
   echo "##vso[task.setvariable variable=shasum;isOutput=true]$SHASUM"
   echo "##vso[task.setvariable variable=bytesize;isOutput=true]$BYTESIZE"
+  echo "##vso[task.setvariable variable=version;isOutput=true]$VERSION"
 fi

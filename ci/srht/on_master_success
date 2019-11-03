@@ -1,0 +1,33 @@
+#!/bin/sh
+
+# This script must run on a lot of different platforms.
+# It assumes that the following things are installed:
+# * curl
+# * jq
+
+set -x
+set -e
+
+VERSION="$1"
+OAUTH_TOKEN="$2"
+YML_FILE="tmp.yml"
+
+echo "image: ubuntu/xenial" >> "$YML_FILE"
+echo "packages:" >> "$YML_FILE"
+echo "  - s3cmd" >> "$YML_FILE"
+echo "  - curl" >> "$YML_FILE"
+echo "  - jq" >> "$YML_FILE"
+echo "secrets:" >> "$YML_FILE"
+echo "  - 6c60aaee-92e7-4e7d-812c-114817689b4d" >> "$YML_FILE"
+echo "sources:" >> "$YML_FILE"
+echo "  - https://github.com/ziglang/zig" >> "$YML_FILE"
+echo "tasks:" >> "$YML_FILE"
+echo "  - build: cd zig && ./ci/srht/update_download_page $VERSION" >> "$YML_FILE"
+
+jq <$YML_FILE -sR '{
+      "manifest": .,
+    }' | curl \
+  -H Authorization:"token $OAUTH_TOKEN" \
+  -H Content-Type:application/json \
+  -X POST \
+  -d @- "https://builds.sr.ht/api/jobs"

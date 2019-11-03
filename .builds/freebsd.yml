@@ -3,8 +3,11 @@ packages:
   - cmake
   - py27-s3cmd
   - wget
+  - curl
+  - jq
 secrets:
   - 6c60aaee-92e7-4e7d-812c-114817689b4d
+  - 2cd8c203-ba06-4504-be49-1e2b9b71efdd
 sources:
   - https://github.com/ziglang/zig
 tasks:

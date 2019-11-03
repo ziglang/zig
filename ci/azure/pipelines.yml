@@ -55,18 +55,10 @@ jobs:
   pool:
     vmImage: 'ubuntu-16.04'
   variables:
-    macos_tarball: $[ dependencies.BuildMacOS.outputs['main.tarball'] ]
-    macos_shasum: $[ dependencies.BuildMacOS.outputs['main.shasum'] ]
-    macos_bytesize: $[ dependencies.BuildMacOS.outputs['main.bytesize'] ]
-    linux_tarball: $[ dependencies.BuildLinux.outputs['main.tarball'] ]
-    linux_shasum: $[ dependencies.BuildLinux.outputs['main.shasum'] ]
-    linux_bytesize: $[ dependencies.BuildLinux.outputs['main.bytesize'] ]
-    windows_tarball: $[ dependencies.BuildWindows.outputs['main.tarball'] ]
-    windows_shasum: $[ dependencies.BuildWindows.outputs['main.shasum'] ]
-    windows_bytesize: $[ dependencies.BuildWindows.outputs['main.bytesize'] ]
+    version: $[ dependencies.BuildLinux.outputs['main.version'] ]
   steps:
   - task: DownloadSecureFile@1
     inputs:
-      secureFile: s3cfg
-  - script: ci/azure/update_download_page
-    displayName: 'Update download page'
+      secureFile: oauth_token
+  - script: ci/azure/on_master_success
+    displayName: 'master branch success hook'

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -x
+set -e
+
+sudo apt-get update -y
+sudo apt-get install -y curl jq
+
+OAUTH_TOKEN="$(cat "$DOWNLOADSECUREFILE_SECUREFILEPATH")"
+./ci/srht/on_master_success "$VERSION" "$OAUTH_TOKEN"
