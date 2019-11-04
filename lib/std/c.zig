@@ -61,7 +61,6 @@ pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
 pub extern "c" fn close(fd: fd_t) c_int;
-pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
@@ -149,6 +148,10 @@ pub extern "c" fn malloc(usize) ?*c_void;
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
+
+// Deprecated
+pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
+pub extern "c" fn utimes(path: [*]const u8, times: *[2]timeval) c_int;
 
 pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*]const u8, times: *[2]timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
