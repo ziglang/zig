@@ -17,13 +17,17 @@ X86_64_FREEBSD_JSON_URL="https://ziglang.org/builds/x86_64-freebsd-$VERSION.json
 
 # If any of these fail, it's not really this job failing; rather we have detected
 # that this job will be called again later when other jobs have completed.
-curl --fail -I "$AARCH64_LINUX_JSON_URL" || exit 0
-curl --fail -I "$X86_64_LINUX_JSON_URL" || exit 0
-curl --fail -I "$X86_64_WINDOWS_JSON_URL" || exit 0
-curl --fail -I "$X86_64_MACOS_JSON_URL" || exit 0
-curl --fail -I "$X86_64_FREEBSD_JSON_URL" || exit 0
+curl --fail -I "$AARCH64_LINUX_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_LINUX_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_WINDOWS_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_MACOS_JSON_URL" >/dev/null || exit 0
+curl --fail -I "$X86_64_FREEBSD_JSON_URL" >/dev/null || exit 0
 
-pip3 install s3cmd
+# Without --user, this gave me:
+# ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permission denied
+pip3 install s3cmd --user
+export PATH="$PATH:~/.local/bin"
+
 rm -rf .git
 
 cd "$HOME"
