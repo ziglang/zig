@@ -34,10 +34,15 @@ pub const chaCha20With64BitNonce = import_chaCha20.chaCha20With64BitNonce;
 pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 pub const X25519 = @import("crypto/x25519.zig").X25519;
 
+const import_aes = @import("crypto/aes.zig");
+pub const AES128 = import_aes.AES128;
+pub const AES256 = import_aes.AES256;
+
 const std = @import("std.zig");
 pub const randomBytes = std.os.getrandom;
 
 test "crypto" {
+    _ = @import("crypto/aes.zig");
     _ = @import("crypto/blake2.zig");
     _ = @import("crypto/chacha20.zig");
     _ = @import("crypto/gimli.zig");
