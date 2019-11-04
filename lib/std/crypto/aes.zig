@@ -13,8 +13,6 @@ fn rotw(w: u32) u32 {
     return w << 8 | w >> 24;
 }
 
-// TODO: encrypt and decrypt could probably be unified
-
 // Encrypt one block from src into dst, using the expanded key xk.
 fn encryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
     var s0 = mem.readIntSliceBig(u32, src[0..4]);
@@ -269,8 +267,6 @@ test "expand key" {
 }
 
 // constants
-
-// TODO: generate these at comptime?
 
 const poly = 1 << 8 | 1 << 4 | 1 << 3 | 1 << 1 | 1 << 0;
 
