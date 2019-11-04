@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "slicing of global undefined pointer",
+        \\var buf: *[1]u8 = undefined;
+        \\export fn entry() void {
+        \\    _ = buf[0..1];
+        \\}
+    ,
+        "tmp.zig:3:12: error: non-zero length slice of undefined pointer",
+    );
+
+    cases.add(
         "using invalid types in function call raises an error",
         \\const MenuEffect = enum {};
         \\fn func(effect: MenuEffect) void {}
