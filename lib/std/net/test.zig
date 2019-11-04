@@ -4,10 +4,41 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IPv6 addresses" {
-    const addr = try net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB", 80);
-    var buf: [100]u8 = undefined;
-    const printed = try std.fmt.bufPrint(&buf, "{}", addr);
-    std.testing.expect(mem.eql(u8, "[ff01::fb]:80", printed));
+    var buffer: [100]u8 = undefined;
+    const ips = [_][]const u8{
+        "FF01:0:0:0:0:0:0:FB",
+        "FF01::Fb",
+        "::1",
+        "::",
+        "2001:db8::",
+        "::1234:5678",
+        "2001:db8::1234:5678",
+        "FF01::FB%1234",
+        "::ffff:123.123.123.123",
+    };
+    const printed = [_][]const u8{
+        "ff01::fb",
+        "ff01::fb",
+        "::1",
+        "::",
+        "2001:db8::",
+        "::1234:5678",
+        "2001:db8::1234:5678",
+        "ff01::fb",
+        "::ffff:7b7b:7b7b",
+    };
+    for (ips) |ip, i| {
+        var addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
+        var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
+        std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
+    }
+
+    testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6(":::", 0));
+    testing.expectError(error.Overflow, net.IpAddress.parseIp6("FF001::FB", 0));
+    testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6("FF01::Fb:zig", 0));
+    testing.expectError(error.InvalidEnd, net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
+    testing.expectError(error.Incomplete, net.IpAddress.parseIp6("FF01:", 0));
+    testing.expectError(error.InvalidIpv4Mapping, net.IpAddress.parseIp6("::123.123.123.123", 0));
 }
 
 test "parse and render IPv4 addresses" {
@@ -19,7 +50,7 @@ test "parse and render IPv4 addresses" {
         "123.255.0.91",
         "127.0.0.1",
     }) |ip| {
-        var addr = net.IpAddress.parseIp4(ip, 0);
+        var addr = net.IpAddress.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
         std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
