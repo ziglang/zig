@@ -274,6 +274,7 @@ pub const ReadError = error{
     IsDir,
     OperationAborted,
     BrokenPipe,
+    ConnectionResetByPeer,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -320,6 +321,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             EISDIR => return error.IsDir,
             ENOBUFS => return error.SystemResources,
             ENOMEM => return error.SystemResources,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         }
     }
