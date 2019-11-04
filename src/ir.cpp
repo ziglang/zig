@@ -22949,12 +22949,20 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 if (parent_ptr == nullptr)
                     return ira->codegen->invalid_instruction;
 
-                array_val = const_ptr_pointee(ira, ira->codegen, parent_ptr, instruction->base.source_node);
-                if (array_val == nullptr)
-                    return ira->codegen->invalid_instruction;
 
-                rel_end = child_array_type->data.array.len;
-                abs_offset = 0;
+                if (parent_ptr->special == ConstValSpecialUndef) {
+                    array_val = nullptr;
+                    abs_offset = 0;
+                    rel_end = SIZE_MAX;
+                    ptr_is_undef = true;
+                } else {
+                    array_val = const_ptr_pointee(ira, ira->codegen, parent_ptr, instruction->base.source_node);
+                    if (array_val == nullptr)
+                        return ira->codegen->invalid_instruction;
+
+                    rel_end = child_array_type->data.array.len;
+                    abs_offset = 0;
+                }
             } else {
                 array_val = const_ptr_pointee(ira, ira->codegen, &ptr_ptr->value, instruction->base.source_node);
                 if (array_val == nullptr)
