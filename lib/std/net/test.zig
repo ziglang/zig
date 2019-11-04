@@ -14,7 +14,7 @@ test "parse and render IPv6 addresses" {
         "::1234:5678",
         "2001:db8::1234:5678",
         "FF01::FB%1234",
-        "::ffff:123.123.123.123",
+        "::ffff:123.5.123.5",
     };
     const printed = [_][]const u8{
         "ff01::fb",
@@ -25,7 +25,7 @@ test "parse and render IPv6 addresses" {
         "::1234:5678",
         "2001:db8::1234:5678",
         "ff01::fb",
-        "::ffff:7b7b:7b7b",
+        "::ffff:123.5.123.5",
     };
     for (ips) |ip, i| {
         var addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
