@@ -50,19 +50,22 @@ pub const IpAddress = extern union {
     pub fn parseIp6(buf: []const u8, port: u16) !IpAddress {
         var result = IpAddress{
             .in6 = os.sockaddr_in6{
-                .scope_id = undefined,
+                .scope_id = 0,
                 .port = mem.nativeToBig(u16, port),
                 .flowinfo = 0,
                 .addr = undefined,
             },
         };
-        const ip_slice = result.in6.addr[0..];
+        var ip_slice = result.in6.addr[0..];
+
+        var tail: [16]u8 = undefined;
 
         var x: u16 = 0;
         var saw_any_digits = false;
         var index: u8 = 0;
         var scope_id = false;
-        for (buf) |c| {
+        var abbrv = false;
+        for (buf) |c, i| {
             if (scope_id) {
                 if (c >= '0' and c <= '9') {
                     const digit = c - '0';
@@ -77,7 +80,12 @@ pub const IpAddress = extern union {
                 }
             } else if (c == ':') {
                 if (!saw_any_digits) {
-                    return error.InvalidCharacter;
+                    if (abbrv) return error.InvalidCharacter; // ':::'
+                    if (i != 0) abbrv = true;
+                    mem.set(u8, ip_slice[index..], 0);
+                    ip_slice = tail[0..];
+                    index = 0;
+                    continue;
                 }
                 if (index == 14) {
                     return error.InvalidEnd;
@@ -93,12 +101,6 @@ pub const IpAddress = extern union {
                 if (!saw_any_digits) {
                     return error.InvalidCharacter;
                 }
-                if (index == 14) {
-                    ip_slice[index] = @truncate(u8, x >> 8);
-                    index += 1;
-                    ip_slice[index] = @truncate(u8, x);
-                    index += 1;
-                }
                 scope_id = true;
                 saw_any_digits = false;
             } else {
@@ -113,21 +115,22 @@ pub const IpAddress = extern union {
             }
         }
 
-        if (!saw_any_digits) {
+        if (!saw_any_digits and !abbrv) {
             return error.Incomplete;
-        }
-
-        if (scope_id) {
-            return result;
         }
 
         if (index == 14) {
             ip_slice[14] = @truncate(u8, x >> 8);
             ip_slice[15] = @truncate(u8, x);
             return result;
+        } else {
+            ip_slice[index] = @truncate(u8, x >> 8);
+            index += 1;
+            ip_slice[index] = @truncate(u8, x);
+            index += 1;
+            mem.copy(u8, result.in6.addr[16 - index ..], ip_slice[0..index]);
+            return result;
         }
-
-        return error.Incomplete;
     }
 
     pub fn parseIp4(buf: []const u8, port: u16) !IpAddress {
@@ -246,10 +249,6 @@ pub const IpAddress = extern union {
                 );
             },
             os.AF_INET6 => {
-                const ZeroRun = struct {
-                    index: usize,
-                    count: usize,
-                };
                 const port = mem.bigToNative(u16, self.in6.port);
                 const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.in6.addr);
                 const native_endian_parts = switch (builtin.endian) {
@@ -262,44 +261,21 @@ pub const IpAddress = extern union {
                         break :blk buf;
                     },
                 };
-
-                var longest_zero_run: ?ZeroRun = null;
-                var this_zero_run: ?ZeroRun = null;
-                for (native_endian_parts) |part, i| {
-                    if (part == 0) {
-                        if (this_zero_run) |*zr| {
-                            zr.count += 1;
-                        } else {
-                            this_zero_run = ZeroRun{
-                                .index = i,
-                                .count = 1,
-                            };
-                        }
-                    } else if (this_zero_run) |zr| {
-                        if (longest_zero_run) |lzr| {
-                            if (zr.count > lzr.count and zr.count > 1) {
-                                longest_zero_run = zr;
-                            }
-                        } else {
-                            longest_zero_run = zr;
-                        }
-                    }
-                }
                 try output(context, "[");
                 var i: usize = 0;
-                while (i < native_endian_parts.len) {
-                    if (i != 0) try output(context, ":");
-
-                    if (longest_zero_run) |lzr| {
-                        if (lzr.index == i) {
-                            i += lzr.count;
-                            continue;
+                var abbrv = false;
+                while (i < native_endian_parts.len) : (i += 1) {
+                    if (native_endian_parts[i] == 0) {
+                        if (!abbrv) {
+                            try output(context, if (i == 0) "::" else ":");
+                            abbrv = true;
                         }
+                        continue;
                     }
-
-                    const part = native_endian_parts[i];
-                    try std.fmt.format(context, Errors, output, "{x}", part);
-                    i += 1;
+                    try std.fmt.format(context, Errors, output, "{x}", native_endian_parts[i]);
+                    if (i != native_endian_parts.len - 1) {
+                        try output(context, ":");
+                    }
                 }
                 try std.fmt.format(context, Errors, output, "]:{}", port);
             },
