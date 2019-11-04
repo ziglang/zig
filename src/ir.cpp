@@ -20403,6 +20403,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 1);
 
                         ConstExprValue *payload = create_const_vals(1);
+                        payload->special = ConstValSpecialStatic;
                         payload->type = ira->codegen->builtin_types.entry_type;
                         payload->data.x_type = var->const_value->type;
 
@@ -20523,6 +20524,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
 
                     ConstExprValue *payload = create_const_vals(1);
+                    payload->special = ConstValSpecialStatic;
                     payload->type = ira->codegen->builtin_types.entry_type;
                     payload->data.x_type = type_entry;
 
