@@ -11297,7 +11297,10 @@ static ZigFn *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     if (!const_val)
         return nullptr;
 
-    assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
+    // May be a ConstPtrSpecialHardCodedAddr
+    if (const_val->data.x_ptr.special != ConstPtrSpecialFunction)
+        return nullptr;
+
     return const_val->data.x_ptr.data.fn.fn_entry;
 }
 
@@ -16737,9 +16740,8 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
             return ir_finish_anal(ira, cast_instruction);
         } else if (fn_ref->value.type->id == ZigTypeIdFn) {
             ZigFn *fn_table_entry = ir_resolve_fn(ira, fn_ref);
-            if (fn_table_entry == nullptr)
-                return ira->codegen->invalid_instruction;
-            return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
+            ZigType *fn_type = fn_table_entry ? fn_table_entry->type_entry : fn_ref->value.type;
+            return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_type,
                 fn_ref, nullptr, is_comptime, call_instruction->fn_inline);
         } else if (fn_ref->value.type->id == ZigTypeIdBoundFn) {
             assert(fn_ref->value.special == ConstValSpecialStatic);
@@ -16756,7 +16758,7 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
 
     if (fn_ref->value.type->id == ZigTypeIdFn) {
         return ir_analyze_fn_call(ira, call_instruction, nullptr, fn_ref->value.type,
-            fn_ref, nullptr, false, FnInlineAuto);
+            fn_ref, nullptr, false, call_instruction->fn_inline);
     } else {
         ir_add_error_node(ira, fn_ref->source_node,
             buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));
