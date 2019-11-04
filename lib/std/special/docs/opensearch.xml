@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:moz="http://www.mozilla.org/2006/browser/search/">
+  <ShortName>std - Zig</ShortName>
+  <Description>Zig standard library documentation</Description>
+  <Url type="text/html" method="get" template="https://ziglang.org/documentation/master/std/#?{searchTerms}"/>
+  <InputEncoding>UTF-8</InputEncoding>
+  <Url type="application/opensearchdescription+xml" rel="self" template="https://ziglang.org/documentation/master/std/opensearch.xml"/>
+</OpenSearchDescription>
