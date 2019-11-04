@@ -100,3 +100,10 @@ test "cmpxchg with ignored result" {
 
     expectEqual(i32(5678), x);
 }
+
+var a_global_variable = u32(1234);
+
+test "cmpxchg on a global variable" {
+    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
+    expectEqual(u32(42), a_global_variable);
+}
