@@ -117,10 +117,12 @@ pub const IpAddress = extern union {
                 ip_slice[10] = 0xff;
                 ip_slice[11] = 0xff;
 
-                ip_slice[12] = @truncate(u8, addr >> 24 & 0xff);
-                ip_slice[13] = @truncate(u8, addr >> 16 & 0xff);
-                ip_slice[14] = @truncate(u8, addr >> 8 & 0xff);
-                ip_slice[15] = @truncate(u8, addr & 0xff);
+                const ptr = @sliceToBytes((*const [1]u32)(&addr)[0..]);
+
+                ip_slice[12] = ptr[0];
+                ip_slice[13] = ptr[1];
+                ip_slice[14] = ptr[2];
+                ip_slice[15] = ptr[3];
                 return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
@@ -269,6 +271,20 @@ pub const IpAddress = extern union {
             },
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
+                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{0,0,0,0,0,0,0,0,0,0,0xff,0xff})) {
+                    try std.fmt.format(
+                        context,
+                        Errors,
+                        output,
+                        "[::ffff:{}.{}.{}.{}]:{}",
+                        self.in6.addr[12],
+                        self.in6.addr[13],
+                        self.in6.addr[14],
+                        self.in6.addr[15],
+                        port,
+                    );
+                    return;
+                }
                 const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.in6.addr);
                 const native_endian_parts = switch (builtin.endian) {
                     .Big => big_endian_parts.*,
