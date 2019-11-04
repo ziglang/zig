@@ -14,6 +14,7 @@ test "parse and render IPv6 addresses" {
         "::1234:5678",
         "2001:db8::1234:5678",
         "FF01::FB%1234",
+        "::ffff:123.123.123.123",
     };
     const printed = [_][]const u8{
         "ff01::fb",
@@ -23,7 +24,8 @@ test "parse and render IPv6 addresses" {
         "2001:db8::",
         "::1234:5678",
         "2001:db8::1234:5678",
-        "ff01::fb"
+        "ff01::fb",
+        "::ffff:7b7b:7b7b",
     };
     for (ips) |ip, i| {
         var addr = net.IpAddress.parseIp6(ip, 0) catch unreachable;
@@ -36,6 +38,7 @@ test "parse and render IPv6 addresses" {
     testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp6("FF01::Fb:zig", 0));
     testing.expectError(error.InvalidEnd, net.IpAddress.parseIp6("FF01:0:0:0:0:0:0:FB:", 0));
     testing.expectError(error.Incomplete, net.IpAddress.parseIp6("FF01:", 0));
+    testing.expectError(error.InvalidIpv4Mapping, net.IpAddress.parseIp6("::123.123.123.123", 0));
 }
 
 test "parse and render IPv4 addresses" {
