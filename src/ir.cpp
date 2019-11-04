@@ -1668,7 +1668,7 @@ static IrInstruction *ir_build_resize_slice(IrAnalyze *ira, IrInstruction *sourc
     instruction->result_loc = result_loc;
 
     ir_ref_instruction(operand, ira->new_irb.current_basic_block);
-    ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
+    if (result_loc != nullptr) ir_ref_instruction(result_loc, ira->new_irb.current_basic_block);
 
     return &instruction->base;
 }
