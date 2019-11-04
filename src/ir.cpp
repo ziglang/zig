@@ -21798,7 +21798,8 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
         return ira->codegen->invalid_instruction;
     }
 
-    if (instr_is_comptime(casted_ptr) && instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
+    if (instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+        instr_is_comptime(casted_cmp_value) && instr_is_comptime(casted_new_value)) {
         zig_panic("TODO compile-time execution of cmpxchg");
     }
 
