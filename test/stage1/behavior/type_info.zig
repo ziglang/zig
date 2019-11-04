@@ -339,3 +339,10 @@ test "type info: extern fns with and without lib names" {
         }
     }
 }
+
+test "data field is a compile-time value" {
+    const S = struct {
+        const Bar = isize(-1);
+    };
+    comptime expect(@typeInfo(S).Struct.decls[0].data.Var == isize);
+}
