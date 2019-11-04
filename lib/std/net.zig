@@ -32,6 +32,7 @@ pub const IpAddress = extern union {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.InvalidIpv4Mapping,
             => {},
         }
 
@@ -103,6 +104,24 @@ pub const IpAddress = extern union {
                 }
                 scope_id = true;
                 saw_any_digits = false;
+            } else if (c == '.') {
+                if (!abbrv or ip_slice[0] != 0xff or ip_slice[1] != 0xff) {
+                    // must start with '::ffff:'
+                    return error.InvalidIpv4Mapping;
+                }
+                const start_index = mem.lastIndexOfScalar(u8, buf[0..i], ':').? + 1;
+                const addr = (parseIp4(buf[start_index..], 0) catch {
+                    return error.InvalidIpv4Mapping;
+                }).in.addr;
+                ip_slice = result.in6.addr[0..];
+                ip_slice[10] = 0xff;
+                ip_slice[11] = 0xff;
+
+                ip_slice[12] = @truncate(u8, addr >> 24 & 0xff);
+                ip_slice[13] = @truncate(u8, addr >> 16 & 0xff);
+                ip_slice[14] = @truncate(u8, addr >> 8 & 0xff);
+                ip_slice[15] = @truncate(u8, addr & 0xff);
+                return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
                 if (@mulWithOverflow(u16, x, 16, &x)) {
@@ -783,6 +802,7 @@ fn linuxLookupNameFromHosts(
             error.InvalidCharacter,
             error.Incomplete,
             error.InvalidIPAddressFormat,
+            error.InvalidIpv4Mapping,
             => continue,
         };
         try addrs.append(LookupAddr{ .addr = addr });
