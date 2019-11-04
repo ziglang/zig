@@ -4238,7 +4238,8 @@ AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index) {
         return nullptr;
 }
 
-static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
+static Error define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
+    Error err;
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -4257,8 +4258,11 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         ZigType *param_type = param_info->type;
-        bool is_noalias = param_info->is_noalias;
+        if ((err = type_resolve(g, param_type, ResolveStatusSizeKnown))) {
+            return err;
+        }
 
+        bool is_noalias = param_info->is_noalias;
         if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
@@ -4273,6 +4277,8 @@ static void define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
             fn_table_entry->variable_list.append(var);
         }
     }
+
+    return ErrorNone;
 }
 
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node) {
@@ -4596,7 +4602,10 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     if (!fn_table_entry->child_scope)
         fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
 
-    define_local_param_variables(g, fn_table_entry);
+    if (define_local_param_variables(g, fn_table_entry) != ErrorNone) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
 
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);

@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "using invalid types in function call raises an error",
+        \\const MenuEffect = enum {};
+        \\fn func(effect: MenuEffect) void {}
+        \\export fn entry() void {
+        \\    func(MenuEffect.ThisDoesNotExist);
+        \\}
+    ,
+        "tmp.zig:1:20: error: enums must have 1 or more fields",
+        "tmp.zig:4:20: note: referenced here",
+    );
+
+    cases.add(
         "using an unknown len ptr type instead of array",
         \\const resolutions = [*][*]const u8{
         \\    c"[320 240  ]",
