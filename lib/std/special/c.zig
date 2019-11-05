@@ -82,9 +82,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     if (builtin.is_test) {
         @setCold(true);
         std.debug.panic("{}", msg);
-    } else {
-        unreachable;
     }
+    if (builtin.os != .freestanding) {
+        std.os.abort();
+    }
+    while (true) {}
 }
 
 export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
