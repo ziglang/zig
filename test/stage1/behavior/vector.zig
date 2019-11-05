@@ -234,3 +234,19 @@ test "store vector elements via runtime index" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "initialize vector which is a struct field" {
+    const Vec4Obj = struct {
+        data: @Vector(4, f32),
+    };
+
+    const S = struct {
+        fn doTheTest() void {
+            var foo = Vec4Obj{
+                .data = [_]f32{ 1, 2, 3, 4 },
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
