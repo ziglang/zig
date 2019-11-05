@@ -23,6 +23,7 @@ pub const StringHashMap = @import("hash_map.zig").StringHashMap;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
+pub const ThreadParker = @import("parker.zig").ThreadParker;
 
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
