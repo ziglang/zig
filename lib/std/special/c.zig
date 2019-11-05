@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const isNan = std.math.isNan;
 
 const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
@@ -480,7 +481,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     const sx = if (T == f32) @intCast(u32, ux & 0x80000000) else @intCast(i32, ux >> bits_minus_1);
     var i: uint = undefined;
 
-    if (uy << 1 == 0 or isNan(uint, uy) or ex == mask)
+    if (uy << 1 == 0 or isNan(@bitCast(T, uy)) or ex == mask)
         return (x * y) / (x * y);
 
     if (ux << 1 <= uy << 1) {
@@ -547,18 +548,6 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         ux |= @intCast(uint, sx) << bits_minus_1;
     }
     return @bitCast(T, ux);
-}
-
-fn isNan(comptime T: type, bits: T) bool {
-    if (T == u16) {
-        return (bits & 0x7fff) > 0x7c00;
-    } else if (T == u32) {
-        return (bits & 0x7fffffff) > 0x7f800000;
-    } else if (T == u64) {
-        return (bits & (maxInt(u64) >> 1)) > (u64(0x7ff) << 52);
-    } else {
-        unreachable;
-    }
 }
 
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
