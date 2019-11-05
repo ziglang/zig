@@ -233,16 +233,6 @@ test "vector access elements - store" {
     }
 }
 
-test "vector literal" {
-    const S = struct {
-        fn doTheTest() void {
-            var foo = @Vector(4, f32) { 1, 2, 3, 4 };
-        }
-    };
-    S.doTheTest();
-    comptime S.doTheTest();
-}
-
 const Vec4Obj = struct {
     data: @Vector(4, f32),
 };

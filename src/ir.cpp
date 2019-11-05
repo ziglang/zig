@@ -20077,7 +20077,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
     }
 
-    if (container_type->id != ZigTypeIdArray && container_type->id != ZigTypeIdVector) {
+    if (container_type->id != ZigTypeIdArray) {
         ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
