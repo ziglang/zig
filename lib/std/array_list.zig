@@ -112,7 +112,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             try self.ensureCapacity(self.len + 1);
             self.len += 1;
 
-            mem.copyBackwards(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
+            mem.move(T, self.items[n + 1 .. self.len], self.items[n .. self.len - 1]);
             self.items[n] = item;
         }
 
@@ -122,8 +122,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
 
-            mem.copyBackwards(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
-            mem.copy(T, self.items[n .. n + items.len], items);
+            mem.move(T, self.items[n + items.len .. self.len], self.items[n .. self.len - items.len]);
+            mem.move(T, self.items[n .. n + items.len], items);
         }
 
         /// Extend the list by 1 element. Allocates more memory as

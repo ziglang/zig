@@ -34,8 +34,7 @@ pub fn FixedSizeFifo(comptime T: type) type {
 
         pub fn realign(self: *Self) void {
             if (self.buf.len - self.head >= self.count) {
-                // this copy overlaps
-                mem.copy(T, self.buf[0..self.count], self.buf[self.head..][0..self.count]);
+                mem.move(T, self.buf[0..self.count], self.buf[self.head..][0..self.count]);
                 self.head = 0;
             } else {
                 var tmp: [mem.page_size / 2 / @sizeOf(T)]T = undefined;
@@ -44,8 +43,7 @@ pub fn FixedSizeFifo(comptime T: type) type {
                     const n = math.min(self.head, tmp.len);
                     const m = self.buf.len - n;
                     mem.copy(T, tmp[0..n], self.buf[0..n]);
-                    // this middle copy overlaps; the others here don't
-                    mem.copy(T, self.buf[0..m], self.buf[n..][0..m]);
+                    mem.move(T, self.buf[0..m], self.buf[n..][0..m]);
                     mem.copy(T, self.buf[m..], tmp[0..n]);
                     self.head -= n;
                 }

@@ -1060,8 +1060,8 @@ pub const Int = struct {
 
             // Shrink x, y such that the trailing zero limbs shared between are removed.
             if (ab_zero_limb_count != 0) {
-                std.mem.copy(Limb, x.limbs[0..], x.limbs[ab_zero_limb_count..]);
-                std.mem.copy(Limb, y.limbs[0..], y.limbs[ab_zero_limb_count..]);
+                std.mem.move(Limb, x.limbs[0..], x.limbs[ab_zero_limb_count..]);
+                std.mem.move(Limb, y.limbs[0..], y.limbs[ab_zero_limb_count..]);
                 x.metadata -= ab_zero_limb_count;
                 y.metadata -= ab_zero_limb_count;
             }
