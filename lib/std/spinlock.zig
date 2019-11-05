@@ -31,7 +31,10 @@ pub const SpinLock = struct {
     pub fn yieldCpu() void {
         switch (builtin.arch) {
             .i386, .x86_64 => asm volatile("pause" ::: "memory"),
-            .arm, .aarch64 => asm volatile("yield"),
+            // .arm, .aarch64 => asm volatile("yield"),
+            //
+            // Causes CI to fail
+            // See: https://github.com/ziglang/zig/pull/3585#issuecomment-549962765
             else => time.sleep(0),
         }
     }
