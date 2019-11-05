@@ -1084,6 +1084,7 @@ pub const LibExeObjStep = struct {
 
     const IncludeDir = union(enum) {
         RawPath: []const u8,
+        RawPathSystem: []const u8,
         OtherStep: *LibExeObjStep,
     };
 
@@ -1545,6 +1546,10 @@ pub const LibExeObjStep = struct {
         out.print("pub const {} = {};\n", name, value) catch unreachable;
     }
 
+    pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
+        self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
+    }
+
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .RawPath = self.builder.dupe(path) }) catch unreachable;
     }
@@ -1823,11 +1828,15 @@ pub const LibExeObjStep = struct {
 
         for (self.include_dirs.toSliceConst()) |include_dir| {
             switch (include_dir) {
-                IncludeDir.RawPath => |include_path| {
+                .RawPath => |include_path| {
+                    try zig_args.append("-I");
+                    try zig_args.append(self.builder.pathFromRoot(include_path));
+                },
+                .RawPathSystem => |include_path| {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                IncludeDir.OtherStep => |other| {
+                .OtherStep => |other| {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
