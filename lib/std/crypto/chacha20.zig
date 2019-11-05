@@ -503,8 +503,14 @@ pub fn chacha20poly1305Open(dst: []u8, ciphertext: []const u8, data: []const u8,
     var computedTag: [16]u8 = undefined;
     mac.final(computedTag[0..]);
 
-    // verify mac
-    if (!mem.eql(u8, polyTag, computedTag[0..])) {
+    // verify mac in constant time
+    // TODO: we can't currently guarantee that this will run in constant time.
+    // See https://github.com/ziglang/zig/issues/1776
+    var acc: u8 = 0;
+    for (computedTag) |_, i| {
+        acc |= (computedTag[i] ^ polyTag[i]);
+    }
+    if (acc != 0) {
         return false;
     }
 
