@@ -552,9 +552,9 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
                 const_str, volatile_str, allow_zero_str, buf_ptr(&child_type->name));
     } else if (byte_alignment == 0) {
         assert(vector_index == VECTOR_INDEX_NONE);
-        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s%s",
+        buf_appendf(&entry->name, "%salign(:%" PRIu32 ":%" PRIu32 ") %s%s%s%s",
                 star_str,
-                bit_offset_in_host, host_int_bytes, vector_index,
+                bit_offset_in_host, host_int_bytes,
                 const_str, volatile_str, allow_zero_str,
                 buf_ptr(&child_type->name));
     } else if (vector_index == VECTOR_INDEX_NONE) {
