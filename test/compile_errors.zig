@@ -25,7 +25,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "dereference vector pointer with unknown runtime index",
         "store vector pointer with unknown runtime index",
         \\export fn entry() void {
         \\    var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
