@@ -44,16 +44,17 @@ pub const SpinLock = struct {
         }
     }
 
-    const Backoff = struct {
+    /// Provides a method to incrementally yield longer each time its called.
+    pub const Backoff = struct {
         iteration: usize,
 
-        fn init() @This() {
+        pub fn init() @This() {
             return @This(){ .iteration = 0 };
         }
 
-        // Hybrid yielding from
-        // http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
-        fn yield(self: *@This()) void {
+        /// Hybrid yielding from
+        /// http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
+        pub fn yield(self: *@This()) void {
             defer self.iteration +%= 1;
             if (self.iteration < 10) {
                 yieldCpu();
