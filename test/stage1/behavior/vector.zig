@@ -159,3 +159,94 @@ test "vector @splat" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "load vector elements via comptime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
+            expect(v[0] == 1);
+            expect(v[1] == 2);
+            expect(loadv(&v[2]) == 3);
+        }
+        fn loadv(ptr: var) i32 {
+            return ptr.*;
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "store vector elements via comptime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+
+            v[2] = 42;
+            expect(v[1] == 5);
+            v[3] = -364;
+            expect(v[2] == 42);
+            expect(-364 == v[3]);
+
+            storev(&v[0], 100);
+            expect(v[0] == 100);
+        }
+        fn storev(ptr: var, x: i32) void {
+            ptr.* = x;
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "load vector elements via runtime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
+            var i: u32 = 0;
+            expect(v[i] == 1);
+            i += 1;
+            expect(v[i] == 2);
+            i += 1;
+            expect(v[i] == 3);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "store vector elements via runtime index" {
+    const S = struct {
+        fn doTheTest() void {
+            var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+            var i: u32 = 2;
+            v[i] = 1;
+            expect(v[1] == 5);
+            expect(v[2] == 1);
+            i += 1;
+            v[i] = -364;
+            expect(-364 == v[3]);
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "initialize vector which is a struct field" {
+    const Vec4Obj = struct {
+        data: @Vector(4, f32),
+    };
+
+    const S = struct {
+        fn doTheTest() void {
+            var foo = Vec4Obj{
+                .data = [_]f32{ 1, 2, 3, 4 },
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

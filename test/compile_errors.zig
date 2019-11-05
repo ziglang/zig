@@ -25,6 +25,38 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "store vector pointer with unknown runtime index",
+        \\export fn entry() void {
+        \\    var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+        \\
+        \\    var i: u32 = 0;
+        \\    storev(&v[i], 42);
+        \\}
+        \\
+        \\fn storev(ptr: var, val: i32) void {
+        \\    ptr.* = val;
+        \\}
+    ,
+        "tmp.zig:9:8: error: unable to determine vector element index of type '*align(16:0:4:?) i32",
+    );
+
+    cases.add(
+        "load vector pointer with unknown runtime index",
+        \\export fn entry() void {
+        \\    var v: @Vector(4, i32) = [_]i32{ 1, 5, 3, undefined };
+        \\
+        \\    var i: u32 = 0;
+        \\    var x = loadv(&v[i]);
+        \\}
+        \\
+        \\fn loadv(ptr: var) i32 {
+        \\    return ptr.*;
+        \\}
+    ,
+        "tmp.zig:9:12: error: unable to determine vector element index of type '*align(16:0:4:?) i32",
+    );
+
+    cases.add(
         "using an unknown len ptr type instead of array",
         \\const resolutions = [*][*]const u8{
         \\    c"[320 240  ]",

@@ -78,6 +78,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "LoadPtrGen";
         case IrInstructionIdStorePtr:
             return "StorePtr";
+        case IrInstructionIdVectorStoreElem:
+            return "VectorStoreElem";
         case IrInstructionIdFieldPtr:
             return "FieldPtr";
         case IrInstructionIdStructFieldPtr:
@@ -370,6 +372,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SpillBegin";
         case IrInstructionIdSpillEnd:
             return "SpillEnd";
+        case IrInstructionIdVectorExtractElem:
+            return "VectorExtractElem";
     }
     zig_unreachable();
 }
@@ -785,6 +789,15 @@ static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction)
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
+static void ir_print_vector_store_elem(IrPrint *irp, IrInstructionVectorStoreElem *instruction) {
+    fprintf(irp->f, "vector_ptr=");
+    ir_print_var_instruction(irp, instruction->vector_ptr);
+    fprintf(irp->f, ",index=");
+    ir_print_var_instruction(irp, instruction->index);
+    fprintf(irp->f, ",value=");
     ir_print_other_instruction(irp, instruction->value);
 }
 
@@ -1969,6 +1982,14 @@ static void ir_print_spill_end(IrPrint *irp, IrInstructionSpillEnd *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_vector_extract_elem(IrPrint *irp, IrInstructionVectorExtractElem *instruction) {
+    fprintf(irp->f, "@vectorExtractElem(");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->index);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool trailing) {
     ir_print_prefix(irp, instruction, trailing);
     switch (instruction->id) {
@@ -2036,6 +2057,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+            break;
+        case IrInstructionIdVectorStoreElem:
+            ir_print_vector_store_elem(irp, (IrInstructionVectorStoreElem *)instruction);
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);
@@ -2465,6 +2489,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdSpillEnd:
             ir_print_spill_end(irp, (IrInstructionSpillEnd *)instruction);
+            break;
+        case IrInstructionIdVectorExtractElem:
+            ir_print_vector_extract_elem(irp, (IrInstructionVectorExtractElem *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
