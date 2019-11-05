@@ -17640,7 +17640,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                 return ira->codegen->invalid_instruction;
 
             if (array_ptr_val->special == ConstValSpecialUndef && elem_ptr_instruction->init_array_type != nullptr) {
-                if (array_type->id == ZigTypeIdArray) {
+                if (array_type->id == ZigTypeIdArray || array_type->id == ZigTypeIdVector) {
                     array_ptr_val->data.x_array.special = ConstArraySpecialNone;
                     array_ptr_val->data.x_array.data.s_none.elements = create_const_vals(array_type->data.array.len);
                     array_ptr_val->special = ConstValSpecialStatic;
