@@ -469,11 +469,15 @@ pub fn chacha20poly1305Seal(dst: []u8, plaintext: []const u8, data: []const u8, 
     mac.final(dst[plaintext.len..]);
 }
 
+/// Verifies and decrypts an authenticated message produced by chacha20poly1305Open.
+/// Returns false if message was invalid or authentication failed.
 pub fn chacha20poly1305Open(dst: []u8, ciphertext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) bool {
-    assert(ciphertext.len >= chacha20poly1305_tag_size);
-    assert(dst.len >= ciphertext.len - chacha20poly1305_tag_size);
+    if (ciphertext.len < chacha20poly1305_tag_size) {
+        return false;
+    }
 
     // split ciphertext and tag
+    assert(dst.len >= ciphertext.len - chacha20poly1305_tag_size);
     var polyTag = ciphertext[ciphertext.len - chacha20poly1305_tag_size ..];
     ciphertext = ciphertext[0 .. ciphertext.len - chacha20poly1305_tag_size];
 
