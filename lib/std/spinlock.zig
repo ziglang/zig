@@ -28,7 +28,7 @@ pub const SpinLock = struct {
         return Held{ .spinlock = self };
     }
 
-    fn yieldCpu() void {
+    pub fn yieldCpu() void {
         switch (builtin.arch) {
             .i386, .x86_64 => asm volatile("pause" ::: "memory"),
             .arm, .aarch64 => asm volatile("yield"),
@@ -36,7 +36,7 @@ pub const SpinLock = struct {
         }
     }
 
-    fn yieldThread() void {
+    pub fn yieldThread() void {
         switch (builtin.os) {
             .linux => assert(linux.syscall0(linux.SYS_sched_yield) == 0),
             .windows => _ = windows.kernel32.SwitchToThread(),

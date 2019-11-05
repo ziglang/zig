@@ -159,7 +159,7 @@ const WindowsParker = struct {
                 const key = @ptrCast(*const c_void, ptr);
                 var waiting = @atomicLoad(u32, waiters, .Acquire);
                 while (waiting != 0) {
-                    waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - 1, .AcqRel, .Monotonic) orelse {
+                    waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - 1, .Acquire, .Monotonic) orelse {
                         const rc = windows.ntdll.NtReleaseKeyedEvent(self.handle, key, windows.FALSE, null);
                         assert(rc == 0);
                         return;
@@ -338,3 +338,39 @@ const PosixParker = struct {
         else => unreachable,
     };
 };
+
+test "std.ThreadParker" {
+    const Context = struct {
+        parker: ThreadParker,
+        data: u32,
+
+        fn receiver(self: *@This()) void {
+            self.parker.park(&self.data, 0);                                // receives 1
+            assert(@atomicRmw(u32, &self.data, .Xchg, 2, .SeqCst) == 1);    // sends 2
+            self.parker.unpark(&self.data);                                 // wakes up waiters on 2
+            self.parker.park(&self.data, 2);                                // receives 3
+            assert(@atomicRmw(u32, &self.data, .Xchg, 4, .SeqCst) == 3);    // sends 4
+            self.parker.unpark(&self.data);                                 // wakes up waiters on 4
+        }
+
+        fn sender(self: *@This()) void {
+            assert(@atomicRmw(u32, &self.data, .Xchg, 1, .SeqCst) == 0);    // sends 1
+            self.parker.unpark(&self.data);                                 // wakes up waiters on 1
+            self.parker.park(&self.data, 1);                                // receives 2
+            assert(@atomicRmw(u32, &self.data, .Xchg, 3, .SeqCst) == 2);    // sends 3
+            self.parker.unpark(&self.data);                                 // wakes up waiters on 3
+            self.parker.park(&self.data, 3);                                // receives 4
+        }
+    };
+
+    var context = Context{
+        .parker = ThreadParker.init(),
+        .data = 0,
+    };
+    defer context.parker.deinit();
+    
+    var receiver = try std.Thread.spawn(&context, Context.receiver);
+    defer receiver.wait();
+
+    context.sender();
+}
