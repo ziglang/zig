@@ -2621,10 +2621,26 @@ pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPa
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
+/// Spurious wakeups do not run down the timer, so many wakeups causes drift.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
+    const time = std.os.time;
+
+    assert(nanoseconds < time.ns_per_s);
+
+    if (builtin.os == .windows) {
+        const ns_per_ms = time.ns_per_s / time.ms_per_s;
+        nanoseconds += seconds * time.ns_per_s;
+        const big_ms_from_ns = nanoseconds / time.ns_per_ms;
+        // round up like in Linux's nanosleep(2)
+        if (nanoseconds % time.ns_per_ms > 0) big_ms_from_ns += 1;
+        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
+        os.windows.kernel32.Sleep(ms);
+        return;
+    }
+
     var req = timespec{
-        .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
-        .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
+        .tv_sec = seconds,
+        .tv_nsec = nanoseconds,
     };
     var rem: timespec = undefined;
     while (true) {
