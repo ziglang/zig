@@ -21,23 +21,10 @@ pub const SpinLock = struct {
         return SpinLock{ .lock = 0 };
     }
 
-    // Hybrid spinning from
-    // http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
     pub fn acquire(self: *SpinLock) Held {
-        var backoff: usize = 0;
-        while (@atomicRmw(u8, &self.lock, .Xchg, 1, .Acquire) != 0) : (backoff +%= 1) {
-            if (backoff < 10) {
-                yieldCpu();
-            } else if (backoff < 20) {
-                for (([30]void)(undefined)) |_| yieldCpu();
-            } else if (backoff < 24) {
-                yieldThread();
-            } else if (backoff < 26) {
-                time.sleep(1 * time.millisecond);
-            } else {
-                time.sleep(10 * time.millisecond);
-            }
-        }
+        var backoff = Backoff.init();
+        while (@atomicRmw(u8, &self.lock, .Xchg, 1, .Acquire) != 0)
+            backoff.yield();
         return Held{ .spinlock = self };
     }
 
@@ -56,6 +43,31 @@ pub const SpinLock = struct {
             else => time.sleep(1 * time.microsecond),
         }
     }
+
+    const Backoff = struct {
+        iteration: usize,
+
+        fn init() @This() {
+            return @This(){ .iteration = 0 };
+        }
+
+        // Hybrid yielding from
+        // http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
+        fn yield(self: *@This()) void {
+            defer self.iteration +%= 1;
+            if (self.iteration < 10) {
+                yieldCpu();
+            } else if (self.iteration < 20) {
+                for (([30]void)(undefined)) |_| yieldCpu();
+            } else if (self.iteration < 24) {
+                yieldThread();
+            } else if (self.iteration < 26) {
+                time.sleep(1 * time.millisecond);
+            } else {
+                time.sleep(10 * time.millisecond);
+            }
+        }
+    };
 };
 
 test "spinlock" {
