@@ -5005,6 +5005,9 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
 }
 
 static uint32_t hash_const_val(ConstExprValue *const_val) {
+    if (const_val->special == ConstValSpecialUndef) {
+        return (uint32_t)0xc0ffee00;
+    }
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->type->id) {
         case ZigTypeIdOpaque:
