@@ -17,7 +17,7 @@ const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
 
-const leb = @import("debug/leb128.zig");
+pub const leb = @import("debug/leb128.zig");
 
 pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
