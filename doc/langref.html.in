@@ -7366,13 +7366,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       </p>
       <p>
       This function is a low level intrinsic with no safety mechanisms. Most code
-      should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (source[0..byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memcpy.
-      </p>
-      <p>There is also a standard library function for this:</p>
+      should not use this function, instead using the standard library function for this:</p>
       <pre>{#syntax#}const mem = @import("std").mem;
 mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}

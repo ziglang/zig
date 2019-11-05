@@ -22779,8 +22779,6 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
 }
 
 static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcpy *instruction) {
-    Error err;
-
     IrInstruction *dest_ptr = instruction->dest_ptr->child;
     if (type_is_invalid(dest_ptr->value.type))
         return ira->codegen->invalid_instruction;
@@ -22793,43 +22791,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(count_value->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *u8 = ira->codegen->builtin_types.entry_u8;
-    ZigType *dest_uncasted_type = dest_ptr->value.type;
-    ZigType *src_uncasted_type = src_ptr->value.type;
-    bool dest_is_volatile = (dest_uncasted_type->id == ZigTypeIdPointer) &&
-        dest_uncasted_type->data.pointer.is_volatile;
-    bool src_is_volatile = (src_uncasted_type->id == ZigTypeIdPointer) &&
-        src_uncasted_type->data.pointer.is_volatile;
-
-    uint32_t dest_align;
-    if (dest_uncasted_type->id == ZigTypeIdPointer) {
-        if ((err = resolve_ptr_align(ira, dest_uncasted_type, &dest_align)))
-            return ira->codegen->invalid_instruction;
-    } else {
-        dest_align = get_abi_alignment(ira->codegen, u8);
-    }
-
-    uint32_t src_align;
-    if (src_uncasted_type->id == ZigTypeIdPointer) {
-        if ((err = resolve_ptr_align(ira, src_uncasted_type, &src_align)))
-            return ira->codegen->invalid_instruction;
-    } else {
-        src_align = get_abi_alignment(ira->codegen, u8);
-    }
-
     ZigType *usize = ira->codegen->builtin_types.entry_usize;
-    ZigType *u8_ptr_mut = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile,
-            PtrLenUnknown, dest_align, 0, 0, false);
-    ZigType *u8_ptr_const = get_pointer_to_type_extra(ira->codegen, u8, true, src_is_volatile,
-            PtrLenUnknown, src_align, 0, 0, false);
-
-    IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
-    if (type_is_invalid(casted_dest_ptr->value.type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *casted_src_ptr = ir_implicit_cast(ira, src_ptr, u8_ptr_const);
-    if (type_is_invalid(casted_src_ptr->value.type))
-        return ira->codegen->invalid_instruction;
 
     IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
     if (type_is_invalid(casted_count->value.type))
@@ -22837,15 +22799,15 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
 
     // TODO test this at comptime with u8 and non-u8 types
     // TODO test with dest ptr being a global runtime variable
-    if (instr_is_comptime(casted_dest_ptr) &&
-        instr_is_comptime(casted_src_ptr) &&
+    if (instr_is_comptime(dest_ptr) &&
+        instr_is_comptime(src_ptr) &&
         instr_is_comptime(casted_count))
     {
-        ConstExprValue *dest_ptr_val = ir_resolve_const(ira, casted_dest_ptr, UndefBad);
+        ConstExprValue *dest_ptr_val = ir_resolve_const(ira, dest_ptr, UndefBad);
         if (dest_ptr_val == nullptr)
             return ira->codegen->invalid_instruction;
 
-        ConstExprValue *src_ptr_val = ir_resolve_const(ira, casted_src_ptr, UndefBad);
+        ConstExprValue *src_ptr_val = ir_resolve_const(ira, src_ptr, UndefBad);
         if (src_ptr_val == nullptr)
             return ira->codegen->invalid_instruction;
 
@@ -22952,7 +22914,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
     }
 
     IrInstruction *result = ir_build_memcpy(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-            casted_dest_ptr, casted_src_ptr, casted_count);
+            dest_ptr, src_ptr, casted_count);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result;
 }

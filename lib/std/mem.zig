@@ -246,30 +246,60 @@ pub const Compare = enum {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-/// dest.ptr must be <= src.ptr.
+/// Pointers must not overlap
+/// For types larger than 1 this should not be used on shared memory without locks.
+/// see llvm.memcopy.element.unordered.atomic
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
-    assert(dest.len >= source.len);
-    for (source) |s, i|
-        dest[i] = s;
+    var n: usize = source.len * @sizeOf(@typeOf(source[0]));
+    var usrc = @ptrToInt(source.ptr);
+    var udest = @ptrToInt(dest.ptr);
+    if (usrc < udest) {
+        if (usrc + n > udest) {
+            unreachable; // aliasing violation in std.mem.copy()
+        }
+    } else if (udest + n > usrc) {
+        unreachable; // aliasing violation in std.mem.copy()
+    }
+
+    @memcpy(dest.ptr, source.ptr, n);
 }
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-/// dest.ptr must be >= src.ptr.
-pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
+/// For types larger than 1 this should not be used on shared memory without locks.
+/// see llvm.memmove.element.unordered.atomic
+pub fn move(comptime T: type, dest: []T, source: []const T) void {
     assert(dest.len >= source.len);
-    var i = source.len;
-    while (i > 0) {
-        i -= 1;
-        dest[i] = source[i];
+
+    var usrc = @ptrToInt(source.ptr);
+    var udest = @ptrToInt(dest.ptr);
+    var n = source.len * @sizeOf(@typeOf(source[0]));
+
+    if (usrc == udest) return;
+
+    if (usrc < udest) {
+        if (usrc + n <= udest) {
+            // arguments do not overlap
+            @memcpy(dest.ptr, source.ptr, n);
+            return;
+        }
+    } else if (udest + n <= usrc) {
+        // arguments do not overlap
+        @memcpy(dest.ptr, source.ptr, n);
+        return;
+    }
+
+    @setRuntimeSafety(false);
+
+    if (udest < usrc) {
+        for (source) |s, i|
+            dest[i] = s;
+    } else {
+        var i = source.len;
+        while (i > 0) {
+            i -= 1;
+            dest[i] = source[i];
+        }
     }
 }
 

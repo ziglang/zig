@@ -102,6 +102,16 @@ export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
 export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8 {
     @setRuntimeSafety(false);
 
+    var usrc = @ptrToInt(src);
+    var udest = @ptrToInt(dest);
+    if (usrc < udest) {
+        if (usrc + n > udest) {
+            unreachable; // aliasing violation in memcpy()
+        }
+    } else if (udest + n > usrc) {
+        unreachable; // aliasing violation in memcpy()
+    }
+
     var index: usize = 0;
     while (index != n) : (index += 1)
         dest.?[index] = src.?[index];
@@ -111,6 +121,19 @@ export fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]
 
 export fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8 {
     @setRuntimeSafety(false);
+
+    var usrc = @ptrToInt(src);
+    var udest = @ptrToInt(dest);
+
+    if (usrc == udest) return dest;
+
+    if (usrc < udest) {
+        if (usrc + n <= udest) {
+            return memcpy(dest, src, n);
+        }
+    } else if (udest + n <= usrc) {
+        return memcpy(dest, src, n);
+    }
 
     if (@ptrToInt(dest) < @ptrToInt(src)) {
         var index: usize = 0;
