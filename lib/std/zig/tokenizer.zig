@@ -1625,6 +1625,16 @@ test "tokenizer - UTF-8 BOM is recognized and skipped" {
     });
 }
 
+test "correctly parse pointer assignment" {
+    testTokenize("b.*=3;\n", [_]Token.Id{
+        Token.Id.Identifier,
+        Token.Id.PeriodAsterisk,
+        Token.Id.Equal,
+        Token.Id.IntegerLiteral,
+        Token.Id.Semicolon,
+    });
+}
+
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
