@@ -202,8 +202,8 @@ inline fn initEventLoopAndCallMain() u8 {
             defer loop.deinit();
 
             var result: u8 = undefined;
-            var frame: @Frame(callMain) = undefined;
-            _ = @asyncCall(&frame, &result, callMain);
+            var frame: @Frame(callMainAsync) = undefined;
+            _ = @asyncCall(&frame, &result, callMainAsync, loop);
             loop.run();
             return result;
         }
@@ -212,6 +212,13 @@ inline fn initEventLoopAndCallMain() u8 {
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
     return @inlineCall(callMain);
+}
+
+fn callMainAsync(loop: *std.event.Loop) u8 {
+    // This prevents the event loop from terminating at least until main() has returned.
+    loop.beginOneEvent();
+    defer loop.finishOneEvent();
+    return callMain();
 }
 
 // This is not marked inline because it is called with @asyncCall when
