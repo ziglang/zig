@@ -538,3 +538,9 @@ test "implicit cast comptime_int to comptime_float" {
     comptime expect(comptime_float(10) == f32(10));
     expect(2 == 2.0);
 }
+
+var global_array: [4]u8 = undefined;
+test "cast from array reference to fn" {
+    const f = @ptrCast(extern fn () void, &global_array);
+    expect(@ptrToInt(f) == @ptrToInt(&global_array));
+}
