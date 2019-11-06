@@ -43,7 +43,8 @@ pub const Type = struct {
             Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
             Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
-            Id.Promise => @fieldParentPtr(Promise, "base", base).destroy(comp),
+            Id.Frame => @fieldParentPtr(Frame, "base", base).destroy(comp),
+            Id.AnyFrame => @fieldParentPtr(AnyFrame, "base", base).destroy(comp),
             Id.Vector => @fieldParentPtr(Vector, "base", base).destroy(comp),
         }
     }
@@ -77,7 +78,8 @@ pub const Type = struct {
             Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
             Id.ArgTuple => unreachable,
             Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Promise => return @fieldParentPtr(Promise, "base", base).getLlvmType(allocator, llvm_context),
+            Id.Frame => return @fieldParentPtr(Frame, "base", base).getLlvmType(allocator, llvm_context),
+            Id.AnyFrame => return @fieldParentPtr(AnyFrame, "base", base).getLlvmType(allocator, llvm_context),
             Id.Vector => return @fieldParentPtr(Vector, "base", base).getLlvmType(allocator, llvm_context),
         }
     }
@@ -104,7 +106,8 @@ pub const Type = struct {
             Id.ErrorSet,
             Id.Enum,
             Id.Fn,
-            Id.Promise,
+            Id.Frame,
+            Id.AnyFrame,
             Id.Vector,
             => return false,
 
@@ -137,7 +140,8 @@ pub const Type = struct {
             Id.Int,
             Id.Float,
             Id.Fn,
-            Id.Promise,
+            Id.Frame,
+            Id.AnyFrame,
             Id.Vector,
             => return true,
 
@@ -1059,14 +1063,26 @@ pub const Type = struct {
         }
     };
 
-    pub const Promise = struct {
+    pub const Frame = struct {
         base: Type,
 
-        pub fn destroy(self: *Promise, comp: *Compilation) void {
+        pub fn destroy(self: *Frame, comp: *Compilation) void {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Promise, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Frame, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+            @panic("TODO");
+        }
+    };
+
+    pub const AnyFrame = struct {
+        base: Type,
+
+        pub fn destroy(self: *AnyFrame, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+
+        pub fn getLlvmType(self: *AnyFrame, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
