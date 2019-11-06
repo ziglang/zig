@@ -898,7 +898,7 @@ pub const TokenStream = struct {
             }
         }
 
-        if(self.parser.complete){
+        if (self.parser.complete) {
             return null;
         } else {
             return error.UnexpectedEndOfJson;
@@ -1339,7 +1339,7 @@ pub const Parser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
-        return Value{ .String = try mem.dupe(p.allocator, u8, slice) };
+        return Value{ .String = try mem.dupe(allocator, u8, slice) };
     }
 
     fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
