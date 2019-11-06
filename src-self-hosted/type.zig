@@ -265,16 +265,7 @@ pub const Type = struct {
 
             pub const Generic = struct {
                 param_count: usize,
-                cc: CC,
-
-                pub const CC = union(CallingConvention) {
-                    Auto,
-                    C,
-                    Cold,
-                    Naked,
-                    Stdcall,
-                    Async: *Type, // allocator type
-                };
+                cc: CallingConvention,
             };
 
             pub fn hash(self: *const Key) u32 {
@@ -283,10 +274,7 @@ pub const Type = struct {
                 switch (self.data) {
                     Kind.Generic => |generic| {
                         result +%= hashAny(generic.param_count, 1);
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| result +%= hashAny(allocator_type, 2),
-                            else => result +%= hashAny(CallingConvention(generic.cc), 3),
-                        }
+                        result +%= hashAny(generic.cc, 3);
                     },
                     Kind.Normal => |normal| {
                         result +%= hashAny(normal.return_type, 4);
@@ -311,14 +299,7 @@ pub const Type = struct {
                     Kind.Generic => |*self_generic| {
                         const other_generic = &other.data.Generic;
                         if (self_generic.param_count != other_generic.param_count) return false;
-                        if (CallingConvention(self_generic.cc) != CallingConvention(other_generic.cc)) return false;
-                        switch (self_generic.cc) {
-                            CallingConvention.Async => |self_allocator_type| {
-                                const other_allocator_type = other_generic.cc.Async;
-                                if (self_allocator_type != other_allocator_type) return false;
-                            },
-                            else => {},
-                        }
+                        if (self_generic.cc != other_generic.cc) return false;
                     },
                     Kind.Normal => |*self_normal| {
                         const other_normal = &other.data.Normal;
@@ -337,12 +318,7 @@ pub const Type = struct {
 
             pub fn deref(key: Key, comp: *Compilation) void {
                 switch (key.data) {
-                    Kind.Generic => |generic| {
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| allocator_type.base.deref(comp),
-                            else => {},
-                        }
-                    },
+                    Kind.Generic => {},
                     Kind.Normal => |normal| {
                         normal.return_type.base.deref(comp);
                         for (normal.params) |param| {
@@ -354,12 +330,7 @@ pub const Type = struct {
 
             pub fn ref(key: Key) void {
                 switch (key.data) {
-                    Kind.Generic => |generic| {
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| allocator_type.base.ref(),
-                            else => {},
-                        }
-                    },
+                    Kind.Generic => {},
                     Kind.Normal => |normal| {
                         normal.return_type.base.ref();
                         for (normal.params) |param| {
@@ -370,14 +341,7 @@ pub const Type = struct {
             }
         };
 
-        pub const CallingConvention = enum {
-            Auto,
-            C,
-            Cold,
-            Naked,
-            Stdcall,
-            Async,
-        };
+        const CallingConvention = builtin.CallingConvention;
 
         pub const Param = struct {
             is_noalias: bool,
@@ -386,12 +350,12 @@ pub const Type = struct {
 
         fn ccFnTypeStr(cc: CallingConvention) []const u8 {
             return switch (cc) {
-                CallingConvention.Auto => "",
-                CallingConvention.C => "extern ",
-                CallingConvention.Cold => "coldcc ",
-                CallingConvention.Naked => "nakedcc ",
-                CallingConvention.Stdcall => "stdcallcc ",
-                CallingConvention.Async => unreachable,
+                .Auto => "",
+                .C => "extern ",
+                .Cold => "coldcc ",
+                .Naked => "nakedcc ",
+                .Stdcall => "stdcallcc ",
+                .Async => "async ",
             };
         }
 
