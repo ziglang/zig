@@ -24,7 +24,6 @@ const file1 = "1.zig";
 const allocator = std.heap.c_allocator;
 
 pub const TestContext = struct {
-    loop: std.event.Loop,
     zig_compiler: ZigCompiler,
     zig_lib_dir: []u8,
     file_index: std.atomic.Int(usize),
@@ -36,20 +35,16 @@ pub const TestContext = struct {
     fn init(self: *TestContext) !void {
         self.* = TestContext{
             .any_err = {},
-            .loop = undefined,
             .zig_compiler = undefined,
             .zig_lib_dir = undefined,
             .group = undefined,
             .file_index = std.atomic.Int(usize).init(0),
         };
 
-        try self.loop.initSingleThreaded(allocator);
-        errdefer self.loop.deinit();
-
-        self.zig_compiler = try ZigCompiler.init(&self.loop);
+        self.zig_compiler = try ZigCompiler.init();
         errdefer self.zig_compiler.deinit();
 
-        self.group = std.event.Group(anyerror!void).init(&self.loop);
+        self.group = std.event.Group(anyerror!void).init(allocator);
         errdefer self.group.deinit();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
@@ -63,13 +58,11 @@ pub const TestContext = struct {
         std.fs.deleteTree(tmp_dir_name) catch {};
         allocator.free(self.zig_lib_dir);
         self.zig_compiler.deinit();
-        self.loop.deinit();
     }
 
     fn run(self: *TestContext) !void {
-        const handle = try self.loop.call(waitForGroup, self);
-        defer await handle;
-        self.loop.run();
+        const handle = try std.event.Loop.instance.?.call(waitForGroup, self);
+        await handle;
         return self.any_err;
     }
 

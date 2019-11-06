@@ -184,7 +184,7 @@ pub const Scope = struct {
             const self = try comp.gpa().create(Decls);
             self.* = Decls{
                 .base = undefined,
-                .table = event.RwLocked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
+                .table = event.RwLocked(Decl.Table).init(Decl.Table.init(comp.gpa())),
             };
             self.base.init(Id.Decls, parent);
             return self;

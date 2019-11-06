@@ -26,6 +26,8 @@ var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
 var stdout: *io.OutStream(fs.File.WriteError) = undefined;
 
+pub const io_mode = .evented;
+
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 const usage =
@@ -386,11 +388,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     var override_libc: LibCInstallation = undefined;
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
     var comp = try Compilation.create(
@@ -406,7 +404,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     defer comp.destroy();
 
     if (flags.single("libc")) |libc_path| {
-        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+        parseLibcPaths(allocator, &override_libc, libc_path);
         comp.override_libc = &override_libc;
     }
 
@@ -466,8 +464,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_objects = link_objects;
 
     comp.start();
-    const frame = try async processBuildEvents(comp, color);
-    loop.run();
+    const frame = async processBuildEvents(comp, color);
 }
 
 async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
@@ -539,7 +536,7 @@ const Fmt = struct {
     seen: event.Locked(SeenMap),
     any_error: bool,
     color: errmsg.Color,
-    loop: *event.Loop,
+    allocator: *Allocator,
 
     const SeenMap = std.StringHashMap(void);
 };
@@ -570,16 +567,10 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
         },
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
     const frame = async findLibCAsync(&zig_compiler);
-
-    loop.run();
 }
 
 async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
@@ -656,15 +647,11 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(1);
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
     return asyncFmtMain(
+        allocator,
         &flags,
         color,
     );
-    // loop.run();
 }
 
 const FmtError = error{
@@ -690,20 +677,20 @@ const FmtError = error{
 } || fs.File.OpenError;
 
 async fn asyncFmtMain(
-    loop: *event.Loop,
+    allocator: *Allocator,
     flags: *const Args,
     color: errmsg.Color,
 ) FmtError!void {
     var fmt = Fmt{
-        .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
+        .allocator = allocator,
+        .seen = event.Locked(Fmt.SeenMap).init(Fmt.SeenMap.init(allocator)),
         .any_error = false,
         .color = color,
-        .loop = loop,
     };
 
     const check_mode = flags.present("check");
 
-    var group = event.Group(FmtError!void).init(loop);
+    var group = event.Group(FmtError!void).init(allocator);
     for (flags.positionals.toSliceConst()) |file_path| {
         try group.call(fmtPath, &fmt, file_path, check_mode);
     }
@@ -714,8 +701,8 @@ async fn asyncFmtMain(
 }
 
 async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
-    const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
-    defer fmt.loop.allocator.free(file_path);
+    const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
+    defer fmt.allocator.free(file_path);
 
     {
         const held = fmt.seen.acquire();
@@ -724,20 +711,19 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code = (await try async event.fs.readFile(
-        fmt.loop,
+    const source_code =  event.fs.readFile(
         file_path,
         max_src_size,
-    )) catch |err| switch (err) {
+    ) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
             var dir = try fs.Dir.open(file_path);
             defer dir.close();
 
-            var group = event.Group(FmtError!void).init(fmt.loop);
+            var group = event.Group(FmtError!void).init(fmt.allocator);
             while (try dir.next()) |entry| {
                 if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.loop.allocator, [_][]const u8{ file_path, entry.name });
+                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
@@ -750,9 +736,9 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             return;
         },
     };
-    defer fmt.loop.allocator.free(source_code);
+    defer fmt.allocator.free(source_code);
 
-    const tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
+    const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
         fmt.any_error = true;
         return;
@@ -761,8 +747,8 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, tree, file_path);
-        defer fmt.loop.allocator.destroy(msg);
+        const msg = try errmsg.Msg.createFromParseError(fmt.allocator, parse_error, tree, file_path);
+        defer fmt.allocator.destroy(msg);
 
         try msg.printToFile(stderr_file, fmt.color);
     }
@@ -772,17 +758,17 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, tree);
+        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             fmt.any_error = true;
         }
     } else {
         // TODO make this evented
-        const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
+        const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), tree);
+        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();

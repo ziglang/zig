@@ -79,7 +79,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         .builder = builder,
         .dibuilder = dibuilder,
         .context = context,
-        .lock = event.Lock.init(comp.loop),
+        .lock = event.Lock.init(),
         .arena = &code.arena.allocator,
     };
 

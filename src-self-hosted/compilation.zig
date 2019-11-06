@@ -35,9 +35,9 @@ const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
 /// Data that is local to the event loop.
 pub const ZigCompiler = struct {
-    loop: *event.Loop,
     llvm_handle_pool: std.atomic.Stack(*llvm.Context),
     lld_lock: event.Lock,
+    allocator: *Allocator,
 
     /// TODO pool these so that it doesn't have to lock
     prng: event.Locked(std.rand.DefaultPrng),
@@ -46,7 +46,7 @@ pub const ZigCompiler = struct {
 
     var lazy_init_targets = std.lazyInit(void);
 
-    pub fn init(loop: *event.Loop) !ZigCompiler {
+    pub fn init(allocator: *Allocator) !ZigCompiler {
         lazy_init_targets.get() orelse {
             Target.initializeAll();
             lazy_init_targets.resolve();
@@ -57,11 +57,11 @@ pub const ZigCompiler = struct {
         const seed = mem.readIntNative(u64, &seed_bytes);
 
         return ZigCompiler{
-            .loop = loop,
-            .lld_lock = event.Lock.init(loop),
+            .allocator = allocator,
+            .lld_lock = event.Lock.init(),
             .llvm_handle_pool = std.atomic.Stack(*llvm.Context).init(),
-            .prng = event.Locked(std.rand.DefaultPrng).init(loop, std.rand.DefaultPrng.init(seed)),
-            .native_libc = event.Future(LibCInstallation).init(loop),
+            .prng = event.Locked(std.rand.DefaultPrng).init(std.rand.DefaultPrng.init(seed)),
+            .native_libc = event.Future(LibCInstallation).init(),
         };
     }
 
@@ -70,7 +70,7 @@ pub const ZigCompiler = struct {
         self.lld_lock.deinit();
         while (self.llvm_handle_pool.pop()) |node| {
             llvm.ContextDispose(node.data);
-            self.loop.allocator.destroy(node);
+            self.allocator.destroy(node);
         }
     }
 
@@ -82,19 +82,19 @@ pub const ZigCompiler = struct {
         const context_ref = llvm.ContextCreate() orelse return error.OutOfMemory;
         errdefer llvm.ContextDispose(context_ref);
 
-        const node = try self.loop.allocator.create(std.atomic.Stack(*llvm.Context).Node);
+        const node = try self.allocator.create(std.atomic.Stack(*llvm.Context).Node);
         node.* = std.atomic.Stack(*llvm.Context).Node{
             .next = undefined,
             .data = context_ref,
         };
-        errdefer self.loop.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         return LlvmHandle{ .node = node };
     }
 
     pub async fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
         if (self.native_libc.start()) |ptr| return ptr;
-        try self.native_libc.data.findNative(self.loop);
+        try self.native_libc.data.findNative(self.allocator);
         self.native_libc.resolve();
         return &self.native_libc.data;
     }
@@ -122,7 +122,6 @@ pub const LlvmHandle = struct {
 
 pub const Compilation = struct {
     zig_compiler: *ZigCompiler,
-    loop: *event.Loop,
     name: Buffer,
     llvm_triple: Buffer,
     root_src_path: ?[]const u8,
@@ -228,7 +227,7 @@ pub const Compilation = struct {
     deinit_group: event.Group(void),
 
     // destroy_frame: @Frame(createAsync),
-    main_loop_frame: @Frame(Compilation.mainLoop),
+    // main_loop_frame: @Frame(Compilation.mainLoop),
     main_loop_future: event.Future(void),
 
     have_err_ret_tracing: bool,
@@ -348,7 +347,7 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        const frame = async createAsync(
+        var frame = async createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -359,7 +358,7 @@ pub const Compilation = struct {
             is_static,
             zig_lib_dir,
         );
-        return optional_comp orelse await frame;
+        return optional_comp orelse if (await frame) |_| unreachable else |err| err;
     }
 
     async fn createAsync(
@@ -374,10 +373,9 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !void {
 
-        const loop = zig_compiler.loop;
+        const allocator = zig_compiler.allocator;
         var comp = Compilation{
-            .loop = loop,
-            .arena_allocator = std.heap.ArenaAllocator.init(loop.allocator),
+            .arena_allocator = std.heap.ArenaAllocator.init(allocator),
             .zig_compiler = zig_compiler,
             .events = undefined,
             .root_src_path = root_src_path,
@@ -387,10 +385,10 @@ pub const Compilation = struct {
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
-            .tmp_dir = event.Future(BuildError![]u8).init(loop),
-            .destroy_frame = @frame(),
-            .main_loop_frame = undefined,
-            .main_loop_future = event.Future(void).init(loop),
+            .tmp_dir = event.Future(BuildError![]u8).init(),
+            // .destroy_frame = @frame(),
+            // .main_loop_frame = undefined,
+            .main_loop_future = event.Future(void).init(),
 
             .name = undefined,
             .llvm_triple = undefined,
@@ -419,7 +417,7 @@ pub const Compilation = struct {
             .rpath_list = [_][]const u8{},
             .assembly_files = [_][]const u8{},
             .link_objects = [_][]const u8{},
-            .fn_link_set = event.Locked(FnLinkSet).init(loop, FnLinkSet.init()),
+            .fn_link_set = event.Locked(FnLinkSet).init(FnLinkSet.init()),
             .windows_subsystem_windows = false,
             .windows_subsystem_console = false,
             .link_libs_list = undefined,
@@ -431,14 +429,14 @@ pub const Compilation = struct {
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
             .link_out_file = null,
-            .exported_symbol_names = event.Locked(Decl.Table).init(loop, Decl.Table.init(loop.allocator)),
-            .prelink_group = event.Group(BuildError!void).init(loop),
-            .deinit_group = event.Group(void).init(loop),
-            .compile_errors = event.Locked(CompileErrList).init(loop, CompileErrList.init(loop.allocator)),
-            .int_type_table = event.Locked(IntTypeTable).init(loop, IntTypeTable.init(loop.allocator)),
-            .array_type_table = event.Locked(ArrayTypeTable).init(loop, ArrayTypeTable.init(loop.allocator)),
-            .ptr_type_table = event.Locked(PtrTypeTable).init(loop, PtrTypeTable.init(loop.allocator)),
-            .fn_type_table = event.Locked(FnTypeTable).init(loop, FnTypeTable.init(loop.allocator)),
+            .exported_symbol_names = event.Locked(Decl.Table).init(Decl.Table.init(allocator)),
+            .prelink_group = event.Group(BuildError!void).init(allocator),
+            .deinit_group = event.Group(void).init(allocator),
+            .compile_errors = event.Locked(CompileErrList).init(CompileErrList.init(allocator)),
+            .int_type_table = event.Locked(IntTypeTable).init(IntTypeTable.init(allocator)),
+            .array_type_table = event.Locked(ArrayTypeTable).init(ArrayTypeTable.init(allocator)),
+            .ptr_type_table = event.Locked(PtrTypeTable).init(PtrTypeTable.init(allocator)),
+            .fn_type_table = event.Locked(FnTypeTable).init(FnTypeTable.init(allocator)),
             .c_int_types = undefined,
 
             .meta_type = undefined,
@@ -519,8 +517,8 @@ pub const Compilation = struct {
         comp.target_layout_str = llvm.CopyStringRepOfTargetData(comp.target_data_ref) orelse return error.OutOfMemory;
         defer llvm.DisposeMessage(comp.target_layout_str);
 
-        comp.events = try event.Channel(Event).create(comp.loop, 0);
-        defer comp.events.destroy();
+        comp.events.init([0]Event{});
+        defer comp.events.deinit();
 
         if (root_src_path) |root_src| {
             const dirname = std.fs.path.dirname(root_src) orelse ".";
@@ -533,13 +531,13 @@ pub const Compilation = struct {
             comp.root_package = try Package.create(comp.arena(), ".", "");
         }
 
-        comp.fs_watch = try fs.Watch(*Scope.Root).create(loop, 16);
+        comp.fs_watch = try fs.Watch(*Scope.Root).create(16);
         defer comp.fs_watch.destroy();
 
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
 
-        comp.main_loop_frame = async comp.mainLoop() catch unreachable;
+        // comp.main_loop_frame = async comp.mainLoop();
         // Set this to indicate that initialization completed successfully.
         // from here on out we must not return an error.
         // This must occur before the first suspend/await.
@@ -552,7 +550,7 @@ pub const Compilation = struct {
 
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
             // TODO evented I/O?
-            std.fs.deleteTree(comp.arena(), tmp_dir) catch {};
+            std.fs.deleteTree(tmp_dir) catch {};
         } else |_| {};
     }
 
@@ -601,7 +599,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
                 },
                 .id = builtin.TypeId.Type,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
             .value = undefined,
         };
@@ -619,7 +617,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Void,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
         };
         assert((try comp.primitive_type_table.put(comp.void_type.base.name, &comp.void_type.base)) == null);
@@ -634,7 +632,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.NoReturn,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
         };
         assert((try comp.primitive_type_table.put(comp.noreturn_type.base.name, &comp.noreturn_type.base)) == null);
@@ -649,7 +647,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.ComptimeInt,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
         };
         assert((try comp.primitive_type_table.put(comp.comptime_int_type.base.name, &comp.comptime_int_type.base)) == null);
@@ -664,7 +662,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Bool,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
         };
         assert((try comp.primitive_type_table.put(comp.bool_type.base.name, &comp.bool_type.base)) == null);
@@ -718,7 +716,7 @@ pub const Compilation = struct {
                         .ref_count = std.atomic.Int(usize).init(1),
                     },
                     .id = builtin.TypeId.Int,
-                    .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                    .abi_alignment = Type.AbiAlignment.init(),
                 },
                 .key = Type.Int.Key{
                     .is_signed = cint.is_signed,
@@ -739,7 +737,7 @@ pub const Compilation = struct {
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
                 .id = builtin.TypeId.Int,
-                .abi_alignment = Type.AbiAlignment.init(comp.loop),
+                .abi_alignment = Type.AbiAlignment.init(),
             },
             .key = Type.Int.Key{
                 .is_signed = false,
@@ -751,8 +749,8 @@ pub const Compilation = struct {
     }
 
     pub fn destroy(self: *Compilation) void {
-        await self.main_loop_frame;
-        resume self.destroy_frame;
+        // await self.main_loop_frame;
+        // resume self.destroy_frame;
     }
 
     fn start(self: *Compilation) void {
@@ -794,7 +792,7 @@ pub const Compilation = struct {
             }
 
             // First, get an item from the watch channel, waiting on the channel.
-            var group = event.Group(BuildError!void).init(self.loop);
+            var group = event.Group(BuildError!void).init(self.gpa());
             {
                 const ev = (self.fs_watch.channel.get()) catch |err| {
                     build_result = err;
@@ -826,7 +824,6 @@ pub const Compilation = struct {
     async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) !void {
         const tree_scope = blk: {
             const source_code = fs.readFile(
-                self.loop,
                 root_scope.realpath,
                 max_src_size,
             ) catch |err| {
@@ -858,10 +855,10 @@ pub const Compilation = struct {
         const locked_table = root_scope.decls.table.acquireWrite();
         defer locked_table.release();
 
-        var decl_group = event.Group(BuildError!void).init(self.loop);
+        var decl_group = event.Group(BuildError!void).init(self.gpa());
         defer decl_group.deinit();
 
-        try await try async self.rebuildChangedDecls(
+        try self.rebuildChangedDecls(
             &decl_group,
             locked_table.value,
             root_scope.decls,
@@ -935,7 +932,7 @@ pub const Compilation = struct {
                                 .id = Decl.Id.Fn,
                                 .name = name,
                                 .visib = parseVisibToken(tree_scope.tree, fn_proto.visib_token),
-                                .resolution = event.Future(BuildError!void).init(self.loop),
+                                .resolution = event.Future(BuildError!void).init(),
                                 .parent_scope = &decl_scope.base,
                                 .tree_scope = tree_scope,
                             },
@@ -975,8 +972,8 @@ pub const Compilation = struct {
             };
             defer root_scope.base.deref(self);
 
-            assert((try await try async self.fs_watch.addFile(root_scope.realpath, root_scope)) == null);
-            try await try async self.rebuildFile(root_scope);
+            assert((try self.fs_watch.addFile(root_scope.realpath, root_scope)) == null);
+            try self.rebuildFile(root_scope);
         }
     }
 
@@ -1039,7 +1036,7 @@ pub const Compilation = struct {
         tree_scope: *Scope.AstTree,
         scope: *Scope,
         comptime_node: *ast.Node.Comptime,
-    ) !void {
+    ) BuildError!void {
         const void_type = Type.Void.get(comp);
         defer void_type.base.base.deref(comp);
 
@@ -1062,7 +1059,7 @@ pub const Compilation = struct {
         self: *Compilation,
         decl: *Decl,
         locked_table: *Decl.Table,
-    ) !void {
+    ) BuildError!void {
         const is_export = decl.isExported(decl.tree_scope.tree);
 
         if (is_export) {
@@ -1166,14 +1163,14 @@ pub const Compilation = struct {
 
     /// cancels itself so no need to await or cancel the promise.
     async fn startFindingNativeLibC(self: *Compilation) void {
-        self.loop.yield();
+        std.event.Loop.instance.?.yield();
         // we don't care if it fails, we're just trying to kick off the future resolution
         _ = (self.zig_compiler.getNativeLibC()) catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
     fn gpa(self: Compilation) *mem.Allocator {
-        return self.loop.allocator;
+        return self.zig_compiler.allocator;
     }
 
     /// Arena Allocator. Automatically freed when the Compilation is destroyed.

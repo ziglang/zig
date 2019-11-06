@@ -178,7 +178,7 @@ pub const Type = struct {
             },
             .id = id,
             .name = name,
-            .abi_alignment = AbiAlignment.init(comp.loop),
+            .abi_alignment = AbiAlignment.init(),
         };
     }
 
