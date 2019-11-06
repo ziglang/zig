@@ -81,7 +81,7 @@ static AstNode *ast_parse_for_type_expr(ParseContext *pc);
 static AstNode *ast_parse_while_type_expr(ParseContext *pc);
 static AstNode *ast_parse_switch_expr(ParseContext *pc);
 static AstNode *ast_parse_asm_expr(ParseContext *pc);
-static AstNode *ast_parse_enum_lit(ParseContext *pc);
+static AstNode *ast_parse_anon_lit(ParseContext *pc);
 static AstNode *ast_parse_asm_output(ParseContext *pc);
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc);
 static AstNode *ast_parse_asm_input(ParseContext *pc);
@@ -1600,9 +1600,9 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (container_decl != nullptr)
         return container_decl;
 
-    AstNode *enum_lit = ast_parse_enum_lit(pc);
-    if (enum_lit != nullptr)
-        return enum_lit;
+    AstNode *anon_lit = ast_parse_anon_lit(pc);
+    if (anon_lit != nullptr)
+        return anon_lit;
 
     AstNode *error_set_decl = ast_parse_error_set_decl(pc);
     if (error_set_decl != nullptr)
@@ -1876,16 +1876,22 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
     return res;
 }
 
-static AstNode *ast_parse_enum_lit(ParseContext *pc) {
+static AstNode *ast_parse_anon_lit(ParseContext *pc) {
     Token *period = eat_token_if(pc, TokenIdDot);
     if (period == nullptr)
         return nullptr;
 
-    Token *identifier = expect_token(pc, TokenIdSymbol);
-    AstNode *res = ast_create_node(pc, NodeTypeEnumLiteral, period);
-    res->data.enum_literal.period = period;
-    res->data.enum_literal.identifier = identifier;
-    return res;
+    // anon enum literal
+    Token *identifier = eat_token_if(pc, TokenIdSymbol);
+    if (identifier != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeEnumLiteral, period);
+        res->data.enum_literal.period = period;
+        res->data.enum_literal.identifier = identifier;
+        return res;
+    }
+
+    // anon container literal
+    return ast_parse_init_list(pc);
 }
 
 // AsmOutput <- COLON AsmOutputList AsmInput?
