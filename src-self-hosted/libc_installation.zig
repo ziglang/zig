@@ -1,7 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const event = std.event;
-const Target = @import("target.zig").Target;
+const target = @import("target.zig");
+const Target = target.Target;
 const c = @import("c.zig");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
@@ -137,7 +138,7 @@ pub const LibCInstallation = struct {
             self.static_lib_dir orelse "",
             self.msvc_lib_dir orelse "",
             self.kernel32_lib_dir orelse "",
-            self.dynamic_linker_path orelse Target(Target.Native).getDynamicLinkerPath(),
+            self.dynamic_linker_path orelse target.getDynamicLinkerPath(Target(Target.Native)),
         );
     }
 

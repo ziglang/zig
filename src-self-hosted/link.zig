@@ -4,7 +4,7 @@ const c = @import("c.zig");
 const builtin = @import("builtin");
 const ObjectFormat = builtin.ObjectFormat;
 const Compilation = @import("compilation.zig").Compilation;
-const Target = @import("target.zig").Target;
+const Target = std.Target;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const assert = std.debug.assert;
 

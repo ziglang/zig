@@ -18,7 +18,7 @@ const Args = arg.Args;
 const Flag = arg.Flag;
 const ZigCompiler = @import("compilation.zig").ZigCompiler;
 const Compilation = @import("compilation.zig").Compilation;
-const Target = @import("target.zig").Target;
+const Target = std.Target;
 const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 

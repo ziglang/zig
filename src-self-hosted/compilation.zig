@@ -6,7 +6,7 @@ const Buffer = std.Buffer;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
 const builtin = @import("builtin");
-const Target = @import("target.zig").Target;
+const Target = std.Target;
 const warn = std.debug.warn;
 const Token = std.zig.Token;
 const ArrayList = std.ArrayList;
@@ -48,7 +48,7 @@ pub const ZigCompiler = struct {
 
     pub fn init(allocator: *Allocator) !ZigCompiler {
         lazy_init_targets.get() orelse {
-            Target.initializeAll();
+            llvm.initializeAllTargets();
             lazy_init_targets.resolve();
         };
 
@@ -476,8 +476,8 @@ pub const Compilation = struct {
         }
 
         comp.name = try Buffer.init(comp.arena(), name);
-        comp.llvm_triple = try target.getTriple(comp.arena());
-        comp.llvm_target = try Target.llvmTargetFromTriple(comp.llvm_triple);
+        comp.llvm_triple = try llvm.getTriple(comp.arena(), target);
+        comp.llvm_target = try llvm.targetFromTriple(comp.llvm_triple);
         comp.zig_std_dir = try std.fs.path.join(comp.arena(), [_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
@@ -720,7 +720,7 @@ pub const Compilation = struct {
                 },
                 .key = Type.Int.Key{
                     .is_signed = cint.is_signed,
-                    .bit_count = comp.target.cIntTypeSizeInBits(cint.id),
+                    .bit_count = cint.sizeInBits(comp.target),
                 },
                 .garbage_node = undefined,
             };

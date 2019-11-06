@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const c = @import("c.zig");
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 // we wrap the c module for 3 reasons:
 // 1. to avoid accidentally calling the non-thread-safe functions
@@ -290,3 +291,43 @@ pub const BuildCall = ZigLLVMBuildCall;
 extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: c_uint, fn_inline: FnInline, Name: [*]const u8) ?*Value;
 
 pub const PrivateLinkage = c.LLVMLinkage.LLVMPrivateLinkage;
+
+pub fn targetFromTriple(triple: std.Buffer) !*Target {
+    var result: *Target = undefined;
+    var err_msg: [*]u8 = undefined;
+    if (GetTargetFromTriple(triple.ptr(), &result, &err_msg) != 0) {
+        std.debug.warn("triple: {s} error: {s}\n", triple.ptr(), err_msg);
+        return error.UnsupportedTarget;
+    }
+    return result;
+}
+
+pub fn initializeAllTargets() void {
+    InitializeAllTargets();
+    InitializeAllTargetInfos();
+    InitializeAllTargetMCs();
+    InitializeAllAsmPrinters();
+    InitializeAllAsmParsers();
+}
+
+pub fn getTriple(allocator: *std.mem.Allocator, self: Target) !std.Buffer {
+    var result = try std.Buffer.initSize(allocator, 0);
+    errdefer result.deinit();
+
+    // LLVM WebAssembly output support requires the target to be activated at
+    // build type with -DCMAKE_LLVM_EXPIERMENTAL_TARGETS_TO_BUILD=WebAssembly.
+    //
+    // LLVM determines the output format based on the abi suffix,
+    // defaulting to an object based on the architecture. The default format in
+    // LLVM 6 sets the wasm arch output incorrectly to ELF. We need to
+    // explicitly set this ourself in order for it to work.
+    //
+    // This is fixed in LLVM 7 and you will be able to get wasm output by
+    // using the target triple `wasm32-unknown-unknown-unknown`.
+    const env_name = if (self.isWasm()) "wasm" else @tagName(self.getAbi());
+
+    var out = &std.io.BufferOutStream.init(&result).stream;
+    try out.print("{}-unknown-{}-{}", @tagName(self.getArch()), @tagName(self.getOs()), env_name);
+
+    return result;
+}
