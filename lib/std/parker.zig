@@ -340,6 +340,9 @@ const PosixParker = struct {
 };
 
 test "std.ThreadParker" {
+    if (builtin.single_threaded)
+        return error.SkipZigTest;
+        
     const Context = struct {
         parker: ThreadParker,
         data: u32,
