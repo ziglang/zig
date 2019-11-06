@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
 const Lock = std.event.Lock;
-const Loop = std.event.Loop;
 
 /// This is a value that starts out unavailable, until resolve() is called
 /// While it is unavailable, functions suspend when they try to get() it,
@@ -23,9 +22,9 @@ pub fn Future(comptime T: type) type {
         const Self = @This();
         const Queue = std.atomic.Queue(anyframe);
 
-        pub fn init(loop: *Loop) Self {
+        pub fn init() Self {
             return Self{
-                .lock = Lock.initLocked(loop),
+                .lock = Lock.initLocked(),
                 .available = 0,
                 .data = undefined,
             };
@@ -90,17 +89,11 @@ test "std.event.Future" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded();
-    defer loop.deinit();
-
-    const handle = async testFuture(&loop);
-
-    loop.run();
+    const handle = async testFuture();
 }
 
-fn testFuture(loop: *Loop) void {
-    var future = Future(i32).init(loop);
+fn testFuture() void {
+    var future = Future(i32).init();
 
     var a = async waitOnFuture(&future);
     var b = async waitOnFuture(&future);
