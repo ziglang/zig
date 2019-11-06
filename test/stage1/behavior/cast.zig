@@ -559,3 +559,9 @@ test "peer cast *[0]T to []const T" {
     var y = if (b) &[0]u8{} else buf;
     expect(mem.eql(u8, "abcde", y));
 }
+
+var global_array: [4]u8 = undefined;
+test "cast from array reference to fn" {
+    const f = @ptrCast(extern fn () void, &global_array);
+    expect(@ptrToInt(f) == @ptrToInt(&global_array));
+}
