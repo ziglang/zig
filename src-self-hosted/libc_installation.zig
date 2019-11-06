@@ -178,7 +178,7 @@ pub const LibCInstallation = struct {
             },
             else => @compileError("unimplemented: find libc for this OS"),
         }
-        return await (async group.wait() catch unreachable);
+        return group.wait();
     }
 
     async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
@@ -301,11 +301,11 @@ pub const LibCInstallation = struct {
     }
 
     async fn findNativeLibDirLinux(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        self.lib_dir = try await (async ccPrintFileName(loop, "crt1.o", true) catch unreachable);
+        self.lib_dir = try ccPrintFileName(loop, "crt1.o", true);
     }
 
     async fn findNativeStaticLibDir(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        self.static_lib_dir = try await (async ccPrintFileName(loop, "crtbegin.o", true) catch unreachable);
+        self.static_lib_dir = try ccPrintFileName(loop, "crtbegin.o", true);
     }
 
     async fn findNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop) FindError!void {
@@ -324,7 +324,7 @@ pub const LibCInstallation = struct {
         for (dyn_tests) |*dyn_test| {
             try group.call(testNativeDynamicLinker, self, loop, dyn_test);
         }
-        try await (async group.wait() catch unreachable);
+        try group.wait();
         for (dyn_tests) |*dyn_test| {
             if (dyn_test.result) |result| {
                 self.dynamic_linker_path = result;
@@ -339,7 +339,7 @@ pub const LibCInstallation = struct {
     };
 
     async fn testNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop, dyn_test: *DynTest) FindError!void {
-        if (await (async ccPrintFileName(loop, dyn_test.name, false) catch unreachable)) |result| {
+        if (ccPrintFileName(loop, dyn_test.name, false)) |result| {
             dyn_test.result = result;
             return;
         } else |err| switch (err) {
@@ -398,7 +398,7 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     const argv = [_][]const u8{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
-    await (async loop.yield() catch unreachable);
+    loop.yield();
     const errorable_result = std.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
     const exec_result = if (std.debug.runtime_safety) blk: {
         break :blk errorable_result catch unreachable;

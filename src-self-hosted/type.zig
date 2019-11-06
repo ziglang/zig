@@ -181,7 +181,7 @@ pub const Type = struct {
     /// If you happen to have an llvm context handy, use getAbiAlignmentInContext instead.
     /// Otherwise, this one will grab one from the pool and then release it.
     pub async fn getAbiAlignment(base: *Type, comp: *Compilation) !u32 {
-        if (await (async base.abi_alignment.start() catch unreachable)) |ptr| return ptr.*;
+        if (base.abi_alignment.start()) |ptr| return ptr.*;
 
         {
             const held = try comp.zig_compiler.getAnyLlvmContext();
@@ -189,7 +189,7 @@ pub const Type = struct {
 
             const llvm_context = held.node.data;
 
-            base.abi_alignment.data = await (async base.resolveAbiAlignment(comp, llvm_context) catch unreachable);
+            base.abi_alignment.data = base.resolveAbiAlignment(comp, llvm_context);
         }
         base.abi_alignment.resolve();
         return base.abi_alignment.data;
@@ -197,9 +197,9 @@ pub const Type = struct {
 
     /// If you have an llvm conext handy, you can use it here.
     pub async fn getAbiAlignmentInContext(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
-        if (await (async base.abi_alignment.start() catch unreachable)) |ptr| return ptr.*;
+        if (base.abi_alignment.start()) |ptr| return ptr.*;
 
-        base.abi_alignment.data = await (async base.resolveAbiAlignment(comp, llvm_context) catch unreachable);
+        base.abi_alignment.data = base.resolveAbiAlignment(comp, llvm_context);
         base.abi_alignment.resolve();
         return base.abi_alignment.data;
     }
@@ -401,7 +401,7 @@ pub const Type = struct {
         /// takes ownership of key.Normal.params on success
         pub async fn get(comp: *Compilation, key: Key) !*Fn {
             {
-                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                const held = comp.fn_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -430,15 +430,8 @@ pub const Type = struct {
             switch (key.data) {
                 Kind.Generic => |generic| {
                     self.non_key = NonKey{ .Generic = {} };
-                    switch (generic.cc) {
-                        CallingConvention.Async => |async_allocator_type| {
-                            try name_stream.print("async<{}> ", async_allocator_type.name);
-                        },
-                        else => {
-                            const cc_str = ccFnTypeStr(generic.cc);
-                            try name_stream.write(cc_str);
-                        },
-                    }
+                    const cc_str = ccFnTypeStr(generic.cc);
+                    try name_stream.write(cc_str);
                     try name_stream.write("fn(");
                     var param_i: usize = 0;
                     while (param_i < generic.param_count) : (param_i += 1) {
@@ -477,7 +470,7 @@ pub const Type = struct {
             self.base.init(comp, Id.Fn, name_buf.toOwnedSlice());
 
             {
-                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                const held = comp.fn_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -606,7 +599,7 @@ pub const Type = struct {
 
         pub async fn get(comp: *Compilation, key: Key) !*Int {
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -630,7 +623,7 @@ pub const Type = struct {
             self.base.init(comp, Id.Int, name);
 
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -648,7 +641,7 @@ pub const Type = struct {
 
         pub async fn gcDestroy(self: *Int, comp: *Compilation) void {
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 _ = held.value.remove(&self.key).?;
@@ -742,7 +735,7 @@ pub const Type = struct {
 
         pub async fn gcDestroy(self: *Pointer, comp: *Compilation) void {
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 _ = held.value.remove(&self.key).?;
@@ -753,7 +746,7 @@ pub const Type = struct {
 
         pub async fn getAlignAsInt(self: *Pointer, comp: *Compilation) u32 {
             switch (self.key.alignment) {
-                Align.Abi => return await (async self.key.child_type.getAbiAlignment(comp) catch unreachable),
+                Align.Abi => return self.key.child_type.getAbiAlignment(comp),
                 Align.Override => |alignment| return alignment,
             }
         }
@@ -766,14 +759,14 @@ pub const Type = struct {
             switch (key.alignment) {
                 Align.Abi => {},
                 Align.Override => |alignment| {
-                    const abi_align = try await (async key.child_type.getAbiAlignment(comp) catch unreachable);
+                    const abi_align = try key.child_type.getAbiAlignment(comp);
                     if (abi_align == alignment) {
                         normal_key.alignment = Align.Abi;
                     }
                 },
             }
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&normal_key)) |entry| {
@@ -828,7 +821,7 @@ pub const Type = struct {
             self.base.init(comp, Id.Pointer, name);
 
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -873,7 +866,7 @@ pub const Type = struct {
             errdefer key.elem_type.base.deref(comp);
 
             {
-                const held = await (async comp.array_type_table.acquire() catch unreachable);
+                const held = comp.array_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -896,7 +889,7 @@ pub const Type = struct {
             self.base.init(comp, Id.Array, name);
 
             {
-                const held = await (async comp.array_type_table.acquire() catch unreachable);
+                const held = comp.array_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);

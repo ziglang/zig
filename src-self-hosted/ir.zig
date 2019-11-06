@@ -116,16 +116,16 @@ pub const Inst = struct {
             Id.Return => return @fieldParentPtr(Return, "base", base).analyze(ira),
             Id.Const => return @fieldParentPtr(Const, "base", base).analyze(ira),
             Id.Call => return @fieldParentPtr(Call, "base", base).analyze(ira),
-            Id.DeclRef => return await (async @fieldParentPtr(DeclRef, "base", base).analyze(ira) catch unreachable),
-            Id.Ref => return await (async @fieldParentPtr(Ref, "base", base).analyze(ira) catch unreachable),
+            Id.DeclRef => return @fieldParentPtr(DeclRef, "base", base).analyze(ira),
+            Id.Ref => return @fieldParentPtr(Ref, "base", base).analyze(ira),
             Id.DeclVar => return @fieldParentPtr(DeclVar, "base", base).analyze(ira),
             Id.CheckVoidStmt => return @fieldParentPtr(CheckVoidStmt, "base", base).analyze(ira),
             Id.Phi => return @fieldParentPtr(Phi, "base", base).analyze(ira),
             Id.Br => return @fieldParentPtr(Br, "base", base).analyze(ira),
             Id.AddImplicitReturnType => return @fieldParentPtr(AddImplicitReturnType, "base", base).analyze(ira),
-            Id.PtrType => return await (async @fieldParentPtr(PtrType, "base", base).analyze(ira) catch unreachable),
-            Id.VarPtr => return await (async @fieldParentPtr(VarPtr, "base", base).analyze(ira) catch unreachable),
-            Id.LoadPtr => return await (async @fieldParentPtr(LoadPtr, "base", base).analyze(ira) catch unreachable),
+            Id.PtrType => return @fieldParentPtr(PtrType, "base", base).analyze(ira),
+            Id.VarPtr => return @fieldParentPtr(VarPtr, "base", base).analyze(ira),
+            Id.LoadPtr => return @fieldParentPtr(LoadPtr, "base", base).analyze(ira),
         }
     }
 
@@ -441,13 +441,13 @@ pub const Inst = struct {
                 .volatility = self.params.volatility,
             });
             const elem_type = target.getKnownType();
-            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+            const ptr_type = try Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
                 .child_type = elem_type,
                 .mut = self.params.mut,
                 .vol = self.params.volatility,
                 .size = Type.Pointer.Size.One,
                 .alignment = Type.Pointer.Align.Abi,
-            }) catch unreachable);
+            });
             // TODO: potentially set the hint that this is a stack pointer. But it might not be - this
             // could be a ref of a global, for example
             new_inst.val = IrVal{ .KnownType = &ptr_type.base };
@@ -474,7 +474,7 @@ pub const Inst = struct {
         }
 
         pub async fn analyze(self: *const DeclRef, ira: *Analyze) !*Inst {
-            (await (async ira.irb.comp.resolveDecl(self.params.decl) catch unreachable)) catch |err| switch (err) {
+            (ira.irb.comp.resolveDecl(self.params.decl)) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => return error.SemanticAnalysisFailed,
             };
@@ -527,13 +527,13 @@ pub const Inst = struct {
                         self.base.span,
                         Inst.VarPtr.Params{ .var_scope = self.params.var_scope },
                     );
-                    const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+                    const ptr_type = try Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
                         .child_type = param.typ,
                         .mut = Type.Pointer.Mut.Const,
                         .vol = Type.Pointer.Vol.Non,
                         .size = Type.Pointer.Size.One,
                         .alignment = Type.Pointer.Align.Abi,
-                    }) catch unreachable);
+                    });
                     new_inst.val = IrVal{ .KnownType = &ptr_type.base };
                     return new_inst;
                 },
@@ -661,13 +661,13 @@ pub const Inst = struct {
             } else blk: {
                 break :blk Type.Pointer.Align{ .Abi = {} };
             };
-            const ptr_type = try await (async Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
+            const ptr_type = try Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
                 .child_type = child_type,
                 .mut = self.params.mut,
                 .vol = self.params.vol,
                 .size = self.params.size,
                 .alignment = alignment,
-            }) catch unreachable);
+            });
             ptr_type.base.base.deref(ira.irb.comp);
 
             return ira.irb.buildConstValue(self.base.scope, self.base.span, &ptr_type.base.base);
@@ -1101,7 +1101,7 @@ pub const Builder = struct {
                     ast.Node.PrefixOp.Op.NegationWrap => return error.Unimplemented,
                     ast.Node.PrefixOp.Op.Resume => return error.Unimplemented,
                     ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
-                        const inst = try await (async irb.genPtrType(prefix_op, ptr_info, scope) catch unreachable);
+                        const inst = try irb.genPtrType(prefix_op, ptr_info, scope);
                         return irb.lvalWrap(scope, inst, lval);
                     },
                     ast.Node.PrefixOp.Op.SliceType => |ptr_info| return error.Unimplemented,
@@ -1112,7 +1112,7 @@ pub const Builder = struct {
                 const suffix_op = @fieldParentPtr(ast.Node.SuffixOp, "base", node);
                 switch (suffix_op.op) {
                     @TagType(ast.Node.SuffixOp.Op).Call => |*call| {
-                        const inst = try await (async irb.genCall(suffix_op, call, scope) catch unreachable);
+                        const inst = try irb.genCall(suffix_op, call, scope);
                         return irb.lvalWrap(scope, inst, lval);
                     },
                     @TagType(ast.Node.SuffixOp.Op).ArrayAccess => |n| return error.Unimplemented,
@@ -1129,7 +1129,7 @@ pub const Builder = struct {
             ast.Node.Id.If => return error.Unimplemented,
             ast.Node.Id.ControlFlowExpression => {
                 const control_flow_expr = @fieldParentPtr(ast.Node.ControlFlowExpression, "base", node);
-                return await (async irb.genControlFlowExpr(control_flow_expr, scope, lval) catch unreachable);
+                return irb.genControlFlowExpr(control_flow_expr, scope, lval);
             },
             ast.Node.Id.Suspend => return error.Unimplemented,
             ast.Node.Id.VarType => return error.Unimplemented,
@@ -1143,7 +1143,7 @@ pub const Builder = struct {
             ast.Node.Id.FloatLiteral => return error.Unimplemented,
             ast.Node.Id.StringLiteral => {
                 const str_lit = @fieldParentPtr(ast.Node.StringLiteral, "base", node);
-                const inst = try await (async irb.genStrLit(str_lit, scope) catch unreachable);
+                const inst = try irb.genStrLit(str_lit, scope);
                 return irb.lvalWrap(scope, inst, lval);
             },
             ast.Node.Id.MultilineStringLiteral => return error.Unimplemented,
@@ -1154,11 +1154,11 @@ pub const Builder = struct {
             ast.Node.Id.Unreachable => return error.Unimplemented,
             ast.Node.Id.Identifier => {
                 const identifier = @fieldParentPtr(ast.Node.Identifier, "base", node);
-                return await (async irb.genIdentifier(identifier, scope, lval) catch unreachable);
+                return irb.genIdentifier(identifier, scope, lval);
             },
             ast.Node.Id.GroupedExpression => {
                 const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", node);
-                return await (async irb.genNode(grouped_expr.expr, scope, lval) catch unreachable);
+                return irb.genNode(grouped_expr.expr, scope, lval);
             },
             ast.Node.Id.BuiltinCall => return error.Unimplemented,
             ast.Node.Id.ErrorSetDecl => return error.Unimplemented,
@@ -1167,7 +1167,7 @@ pub const Builder = struct {
             ast.Node.Id.Comptime => return error.Unimplemented,
             ast.Node.Id.Block => {
                 const block = @fieldParentPtr(ast.Node.Block, "base", node);
-                const inst = try await (async irb.genBlock(block, scope) catch unreachable);
+                const inst = try irb.genBlock(block, scope);
                 return irb.lvalWrap(scope, inst, lval);
             },
             ast.Node.Id.DocComment => return error.Unimplemented,
@@ -1188,13 +1188,13 @@ pub const Builder = struct {
     }
 
     async fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
-        const fn_ref = try await (async irb.genNode(suffix_op.lhs, scope, LVal.None) catch unreachable);
+        const fn_ref = try irb.genNode(suffix_op.lhs, scope, LVal.None);
 
         const args = try irb.arena().alloc(*Inst, call.params.len);
         var it = call.params.iterator(0);
         var i: usize = 0;
         while (it.next()) |arg_node_ptr| : (i += 1) {
-            args[i] = try await (async irb.genNode(arg_node_ptr.*, scope, LVal.None) catch unreachable);
+            args[i] = try irb.genNode(arg_node_ptr.*, scope, LVal.None);
         }
 
         //bool is_async = node->data.fn_call_expr.is_async;
@@ -1239,7 +1239,7 @@ pub const Builder = struct {
         //} else {
         //    align_value = nullptr;
         //}
-        const child_type = try await (async irb.genNode(prefix_op.rhs, scope, LVal.None) catch unreachable);
+        const child_type = try irb.genNode(prefix_op.rhs, scope, LVal.None);
 
         //uint32_t bit_offset_start = 0;
         //if (node->data.pointer_type.bit_offset_start != nullptr) {
@@ -1366,23 +1366,23 @@ pub const Builder = struct {
             buf[buf.len - 1] = 0;
 
             // next make an array value
-            const array_val = try await (async Value.Array.createOwnedBuffer(irb.comp, buf) catch unreachable);
+            const array_val = try Value.Array.createOwnedBuffer(irb.comp, buf);
             buf_cleaned = true;
             defer array_val.base.deref(irb.comp);
 
             // then make a pointer value pointing at the first element
-            const ptr_val = try await (async Value.Ptr.createArrayElemPtr(
+            const ptr_val = try Value.Ptr.createArrayElemPtr(
                 irb.comp,
                 array_val,
                 Type.Pointer.Mut.Const,
                 Type.Pointer.Size.Many,
                 0,
-            ) catch unreachable);
+            );
             defer ptr_val.base.deref(irb.comp);
 
             return irb.buildConstValue(scope, src_span, &ptr_val.base);
         } else {
-            const array_val = try await (async Value.Array.createOwnedBuffer(irb.comp, buf) catch unreachable);
+            const array_val = try Value.Array.createOwnedBuffer(irb.comp, buf);
             buf_cleaned = true;
             defer array_val.base.deref(irb.comp);
 
@@ -1438,7 +1438,7 @@ pub const Builder = struct {
                 child_scope = &defer_child_scope.base;
                 continue;
             }
-            const statement_value = try await (async irb.genNode(statement_node, child_scope, LVal.None) catch unreachable);
+            const statement_value = try irb.genNode(statement_node, child_scope, LVal.None);
 
             is_continuation_unreachable = statement_value.isNoReturn();
             if (is_continuation_unreachable) {
@@ -1481,7 +1481,7 @@ pub const Builder = struct {
             try block_scope.incoming_values.append(
                 try irb.buildConstVoid(parent_scope, Span.token(block.rbrace), true),
             );
-            _ = try await (async irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
+            _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
 
             _ = try irb.buildGen(Inst.Br, parent_scope, Span.token(block.rbrace), Inst.Br.Params{
                 .dest_block = block_scope.end_block,
@@ -1496,7 +1496,7 @@ pub const Builder = struct {
             });
         }
 
-        _ = try await (async irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
+        _ = try irb.genDefersForBlock(child_scope, outer_block_scope, Scope.Defer.Kind.ScopeExit);
         return irb.buildConstVoid(child_scope, Span.token(block.rbrace), true);
     }
 
@@ -1534,7 +1534,7 @@ pub const Builder = struct {
 
                 const outer_scope = irb.begin_scope.?;
                 const return_value = if (control_flow_expr.rhs) |rhs| blk: {
-                    break :blk try await (async irb.genNode(rhs, scope, LVal.None) catch unreachable);
+                    break :blk try irb.genNode(rhs, scope, LVal.None);
                 } else blk: {
                     break :blk try irb.buildConstVoid(scope, src_span, true);
                 };
@@ -1545,7 +1545,7 @@ pub const Builder = struct {
                     const err_block = try irb.createBasicBlock(scope, c"ErrRetErr");
                     const ok_block = try irb.createBasicBlock(scope, c"ErrRetOk");
                     if (!have_err_defers) {
-                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
                     }
 
                     const is_err = try irb.build(
@@ -1568,7 +1568,7 @@ pub const Builder = struct {
 
                     try irb.setCursorAtEndAndAppendBlock(err_block);
                     if (have_err_defers) {
-                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit) catch unreachable);
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ErrorExit);
                     }
                     if (irb.comp.have_err_ret_tracing and !irb.isCompTime(scope)) {
                         _ = try irb.build(Inst.SaveErrRetAddr, scope, src_span, Inst.SaveErrRetAddr.Params{});
@@ -1580,7 +1580,7 @@ pub const Builder = struct {
 
                     try irb.setCursorAtEndAndAppendBlock(ok_block);
                     if (have_err_defers) {
-                        _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
+                        _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
                     }
                     _ = try irb.build(Inst.Br, scope, src_span, Inst.Br.Params{
                         .dest_block = ret_stmt_block,
@@ -1590,7 +1590,7 @@ pub const Builder = struct {
                     try irb.setCursorAtEndAndAppendBlock(ret_stmt_block);
                     return irb.genAsyncReturn(scope, src_span, return_value, false);
                 } else {
-                    _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
+                    _ = try irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit);
                     return irb.genAsyncReturn(scope, src_span, return_value, false);
                 }
             },
@@ -1610,7 +1610,7 @@ pub const Builder = struct {
         //    return &const_instruction->base;
         //}
 
-        if (await (async irb.comp.getPrimitiveType(name) catch unreachable)) |result| {
+        if (irb.comp.getPrimitiveType(name)) |result| {
             if (result) |primitive_type| {
                 defer primitive_type.base.deref(irb.comp);
                 switch (lval) {
@@ -1628,7 +1628,7 @@ pub const Builder = struct {
             error.OutOfMemory => return error.OutOfMemory,
         }
 
-        switch (await (async irb.findIdent(scope, name) catch unreachable)) {
+        switch (irb.findIdent(scope, name)) {
             Ident.Decl => |decl| {
                 return irb.build(Inst.DeclRef, scope, src_span, Inst.DeclRef.Params{
                     .decl = decl,
@@ -1713,11 +1713,11 @@ pub const Builder = struct {
                     };
                     if (generate) {
                         const defer_expr_scope = defer_scope.defer_expr_scope;
-                        const instruction = try await (async irb.genNode(
+                        const instruction = try irb.genNode(
                             defer_expr_scope.expr_node,
                             &defer_expr_scope.base,
                             LVal.None,
-                        ) catch unreachable);
+                        );
                         if (instruction.isNoReturn()) {
                             is_noreturn = true;
                         } else {
@@ -1918,7 +1918,7 @@ pub const Builder = struct {
                 Scope.Id.Root => return Ident.NotFound,
                 Scope.Id.Decls => {
                     const decls = @fieldParentPtr(Scope.Decls, "base", s);
-                    const locked_table = await (async decls.table.acquireRead() catch unreachable);
+                    const locked_table = decls.table.acquireRead();
                     defer locked_table.release();
                     if (locked_table.value.get(name)) |entry| {
                         return Ident{ .Decl = entry.value };
@@ -2534,7 +2534,7 @@ pub async fn gen(
     entry_block.ref(&irb); // Entry block gets a reference because we enter it to begin.
     try irb.setCursorAtEndAndAppendBlock(entry_block);
 
-    const result = try await (async irb.genNode(body_node, scope, LVal.None) catch unreachable);
+    const result = try irb.genNode(body_node, scope, LVal.None);
     if (!result.isNoReturn()) {
         // no need for save_err_ret_addr because this cannot return error
         _ = try irb.genAsyncReturn(scope, Span.token(body_node.lastToken()), result, true);
@@ -2564,7 +2564,7 @@ pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type)
             continue;
         }
 
-        const return_inst = try await (async old_instruction.analyze(&ira) catch unreachable);
+        const return_inst = try old_instruction.analyze(&ira);
         assert(return_inst.val != IrVal.Unknown); // at least the type should be known at this point
         return_inst.linkToParent(old_instruction);
         // Note: if we ever modify the above to handle error.CompileError by continuing analysis,

@@ -68,13 +68,13 @@ pub const TestContext = struct {
 
     fn run(self: *TestContext) !void {
         const handle = try self.loop.call(waitForGroup, self);
-        defer cancel handle;
+        defer await handle;
         self.loop.run();
         return self.any_err;
     }
 
     async fn waitForGroup(self: *TestContext) void {
-        self.any_err = await (async self.group.wait() catch unreachable);
+        self.any_err = self.group.wait();
     }
 
     fn testCompileError(
@@ -158,7 +158,7 @@ pub const TestContext = struct {
         const exe_file_2 = try std.mem.dupe(allocator, u8, exe_file);
 
         defer comp.destroy();
-        const build_event = await (async comp.events.get() catch unreachable);
+        const build_event = comp.events.get();
 
         switch (build_event) {
             Compilation.Event.Ok => {
@@ -200,7 +200,7 @@ pub const TestContext = struct {
         text: []const u8,
     ) !void {
         defer comp.destroy();
-        const build_event = await (async comp.events.get() catch unreachable);
+        const build_event = comp.events.get();
 
         switch (build_event) {
             Compilation.Event.Ok => {

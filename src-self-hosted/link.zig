@@ -61,7 +61,7 @@ pub async fn link(comp: *Compilation) !void {
         ctx.libc = ctx.comp.override_libc orelse blk: {
             switch (comp.target) {
                 Target.Native => {
-                    break :blk (await (async comp.zig_compiler.getNativeLibC() catch unreachable)) catch return error.LibCRequiredButNotProvidedOrFound;
+                    break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
                 },
                 else => return error.LibCRequiredButNotProvidedOrFound,
             }
@@ -83,7 +83,7 @@ pub async fn link(comp: *Compilation) !void {
 
     {
         // LLD is not thread-safe, so we grab a global lock.
-        const held = await (async comp.zig_compiler.lld_lock.acquire() catch unreachable);
+        const held = comp.zig_compiler.lld_lock.acquire();
         defer held.release();
 
         // Not evented I/O. LLD does its own multithreading internally.

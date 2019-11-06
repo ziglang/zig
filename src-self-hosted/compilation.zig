@@ -93,8 +93,8 @@ pub const ZigCompiler = struct {
     }
 
     pub async fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
-        if (await (async self.native_libc.start() catch unreachable)) |ptr| return ptr;
-        try await (async self.native_libc.data.findNative(self.loop) catch unreachable);
+        if (self.native_libc.start()) |ptr| return ptr;
+        try self.native_libc.data.findNative(self.loop);
         self.native_libc.resolve();
         return &self.native_libc.data;
     }
@@ -227,8 +227,8 @@ pub const Compilation = struct {
     /// need to wait on this group before deinitializing
     deinit_group: event.Group(void),
 
-    destroy_handle: promise,
-    main_loop_handle: promise,
+    // destroy_frame: @Frame(createAsync),
+    main_loop_frame: @Frame(Compilation.mainLoop),
     main_loop_future: event.Future(void),
 
     have_err_ret_tracing: bool,
@@ -348,7 +348,7 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        const handle = try async<zig_compiler.loop.allocator> createAsync(
+        const frame = async createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -359,10 +359,7 @@ pub const Compilation = struct {
             is_static,
             zig_lib_dir,
         );
-        return optional_comp orelse if (getAwaitResult(
-            zig_compiler.loop.allocator,
-            handle,
-        )) |_| unreachable else |err| err;
+        return optional_comp orelse await frame;
     }
 
     async fn createAsync(
@@ -376,10 +373,6 @@ pub const Compilation = struct {
         is_static: bool,
         zig_lib_dir: []const u8,
     ) !void {
-        // workaround for https://github.com/ziglang/zig/issues/1194
-        suspend {
-            resume @handle();
-        }
 
         const loop = zig_compiler.loop;
         var comp = Compilation{
@@ -395,8 +388,8 @@ pub const Compilation = struct {
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
             .tmp_dir = event.Future(BuildError![]u8).init(loop),
-            .destroy_handle = @handle(),
-            .main_loop_handle = undefined,
+            .destroy_frame = @frame(),
+            .main_loop_frame = undefined,
             .main_loop_future = event.Future(void).init(loop),
 
             .name = undefined,
@@ -546,7 +539,7 @@ pub const Compilation = struct {
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
 
-        comp.main_loop_handle = async comp.mainLoop() catch unreachable;
+        comp.main_loop_frame = async comp.mainLoop() catch unreachable;
         // Set this to indicate that initialization completed successfully.
         // from here on out we must not return an error.
         // This must occur before the first suspend/await.
@@ -555,7 +548,7 @@ pub const Compilation = struct {
         suspend;
         // From here on is cleanup.
 
-        await (async comp.deinit_group.wait() catch unreachable);
+        comp.deinit_group.wait();
 
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
             // TODO evented I/O?
@@ -578,10 +571,10 @@ pub const Compilation = struct {
                         error.Overflow => return error.Overflow,
                         error.InvalidCharacter => unreachable, // we just checked the characters above
                     };
-                    const int_type = try await (async Type.Int.get(comp, Type.Int.Key{
+                    const int_type = try Type.Int.get(comp, Type.Int.Key{
                         .bit_count = bit_count,
                         .is_signed = is_signed,
-                    }) catch unreachable);
+                    });
                     errdefer int_type.base.base.deref();
                     return &int_type.base;
                 },
@@ -758,8 +751,8 @@ pub const Compilation = struct {
     }
 
     pub fn destroy(self: *Compilation) void {
-        cancel self.main_loop_handle;
-        resume self.destroy_handle;
+        await self.main_loop_frame;
+        resume self.destroy_frame;
     }
 
     fn start(self: *Compilation) void {
@@ -768,13 +761,13 @@ pub const Compilation = struct {
 
     async fn mainLoop(self: *Compilation) void {
         // wait until start() is called
-        _ = await (async self.main_loop_future.get() catch unreachable);
+        _ = self.main_loop_future.get();
 
-        var build_result = await (async self.initialCompile() catch unreachable);
+        var build_result = self.initialCompile();
 
         while (true) {
             const link_result = if (build_result) blk: {
-                break :blk await (async self.maybeLink() catch unreachable);
+                break :blk self.maybeLink();
             } else |err| err;
             // this makes a handy error return trace and stack trace in debug mode
             if (std.debug.runtime_safety) {
@@ -782,28 +775,28 @@ pub const Compilation = struct {
             }
 
             const compile_errors = blk: {
-                const held = await (async self.compile_errors.acquire() catch unreachable);
+                const held = self.compile_errors.acquire();
                 defer held.release();
                 break :blk held.value.toOwnedSlice();
             };
 
             if (link_result) |_| {
                 if (compile_errors.len == 0) {
-                    await (async self.events.put(Event.Ok) catch unreachable);
+                    self.events.put(Event.Ok);
                 } else {
-                    await (async self.events.put(Event{ .Fail = compile_errors }) catch unreachable);
+                    self.events.put(Event{ .Fail = compile_errors });
                 }
             } else |err| {
                 // if there's an error then the compile errors have dangling references
                 self.gpa().free(compile_errors);
 
-                await (async self.events.put(Event{ .Error = err }) catch unreachable);
+                self.events.put(Event{ .Error = err });
             }
 
             // First, get an item from the watch channel, waiting on the channel.
             var group = event.Group(BuildError!void).init(self.loop);
             {
-                const ev = (await (async self.fs_watch.channel.get() catch unreachable)) catch |err| {
+                const ev = (self.fs_watch.channel.get()) catch |err| {
                     build_result = err;
                     continue;
                 };
@@ -814,7 +807,7 @@ pub const Compilation = struct {
                 };
             }
             // Next, get all the items from the channel that are buffered up.
-            while (await (async self.fs_watch.channel.getOrNull() catch unreachable)) |ev_or_err| {
+            while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
                 if (ev_or_err) |ev| {
                     const root_scope = ev.data;
                     group.call(rebuildFile, self, root_scope) catch |err| {
@@ -826,17 +819,17 @@ pub const Compilation = struct {
                     continue;
                 }
             }
-            build_result = await (async group.wait() catch unreachable);
+            build_result = group.wait();
         }
     }
 
     async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) !void {
         const tree_scope = blk: {
-            const source_code = (await (async fs.readFile(
+            const source_code = fs.readFile(
                 self.loop,
                 root_scope.realpath,
                 max_src_size,
-            ) catch unreachable)) catch |err| {
+            ) catch |err| {
                 try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
                 return;
             };
@@ -856,13 +849,13 @@ pub const Compilation = struct {
             const msg = try Msg.createFromParseErrorAndScope(self, tree_scope, parse_error);
             errdefer msg.destroy();
 
-            try await (async self.addCompileErrorAsync(msg) catch unreachable);
+            try self.addCompileErrorAsync(msg);
         }
         if (tree_scope.tree.errors.len != 0) {
             return;
         }
 
-        const locked_table = await (async root_scope.decls.table.acquireWrite() catch unreachable);
+        const locked_table = root_scope.decls.table.acquireWrite();
         defer locked_table.release();
 
         var decl_group = event.Group(BuildError!void).init(self.loop);
@@ -876,7 +869,7 @@ pub const Compilation = struct {
             tree_scope,
         );
 
-        try await (async decl_group.wait() catch unreachable);
+        try decl_group.wait();
     }
 
     async fn rebuildChangedDecls(
@@ -988,20 +981,20 @@ pub const Compilation = struct {
     }
 
     async fn maybeLink(self: *Compilation) !void {
-        (await (async self.prelink_group.wait() catch unreachable)) catch |err| switch (err) {
+        (self.prelink_group.wait()) catch |err| switch (err) {
             error.SemanticAnalysisFailed => {},
             else => return err,
         };
 
         const any_prelink_errors = blk: {
-            const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
+            const compile_errors = self.compile_errors.acquire();
             defer compile_errors.release();
 
             break :blk compile_errors.value.len != 0;
         };
 
         if (!any_prelink_errors) {
-            try await (async link(self) catch unreachable);
+            try link(self);
         }
     }
 
@@ -1013,12 +1006,12 @@ pub const Compilation = struct {
         node: *ast.Node,
         expected_type: ?*Type,
     ) !*ir.Code {
-        const unanalyzed_code = try await (async ir.gen(
+        const unanalyzed_code = try ir.gen(
             comp,
             node,
             tree_scope,
             scope,
-        ) catch unreachable);
+        );
         defer unanalyzed_code.destroy(comp.gpa());
 
         if (comp.verbose_ir) {
@@ -1026,11 +1019,11 @@ pub const Compilation = struct {
             unanalyzed_code.dump();
         }
 
-        const analyzed_code = try await (async ir.analyze(
+        const analyzed_code = try ir.analyze(
             comp,
             unanalyzed_code,
             expected_type,
-        ) catch unreachable);
+        );
         errdefer analyzed_code.destroy(comp.gpa());
 
         if (comp.verbose_ir) {
@@ -1050,13 +1043,13 @@ pub const Compilation = struct {
         const void_type = Type.Void.get(comp);
         defer void_type.base.base.deref(comp);
 
-        const analyzed_code = (await (async genAndAnalyzeCode(
+        const analyzed_code = genAndAnalyzeCode(
             comp,
             tree_scope,
             scope,
             comptime_node.expr,
             &void_type.base,
-        ) catch unreachable)) catch |err| switch (err) {
+        ) catch |err| switch (err) {
             // This poison value should not cause the errdefers to run. It simply means
             // that comp.compile_errors is populated.
             error.SemanticAnalysisFailed => return {},
@@ -1112,14 +1105,14 @@ pub const Compilation = struct {
     ) !void {
         errdefer msg.destroy();
 
-        const compile_errors = await (async self.compile_errors.acquire() catch unreachable);
+        const compile_errors = self.compile_errors.acquire();
         defer compile_errors.release();
 
         try compile_errors.value.append(msg);
     }
 
     async fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) !void {
-        const exported_symbol_names = await (async self.exported_symbol_names.acquire() catch unreachable);
+        const exported_symbol_names = self.exported_symbol_names.acquire();
         defer exported_symbol_names.release();
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
@@ -1173,9 +1166,9 @@ pub const Compilation = struct {
 
     /// cancels itself so no need to await or cancel the promise.
     async fn startFindingNativeLibC(self: *Compilation) void {
-        await (async self.loop.yield() catch unreachable);
+        self.loop.yield();
         // we don't care if it fails, we're just trying to kick off the future resolution
-        _ = (await (async self.zig_compiler.getNativeLibC() catch unreachable)) catch return;
+        _ = (self.zig_compiler.getNativeLibC()) catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
@@ -1191,8 +1184,8 @@ pub const Compilation = struct {
     /// If the temporary directory for this compilation has not been created, it creates it.
     /// Then it creates a random file name in that dir and returns it.
     pub async fn createRandomOutputPath(self: *Compilation, suffix: []const u8) !Buffer {
-        const tmp_dir = try await (async self.getTmpDir() catch unreachable);
-        const file_prefix = await (async self.getRandomFileName() catch unreachable);
+        const tmp_dir = try self.getTmpDir();
+        const file_prefix = self.getRandomFileName();
 
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
         defer self.gpa().free(file_name);
@@ -1207,14 +1200,14 @@ pub const Compilation = struct {
     /// Then returns it. The directory is unique to this Compilation and cleaned up when
     /// the Compilation deinitializes.
     async fn getTmpDir(self: *Compilation) ![]const u8 {
-        if (await (async self.tmp_dir.start() catch unreachable)) |ptr| return ptr.*;
-        self.tmp_dir.data = await (async self.getTmpDirImpl() catch unreachable);
+        if (self.tmp_dir.start()) |ptr| return ptr.*;
+        self.tmp_dir.data = self.getTmpDirImpl();
         self.tmp_dir.resolve();
         return self.tmp_dir.data;
     }
 
     async fn getTmpDirImpl(self: *Compilation) ![]u8 {
-        const comp_dir_name = await (async self.getRandomFileName() catch unreachable);
+        const comp_dir_name = self.getRandomFileName();
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
@@ -1233,7 +1226,7 @@ pub const Compilation = struct {
         var rand_bytes: [9]u8 = undefined;
 
         {
-            const held = await (async self.zig_compiler.prng.acquire() catch unreachable);
+            const held = self.zig_compiler.prng.acquire();
             defer held.release();
 
             held.value.random.bytes(rand_bytes[0..]);
@@ -1256,7 +1249,7 @@ pub const Compilation = struct {
         node: *ast.Node,
         expected_type: *Type,
     ) !*Value {
-        const analyzed_code = try await (async comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type) catch unreachable);
+        const analyzed_code = try comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type);
         defer analyzed_code.destroy(comp.gpa());
 
         return analyzed_code.getCompTimeResult(comp);
@@ -1266,7 +1259,7 @@ pub const Compilation = struct {
         const meta_type = &Type.MetaType.get(comp).base;
         defer meta_type.base.deref(comp);
 
-        const result_val = try await (async comp.analyzeConstValue(tree_scope, scope, node, meta_type) catch unreachable);
+        const result_val = try comp.analyzeConstValue(tree_scope, scope, node, meta_type);
         errdefer result_val.base.deref(comp);
 
         return result_val.cast(Type).?;
@@ -1274,9 +1267,9 @@ pub const Compilation = struct {
 
     /// This declaration has been blessed as going into the final code generation.
     pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
-        if (await (async decl.resolution.start() catch unreachable)) |ptr| return ptr.*;
+        if (decl.resolution.start()) |ptr| return ptr.*;
 
-        decl.resolution.data = try await (async generateDecl(comp, decl) catch unreachable);
+        decl.resolution.data = try generateDecl(comp, decl);
         decl.resolution.resolve();
         return decl.resolution.data;
     }
@@ -1298,7 +1291,7 @@ async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
         Decl.Id.Var => @panic("TODO"),
         Decl.Id.Fn => {
             const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
-            return await (async generateDeclFn(comp, fn_decl) catch unreachable);
+            return generateDeclFn(comp, fn_decl);
         },
         Decl.Id.CompTime => @panic("TODO"),
     }
@@ -1307,12 +1300,12 @@ async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
 async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const tree_scope = fn_decl.base.tree_scope;
 
-    const body_node = fn_decl.fn_proto.body_node orelse return await (async generateDeclFnProto(comp, fn_decl) catch unreachable);
+    const body_node = fn_decl.fn_proto.body_node orelse return generateDeclFnProto(comp, fn_decl);
 
     const fndef_scope = try Scope.FnDef.create(comp, fn_decl.base.parent_scope);
     defer fndef_scope.base.deref(comp);
 
-    const fn_type = try await (async analyzeFnType(comp, tree_scope, fn_decl.base.parent_scope, fn_decl.fn_proto) catch unreachable);
+    const fn_type = try analyzeFnType(comp, tree_scope, fn_decl.base.parent_scope, fn_decl.fn_proto);
     defer fn_type.base.base.deref(comp);
 
     var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
@@ -1356,12 +1349,12 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         try fn_type.non_key.Normal.variable_list.append(var_scope);
     }
 
-    const analyzed_code = try await (async comp.genAndAnalyzeCode(
+    const analyzed_code = try comp.genAndAnalyzeCode(
         tree_scope,
         fn_val.child_scope,
         body_node,
         fn_type.key.data.Normal.return_type,
-    ) catch unreachable);
+    );
     errdefer analyzed_code.destroy(comp.gpa());
 
     assert(fn_val.block_scope != null);
@@ -1378,7 +1371,7 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
 
     fn_val.link_set_node.data = fn_val;
 
-    const held = await (async comp.fn_link_set.acquire() catch unreachable);
+    const held = comp.fn_link_set.acquire();
     defer held.release();
 
     held.value.append(fn_val.link_set_node);
@@ -1398,7 +1391,7 @@ async fn analyzeFnType(
         ast.Node.FnProto.ReturnType.Explicit => |n| n,
         ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
     };
-    const return_type = try await (async comp.analyzeTypeExpr(tree_scope, scope, return_type_node) catch unreachable);
+    const return_type = try comp.analyzeTypeExpr(tree_scope, scope, return_type_node);
     return_type.base.deref(comp);
 
     var params = ArrayList(Type.Fn.Param).init(comp.gpa());
@@ -1414,7 +1407,7 @@ async fn analyzeFnType(
         var it = fn_proto.params.iterator(0);
         while (it.next()) |param_node_ptr| {
             const param_node = param_node_ptr.*.cast(ast.Node.ParamDecl).?;
-            const param_type = try await (async comp.analyzeTypeExpr(tree_scope, scope, param_node.type_node) catch unreachable);
+            const param_type = try comp.analyzeTypeExpr(tree_scope, scope, param_node.type_node);
             errdefer param_type.base.deref(comp);
             try params.append(Type.Fn.Param{
                 .typ = param_type,
@@ -1443,7 +1436,7 @@ async fn analyzeFnType(
         comp.gpa().free(key.data.Normal.params);
     };
 
-    const fn_type = try await (async Type.Fn.get(comp, key) catch unreachable);
+    const fn_type = try Type.Fn.get(comp, key);
     key_consumed = true;
     errdefer fn_type.base.base.deref(comp);
 
@@ -1451,12 +1444,12 @@ async fn analyzeFnType(
 }
 
 async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
-    const fn_type = try await (async analyzeFnType(
+    const fn_type = try analyzeFnType(
         comp,
         fn_decl.base.tree_scope,
         fn_decl.base.parent_scope,
         fn_decl.fn_proto,
-    ) catch unreachable);
+    );
     defer fn_type.base.base.deref(comp);
 
     var symbol_name = try std.Buffer.init(comp.gpa(), fn_decl.base.name);
@@ -1467,15 +1460,4 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
     fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
     symbol_name_consumed = true;
-}
-
-// TODO these are hacks which should probably be solved by the language
-fn getAwaitResult(allocator: *Allocator, handle: var) @typeInfo(@typeOf(handle)).Promise.child.? {
-    var result: ?@typeInfo(@typeOf(handle)).Promise.child.? = null;
-    cancel (async<allocator> getAwaitResultAsync(handle, &result) catch unreachable);
-    return result.?;
-}
-
-async fn getAwaitResultAsync(handle: var, out: *?@typeInfo(@typeOf(handle)).Promise.child.?) void {
-    out.* = await handle;
 }

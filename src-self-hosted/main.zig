@@ -466,7 +466,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_objects = link_objects;
 
     comp.start();
-    // TODO const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
+    const frame = try async processBuildEvents(comp, color);
     loop.run();
 }
 
@@ -474,7 +474,7 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     var count: usize = 0;
     while (true) {
         // TODO directly awaiting async should guarantee memory allocation elision
-        const build_event = await (async comp.events.get() catch unreachable);
+        const build_event = comp.events.get();
         count += 1;
 
         switch (build_event) {
@@ -577,13 +577,13 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     var zig_compiler = try ZigCompiler.init(&loop);
     defer zig_compiler.deinit();
 
-    // TODO const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
+    const frame = async findLibCAsync(&zig_compiler);
 
     loop.run();
 }
 
 async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
-    const libc = (await (async zig_compiler.getNativeLibC() catch unreachable)) catch |err| {
+    const libc = zig_compiler.getNativeLibC() catch |err| {
         stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
         process.exit(1);
     };
@@ -660,24 +660,11 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
     try loop.initMultiThreaded(allocator);
     defer loop.deinit();
 
-    var result: FmtError!void = undefined;
-    // TODO const main_handle = try async<allocator> asyncFmtMainChecked(
-    // TODO     &result,
-    // TODO     &loop,
-    // TODO     &flags,
-    // TODO     color,
-    // TODO );
-    loop.run();
-    return result;
-}
-
-async fn asyncFmtMainChecked(
-    result: *(FmtError!void),
-    loop: *event.Loop,
-    flags: *const Args,
-    color: errmsg.Color,
-) void {
-    result.* = await (async asyncFmtMain(loop, flags, color) catch unreachable);
+    return asyncFmtMain(
+        &flags,
+        color,
+    );
+    // loop.run();
 }
 
 const FmtError = error{
@@ -707,9 +694,6 @@ async fn asyncFmtMain(
     flags: *const Args,
     color: errmsg.Color,
 ) FmtError!void {
-    suspend {
-        resume @handle();
-    }
     var fmt = Fmt{
         .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
         .any_error = false,
@@ -723,7 +707,7 @@ async fn asyncFmtMain(
     for (flags.positionals.toSliceConst()) |file_path| {
         try group.call(fmtPath, &fmt, file_path, check_mode);
     }
-    try await (async group.wait() catch unreachable);
+    try group.wait();
     if (fmt.any_error) {
         process.exit(1);
     }
@@ -734,7 +718,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     defer fmt.loop.allocator.free(file_path);
 
     {
-        const held = await (async fmt.seen.acquire() catch unreachable);
+        const held = fmt.seen.acquire();
         defer held.release();
 
         if (try held.value.put(file_path, {})) |_| return;
@@ -757,7 +741,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
                     try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
-            return await (async group.wait() catch unreachable);
+            return group.wait();
         },
         else => {
             // TODO lock stderr printing

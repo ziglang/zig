@@ -346,13 +346,13 @@ pub const Value = struct {
             errdefer array_val.base.deref(comp);
 
             const elem_type = array_val.base.typ.cast(Type.Array).?.key.elem_type;
-            const ptr_type = try await (async Type.Pointer.get(comp, Type.Pointer.Key{
+            const ptr_type = try Type.Pointer.get(comp, Type.Pointer.Key{
                 .child_type = elem_type,
                 .mut = mut,
                 .vol = Type.Pointer.Vol.Non,
                 .size = size,
                 .alignment = Type.Pointer.Align.Abi,
-            }) catch unreachable);
+            });
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);
 
@@ -428,10 +428,10 @@ pub const Value = struct {
             const u8_type = Type.Int.get_u8(comp);
             defer u8_type.base.base.deref(comp);
 
-            const array_type = try await (async Type.Array.get(comp, Type.Array.Key{
+            const array_type = try Type.Array.get(comp, Type.Array.Key{
                 .elem_type = &u8_type.base,
                 .len = buffer.len,
-            }) catch unreachable);
+            });
             errdefer array_type.base.base.deref(comp);
 
             const self = try comp.gpa().create(Value.Array);
