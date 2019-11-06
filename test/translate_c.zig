@@ -895,7 +895,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    field: c_int,
         \\};
         \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
-        \\    return foo.?.field;
+        \\    return foo.*.field;
         \\}
     );
 

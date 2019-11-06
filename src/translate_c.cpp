@@ -3052,7 +3052,7 @@ static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope
         return nullptr;
 
     if (ZigClangMemberExpr_isArrow(stmt)) {
-        container_node = trans_create_node_unwrap_null(c, container_node);
+        container_node = trans_create_node_ptr_deref(c, container_node);
     }
 
     const char *name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)ZigClangMemberExpr_getMemberDecl(stmt));
