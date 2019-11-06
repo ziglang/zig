@@ -1,8 +1,8 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Lock = std.event.Lock;
-const Loop = std.event.Loop;
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 /// ReturnType must be `void` or `E!void`
 pub fn Group(comptime ReturnType: type) type {
@@ -10,6 +10,7 @@ pub fn Group(comptime ReturnType: type) type {
         frame_stack: Stack,
         alloc_stack: Stack,
         lock: Lock,
+        allocator: *Allocator,
 
         const Self = @This();
 
@@ -19,17 +20,18 @@ pub fn Group(comptime ReturnType: type) type {
         };
         const Stack = std.atomic.Stack(anyframe->ReturnType);
 
-        pub fn init(loop: *Loop) Self {
+        pub fn init(allocator: *Allocator) Self {
             return Self{
                 .frame_stack = Stack.init(),
                 .alloc_stack = Stack.init(),
-                .lock = Lock.init(loop),
+                .lock = Lock.init(),
+                .allocator = allocator,
             };
         }
 
         /// Add a frame to the group. Thread-safe.
         pub fn add(self: *Self, handle: anyframe->ReturnType) (error{OutOfMemory}!void) {
-            const node = try self.lock.loop.allocator.create(Stack.Node);
+            const node = try self.allocator.create(Stack.Node);
             node.* = Stack.Node{
                 .next = undefined,
                 .data = handle,
@@ -66,7 +68,7 @@ pub fn Group(comptime ReturnType: type) type {
             }
             while (self.alloc_stack.pop()) |node| {
                 const handle = node.data;
-                self.lock.loop.allocator.destroy(node);
+                self.allocator.destroy(node);
                 if (Error == void) {
                     await handle;
                 } else {
@@ -87,18 +89,12 @@ test "std.event.Group" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded();
-    defer loop.deinit();
-
-    const handle = async testGroup(&loop);
-
-    loop.run();
+    const handle = async testGroup(std.heap.direct_allocator);
 }
 
-async fn testGroup(loop: *Loop) void {
+async fn testGroup(allocator: *Allocator) void {
     var count: usize = 0;
-    var group = Group(void).init(loop);
+    var group = Group(void).init(allocator);
     var sleep_a_little_frame = async sleepALittle(&count);
     group.add(&sleep_a_little_frame) catch @panic("memory");
     var increase_by_ten_frame = async increaseByTen(&count);
@@ -106,7 +102,7 @@ async fn testGroup(loop: *Loop) void {
     group.wait();
     testing.expect(count == 11);
 
-    var another = Group(anyerror!void).init(loop);
+    var another = Group(anyerror!void).init(allocator);
     var something_else_frame = async somethingElse();
     another.add(&something_else_frame) catch @panic("memory");
     var something_that_fails_frame = async doSomethingThatFails();

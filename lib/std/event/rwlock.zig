@@ -13,7 +13,6 @@ const Loop = std.event.Loop;
 /// When a write lock is held, it will not be released until the writer queue is empty.
 /// TODO: make this API also work in blocking I/O mode
 pub const RwLock = struct {
-    loop: *Loop,
     shared_state: u8, // TODO make this an enum
     writer_queue: Queue,
     reader_queue: Queue,
@@ -28,6 +27,9 @@ pub const RwLock = struct {
     };
 
     const Queue = std.atomic.Queue(anyframe);
+
+    const global_event_loop = Loop.instance orelse
+        @compileError("std.event.RwLock currently only works with event-based I/O");
 
     pub const HeldRead = struct {
         lock: *RwLock,
@@ -55,7 +57,7 @@ pub const RwLock = struct {
             // See if we can leave it locked for writing, and pass the lock to the next writer
             // in the queue to grab the lock.
             if (self.lock.writer_queue.get()) |node| {
-                self.lock.loop.onNextTick(node);
+                global_event_loop.onNextTick(node);
                 return;
             }
 
@@ -64,7 +66,7 @@ pub const RwLock = struct {
                 // Switch to a read lock.
                 _ = @atomicRmw(u8, &self.lock.shared_state, .Xchg, State.ReadLock, .SeqCst);
                 while (self.lock.reader_queue.get()) |node| {
-                    self.lock.loop.onNextTick(node);
+                    global_event_loop.onNextTick(node);
                 }
                 return;
             }
@@ -76,9 +78,8 @@ pub const RwLock = struct {
         }
     };
 
-    pub fn init(loop: *Loop) RwLock {
+    pub fn init() RwLock {
         return RwLock{
-            .loop = loop,
             .shared_state = State.Unlocked,
             .writer_queue = Queue.init(),
             .writer_queue_empty_bit = 1,
@@ -120,7 +121,7 @@ pub const RwLock = struct {
                 // Give out all the read locks.
                 if (self.reader_queue.get()) |first_node| {
                     while (self.reader_queue.get()) |node| {
-                        self.loop.onNextTick(node);
+                        global_event_loop.onNextTick(node);
                     }
                     resume first_node.data;
                 }
@@ -171,7 +172,7 @@ pub const RwLock = struct {
                 }
                 // If there's an item in the writer queue, give them the lock, and we're done.
                 if (self.writer_queue.get()) |node| {
-                    self.loop.onNextTick(node);
+                    global_event_loop.onNextTick(node);
                     return;
                 }
                 // Release the lock again.
@@ -187,9 +188,9 @@ pub const RwLock = struct {
                 }
                 // If there are any items in the reader queue, give out all the reader locks, and we're done.
                 if (self.reader_queue.get()) |first_node| {
-                    self.loop.onNextTick(first_node);
+                    global_event_loop.onNextTick(first_node);
                     while (self.reader_queue.get()) |node| {
-                        self.loop.onNextTick(node);
+                        global_event_loop.onNextTick(node);
                     }
                     return;
                 }
@@ -216,46 +217,41 @@ test "std.event.RwLock" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded();
-    defer loop.deinit();
-
-    var lock = RwLock.init(&loop);
+    var lock = RwLock.init();
     defer lock.deinit();
 
-    const handle = testLock(&loop, &lock);
-    loop.run();
+    const handle = testLock(std.heap.direct_allocator, &lock);
 
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     testing.expectEqualSlices(i32, expected_result, shared_test_data);
 }
 
-async fn testLock(loop: *Loop, lock: *RwLock) void {
+async fn testLock(allocator: *Allocator, lock: *RwLock) void {
     var read_nodes: [100]Loop.NextTickNode = undefined;
     for (read_nodes) |*read_node| {
-        const frame = loop.allocator.create(@Frame(readRunner)) catch @panic("memory");
+        const frame = allocator.create(@Frame(readRunner)) catch @panic("memory");
         read_node.data = frame;
         frame.* = async readRunner(lock);
-        loop.onNextTick(read_node);
+        Loop.instance.?.onNextTick(read_node);
     }
 
     var write_nodes: [shared_it_count]Loop.NextTickNode = undefined;
     for (write_nodes) |*write_node| {
-        const frame = loop.allocator.create(@Frame(writeRunner)) catch @panic("memory");
+        const frame = allocator.create(@Frame(writeRunner)) catch @panic("memory");
         write_node.data = frame;
         frame.* = async writeRunner(lock);
-        loop.onNextTick(write_node);
+        Loop.instance.?.onNextTick(write_node);
     }
 
     for (write_nodes) |*write_node| {
         const casted = @ptrCast(*const @Frame(writeRunner), write_node.data);
         await casted;
-        loop.allocator.destroy(casted);
+        allocator.destroy(casted);
     }
     for (read_nodes) |*read_node| {
         const casted = @ptrCast(*const @Frame(readRunner), read_node.data);
         await casted;
-        loop.allocator.destroy(casted);
+        allocator.destroy(casted);
     }
 }
 
