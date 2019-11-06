@@ -914,21 +914,17 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}
-        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_LLD_INCLUDE_PATH {}
         \\ZIG_LLD_LIBRARIES    {}
-        \\ZIG_STD_FILES        {}
-        \\ZIG_C_HEADER_FILES   {}
+        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
     ,
         std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
         std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
-        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
         std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
-        std.mem.toSliceConst(u8, c.ZIG_STD_FILES),
-        std.mem.toSliceConst(u8, c.ZIG_C_HEADER_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
     );
 }
