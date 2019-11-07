@@ -193,7 +193,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: builtin.Endian,
         ///Initialize a packed array using an unpacked array
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
-            var self = Self(undefined);
+            var self = @as(Self, undefined);
             for (ints) |int, i| self.set(i, int);
             return self;
         }
@@ -328,11 +328,11 @@ test "PackedIntArray" {
         const expected_bytes = ((bits * int_count) + 7) / 8;
         testing.expect(@sizeOf(PackedArray) == expected_bytes);
 
-        var data = PackedArray(undefined);
+        var data = @as(PackedArray, undefined);
 
         //write values, counting up
         var i = @as(usize, 0);
-        var count = I(0);
+        var count = @as(I, 0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
             if (bits > 0) count +%= 1;
@@ -376,7 +376,7 @@ test "PackedIntSlice" {
 
         //write values, counting up
         var i = @as(usize, 0);
-        var count = I(0);
+        var count = @as(I, 0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
             if (bits > 0) count +%= 1;
@@ -402,7 +402,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
         const Int = @IntType(false, bits);
 
         const PackedArray = PackedIntArray(Int, int_count);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         const limit = (1 << bits);
 
@@ -463,7 +463,7 @@ test "PackedIntSlice accumulating bit offsets" {
     // anything
     {
         const PackedArray = PackedIntArray(u3, 16);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
         var i = @as(usize, 0);
@@ -473,7 +473,7 @@ test "PackedIntSlice accumulating bit offsets" {
     }
     {
         const PackedArray = PackedIntArray(u11, 88);
-        var packed_array = PackedArray(undefined);
+        var packed_array = @as(PackedArray, undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
         var i = @as(usize, 0);
@@ -518,8 +518,8 @@ test "PackedInt(Array/Slice) sliceCast" {
     i = 0;
     while (i < packed_slice_cast_3.len()) : (i += 1) {
         const val = switch (builtin.endian) {
-            .Big => if (i % 2 == 0) u3(0b111) else u3(0b000),
-            .Little => if (i % 2 == 0) u3(0b111) else u3(0b000),
+            .Big => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
+            .Little => if (i % 2 == 0) @as(u3, 0b111) else @as(u3, 0b000),
         };
         testing.expect(packed_slice_cast_3.get(i) == val);
     }

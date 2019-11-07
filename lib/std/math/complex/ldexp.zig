@@ -65,7 +65,7 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
 fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
     var ex_expt: i32 = undefined;
     const exp_x = frexp_exp64(z.re, &ex_expt);
-    const exptf = i64(expt + ex_expt);
+    const exptf = @as(i64, expt + ex_expt);
 
     const half_expt1 = @divTrunc(exptf, 2);
     const scale1 = @bitCast(f64, (0x3ff + half_expt1) << 20);

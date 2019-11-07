@@ -123,7 +123,7 @@ const Context = struct {
     fn locStr(c: *Context, loc: ZigClangSourceLocation) ![]u8 {
         const spelling_loc = ZigClangSourceManager_getSpellingLoc(c.source_manager, loc);
         const filename_c = ZigClangSourceManager_getFilename(c.source_manager, spelling_loc);
-        const filename = if (filename_c) |s| try c.str(s) else ([]const u8)("(no file)");
+        const filename = if (filename_c) |s| try c.str(s) else @as([]const u8, "(no file)");
 
         const line = ZigClangSourceManager_getSpellingLineNumber(c.source_manager, spelling_loc);
         const column = ZigClangSourceManager_getSpellingColumnNumber(c.source_manager, spelling_loc);

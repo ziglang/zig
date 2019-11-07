@@ -382,10 +382,10 @@ pub fn formatType(
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
                 try output(context, "{ .");
-                try output(context, @tagName(UnionTagType(value)));
+                try output(context, @tagName(@as(UnionTagType, value)));
                 try output(context, " = ");
                 inline for (info.fields) |u_field| {
-                    if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
+                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
                         try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
                     }
                 }
@@ -503,7 +503,7 @@ pub fn formatIntValue(
 
     const int_value = if (@typeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
-        break :blk Int(value);
+        break :blk @as(Int, value);
     } else
         value;
 
@@ -578,7 +578,7 @@ pub fn formatAsciiChar(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    return output(context, (*const [1]u8)(&c)[0..]);
+    return output(context, @as(*const [1]u8, &c)[0..]);
 }
 
 pub fn formatBuf(
@@ -998,7 +998,7 @@ fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
     if (!T.is_signed) return parseUnsigned(T, buf, radix);
-    if (buf.len == 0) return T(0);
+    if (buf.len == 0) return @as(T, 0);
     if (buf[0] == '-') {
         return math.negate(try parseUnsigned(T, buf[1..], radix));
     } else if (buf[0] == '+') {
@@ -1325,8 +1325,8 @@ test "float.scientific" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f32: 1.34000003e+00", "f32: {e}", f32(1.34));
-    try testFmt("f32: 1.23400001e+01", "f32: {e}", f32(12.34));
+    try testFmt("f32: 1.34000003e+00", "f32: {e}", @as(f32, 1.34));
+    try testFmt("f32: 1.23400001e+01", "f32: {e}", @as(f32, 12.34));
     try testFmt("f64: -1.234e+11", "f64: {e}", @as(f64, -12.34e10));
     try testFmt("f64: 9.99996e-40", "f64: {e}", @as(f64, 9.999960e-40));
 }
@@ -1365,12 +1365,12 @@ test "float.decimal" {
         return error.SkipZigTest;
     }
     try testFmt("f64: 152314000000000000000000000000", "f64: {d}", @as(f64, 1.52314e+29));
-    try testFmt("f32: 1.1", "f32: {d:.1}", f32(1.1234));
-    try testFmt("f32: 1234.57", "f32: {d:.2}", f32(1234.567));
+    try testFmt("f32: 1.1", "f32: {d:.1}", @as(f32, 1.1234));
+    try testFmt("f32: 1234.57", "f32: {d:.2}", @as(f32, 1234.567));
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
-    try testFmt("f32: -11.1234", "f32: {d:.4}", f32(-11.1234));
-    try testFmt("f32: 91.12345", "f32: {d:.5}", f32(91.12345));
+    try testFmt("f32: -11.1234", "f32: {d:.4}", @as(f32, -11.1234));
+    try testFmt("f32: 91.12345", "f32: {d:.5}", @as(f32, 91.12345));
     try testFmt("f64: 91.1234567890", "f64: {d:.10}", @as(f64, 91.12345678901235));
     try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 0.0));
     try testFmt("f64: 6", "f64: {d:.0}", @as(f64, 5.700));

@@ -281,7 +281,7 @@ pub const Int = struct {
                 var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
                 if (info.bits <= Limb.bit_count) {
-                    self.limbs[0] = Limb(w_value);
+                    self.limbs[0] = @as(Limb, w_value);
                     self.metadata += 1;
                 } else {
                     var i: usize = 0;
@@ -453,7 +453,7 @@ pub const Int = struct {
             for (self.limbs[0..self.len()]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
-                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & Limb(base - 1));
+                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
                     const ch = try digitToChar(r, base);
                     try digits.append(ch);
                 }
@@ -560,7 +560,7 @@ pub const Int = struct {
     /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: Int, b: Int) i8 {
         if (a.isPositive() != b.isPositive()) {
-            return if (a.isPositive()) i8(1) else -1;
+            return if (a.isPositive()) @as(i8, 1) else -1;
         } else {
             const r = cmpAbs(a, b);
             return if (a.isPositive()) r else -r;
@@ -785,7 +785,7 @@ pub const Int = struct {
         const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
-        const bc = DoubleLimb(math.mulWide(Limb, b, c));
+        const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
         const r2 = @truncate(Limb, bc);
         const c2 = @truncate(Limb, bc >> Limb.bit_count);
 
@@ -1084,7 +1084,7 @@ pub const Int = struct {
         rem.* = 0;
         for (a) |_, ri| {
             const i = a.len - ri - 1;
-            const pdiv = ((DoubleLimb(rem.*) << Limb.bit_count) | a[i]);
+            const pdiv = ((@as(DoubleLimb, rem.*) << Limb.bit_count) | a[i]);
 
             if (pdiv == 0) {
                 quo[i] = 0;
@@ -1143,9 +1143,9 @@ pub const Int = struct {
             if (x.limbs[i] == y.limbs[t]) {
                 q.limbs[i - t - 1] = maxInt(Limb);
             } else {
-                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
-                const z = @intCast(Limb, num / DoubleLimb(y.limbs[t]));
-                q.limbs[i - t - 1] = if (z > maxInt(Limb)) maxInt(Limb) else Limb(z);
+                const num = (@as(DoubleLimb, x.limbs[i]) << Limb.bit_count) | @as(DoubleLimb, x.limbs[i - 1]);
+                const z = @intCast(Limb, num / @as(DoubleLimb, y.limbs[t]));
+                q.limbs[i - t - 1] = if (z > maxInt(Limb)) maxInt(Limb) else @as(Limb, z);
             }
 
             // 3.2
@@ -1362,7 +1362,7 @@ test "big.int comptime_int set" {
 
     comptime var i: usize = 0;
     inline while (i < s_limb_count) : (i += 1) {
-        const result = Limb(s & maxInt(Limb));
+        const result = @as(Limb, s & maxInt(Limb));
         s >>= Limb.bit_count / 2;
         s >>= Limb.bit_count / 2;
         testing.expect(a.limbs[i] == result);
@@ -1377,7 +1377,7 @@ test "big.int comptime_int set negative" {
 }
 
 test "big.int int set unaligned small" {
-    var a = try Int.initSet(al, u7(45));
+    var a = try Int.initSet(al, @as(u7, 45));
 
     testing.expect(a.limbs[0] == 45);
     testing.expect(a.isPositive() == true);

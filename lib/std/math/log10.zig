@@ -177,7 +177,7 @@ pub fn log10_64(x_: f64) f64 {
 }
 
 test "math.log10" {
-    testing.expect(log10(f32(0.2)) == log10_32(0.2));
+    testing.expect(log10(@as(f32, 0.2)) == log10_32(0.2));
     testing.expect(log10(@as(f64, 0.2)) == log10_64(0.2));
 }
 

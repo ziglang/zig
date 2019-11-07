@@ -224,7 +224,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
-            const code = if (anything_changed) u8(1) else u8(0);
+            const code = if (anything_changed) @as(u8, 1) else @as(u8, 0);
             process.exit(code);
         }
 

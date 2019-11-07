@@ -543,8 +543,8 @@ test "math.absFloat" {
     comptime testAbsFloat();
 }
 fn testAbsFloat() void {
-    testing.expect(absFloat(f32(-10.05)) == 10.05);
-    testing.expect(absFloat(f32(10.05)) == 10.05);
+    testing.expect(absFloat(@as(f32, -10.05)) == 10.05);
+    testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
 }
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
@@ -731,8 +731,8 @@ pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
 test "math.cast" {
     testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
     testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
-    testing.expectError(error.Overflow, cast(u8, i8(-1)));
-    testing.expectError(error.Overflow, cast(u64, i8(-1)));
+    testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
+    testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
 
     testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
     testing.expect(@typeOf(try cast(u8, @as(u32, 255))) == u8);
@@ -786,9 +786,9 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
     comptime assert(@typeId(T) == builtin.TypeId.Int);
     comptime assert(!T.is_signed);
     assert(value != 0);
-    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
-    comptime const shiftType = std.math.Log2Int(promotedType);
-    return promotedType(1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
+    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const shiftType = std.math.Log2Int(PromotedType);
+    return @as(PromotedType, 1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -797,8 +797,8 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int);
     comptime assert(!T.is_signed);
-    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
-    comptime const overflowBit = promotedType(1) << T.bit_count;
+    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const overflowBit = @as(PromotedType, 1) << T.bit_count;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
         return error.Overflow;
@@ -848,7 +848,7 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
 pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
     assert(x != 0);
     const log2_val = log2_int(T, x);
-    if (T(1) << log2_val == x)
+    if (@as(T, 1) << log2_val == x)
         return log2_val;
     return log2_val + 1;
 }
@@ -870,8 +870,8 @@ pub fn lossyCast(comptime T: type, value: var) T {
     switch (@typeInfo(@typeOf(value))) {
         builtin.TypeId.Int => return @intToFloat(T, value),
         builtin.TypeId.Float => return @floatCast(T, value),
-        builtin.TypeId.ComptimeInt => return T(value),
-        builtin.TypeId.ComptimeFloat => return T(value),
+        builtin.TypeId.ComptimeInt => return @as(T, value),
+        builtin.TypeId.ComptimeFloat => return @as(T, value),
         else => @compileError("bad type"),
     }
 }

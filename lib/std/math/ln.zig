@@ -34,7 +34,7 @@ pub fn ln(x: var) @typeOf(x) {
             return @typeOf(1)(math.floor(ln_64(@as(f64, x))));
         },
         TypeId.Int => {
-            return T(math.floor(ln_64(@as(f64, x))));
+            return @as(T, math.floor(ln_64(@as(f64, x))));
         },
         else => @compileError("ln not implemented for " ++ @typeName(T)),
     }

@@ -226,18 +226,18 @@ test "BitOutStream" {
     const OutError = io.SliceOutStream.Error;
     var bit_stream_be = io.BitOutStream(builtin.Endian.Big, OutError).init(&mem_out_be.stream);
 
-    try bit_stream_be.writeBits(u2(1), 1);
-    try bit_stream_be.writeBits(u5(2), 2);
+    try bit_stream_be.writeBits(@as(u2, 1), 1);
+    try bit_stream_be.writeBits(@as(u5, 2), 2);
     try bit_stream_be.writeBits(@as(u128, 3), 3);
     try bit_stream_be.writeBits(@as(u8, 4), 4);
-    try bit_stream_be.writeBits(u9(5), 5);
-    try bit_stream_be.writeBits(u1(1), 1);
+    try bit_stream_be.writeBits(@as(u9, 5), 5);
+    try bit_stream_be.writeBits(@as(u1, 1), 1);
 
     expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
 
     mem_out_be.pos = 0;
 
-    try bit_stream_be.writeBits(u15(0b110011010000101), 15);
+    try bit_stream_be.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_be.flushBits();
     expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
 
@@ -345,8 +345,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
     inline while (i <= max_test_bitsize) : (i += 1) {
         const U = @IntType(false, i);
         const S = @IntType(true, i);
-        try serializer.serializeInt(U(i));
-        if (i != 0) try serializer.serializeInt(S(-1)) else try serializer.serialize(S(0));
+        try serializer.serializeInt(@as(U, i));
+        if (i != 0) try serializer.serializeInt(@as(S, -1)) else try serializer.serialize(@as(S, 0));
     }
     try serializer.flush();
 
@@ -356,8 +356,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
         const S = @IntType(true, i);
         const x = try deserializer.deserializeInt(U);
         const y = try deserializer.deserializeInt(S);
-        expect(x == U(i));
-        if (i != 0) expect(y == S(-1)) else expect(y == 0);
+        expect(x == @as(U, i));
+        if (i != 0) expect(y == @as(S, -1)) else expect(y == 0);
     }
 
     const u8_bit_count = comptime meta.bitCount(u8);
@@ -577,11 +577,11 @@ fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !v
     var in_stream = &in.stream;
     var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
-    try serializer.serialize(u14(3));
+    try serializer.serialize(@as(u14, 3));
     expectError(error.InvalidEnumTag, deserializer.deserialize(A));
     out.pos = 0;
-    try serializer.serialize(u14(3));
-    try serializer.serialize(u14(88));
+    try serializer.serialize(@as(u14, 3));
+    try serializer.serialize(@as(u14, 88));
     expectError(error.InvalidEnumTag, deserializer.deserialize(C));
 }
 

@@ -355,19 +355,19 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
 
             out_bits.* = @as(usize, 0);
             if (U == u0 or bits == 0) return 0;
-            var out_buffer = Buf(0);
+            var out_buffer = @as(Buf, 0);
 
             if (self.bit_count > 0) {
                 const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
                     builtin.Endian.Big => {
-                        out_buffer = Buf(self.bit_buffer >> shift);
+                        out_buffer = @as(Buf, self.bit_buffer >> shift);
                         self.bit_buffer <<= n;
                     },
                     builtin.Endian.Little => {
                         const value = (self.bit_buffer << shift) >> shift;
-                        out_buffer = Buf(value);
+                        out_buffer = @as(Buf, value);
                         self.bit_buffer >>= n;
                     },
                 }
@@ -393,28 +393,28 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @intCast(u3, u8_bit_count - 1);
                             out_buffer <<= 1;
-                            out_buffer |= Buf(next_byte);
+                            out_buffer |= @as(Buf, next_byte);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         out_buffer <<= @intCast(BufShift, n);
-                        out_buffer |= Buf(next_byte >> shift);
+                        out_buffer |= @as(Buf, next_byte >> shift);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
                         self.bit_count = shift;
                     },
                     builtin.Endian.Little => {
                         if (n >= u8_bit_count) {
-                            out_buffer |= Buf(next_byte) << @intCast(BufShift, out_bits.*);
+                            out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         const value = (next_byte << shift) >> shift;
-                        out_buffer |= Buf(value) << @intCast(BufShift, out_bits.*);
+                        out_buffer |= @as(Buf, value) << @intCast(BufShift, out_bits.*);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte >> @intCast(u3, n));
                         self.bit_count = shift;
@@ -949,14 +949,14 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
-            var result = U(0);
+            var result = @as(U, 0);
             for (buffer) |byte, i| {
                 switch (endian) {
                     builtin.Endian.Big => {
                         result = (result << u8_bit_count) | byte;
                     },
                     builtin.Endian.Little => {
-                        result |= U(byte) << @intCast(Log2U, u8_bit_count * i);
+                        result |= @as(U, byte) << @intCast(Log2U, u8_bit_count * i);
                     },
                 }
             }
@@ -1050,7 +1050,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         return;
                     }
 
-                    ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
+                    ptr.* = @as(OC, undefined); //make it non-null so the following .? is guaranteed safe
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
                 },
@@ -1154,7 +1154,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
             switch (@typeId(T)) {
                 builtin.TypeId.Void => return,
-                builtin.TypeId.Bool => try self.serializeInt(u1(@boolToInt(value))),
+                builtin.TypeId.Bool => try self.serializeInt(@as(u1, @boolToInt(value))),
                 builtin.TypeId.Float, builtin.TypeId.Int => try self.serializeInt(value),
                 builtin.TypeId.Struct => {
                     const info = @typeInfo(T);
@@ -1197,10 +1197,10 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 },
                 builtin.TypeId.Optional => {
                     if (value == null) {
-                        try self.serializeInt(u1(@boolToInt(false)));
+                        try self.serializeInt(@as(u1, @boolToInt(false)));
                         return;
                     }
-                    try self.serializeInt(u1(@boolToInt(true)));
+                    try self.serializeInt(@as(u1, @boolToInt(true)));
 
                     const OC = comptime meta.Child(T);
                     const val_ptr = &value.?;

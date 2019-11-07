@@ -1332,7 +1332,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@bitCast with different sizes inside an expression",
         \\export fn entry() void {
-        \\    var foo = (@bitCast(u8, f32(1.0)) == 0xf);
+        \\    var foo = (@bitCast(u8, @as(f32, 1.0)) == 0xf);
         \\}
     ,
         "tmp.zig:2:25: error: destination type 'u8' has size 1 but source type 'f32' has size 4",
@@ -2120,13 +2120,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@floatToInt comptime safety",
         \\comptime {
-        \\    _ = @floatToInt(i8, f32(-129.1));
+        \\    _ = @floatToInt(i8, @as(f32, -129.1));
         \\}
         \\comptime {
-        \\    _ = @floatToInt(u8, f32(-1.1));
+        \\    _ = @floatToInt(u8, @as(f32, -1.1));
         \\}
         \\comptime {
-        \\    _ = @floatToInt(u8, f32(256.1));
+        \\    _ = @floatToInt(u8, @as(f32, 256.1));
         \\}
     ,
         "tmp.zig:2:9: error: integer value '-129' cannot be stored in type 'i8'",
@@ -3888,7 +3888,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const lit_int_x = 1 / 0;
         \\const lit_float_x = 1.0 / 0.0;
         \\const int_x = @as(u32, 1) / @as(u32, 0);
-        \\const float_x = f32(1.0) / f32(0.0);
+        \\const float_x = @as(f32, 1.0) / @as(f32, 0.0);
         \\
         \\export fn entry1() usize { return @sizeOf(@typeOf(lit_int_x)); }
         \\export fn entry2() usize { return @sizeOf(@typeOf(lit_float_x)); }

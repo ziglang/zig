@@ -341,7 +341,7 @@ test "std.meta.TagType" {
 ///Returns the active tag of a tagged union
 pub fn activeTag(u: var) @TagType(@typeOf(u)) {
     const T = @typeOf(u);
-    return @TagType(T)(u);
+    return @as(@TagType(T), u);
 }
 
 test "std.meta.activeTag" {

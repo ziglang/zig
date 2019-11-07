@@ -375,7 +375,7 @@ pub fn parseFloat(comptime T: type, s: []const u8) !T {
     return switch (try parseRepr(s, &r)) {
         ParseResult.Ok => convertRepr(T, r),
         ParseResult.PlusZero => 0.0,
-        ParseResult.MinusZero => -T(0.0),
+        ParseResult.MinusZero => -@as(T, 0.0),
         ParseResult.PlusInf => std.math.inf(T),
         ParseResult.MinusInf => -std.math.inf(T),
     };
@@ -426,8 +426,8 @@ test "fmt.parseFloat" {
             expect(approxEq(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
 
             expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
-            expect(approxEq(T, try parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
-            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), T(0.7062146892655368), epsilon));
+            expect(approxEq(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
+            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
         }
     }
 }

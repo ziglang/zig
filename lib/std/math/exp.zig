@@ -134,7 +134,7 @@ fn exp64(x_: f64) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // math.forceEval(f32(-0x1.0p-149 / x));
+            // math.forceEval(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }

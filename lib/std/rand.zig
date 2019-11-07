@@ -93,13 +93,13 @@ pub const Random = struct {
         //   http://www.pcg-random.org/posts/bounded-rands.html
         //   "Lemire's (with an extra tweak from me)"
         var x: Small = r.int(Small);
-        var m: Large = Large(x) * Large(less_than);
+        var m: Large = @as(Large, x) * @as(Large, less_than);
         var l: Small = @truncate(Small, m);
         if (l < less_than) {
             // TODO: workaround for https://github.com/ziglang/zig/issues/1770
             // should be:
             //   var t: Small = -%less_than;
-            var t: Small = @bitCast(Small, -%@bitCast(@IntType(true, Small.bit_count), Small(less_than)));
+            var t: Small = @bitCast(Small, -%@bitCast(@IntType(true, Small.bit_count), @as(Small, less_than)));
 
             if (t >= less_than) {
                 t -= less_than;
@@ -109,7 +109,7 @@ pub const Random = struct {
             }
             while (l < t) {
                 x = r.int(Small);
-                m = Large(x) * Large(less_than);
+                m = @as(Large, x) * @as(Large, less_than);
                 l = @truncate(Small, m);
             }
         }
@@ -286,7 +286,7 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html
     //   "Integer Multiplication (Biased)"
-    var m: T2 = T2(random_int) * T2(less_than);
+    var m: T2 = @as(T2, random_int) * @as(T2, less_than);
     return @intCast(T, m >> T.bit_count);
 }
 

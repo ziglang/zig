@@ -15,7 +15,7 @@ const maxInt = std.math.maxInt;
 pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
-        TypeId.ComptimeFloat => return T(@sqrt(f64, x)), // TODO upgrade to f128
+        TypeId.ComptimeFloat => return @as(T, @sqrt(f64, x)), // TODO upgrade to f128
         TypeId.Float => return @sqrt(T, x),
         TypeId.ComptimeInt => comptime {
             if (x > maxInt(u128)) {
@@ -24,7 +24,7 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
             if (x < 0) {
                 @compileError("sqrt on negative number");
             }
-            return T(sqrt_int(u128, x));
+            return @as(T, sqrt_int(u128, x));
         },
         TypeId.Int => return sqrt_int(T, x),
         else => @compileError("sqrt not implemented for " ++ @typeName(T)),

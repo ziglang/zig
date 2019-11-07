@@ -117,7 +117,7 @@ pub const IpAddress = extern union {
                 ip_slice[10] = 0xff;
                 ip_slice[11] = 0xff;
 
-                const ptr = @sliceToBytes((*const [1]u32)(&addr)[0..]);
+                const ptr = @sliceToBytes(@as(*const [1]u32, &addr)[0..]);
 
                 ip_slice[12] = ptr[0];
                 ip_slice[13] = ptr[1];
@@ -161,7 +161,7 @@ pub const IpAddress = extern union {
                 .addr = undefined,
             },
         };
-        const out_ptr = @sliceToBytes((*[1]u32)(&result.in.addr)[0..]);
+        const out_ptr = @sliceToBytes(@as(*[1]u32, &result.in.addr)[0..]);
 
         var x: u8 = 0;
         var index: u8 = 0;
@@ -271,7 +271,7 @@ pub const IpAddress = extern union {
             },
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
-                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{0,0,0,0,0,0,0,0,0,0,0xff,0xff})) {
+                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
                     try std.fmt.format(
                         context,
                         Errors,
@@ -1133,7 +1133,7 @@ fn resMSendRc(
         }
 
         // Wait for a response, or until time to retry
-        const clamped_timeout = std.math.min(u31(std.math.maxInt(u31)), t1 + retry_interval - t2);
+        const clamped_timeout = std.math.min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
         const nevents = os.poll(&pfd, clamped_timeout) catch 0;
         if (nevents == 0) continue;
 
