@@ -10494,6 +10494,50 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
+        // *[N]T to []T
+        // *[N]T to E![]T
+        if (cur_type->id == ZigTypeIdPointer &&
+            cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((prev_type->id == ZigTypeIdErrorUnion && is_slice(prev_type->data.error_union.payload_type)) ||
+                is_slice(prev_type)))
+        {
+            ZigType *array_type = cur_type->data.pointer.child_type;
+            ZigType *slice_type = (prev_type->id == ZigTypeIdErrorUnion) ?
+                prev_type->data.error_union.payload_type : prev_type;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+                types_match_const_cast_only(ira,
+                    slice_ptr_type->data.pointer.child_type,
+                    array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+            {
+                convert_to_const_slice = false;
+                continue;
+            }
+        }
+
+        // *[N]T to []T
+        // *[N]T to E![]T
+        if (prev_type->id == ZigTypeIdPointer &&
+            prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((cur_type->id == ZigTypeIdErrorUnion && is_slice(cur_type->data.error_union.payload_type)) ||
+                is_slice(cur_type)))
+        {
+            ZigType *array_type = prev_type->data.pointer.child_type;
+            ZigType *slice_type = (cur_type->id == ZigTypeIdErrorUnion) ?
+                cur_type->data.error_union.payload_type : cur_type;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+                types_match_const_cast_only(ira,
+                    slice_ptr_type->data.pointer.child_type,
+                    array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+            {
+                prev_inst = cur_inst;
+                convert_to_const_slice = false;
+                continue;
+            }
+        }
+
+        // [N]T to []T
         if (cur_type->id == ZigTypeIdArray && is_slice(prev_type) &&
             (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             cur_type->data.array.len == 0) &&
@@ -10505,6 +10549,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
+        // [N]T to []T
         if (prev_type->id == ZigTypeIdArray && is_slice(cur_type) &&
             (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             prev_type->data.array.len == 0) &&
@@ -12642,12 +12687,71 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // *[N]T to []T
-    if (is_slice(wanted_type) &&
+    // *[N]T to E![]T
+    if ((is_slice(wanted_type) ||
+            (wanted_type->id == ZigTypeIdErrorUnion &&
+            is_slice(wanted_type->data.error_union.payload_type))) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
-        ZigType *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_type = (wanted_type->id == ZigTypeIdErrorUnion) ?
+            wanted_type->data.error_union.payload_type : wanted_type;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(slice_ptr_type->id == ZigTypeIdPointer);
+        ZigType *array_type = actual_type->data.pointer.child_type;
+        bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
+                || !actual_type->data.pointer.is_const);
+        if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+            array_type->data.array.child_type, source_node,
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        {
+            // If the pointers both have ABI align, it works.
+            // Or if the array length is 0, alignment doesn't matter.
+            bool ok_align = array_type->data.array.len == 0 ||
+                (slice_ptr_type->data.pointer.explicit_alignment == 0 &&
+                actual_type->data.pointer.explicit_alignment == 0);
+            if (!ok_align) {
+                // If either one has non ABI align, we have to resolve them both
+                if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                if ((err = type_resolve(ira->codegen, slice_ptr_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
+            }
+            if (ok_align) {
+                if (wanted_type->id == ZigTypeIdErrorUnion) {
+                    IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, slice_type, value, nullptr);
+                    if (type_is_invalid(cast1->value.type))
+                        return ira->codegen->invalid_instruction;
+
+                    IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1, result_loc);
+                    if (type_is_invalid(cast2->value.type))
+                        return ira->codegen->invalid_instruction;
+
+                    return cast2;
+                } else {
+                    return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, slice_type, result_loc);
+                }
+            }
+        }
+    }
+
+    // *[N]T to E![]T
+    if (wanted_type->id == ZigTypeIdErrorUnion &&
+        is_slice(wanted_type->data.error_union.payload_type) &&
+        actual_type->id == ZigTypeIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == ZigTypeIdArray)
+    {
+        ZigType *slice_type = wanted_type->data.error_union.payload_type;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(slice_ptr_type->id == ZigTypeIdPointer);
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
@@ -12674,7 +12778,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
             }
             if (ok_align) {
-                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type, result_loc);
+                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, slice_type, result_loc);
             }
         }
     }

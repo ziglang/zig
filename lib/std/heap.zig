@@ -41,8 +41,7 @@ var direct_allocator_state = Allocator{
 
 const DirectAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        if (n == 0)
-            return (([*]u8)(undefined))[0..0];
+        if (n == 0) return &[0]u8{};
 
         if (builtin.os == .windows) {
             const w = os.windows;
@@ -261,8 +260,7 @@ pub const HeapAllocator = switch (builtin.os) {
 
         fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
             const self = @fieldParentPtr(HeapAllocator, "allocator", allocator);
-            if (n == 0)
-                return (([*]u8)(undefined))[0..0];
+            if (n == 0) return &[0]u8{};
 
             const amt = n + alignment + @sizeOf(usize);
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, builtin.AtomicOrder.SeqCst);
@@ -677,7 +675,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
                 ) catch {
                     const result = try self.fallback_allocator.reallocFn(
                         self.fallback_allocator,
-                        ([*]u8)(undefined)[0..0],
+                        &[0]u8{},
                         undefined,
                         new_size,
                         new_align,
