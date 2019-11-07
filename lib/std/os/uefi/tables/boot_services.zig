@@ -30,10 +30,11 @@ pub const BootServices = extern struct {
     /// Allocates pool memory.
     allocatePool: extern fn (MemoryType, usize, *align(8) [*]u8) usize,
 
-    freePool: usize, // TODO
+    /// Returns pool memory to the system.
+    freePool: extern fn ([*]align(8) u8) usize,
 
     /// Creates an event.
-    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
+    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*c_void) void, ?*const c_void, *Event) usize,
 
     /// Sets the type of timer and the trigger time for a timer event.
     setTimer: extern fn (Event, TimerDelay, u64) usize,
@@ -47,7 +48,9 @@ pub const BootServices = extern struct {
     /// Closes an event.
     closeEvent: extern fn (Event) usize,
 
-    checkEvent: usize, // TODO
+    /// Checks whether an event is in the signaled state.
+    checkEvent: extern fn (Event) usize,
+
     installProtocolInterface: usize, // TODO
     reinstallProtocolInterface: usize, // TODO
     uninstallProtocolInterface: usize, // TODO
@@ -87,11 +90,20 @@ pub const BootServices = extern struct {
 
     connectController: usize, // TODO
     disconnectController: usize, // TODO
-    openProtocol: usize, // TODO
-    closeProtocol: usize, // TODO
-    openProtocolInformation: usize, // TODO
+
+    /// Queries a handle to determine if it supports a specified protocol.
+    openProtocol: extern fn (Handle, *align(8) const Guid, *?*c_void, ?Handle, ?Handle, OpenProtocolAttributes) usize,
+
+    /// Closes a protocol on a handle that was opened using openProtocol().
+    closeProtocol: extern fn (Handle, *align(8) const Guid, Handle, ?Handle) usize,
+
+    /// Retrieves the list of agents that currently have a protocol interface opened.
+    openProtocolInformation: extern fn (Handle, *align(8) const Guid, *[*]ProtocolInformationEntry, *usize) usize,
+
     protocolsPerHandle: usize, // TODO
-    locateHandleBuffer: usize, // TODO
+
+    /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
+    locateHandleBuffer: extern fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, *[*]Handle) usize,
 
     /// Returns the first protocol instance that matches the given protocol.
     locateProtocol: extern fn (*align(8) const Guid, ?*const c_void, *?*c_void) usize,
@@ -166,4 +178,27 @@ pub const MemoryDescriptor = extern struct {
         _pad2: u43,
         memory_runtime: bool,
     },
+};
+
+pub const LocateSearchType = extern enum(u32) {
+    AllHandles,
+    ByRegisterNotify,
+    ByProtocol,
+};
+
+pub const OpenProtocolAttributes = packed struct {
+    by_handle_protocol: bool,
+    get_protocol: bool,
+    test_protocol: bool,
+    by_child_controller: bool,
+    by_driver: bool,
+    exclusive: bool,
+    _pad: u26,
+};
+
+pub const ProtocolInformationEntry = extern struct {
+    agent_handle: ?Handle,
+    controller_handle: ?Handle,
+    attributes: OpenProtocolAttributes,
+    open_count: u32,
 };

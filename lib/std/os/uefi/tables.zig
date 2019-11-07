@@ -1,8 +1,11 @@
 pub const BootServices = @import("tables/boot_services.zig").BootServices;
 pub const ConfigurationTable = @import("tables/configuration_table.zig").ConfigurationTable;
 pub const global_variable align(8) = @import("tables/runtime_services.zig").global_variable;
+pub const LocateSearchType = @import("tables/boot_services.zig").LocateSearchType;
 pub const MemoryDescriptor = @import("tables/boot_services.zig").MemoryDescriptor;
 pub const MemoryType = @import("tables/boot_services.zig").MemoryType;
+pub const OpenProtocolAttributes = @import("tables/boot_services.zig").OpenProtocolAttributes;
+pub const ProtocolInformationEntry = @import("tables/boot_services.zig").ProtocolInformationEntry;
 pub const ResetType = @import("tables/runtime_services.zig").ResetType;
 pub const RuntimeServices = @import("tables/runtime_services.zig").RuntimeServices;
 pub const SystemTable = @import("tables/system_table.zig").SystemTable;
