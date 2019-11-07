@@ -15733,7 +15733,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 casted_value = nullptr;
             }
 
-            if (casted_value == nullptr || type_is_invalid(casted_value->value.type)) {
+            if (casted_value != nullptr && type_is_invalid(casted_value->value.type)) {
                 return casted_value;
             }
 

@@ -241,14 +241,14 @@ fn memFree(comptime T: type, memory: []T) void {}
 
 test "cast undefined" {
     const array: [100]u8 = undefined;
-    const slice = ([]const u8)(array);
+    const slice = @as([]const u8, array);
     testCastUndefined(slice);
 }
 fn testCastUndefined(x: []const u8) void {}
 
 test "cast small unsigned to larger signed" {
-    expect(castSmallUnsignedToLargerSigned1(200) == i16(200));
-    expect(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
+    expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
+    expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
 }
 fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
     return x;
@@ -350,7 +350,7 @@ fn testTakeAddressOfParameter(f: f32) void {
 }
 
 test "pointer comparison" {
-    const a = ([]const u8)("a");
+    const a = @as([]const u8, "a");
     const b = &a;
     expect(ptrEql(b, b));
 }
@@ -642,7 +642,7 @@ test "self reference through fn ptr field" {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = (*volatile i32)(&number);
+    const ptr = @as(*volatile i32, &number);
     ptr.* += 1;
     expect(ptr.* == 1235);
 }
