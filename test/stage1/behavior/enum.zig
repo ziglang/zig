@@ -788,7 +788,7 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
     expect(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
-        MultipleChoice.C => u32(1234),
+        MultipleChoice.C => @as(u32, 1234),
         MultipleChoice.D => 4,
     });
 }
@@ -816,7 +816,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
-        MultipleChoice2.D => u32(1234),
+        MultipleChoice2.D => @as(u32, 1234),
         MultipleChoice2.Unspecified1 => 5,
         MultipleChoice2.Unspecified2 => 6,
         MultipleChoice2.Unspecified3 => 7,

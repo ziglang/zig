@@ -186,7 +186,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "shift amount has to be an integer type",
         \\export fn entry() void {
-        \\    const x = 1 << &u8(10);
+        \\    const x = 1 << &@as(u8, 10);
         \\}
     ,
         "tmp.zig:2:23: error: shift amount has to be an integer type, but found '*u8'",
@@ -196,7 +196,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "bit shifting only works on integer types",
         \\export fn entry() void {
-        \\    const x = &u8(1) << 10;
+        \\    const x = &@as(u8, 1) << 10;
         \\}
     ,
         "tmp.zig:2:18: error: bit shifting operation expected integer type, found '*u8'",
@@ -241,7 +241,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: []align(true) i32 = undefined;
         \\}
         \\export fn entry2() void {
-        \\    var x: *align(f64(12.34)) i32 = undefined;
+        \\    var x: *align(@as(f64, 12.34)) i32 = undefined;
         \\}
     ,
         "tmp.zig:2:20: error: expected type 'u29', found 'bool'",
@@ -1297,7 +1297,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@truncate undefined value",
         \\export fn entry() void {
-        \\    var z = @truncate(u8, u16(undefined));
+        \\    var z = @truncate(u8, @as(u16, undefined));
         \\}
     ,
         "tmp.zig:2:30: error: use of undefined value here causes undefined behavior",
@@ -1686,7 +1686,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "non float passed to @floatToInt",
         \\export fn entry() void {
-        \\    const x = @floatToInt(i32, i32(54));
+        \\    const x = @floatToInt(i32, @as(i32, 54));
         \\}
     ,
         "tmp.zig:2:35: error: expected float type, found 'i32'",
@@ -2197,7 +2197,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "error when evaluating return type",
         \\const Foo = struct {
-        \\    map: i32(i32),
+        \\    map: @as(i32, i32),
         \\
         \\    fn init() Foo {
         \\        return undefined;
@@ -2338,7 +2338,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "var not allowed in structs",
         \\export fn entry() void {
-        \\   var s = (struct{v: var}){.v=i32(10)};
+        \\   var s = (struct{v: var}){.v=@as(i32, 10)};
         \\}
     ,
         "tmp.zig:2:23: error: invalid token: 'var'",
@@ -2657,7 +2657,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "cast negative integer literal to usize",
         \\export fn entry() void {
-        \\    const x = usize(-10);
+        \\    const x = @as(usize, -10);
         \\}
     ,
         "tmp.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'",
@@ -3384,7 +3384,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x : i32 = if (b) h: { break :h 1; };
         \\}
         \\fn g(b: bool) void {
-        \\    const y = if (b) h: { break :h i32(1); };
+        \\    const y = if (b) h: { break :h @as(i32, 1); };
         \\}
         \\export fn entry() void { f(true); g(true); }
     ,
@@ -3520,7 +3520,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "cast unreachable",
         \\fn f() i32 {
-        \\    return i32(return 1);
+        \\    return @as(i32, return 1);
         \\}
         \\export fn entry() void { _ = f(); }
     ,
@@ -3595,7 +3595,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    switch (n) {
         \\        Number.One => 1,
         \\        Number.Two => 2,
-        \\        Number.Three => i32(3),
+        \\        Number.Three => @as(i32, 3),
         \\    }
         \\}
         \\
@@ -3616,7 +3616,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    switch (n) {
         \\        Number.One => 1,
         \\        Number.Two => 2,
-        \\        Number.Three => i32(3),
+        \\        Number.Three => @as(i32, 3),
         \\        Number.Four => 4,
         \\        Number.Two => 2,
         \\    }
@@ -3640,7 +3640,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    switch (n) {
         \\        Number.One => 1,
         \\        Number.Two => 2,
-        \\        Number.Three => i32(3),
+        \\        Number.Three => @as(i32, 3),
         \\        Number.Four => 4,
         \\        Number.Two => 2,
         \\        else => 10,
@@ -3685,7 +3685,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "switch expression - duplicate or overlapping integer value",
         \\fn foo(x: u8) u8 {
         \\    return switch (x) {
-        \\        0 ... 100 => u8(0),
+        \\        0 ... 100 => @as(u8, 0),
         \\        101 ... 200 => 1,
         \\        201, 203 ... 207 => 2,
         \\        206 ... 255 => 3,
@@ -3722,7 +3722,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "array concatenation with wrong type",
         \\const src = "aoeu";
-        \\const derp = usize(1234);
+        \\const derp = @as(usize, 1234);
         \\const a = derp ++ "foo";
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
@@ -3887,7 +3887,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "division by zero",
         \\const lit_int_x = 1 / 0;
         \\const lit_float_x = 1.0 / 0.0;
-        \\const int_x = u32(1) / u32(0);
+        \\const int_x = @as(u32, 1) / @as(u32, 0);
         \\const float_x = f32(1.0) / f32(0.0);
         \\
         \\export fn entry1() usize { return @sizeOf(@typeOf(lit_int_x)); }
@@ -4590,7 +4590,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var bytes: [ext()]u8 = undefined;
         \\export fn f() void {
         \\    for (bytes) |*b, i| {
-        \\        b.* = u8(i);
+        \\        b.* = @as(u8, i);
         \\    }
         \\}
     ,
@@ -4874,7 +4874,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\
         \\fn foo() i32 {
-        \\    return add(i32(1234));
+        \\    return add(@as(i32, 1234));
         \\}
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
@@ -4886,7 +4886,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "pass integer literal to var args",
         \\fn add(args: ...) i32 {
-        \\    var sum = i32(0);
+        \\    var sum = @as(i32, 0);
         \\    {comptime var i: usize = 0; inline while (i < args.len) : (i += 1) {
         \\        sum += args[i];
         \\    }}
@@ -5581,7 +5581,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "explicit cast float literal to integer when there is a fraction component",
         \\export fn entry() i32 {
-        \\    return i32(12.34);
+        \\    return @as(i32, 12.34);
         \\}
     ,
         "tmp.zig:2:16: error: fractional component prevents float value 12.340000 from being casted to type 'i32'",
@@ -5599,7 +5599,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@shlExact shifts out 1 bits",
         \\comptime {
-        \\    const x = @shlExact(u8(0b01010101), 2);
+        \\    const x = @shlExact(@as(u8, 0b01010101), 2);
         \\}
     ,
         "tmp.zig:2:15: error: operation caused overflow",
@@ -5608,7 +5608,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@shrExact shifts out 1 bits",
         \\comptime {
-        \\    const x = @shrExact(u8(0b10101010), 2);
+        \\    const x = @shrExact(@as(u8, 0b10101010), 2);
         \\}
     ,
         "tmp.zig:2:15: error: exact shift shifted out 1 bits",
@@ -5699,7 +5699,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "@alignCast expects pointer or slice",
         \\export fn entry() void {
-        \\    @alignCast(4, u32(3));
+        \\    @alignCast(4, @as(u32, 3));
         \\}
     ,
         "tmp.zig:2:22: error: expected pointer or slice, found 'u32'",
@@ -5744,7 +5744,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Derp = @OpaqueType();
         \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
-        \\    var x = u8(1);
+        \\    var x = @as(u8, 1);
         \\    bar(@ptrCast(*c_void, &x));
         \\}
     ,
@@ -5800,7 +5800,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "wrong types given to atomic order args in cmpxchg",
         \\export fn entry() void {
         \\    var x: i32 = 1234;
-        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, u32(1234), u32(1234))) {}
+        \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, @as(u32, 1234), @as(u32, 1234))) {}
         \\}
     ,
         "tmp.zig:3:50: error: expected type 'std.builtin.AtomicOrder', found 'u32'",
@@ -5810,7 +5810,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "wrong types given to @export",
         \\extern fn entry() void { }
         \\comptime {
-        \\    @export("entry", entry, u32(1234));
+        \\    @export("entry", entry, @as(u32, 1234));
         \\}
     ,
         "tmp.zig:3:32: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",

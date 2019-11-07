@@ -171,7 +171,7 @@ test "std.BloomFilter" {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
         testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
         // fill in a few items
         bf.incrementCell(42);
         bf.incrementCell(255);
@@ -197,7 +197,7 @@ test "std.BloomFilter" {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
         testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
 
         // Lets add a string
         bf.add("foo");
@@ -219,7 +219,7 @@ test "std.BloomFilter" {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
         testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
 
         comptime var teststrings = [_][]const u8{
             "foo",

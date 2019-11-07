@@ -24,11 +24,11 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
 
-    const signBit = (Z(1) << (significandBits + exponentBits));
+    const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
     const exponentBias = (maxExponent >> 1);
 
-    const implicitBit = (Z(1) << significandBits);
+    const implicitBit = (@as(Z, 1) << significandBits);
     const quietBit = implicitBit >> 1;
     const significandMask = implicitBit - 1;
 
@@ -122,7 +122,7 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
         // a zero of the appropriate sign.  Mathematically there is no need to
         // handle this case separately, but we make it a special case to
         // simplify the shift logic.
-        const shift: u32 = @truncate(u32, Z(1) -% @bitCast(u32, productExponent));
+        const shift: u32 = @truncate(u32, @as(Z, 1) -% @bitCast(u32, productExponent));
         if (shift >= typeWidth) return @bitCast(T, productSign);
 
         // Otherwise, shift the significand of the result so that the round
@@ -131,7 +131,7 @@ fn mulXf3(comptime T: type, a: T, b: T) T {
     } else {
         // Result is normal before rounding; insert the exponent.
         productHi &= significandMask;
-        productHi |= Z(@bitCast(u32, productExponent)) << significandBits;
+        productHi |= @as(Z, @bitCast(u32, productExponent)) << significandBits;
     }
 
     // Insert the sign of the result:
@@ -150,7 +150,7 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     switch (Z) {
         u32 => {
             // 32x32 --> 64 bit multiply
-            const product = u64(a) * u64(b);
+            const product = @as(u64, a) * @as(u64, b);
             hi.* = @truncate(u32, product >> 32);
             lo.* = @truncate(u32, product);
         },
@@ -179,9 +179,9 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
             hi.* = S.hiWord(plohi) +% S.hiWord(philo) +% S.hiWord(r1) +% phihi;
         },
         u128 => {
-            const Word_LoMask = u64(0x00000000ffffffff);
-            const Word_HiMask = u64(0xffffffff00000000);
-            const Word_FullMask = u64(0xffffffffffffffff);
+            const Word_LoMask = @as(u64, 0x00000000ffffffff);
+            const Word_HiMask = @as(u64, 0xffffffff00000000);
+            const Word_FullMask = @as(u64, 0xffffffffffffffff);
             const S = struct {
                 fn Word_1(x: u128) u64 {
                     return @truncate(u32, x >> 96);
@@ -217,22 +217,22 @@ fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
             const product43: u64 = S.Word_4(a) * S.Word_3(b);
             const product44: u64 = S.Word_4(a) * S.Word_4(b);
 
-            const sum0: u128 = u128(product44);
-            const sum1: u128 = u128(product34) +%
-                u128(product43);
-            const sum2: u128 = u128(product24) +%
-                u128(product33) +%
-                u128(product42);
-            const sum3: u128 = u128(product14) +%
-                u128(product23) +%
-                u128(product32) +%
-                u128(product41);
-            const sum4: u128 = u128(product13) +%
-                u128(product22) +%
-                u128(product31);
-            const sum5: u128 = u128(product12) +%
-                u128(product21);
-            const sum6: u128 = u128(product11);
+            const sum0: u128 = @as(u128, product44);
+            const sum1: u128 = @as(u128, product34) +%
+                @as(u128, product43);
+            const sum2: u128 = @as(u128, product24) +%
+                @as(u128, product33) +%
+                @as(u128, product42);
+            const sum3: u128 = @as(u128, product14) +%
+                @as(u128, product23) +%
+                @as(u128, product32) +%
+                @as(u128, product41);
+            const sum4: u128 = @as(u128, product13) +%
+                @as(u128, product22) +%
+                @as(u128, product31);
+            const sum5: u128 = @as(u128, product12) +%
+                @as(u128, product21);
+            const sum6: u128 = @as(u128, product11);
 
             const r0: u128 = (sum0 & Word_FullMask) +%
                 ((sum1 & Word_LoMask) << 32);
@@ -258,7 +258,7 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = Z(1) << significandBits;
+    const implicitBit = @as(Z, 1) << significandBits;
 
     const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);

@@ -118,7 +118,7 @@ pub const Allocator = struct {
         } else @alignOf(T);
 
         if (n == 0) {
-            return ([*]align(a) T)(undefined)[0..0];
+            return @as([*]align(a) T, undefined)[0..0];
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
@@ -170,7 +170,7 @@ pub const Allocator = struct {
         }
         if (new_n == 0) {
             self.free(old_mem);
-            return ([*]align(new_alignment) T)(undefined)[0..0];
+            return @as([*]align(new_alignment) T, undefined)[0..0];
         }
 
         const old_byte_slice = @sliceToBytes(old_mem);
@@ -523,7 +523,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: builtin.
         builtin.Endian.Little => {
             const ShiftType = math.Log2Int(ReturnType);
             for (bytes) |b, index| {
-                result = result | (ReturnType(b) << @intCast(ShiftType, index * 8));
+                result = result | (@as(ReturnType, b) << @intCast(ShiftType, index * 8));
             }
         },
     }
@@ -1332,7 +1332,7 @@ fn AsBytesReturnType(comptime P: type) type {
     if (comptime !trait.isSingleItemPtr(P))
         @compileError("expected single item " ++ "pointer, passed " ++ @typeName(P));
 
-    const size = usize(@sizeOf(meta.Child(P)));
+    const size = @as(usize, @sizeOf(meta.Child(P)));
     const alignment = comptime meta.alignment(P);
 
     if (alignment == 0) {
@@ -1353,7 +1353,7 @@ pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
 }
 
 test "asBytes" {
-    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
@@ -1361,7 +1361,7 @@ test "asBytes" {
 
     testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
 
-    var codeface = u32(0xC0DEFACE);
+    var codeface = @as(u32, 0xC0DEFACE);
     for (asBytes(&codeface).*) |*b|
         b.* = 0;
     testing.expect(codeface == 0);
@@ -1392,7 +1392,7 @@ pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
 }
 
 test "toBytes" {
-    var my_bytes = toBytes(u32(0x12345678));
+    var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (builtin.endian) {
         builtin.Endian.Big => testing.expect(eql(u8, my_bytes, "\x12\x34\x56\x78")),
         builtin.Endian.Little => testing.expect(eql(u8, my_bytes, "\x78\x56\x34\x12")),
@@ -1406,7 +1406,7 @@ test "toBytes" {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    const size = usize(@sizeOf(T));
+    const size = @as(usize, @sizeOf(T));
 
     if (comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8) {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
@@ -1424,7 +1424,7 @@ pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typ
 }
 
 test "bytesAsValue" {
-    const deadbeef = u32(0xDEADBEEF);
+    const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (builtin.endian) {
         builtin.Endian.Big => "\xDE\xAD\xBE\xEF",
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
@@ -1472,7 +1472,7 @@ test "bytesToValue" {
     };
 
     const deadbeef = bytesToValue(u32, deadbeef_bytes);
-    testing.expect(deadbeef == u32(0xDEADBEEF));
+    testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
 fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {

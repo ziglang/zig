@@ -164,13 +164,13 @@ fn Blake2s(comptime out_len: usize) type {
             inline while (j < 10) : (j += 1) {
                 inline for (rounds) |r| {
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(16));
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], @as(usize, 16));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(12));
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], @as(usize, 12));
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], usize(8));
+                    v[r.d] = math.rotr(u32, v[r.d] ^ v[r.a], @as(usize, 8));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], usize(7));
+                    v[r.b] = math.rotr(u32, v[r.b] ^ v[r.c], @as(usize, 7));
                 }
             }
 
@@ -398,13 +398,13 @@ fn Blake2b(comptime out_len: usize) type {
             inline while (j < 12) : (j += 1) {
                 inline for (rounds) |r| {
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.x]];
-                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(32));
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], @as(usize, 32));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(24));
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], @as(usize, 24));
                     v[r.a] = v[r.a] +% v[r.b] +% m[sigma[j][r.y]];
-                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], usize(16));
+                    v[r.d] = math.rotr(u64, v[r.d] ^ v[r.a], @as(usize, 16));
                     v[r.c] = v[r.c] +% v[r.d];
-                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], usize(63));
+                    v[r.b] = math.rotr(u64, v[r.b] ^ v[r.c], @as(usize, 63));
                 }
             }
 

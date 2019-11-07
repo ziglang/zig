@@ -261,7 +261,7 @@ pub const Int = struct {
     /// the minus sign. This is used for determining the number of characters needed to print the
     /// value. It is inexact and may exceed the given value by ~1-2 bytes.
     pub fn sizeInBase(self: Int, base: usize) usize {
-        const bit_count = usize(@boolToInt(!self.isPositive())) + self.bitCountAbs();
+        const bit_count = @as(usize, @boolToInt(!self.isPositive())) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 1;
     }
 

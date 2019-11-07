@@ -256,15 +256,15 @@ const Fe = struct {
         var t: [10]i64 = undefined;
 
         t[0] = readIntSliceLittle(u32, s[0..4]);
-        t[1] = u32(readIntSliceLittle(u24, s[4..7])) << 6;
-        t[2] = u32(readIntSliceLittle(u24, s[7..10])) << 5;
-        t[3] = u32(readIntSliceLittle(u24, s[10..13])) << 3;
-        t[4] = u32(readIntSliceLittle(u24, s[13..16])) << 2;
+        t[1] = @as(u32, readIntSliceLittle(u24, s[4..7])) << 6;
+        t[2] = @as(u32, readIntSliceLittle(u24, s[7..10])) << 5;
+        t[3] = @as(u32, readIntSliceLittle(u24, s[10..13])) << 3;
+        t[4] = @as(u32, readIntSliceLittle(u24, s[13..16])) << 2;
         t[5] = readIntSliceLittle(u32, s[16..20]);
-        t[6] = u32(readIntSliceLittle(u24, s[20..23])) << 7;
-        t[7] = u32(readIntSliceLittle(u24, s[23..26])) << 5;
-        t[8] = u32(readIntSliceLittle(u24, s[26..29])) << 4;
-        t[9] = (u32(readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
+        t[6] = @as(u32, readIntSliceLittle(u24, s[20..23])) << 7;
+        t[7] = @as(u32, readIntSliceLittle(u24, s[23..26])) << 5;
+        t[8] = @as(u32, readIntSliceLittle(u24, s[26..29])) << 4;
+        t[9] = (@as(u32, readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
 
         carry1(h, t[0..]);
     }
@@ -500,7 +500,7 @@ const Fe = struct {
         if (i + 1 < 10) {
             t[i + 1] += c[i];
         }
-        t[i] -= c[i] * (i32(1) << shift);
+        t[i] -= c[i] * (@as(i32, 1) << shift);
     }
 
     fn toBytes(s: []u8, h: *const Fe) void {
@@ -511,7 +511,7 @@ const Fe = struct {
             t[i] = h.b[i];
         }
 
-        var q = (19 * t[9] + ((i32(1) << 24))) >> 25;
+        var q = (19 * t[9] + ((@as(i32, 1) << 24))) >> 25;
         {
             var i: usize = 0;
             while (i < 5) : (i += 1) {

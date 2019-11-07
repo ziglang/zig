@@ -183,8 +183,8 @@ fn exp64(x_: f64) f64 {
 }
 
 test "math.exp" {
-    assert(exp(f32(0.0)) == exp32(0.0));
-    assert(exp(f64(0.0)) == exp64(0.0));
+    assert(exp(@as(f32, 0.0)) == exp32(0.0));
+    assert(exp(@as(f64, 0.0)) == exp64(0.0));
 }
 
 test "math.exp32" {

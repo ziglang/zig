@@ -79,8 +79,8 @@ fn scalbn64(x: f64, n_: i32) f64 {
 }
 
 test "math.scalbn" {
-    expect(scalbn(f32(1.5), 4) == scalbn32(1.5, 4));
-    expect(scalbn(f64(1.5), 4) == scalbn64(1.5, 4));
+    expect(scalbn(@as(f32, 1.5), 4) == scalbn32(1.5, 4));
+    expect(scalbn(@as(f64, 1.5), 4) == scalbn64(1.5, 4));
 }
 
 test "math.scalbn32" {

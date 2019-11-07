@@ -87,11 +87,11 @@ pub const Poly1305 = struct {
     //   ctx->h <= 4_ffffffff_ffffffff_ffffffff_ffffffff
     fn polyBlock(ctx: *Self) void {
         // s = h + c, without carry propagation
-        const s0 = u64(ctx.h[0]) + ctx.c[0]; // s0 <= 1_fffffffe
-        const s1 = u64(ctx.h[1]) + ctx.c[1]; // s1 <= 1_fffffffe
-        const s2 = u64(ctx.h[2]) + ctx.c[2]; // s2 <= 1_fffffffe
-        const s3 = u64(ctx.h[3]) + ctx.c[3]; // s3 <= 1_fffffffe
-        const s4 = u64(ctx.h[4]) + ctx.c[4]; // s4 <=          5
+        const s0 = @as(u64, ctx.h[0]) + ctx.c[0]; // s0 <= 1_fffffffe
+        const s1 = @as(u64, ctx.h[1]) + ctx.c[1]; // s1 <= 1_fffffffe
+        const s2 = @as(u64, ctx.h[2]) + ctx.c[2]; // s2 <= 1_fffffffe
+        const s3 = @as(u64, ctx.h[3]) + ctx.c[3]; // s3 <= 1_fffffffe
+        const s4 = @as(u64, ctx.h[4]) + ctx.c[4]; // s4 <=          5
 
         // Local all the things!
         const r0 = ctx.r[0]; // r0  <= 0fffffff
@@ -197,7 +197,7 @@ pub const Poly1305 = struct {
 
         // check if we should subtract 2^130-5 by performing the
         // corresponding carry propagation.
-        const _u0 = u64(5) + ctx.h[0]; // <= 1_00000004
+        const _u0 = @as(u64, 5) + ctx.h[0]; // <= 1_00000004
         const _u1 = (_u0 >> 32) + ctx.h[1]; // <= 1_00000000
         const _u2 = (_u1 >> 32) + ctx.h[2]; // <= 1_00000000
         const _u3 = (_u2 >> 32) + ctx.h[3]; // <= 1_00000000

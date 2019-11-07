@@ -6,7 +6,7 @@ fn test__fixunstfti(a: f128, expected: u128) void {
     testing.expect(x == expected);
 }
 
-const inf128 = @bitCast(f128, u128(0x7fff0000000000000000000000000000));
+const inf128 = @bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000));
 
 test "fixunstfti" {
     test__fixunstfti(inf128, 0xffffffffffffffffffffffffffffffff);

@@ -236,12 +236,12 @@ test "std.PriorityQueue: add and remove min heap" {
     try queue.add(23);
     try queue.add(25);
     try queue.add(13);
-    expectEqual(u32(7), queue.remove());
-    expectEqual(u32(12), queue.remove());
-    expectEqual(u32(13), queue.remove());
-    expectEqual(u32(23), queue.remove());
-    expectEqual(u32(25), queue.remove());
-    expectEqual(u32(54), queue.remove());
+    expectEqual(@as(u32, 7), queue.remove());
+    expectEqual(@as(u32, 12), queue.remove());
+    expectEqual(@as(u32, 13), queue.remove());
+    expectEqual(@as(u32, 23), queue.remove());
+    expectEqual(@as(u32, 25), queue.remove());
+    expectEqual(@as(u32, 54), queue.remove());
 }
 
 test "std.PriorityQueue: add and remove same min heap" {
@@ -254,12 +254,12 @@ test "std.PriorityQueue: add and remove same min heap" {
     try queue.add(2);
     try queue.add(1);
     try queue.add(1);
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(2), queue.remove());
-    expectEqual(u32(2), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
 }
 
 test "std.PriorityQueue: removeOrNull on empty" {
@@ -276,9 +276,9 @@ test "std.PriorityQueue: edge case 3 elements" {
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
-    expectEqual(u32(2), queue.remove());
-    expectEqual(u32(3), queue.remove());
-    expectEqual(u32(9), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 3), queue.remove());
+    expectEqual(@as(u32, 9), queue.remove());
 }
 
 test "std.PriorityQueue: peek" {
@@ -289,8 +289,8 @@ test "std.PriorityQueue: peek" {
     try queue.add(9);
     try queue.add(3);
     try queue.add(2);
-    expectEqual(u32(2), queue.peek().?);
-    expectEqual(u32(2), queue.peek().?);
+    expectEqual(@as(u32, 2), queue.peek().?);
+    expectEqual(@as(u32, 2), queue.peek().?);
 }
 
 test "std.PriorityQueue: sift up with odd indices" {
@@ -341,12 +341,12 @@ test "std.PriorityQueue: add and remove max heap" {
     try queue.add(23);
     try queue.add(25);
     try queue.add(13);
-    expectEqual(u32(54), queue.remove());
-    expectEqual(u32(25), queue.remove());
-    expectEqual(u32(23), queue.remove());
-    expectEqual(u32(13), queue.remove());
-    expectEqual(u32(12), queue.remove());
-    expectEqual(u32(7), queue.remove());
+    expectEqual(@as(u32, 54), queue.remove());
+    expectEqual(@as(u32, 25), queue.remove());
+    expectEqual(@as(u32, 23), queue.remove());
+    expectEqual(@as(u32, 13), queue.remove());
+    expectEqual(@as(u32, 12), queue.remove());
+    expectEqual(@as(u32, 7), queue.remove());
 }
 
 test "std.PriorityQueue: add and remove same max heap" {
@@ -359,12 +359,12 @@ test "std.PriorityQueue: add and remove same max heap" {
     try queue.add(2);
     try queue.add(1);
     try queue.add(1);
-    expectEqual(u32(2), queue.remove());
-    expectEqual(u32(2), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
-    expectEqual(u32(1), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 2), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
+    expectEqual(@as(u32, 1), queue.remove());
 }
 
 test "std.PriorityQueue: iterator" {
@@ -386,5 +386,5 @@ test "std.PriorityQueue: iterator" {
         _ = map.remove(e);
     }
 
-    expectEqual(usize(0), map.count());
+    expectEqual(@as(usize, 0), map.count());
 }

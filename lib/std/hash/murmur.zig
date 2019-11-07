@@ -98,7 +98,7 @@ pub const Murmur2_64 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
-        const len = u64(str.len);
+        const len = @as(u64, str.len);
         var h1: u64 = seed ^ (len *% m);
         for (@ptrCast([*]allowzero align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
             var k1: u64 = v;

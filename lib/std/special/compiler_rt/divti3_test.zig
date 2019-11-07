@@ -14,8 +14,8 @@ test "divti3" {
     test__divti3(-2, 1, -2);
     test__divti3(-2, -1, 2);
 
-    test__divti3(@bitCast(i128, u128(0x8 << 124)), 1, @bitCast(i128, u128(0x8 << 124)));
-    test__divti3(@bitCast(i128, u128(0x8 << 124)), -1, @bitCast(i128, u128(0x8 << 124)));
-    test__divti3(@bitCast(i128, u128(0x8 << 124)), -2, @bitCast(i128, u128(0x4 << 124)));
-    test__divti3(@bitCast(i128, u128(0x8 << 124)), 2, @bitCast(i128, u128(0xc << 124)));
+    test__divti3(@bitCast(i128, @as(u128, 0x8 << 124)), 1, @bitCast(i128, @as(u128, 0x8 << 124)));
+    test__divti3(@bitCast(i128, @as(u128, 0x8 << 124)), -1, @bitCast(i128, @as(u128, 0x8 << 124)));
+    test__divti3(@bitCast(i128, @as(u128, 0x8 << 124)), -2, @bitCast(i128, @as(u128, 0x4 << 124)));
+    test__divti3(@bitCast(i128, @as(u128, 0x8 << 124)), 2, @bitCast(i128, @as(u128, 0xc << 124)));
 }

@@ -4,7 +4,7 @@ const compiler_rt = @import("../compiler_rt.zig");
 pub extern fn __muloti4(a: i128, b: i128, overflow: *c_int) i128 {
     @setRuntimeSafety(builtin.is_test);
 
-    const min = @bitCast(i128, u128(1 << (i128.bit_count - 1)));
+    const min = @bitCast(i128, @as(u128, 1 << (i128.bit_count - 1)));
     const max = ~min;
     overflow.* = 0;
 

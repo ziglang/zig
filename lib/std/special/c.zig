@@ -62,7 +62,7 @@ extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
         r += 1;
         n -= 1;
     }
-    return c_int(l[0]) - c_int(r[0]);
+    return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
 extern fn strerror(errnum: c_int) [*]const u8 {
@@ -540,7 +540,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     // scale result up
     if (ex > 0) {
         ux -%= 1 << digits;
-        ux |= uint(@bitCast(u32, ex)) << digits;
+        ux |= @as(uint, @bitCast(u32, ex)) << digits;
     } else {
         ux >>= @intCast(log2uint, @bitCast(u32, -ex + 1));
     }
@@ -687,7 +687,7 @@ export fn sqrt(x: f64) f64 {
 
 export fn sqrtf(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
-    const sign: i32 = @bitCast(i32, u32(0x80000000));
+    const sign: i32 = @bitCast(i32, @as(u32, 0x80000000));
     var ix: i32 = @bitCast(i32, x);
 
     if ((ix & 0x7F800000) == 0x7F800000) {

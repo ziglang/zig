@@ -350,7 +350,7 @@ pub const Tokenizer = struct {
             };
         } else {
             // Skip the UTF-8 BOM if present
-            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else usize(0);
+            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
             return Tokenizer{
                 .buffer = buffer,
                 .index = src_start,

@@ -801,7 +801,7 @@ pub fn toSysTime(ns: i64) i64 {
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
-    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    const hns = @bitCast(i64, (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
     return fromSysTime(hns);
 }
 

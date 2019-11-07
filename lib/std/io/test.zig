@@ -228,8 +228,8 @@ test "BitOutStream" {
 
     try bit_stream_be.writeBits(u2(1), 1);
     try bit_stream_be.writeBits(u5(2), 2);
-    try bit_stream_be.writeBits(u128(3), 3);
-    try bit_stream_be.writeBits(u8(4), 4);
+    try bit_stream_be.writeBits(@as(u128, 3), 3);
+    try bit_stream_be.writeBits(@as(u8, 4), 4);
     try bit_stream_be.writeBits(u9(5), 5);
     try bit_stream_be.writeBits(u1(1), 1);
 
@@ -242,33 +242,33 @@ test "BitOutStream" {
     expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
 
     mem_out_be.pos = 0;
-    try bit_stream_be.writeBits(u32(0b110011010000101), 16);
+    try bit_stream_be.writeBits(@as(u32, 0b110011010000101), 16);
     expect(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
 
-    try bit_stream_be.writeBits(u0(0), 0);
+    try bit_stream_be.writeBits(@as(u0, 0), 0);
 
     var mem_out_le = io.SliceOutStream.init(mem_le[0..]);
     var bit_stream_le = io.BitOutStream(builtin.Endian.Little, OutError).init(&mem_out_le.stream);
 
-    try bit_stream_le.writeBits(u2(1), 1);
-    try bit_stream_le.writeBits(u5(2), 2);
-    try bit_stream_le.writeBits(u128(3), 3);
-    try bit_stream_le.writeBits(u8(4), 4);
-    try bit_stream_le.writeBits(u9(5), 5);
-    try bit_stream_le.writeBits(u1(1), 1);
+    try bit_stream_le.writeBits(@as(u2, 1), 1);
+    try bit_stream_le.writeBits(@as(u5, 2), 2);
+    try bit_stream_le.writeBits(@as(u128, 3), 3);
+    try bit_stream_le.writeBits(@as(u8, 4), 4);
+    try bit_stream_le.writeBits(@as(u9, 5), 5);
+    try bit_stream_le.writeBits(@as(u1, 1), 1);
 
     expect(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
 
     mem_out_le.pos = 0;
-    try bit_stream_le.writeBits(u15(0b110011010000101), 15);
+    try bit_stream_le.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_le.flushBits();
     expect(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
 
     mem_out_le.pos = 0;
-    try bit_stream_le.writeBits(u32(0b1100110100001011), 16);
+    try bit_stream_le.writeBits(@as(u32, 0b1100110100001011), 16);
     expect(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
 
-    try bit_stream_le.writeBits(u0(0), 0);
+    try bit_stream_le.writeBits(@as(u0, 0), 0);
 }
 
 test "BitStreams with File Stream" {
@@ -282,12 +282,12 @@ test "BitStreams with File Stream" {
         const OutError = File.WriteError;
         var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
 
-        try bit_stream.writeBits(u2(1), 1);
-        try bit_stream.writeBits(u5(2), 2);
-        try bit_stream.writeBits(u128(3), 3);
-        try bit_stream.writeBits(u8(4), 4);
-        try bit_stream.writeBits(u9(5), 5);
-        try bit_stream.writeBits(u1(1), 1);
+        try bit_stream.writeBits(@as(u2, 1), 1);
+        try bit_stream.writeBits(@as(u5, 2), 2);
+        try bit_stream.writeBits(@as(u128, 3), 3);
+        try bit_stream.writeBits(@as(u8, 4), 4);
+        try bit_stream.writeBits(@as(u9, 5), 5);
+        try bit_stream.writeBits(@as(u1, 1), 1);
         try bit_stream.flushBits();
     }
     {
@@ -603,7 +603,7 @@ test "c out stream" {
     }
 
     const out_stream = &io.COutStream.init(out_file).stream;
-    try out_stream.print("hi: {}\n", i32(123));
+    try out_stream.print("hi: {}\n", @as(i32, 123));
 }
 
 test "File seek ops" {

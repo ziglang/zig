@@ -89,8 +89,8 @@ fn asinh64(x: f64) f64 {
 }
 
 test "math.asinh" {
-    expect(asinh(f32(0.0)) == asinh32(0.0));
-    expect(asinh(f64(0.0)) == asinh64(0.0));
+    expect(asinh(@as(f32, 0.0)) == asinh32(0.0));
+    expect(asinh(@as(f64, 0.0)) == asinh64(0.0));
 }
 
 test "math.asinh32" {

@@ -75,8 +75,8 @@ fn tan_(comptime T: type, x_: T) T {
 }
 
 test "math.tan" {
-    expect(tan(f32(0.0)) == tan_(f32, 0.0));
-    expect(tan(f64(0.0)) == tan_(f64, 0.0));
+    expect(tan(@as(f32, 0.0)) == tan_(f32, 0.0));
+    expect(tan(@as(f64, 0.0)) == tan_(f64, 0.0));
 }
 
 test "math.tan32" {

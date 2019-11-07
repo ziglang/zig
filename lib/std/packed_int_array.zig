@@ -331,7 +331,7 @@ test "PackedIntArray" {
         var data = PackedArray(undefined);
 
         //write values, counting up
-        var i = usize(0);
+        var i = @as(usize, 0);
         var count = I(0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
@@ -352,7 +352,7 @@ test "PackedIntArray" {
 test "PackedIntArray init" {
     const PackedArray = PackedIntArray(u3, 8);
     var packed_array = PackedArray.init([_]u3{ 0, 1, 2, 3, 4, 5, 6, 7 });
-    var i = usize(0);
+    var i = @as(usize, 0);
     while (i < packed_array.len()) : (i += 1) testing.expect(packed_array.get(i) == i);
 }
 
@@ -375,7 +375,7 @@ test "PackedIntSlice" {
         var data = P.init(&buffer, int_count);
 
         //write values, counting up
-        var i = usize(0);
+        var i = @as(usize, 0);
         var count = I(0);
         while (i < data.len()) : (i += 1) {
             data.set(i, count);
@@ -406,7 +406,7 @@ test "PackedIntSlice of PackedInt(Array/Slice)" {
 
         const limit = (1 << bits);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len()) : (i += 1) {
             packed_array.set(i, @intCast(Int, i % limit));
         }
@@ -466,7 +466,7 @@ test "PackedIntSlice accumulating bit offsets" {
         var packed_array = PackedArray(undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len() - 1) : (i += 1) {
             packed_slice = packed_slice.slice(1, packed_slice.len());
         }
@@ -476,7 +476,7 @@ test "PackedIntSlice accumulating bit offsets" {
         var packed_array = PackedArray(undefined);
 
         var packed_slice = packed_array.slice(0, packed_array.len());
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array.len() - 1) : (i += 1) {
             packed_slice = packed_slice.slice(1, packed_slice.len());
         }
@@ -493,7 +493,7 @@ test "PackedInt(Array/Slice) sliceCast" {
     var packed_slice_cast_9 = packed_array.slice(0, (packed_array.len() / 9) * 9).sliceCast(u9);
     const packed_slice_cast_3 = packed_slice_cast_9.sliceCast(u3);
 
-    var i = usize(0);
+    var i = @as(usize, 0);
     while (i < packed_slice_cast_2.len()) : (i += 1) {
         const val = switch (builtin.endian) {
             .Big => 0b01,
@@ -541,7 +541,7 @@ test "PackedInt(Array/Slice)Endian" {
         testing.expect(packed_array_be.bytes[0] == 0b00000001);
         testing.expect(packed_array_be.bytes[1] == 0b00100011);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
             testing.expect(packed_array_be.get(i) == i);
         }
@@ -579,7 +579,7 @@ test "PackedInt(Array/Slice)Endian" {
         testing.expect(packed_array_be.bytes[3] == 0b00000001);
         testing.expect(packed_array_be.bytes[4] == 0b00000000);
 
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i < packed_array_be.len()) : (i += 1) {
             testing.expect(packed_array_be.get(i) == i);
         }

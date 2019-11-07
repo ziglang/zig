@@ -76,7 +76,7 @@ pub const ClientRequest = extern enum {
     InnerThreads = 6402,
 };
 pub fn ToolBase(base: [2]u8) u32 {
-    return (u32(base[0] & 0xff) << 24) | (u32(base[1] & 0xff) << 16);
+    return (@as(u32, base[0] & 0xff) << 24) | (@as(u32, base[1] & 0xff) << 16);
 }
 pub fn IsTool(base: [2]u8, code: usize) bool {
     return ToolBase(base) == (code & 0xffff0000);

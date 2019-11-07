@@ -411,7 +411,7 @@ pub fn addPkgTests(
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOs() == builtin.os and
-            ArchTag(test_target.target.getArch()) == ArchTag(builtin.arch))
+            @as(ArchTag,test_target.target.getArch()) == @as(ArchTag,builtin.arch))
         {
             continue;
         }
@@ -429,7 +429,7 @@ pub fn addPkgTests(
             "bare";
 
         const triple_prefix = if (test_target.target == .Native)
-            ([]const u8)("native")
+            @as([]const u8,"native")
         else
             test_target.target.zigTripleNoSubArch(b.allocator) catch unreachable;
 

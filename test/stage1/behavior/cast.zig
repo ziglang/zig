@@ -4,7 +4,7 @@ const mem = std.mem;
 const maxInt = std.math.maxInt;
 
 test "int to ptr cast" {
-    const x = usize(13);
+    const x = @as(usize, 13);
     const y = @intToPtr(*u8, x);
     const z = @ptrToInt(y);
     expect(z == 13);
@@ -90,7 +90,7 @@ const A = struct {
     a: i32,
 };
 fn castToOptionalTypeError(z: i32) void {
-    const x = i32(1);
+    const x = @as(i32, 1);
     const y: anyerror!?i32 = x;
     expect((try y).? == 1);
 
@@ -134,10 +134,10 @@ test "peer type resolution: ?T and T" {
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     if (c) {
-        return if (b) null else usize(0);
+        return if (b) null else @as(usize, 0);
     }
 
-    return usize(3);
+    return @as(usize, 3);
 }
 
 test "peer type resolution: [0]u8 and []const u8" {
@@ -256,7 +256,7 @@ test "@floatToInt" {
 }
 
 fn testFloatToInts() void {
-    const x = i32(1e4);
+    const x = @as(i32, 1e4);
     expect(x == 10000);
     const y = @floatToInt(i32, f32(1e4));
     expect(y == 10000);
@@ -442,7 +442,7 @@ fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
 }
 
 test "*usize to *void" {
-    var i = usize(0);
+    var i = @as(usize, 0);
     var v = @ptrCast(*void, &i);
     v.* = {};
 }

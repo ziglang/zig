@@ -257,7 +257,7 @@ test "ByteFifo" {
     defer fifo.deinit();
 
     try fifo.write("HELLO");
-    testing.expectEqual(usize(5), fifo.readableLength());
+    testing.expectEqual(@as(usize, 5), fifo.readableLength());
     testing.expectEqualSlices(u8, "HELLO", fifo.readableSlice(0));
 
     {
@@ -265,34 +265,34 @@ test "ByteFifo" {
         while (i < 5) : (i += 1) {
             try fifo.write([_]u8{try fifo.peekItem(i)});
         }
-        testing.expectEqual(usize(10), fifo.readableLength());
+        testing.expectEqual(@as(usize, 10), fifo.readableLength());
         testing.expectEqualSlices(u8, "HELLOHELLO", fifo.readableSlice(0));
     }
 
     {
-        testing.expectEqual(u8('H'), try fifo.readItem());
-        testing.expectEqual(u8('E'), try fifo.readItem());
-        testing.expectEqual(u8('L'), try fifo.readItem());
-        testing.expectEqual(u8('L'), try fifo.readItem());
-        testing.expectEqual(u8('O'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'H'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'E'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'L'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'L'), try fifo.readItem());
+        testing.expectEqual(@as(u8, 'O'), try fifo.readItem());
     }
-    testing.expectEqual(usize(5), fifo.readableLength());
+    testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
     { // Writes that wrap around
-        testing.expectEqual(usize(11), fifo.writableLength());
-        testing.expectEqual(usize(6), fifo.writableSlice(0).len);
+        testing.expectEqual(@as(usize, 11), fifo.writableLength());
+        testing.expectEqual(@as(usize, 6), fifo.writableSlice(0).len);
         fifo.writeAssumeCapacity("6<chars<11");
         testing.expectEqualSlices(u8, "HELLO6<char", fifo.readableSlice(0));
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(11));
         fifo.discard(11);
         testing.expectEqualSlices(u8, "s<11", fifo.readableSlice(0));
         fifo.discard(4);
-        testing.expectEqual(usize(0), fifo.readableLength());
+        testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 
     {
         const buf = try fifo.writeableWithSize(12);
-        testing.expectEqual(usize(12), buf.len);
+        testing.expectEqual(@as(usize, 12), buf.len);
         var i: u8 = 0;
         while (i < 10) : (i += 1) {
             buf[i] = i + 'a';
@@ -313,6 +313,6 @@ test "ByteFifo" {
         try fifo.print("{}, {}!", "Hello", "World");
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", fifo.read(&result));
-        testing.expectEqual(usize(0), fifo.readableLength());
+        testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 }

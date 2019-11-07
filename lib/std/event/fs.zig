@@ -328,11 +328,11 @@ pub fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
-            windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
+            windows.ERROR.HANDLE_EOF => return @as(usize, bytes_transferred),
             else => |err| return windows.unexpectedError(err),
         }
     }
-    return usize(bytes_transferred);
+    return @as(usize, bytes_transferred);
 }
 
 /// iovecs must live until preadv frame completes

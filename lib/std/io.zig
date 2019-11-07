@@ -353,7 +353,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             const Buf = @IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
-            out_bits.* = usize(0);
+            out_bits.* = @as(usize, 0);
             if (U == u0 or bits == 0) return 0;
             var out_buffer = Buf(0);
 
@@ -434,7 +434,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
             var out_bits: usize = undefined;
-            var out_bits_total = usize(0);
+            var out_bits_total = @as(usize, 0);
             //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
             if (self.bit_count > 0) {
                 for (buffer) |*b, i| {

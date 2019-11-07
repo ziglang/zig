@@ -59,29 +59,29 @@ const Z96 = struct {
 
     // d += s
     inline fn add(d: *Z96, s: Z96) void {
-        var w = u64(d.d0) + u64(s.d0);
+        var w = @as(u64, d.d0) + @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d1) + u64(s.d1);
+        w += @as(u64, d.d1) + @as(u64, s.d1);
         d.d1 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d2) + u64(s.d2);
+        w += @as(u64, d.d2) + @as(u64, s.d2);
         d.d2 = @truncate(u32, w);
     }
 
     // d -= s
     inline fn sub(d: *Z96, s: Z96) void {
-        var w = u64(d.d0) -% u64(s.d0);
+        var w = @as(u64, d.d0) -% @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d1) -% u64(s.d1);
+        w += @as(u64, d.d1) -% @as(u64, s.d1);
         d.d1 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d2) -% u64(s.d2);
+        w += @as(u64, d.d2) -% @as(u64, s.d2);
         d.d2 = @truncate(u32, w);
     }
 };
@@ -160,7 +160,7 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
             break :blk if (n.negative) f64_minus_zero else f64_plus_zero;
         } else if (s.d2 != 0) {
             const binexs2 = @intCast(u64, binary_exponent) << 52;
-            const rr = (u64(s.d2 & ~mask28) << 24) | ((u64(s.d1) + 128) >> 8) | binexs2;
+            const rr = (@as(u64, s.d2 & ~mask28) << 24) | ((@as(u64, s.d1) + 128) >> 8) | binexs2;
             break :blk if (n.negative) rr | (1 << 63) else rr;
         } else {
             break :blk 0;

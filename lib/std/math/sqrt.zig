@@ -32,9 +32,9 @@ pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typ
 }
 
 test "math.sqrt" {
-    expect(sqrt(f16(0.0)) == @sqrt(f16, 0.0));
-    expect(sqrt(f32(0.0)) == @sqrt(f32, 0.0));
-    expect(sqrt(f64(0.0)) == @sqrt(f64, 0.0));
+    expect(sqrt(@as(f16, 0.0)) == @sqrt(f16, 0.0));
+    expect(sqrt(@as(f32, 0.0)) == @sqrt(f32, 0.0));
+    expect(sqrt(@as(f64, 0.0)) == @sqrt(f64, 0.0));
 }
 
 test "math.sqrt16" {

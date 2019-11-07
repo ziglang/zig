@@ -36,7 +36,7 @@ fn trunc32(x: f32) f32 {
         e = 1;
     }
 
-    m = u32(maxInt(u32)) >> @intCast(u5, e);
+    m = @as(u32, maxInt(u32)) >> @intCast(u5, e);
     if (u & m == 0) {
         return x;
     } else {
@@ -57,7 +57,7 @@ fn trunc64(x: f64) f64 {
         e = 1;
     }
 
-    m = u64(maxInt(u64)) >> @intCast(u6, e);
+    m = @as(u64, maxInt(u64)) >> @intCast(u6, e);
     if (u & m == 0) {
         return x;
     } else {
@@ -67,8 +67,8 @@ fn trunc64(x: f64) f64 {
 }
 
 test "math.trunc" {
-    expect(trunc(f32(1.3)) == trunc32(1.3));
-    expect(trunc(f64(1.3)) == trunc64(1.3));
+    expect(trunc(@as(f32, 1.3)) == trunc32(1.3));
+    expect(trunc(@as(f64, 1.3)) == trunc64(1.3));
 }
 
 test "math.trunc32" {

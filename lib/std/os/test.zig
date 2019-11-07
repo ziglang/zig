@@ -172,7 +172,7 @@ export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
 
     var counter = data.?;
     // Count how many libraries are loaded
-    counter.* += usize(1);
+    counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
     if (info.dlpi_phnum < 1) return -1;

@@ -1,7 +1,7 @@
 const expect = @import("std").testing.expect;
 
 fn add(args: ...) i32 {
-    var sum = i32(0);
+    var sum = @as(i32, 0);
     {
         comptime var i: usize = 0;
         inline while (i < args.len) : (i += 1) {
@@ -12,8 +12,8 @@ fn add(args: ...) i32 {
 }
 
 test "add arbitrary args" {
-    expect(add(i32(1), i32(2), i32(3), i32(4)) == 10);
-    expect(add(i32(1234)) == 1234);
+    expect(add(@as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4)) == 10);
+    expect(add(@as(i32, 1234)) == 1234);
     expect(add() == 0);
 }
 
@@ -26,8 +26,8 @@ test "send void arg to var args" {
 }
 
 test "pass args directly" {
-    expect(addSomeStuff(i32(1), i32(2), i32(3), i32(4)) == 10);
-    expect(addSomeStuff(i32(1234)) == 1234);
+    expect(addSomeStuff(@as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4)) == 10);
+    expect(addSomeStuff(@as(i32, 1234)) == 1234);
     expect(addSomeStuff() == 0);
 }
 

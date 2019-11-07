@@ -268,7 +268,7 @@ fn outer() i64 {
 }
 
 test "pointer dereferencing" {
-    var x = i32(3);
+    var x = @as(i32, 3);
     const y = &x;
 
     y.* += 1;
@@ -500,7 +500,7 @@ fn TypeFromFn(comptime T: type) type {
 }
 
 test "double implicit cast in same expression" {
-    var x = i32(u16(nine()));
+    var x = @as(i32, @as(u16, nine()));
     expect(x == 9);
 }
 fn nine() u8 {
@@ -761,7 +761,7 @@ test "nested optional field in struct" {
 
 fn maybe(x: bool) anyerror!?u32 {
     return switch (x) {
-        true => u32(42),
+        true => @as(u32, 42),
         else => null,
     };
 }

@@ -59,7 +59,7 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
     expt.* = @intCast(i32, hx >> 20) - (0x3ff + 1023) + k;
 
     const high_word = (hx & 0xfffff) | ((0x3ff + 1023) << 20);
-    return @bitCast(f64, (u64(high_word) << 32) | lx);
+    return @bitCast(f64, (@as(u64, high_word) << 32) | lx);
 }
 
 fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
