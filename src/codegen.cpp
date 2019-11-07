@@ -7050,16 +7050,12 @@ check: switch (const_val->special) {
         case ZigTypeIdEnum:
             return bigint_to_llvm_const(get_llvm_type(g, type_entry), &const_val->data.x_enum_tag);
         case ZigTypeIdFn:
-            if (const_val->data.x_ptr.special == ConstPtrSpecialFunction) {
-                assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
-                return fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry);
-            } else if (const_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-                LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
-                uint64_t addr = const_val->data.x_ptr.data.hard_coded_addr.addr;
-                return LLVMConstIntToPtr(LLVMConstInt(usize_type_ref, addr, false), get_llvm_type(g, type_entry));
-            } else {
+            if (const_val->data.x_ptr.special == ConstPtrSpecialFunction &&
+                const_val->data.x_ptr.mut != ConstPtrMutComptimeConst) {
                 zig_unreachable();
             }
+            // Treat it the same as we do for pointers
+            return gen_const_val_ptr(g, const_val, name);
         case ZigTypeIdPointer:
             return gen_const_val_ptr(g, const_val, name);
         case ZigTypeIdErrorUnion:
