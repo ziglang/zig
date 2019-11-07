@@ -5128,7 +5128,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
 
     bool val_is_undef = value_is_all_undef(g, &instruction->byte->value);
     LLVMValueRef fill_char;
-    if (val_is_undef) {
+    if (val_is_undef && ir_want_runtime_safety_scope(g, instruction->base.scope)) {
         fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
     } else {
         fill_char = ir_llvm_value(g, instruction->byte);
