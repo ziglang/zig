@@ -11,12 +11,12 @@ const assert = std.debug.assert;
 const DW = std.dwarf;
 const maxInt = std.math.maxInt;
 
-pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) !void {
+pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code) Compilation.BuildError!void {
     fn_val.base.ref();
     defer fn_val.base.deref(comp);
     defer code.destroy(comp.gpa());
 
-    var output_path = try comp.createRandomOutputPath(comp.target.objFileExt());
+    var output_path = try comp.createRandomOutputPath(comp.target.oFileExt());
     errdefer output_path.deinit();
 
     const llvm_handle = try comp.zig_compiler.getAnyLlvmContext();
@@ -30,11 +30,11 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     llvm.SetTarget(module, comp.llvm_triple.ptr());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
-    if (comp.target.getObjectFormat() == .coff) {
-        llvm.AddModuleCodeViewFlag(module);
-    } else {
+    // if (comp.target.getObjectFormat() == .coff) {
+    //     llvm.AddModuleCodeViewFlag(module);
+    // } else {
         llvm.AddModuleDebugInfoFlag(module);
-    }
+    // }
 
     const builder = llvm.CreateBuilderInContext(context) orelse return error.OutOfMemory;
     defer llvm.DisposeBuilder(builder);
@@ -113,7 +113,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         comp.target_machine,
         module,
         output_path.ptr(),
-        .EmitBinary,
+        llvm.EmitBinary,
         &err_msg,
         is_debug,
         is_small,

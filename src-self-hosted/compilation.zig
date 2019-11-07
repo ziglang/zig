@@ -857,7 +857,7 @@ pub const Compilation = struct {
         defer locked_table.release();
 
         var decl_group = event.Group(BuildError!void).init(self.gpa());
-        defer decl_group.deinit();
+        defer decl_group.wait() catch {};
 
         try self.rebuildChangedDecls(
             &decl_group,
@@ -937,7 +937,7 @@ pub const Compilation = struct {
                                 .parent_scope = &decl_scope.base,
                                 .tree_scope = tree_scope,
                             },
-                            .value = Decl.Fn.Val{ .Unresolved = {} },
+                            .value = .Unresolved,
                             .fn_proto = fn_proto,
                         };
                         tree_scope.base.ref();
@@ -1100,7 +1100,7 @@ pub const Compilation = struct {
     async fn addCompileErrorAsync(
         self: *Compilation,
         msg: *Msg,
-    ) !void {
+    ) BuildError!void {
         errdefer msg.destroy();
 
         const compile_errors = self.compile_errors.acquire();
@@ -1109,7 +1109,7 @@ pub const Compilation = struct {
         try compile_errors.value.append(msg);
     }
 
-    async fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) !void {
+    async fn verifyUniqueSymbol(self: *Compilation, decl: *Decl) BuildError!void {
         const exported_symbol_names = self.exported_symbol_names.acquire();
         defer exported_symbol_names.release();
 
@@ -1264,7 +1264,7 @@ pub const Compilation = struct {
     }
 
     /// This declaration has been blessed as going into the final code generation.
-    pub async fn resolveDecl(comp: *Compilation, decl: *Decl) !void {
+    pub async fn resolveDecl(comp: *Compilation, decl: *Decl) BuildError!void {
         if (decl.resolution.start()) |ptr| return ptr.*;
 
         decl.resolution.data = try generateDecl(comp, decl);
@@ -1363,7 +1363,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     try comp.prelink_group.call(addFnToLinkSet, comp, fn_val);
 }
 
-async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) void {
+async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) Compilation.BuildError!void {
     fn_val.base.ref();
     defer fn_val.base.deref(comp);
 
@@ -1421,7 +1421,7 @@ async fn analyzeFnType(
                 .return_type = return_type,
                 .params = params.toOwnedSlice(),
                 .is_var_args = false, // TODO
-                .cc = Type.Fn.CallingConvention.Auto, // TODO
+                .cc = .Unspecified, // TODO
             },
         },
     };

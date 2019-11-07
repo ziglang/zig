@@ -350,7 +350,7 @@ pub const Type = struct {
 
         fn ccFnTypeStr(cc: CallingConvention) []const u8 {
             return switch (cc) {
-                .Auto => "",
+                .Unspecified => "",
                 .C => "extern ",
                 .Cold => "coldcc ",
                 .Naked => "nakedcc ",

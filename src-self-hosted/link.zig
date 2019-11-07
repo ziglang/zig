@@ -6,6 +6,7 @@ const Target = std.Target;
 const ObjectFormat = Target.ObjectFormat;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const assert = std.debug.assert;
+const util = @import("util.zig");
 
 const Context = struct {
     comp: *Compilation,
@@ -44,10 +45,10 @@ pub async fn link(comp: *Compilation) !void {
                 try ctx.out_file_path.append(comp.target.exeFileExt());
             },
             .Lib => {
-                try ctx.out_file_path.append(comp.target.libFileExt(comp.is_static));
+                try ctx.out_file_path.append(if (comp.is_static) comp.target.staticLibSuffix() else comp.target.dynamicLibSuffix());
             },
             .Obj => {
-                try ctx.out_file_path.append(comp.target.objFileExt());
+                try ctx.out_file_path.append(comp.target.oFileExt());
             },
         }
     }
@@ -77,7 +78,7 @@ pub async fn link(comp: *Compilation) !void {
         std.debug.warn("\n");
     }
 
-    const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
+    const extern_ofmt = toExternObjectFormatType(.elf); //comp.target.getObjectFormat());
     const args_slice = ctx.args.toSlice();
 
     {
@@ -129,13 +130,14 @@ fn toExternObjectFormatType(ofmt: ObjectFormat) c.ZigLLVM_ObjectFormatType {
 }
 
 fn constructLinkerArgs(ctx: *Context) !void {
-    switch (ctx.comp.target.getObjectFormat()) {
-        .unknown => unreachable,
-        .coff => return constructLinkerArgsCoff(ctx),
-        .elf => return constructLinkerArgsElf(ctx),
-        .macho => return constructLinkerArgsMachO(ctx),
-        .wasm => return constructLinkerArgsWasm(ctx),
-    }
+    return constructLinkerArgsElf(ctx);
+    // switch (ctx.comp.target.getObjectFormat()) {
+    //     .unknown => unreachable,
+    //     .coff => return constructLinkerArgsCoff(ctx),
+    //     .elf => return constructLinkerArgsElf(ctx),
+    //     .macho => return constructLinkerArgsMachO(ctx),
+    //     .wasm => return constructLinkerArgsWasm(ctx),
+    // }
 }
 
 fn constructLinkerArgsElf(ctx: *Context) !void {

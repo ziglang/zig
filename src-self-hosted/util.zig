@@ -1,27 +1,12 @@
 const std = @import("std");
 const Target = std.Target;
 const llvm = @import("llvm.zig");
-// const builtin = @import("builtin");
 
 pub const FloatAbi = enum {
     Hard,
     Soft,
     SoftFp,
 };
-
-// pub const Cross = struct {
-//     arch: Target.Arch,
-//     os: Target.Os,
-//     abi: Target.Abi,
-//     object_format: builtin.ObjectFormat,
-// };
-
-// pub fn getObjectFormat(self: Target) builtin.ObjectFormat {
-//     return switch (self) {
-//         .Native => builtin.object_format,
-//         .Cross => |t| t.object_format,
-//     };
-// }
 
 /// TODO expose the arch and subarch separately
 pub fn isArmOrThumb(self: Target) bool {

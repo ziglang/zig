@@ -521,7 +521,7 @@ pub const Inst = struct {
                 .Const => @panic("TODO"),
                 .Param => |param| {
                     const new_inst = try ira.irb.build(
-                        .VarPtr,
+                        Inst.VarPtr,
                         self.base.scope,
                         self.base.span,
                         Inst.VarPtr.Params{ .var_scope = self.params.var_scope },
@@ -1134,7 +1134,7 @@ pub const Builder = struct {
             .VarType => return error.Unimplemented,
             .ErrorType => return error.Unimplemented,
             .FnProto => return error.Unimplemented,
-            .PromiseType => return error.Unimplemented,
+            .AnyFrameType => return error.Unimplemented,
             .IntegerLiteral => {
                 const int_lit = @fieldParentPtr(ast.Node.IntegerLiteral, "base", node);
                 return irb.lvalWrap(scope, try irb.genIntLit(int_lit, scope), lval);
@@ -1812,9 +1812,9 @@ pub const Builder = struct {
                     for (@field(inst.params, @memberName(I.Params, i))) |other|
                         other.ref(self);
                 },
-                .Mut,
-                .Vol,
-                .Size,
+                Type.Pointer.Mut,
+                Type.Pointer.Vol,
+                Type.Pointer.Size,
                 LVal,
                 *Decl,
                 *Scope.Var,
