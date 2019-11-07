@@ -82,8 +82,6 @@ pub extern "kernel32" stdcallcc fn GetFileAttributesW(lpFileName: [*]const WCHAR
 
 pub extern "kernel32" stdcallcc fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) DWORD;
 
-pub extern "kernel32" stdcallcc fn GetModuleHandleA(lpModuleName: ?[*]const CHAR) ?HMODULE;
-
 pub extern "kernel32" stdcallcc fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) HMODULE;
 
 pub extern "kernel32" stdcallcc fn GetLastError() DWORD;
@@ -205,8 +203,6 @@ pub extern "kernel32" stdcallcc fn WriteFile(
 ) BOOL;
 
 pub extern "kernel32" stdcallcc fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const u8, nNumberOfBytesToWrite: DWORD, lpOverlapped: LPOVERLAPPED, lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE) BOOL;
-
-pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: [*]const u8) ?HMODULE;
 
 pub extern "kernel32" stdcallcc fn LoadLibraryW(lpLibFileName: [*]const u16) ?HMODULE;
 

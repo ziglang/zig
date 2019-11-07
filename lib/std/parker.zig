@@ -76,107 +76,39 @@ const WindowsParker = struct {
     pub fn deinit(self: *WindowsParker) void {}
 
     pub fn unpark(self: *WindowsParker, ptr: *const u32) void {
-        switch (Backend.get().*) {
-            .WaitAddress => |*backend| backend.unpark(ptr, &self.waiters),
-            .KeyedEvent => |*backend| backend.unpark(ptr, &self.waiters),
+        const handle = getEventHandlePtr().*;
+        const key = @ptrCast(*const c_void, ptr);
+        var waiting = @atomicLoad(u32, &self.waiters, .Monotonic);
+        while (waiting != 0) {
+            waiting = @cmpxchgWeak(u32, &self.waiters, waiting, waiting - 1, .Acquire, .Monotonic) orelse {
+                const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
+                assert(rc == 0);
+                return;
+            };
         }
     }
 
     pub fn park(self: *WindowsParker, ptr: *const u32, expected: u32) void {
-        switch (Backend.get().*) {
-            .WaitAddress => |*backend| backend.park(ptr, expected, &self.waiters),
-            .KeyedEvent => |*backend| backend.park(ptr, expected, &self.waiters),
+        const handle = getEventHandlePtr().*;
+        const key = @ptrCast(*const c_void, ptr);
+        while (@atomicLoad(u32, ptr, .Acquire) == expected) {
+            _ = @atomicRmw(u32, &self.waiters, .Add, 1, .Release);
+            const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
+            assert(rc == 0);
         }
     }
 
-    const Backend = union(enum) {
-        WaitAddress: WaitAddress,
-        KeyedEvent: KeyedEvent,
+    var event_handle = std.lazyInit(windows.HANDLE);
 
-        var backend = std.lazyInit(Backend);
-
-        fn get() *const Backend {
-            return backend.get() orelse {
-                // Statically linking to the KeyedEvent functions should mean its supported.
-                // TODO: Maybe add a CreateSemaphore backend for systems older than Windows XP ?
-                backend.data = WaitAddress.init() 
-                    orelse KeyedEvent.init()
-                    orelse unreachable; 
-                backend.resolve();
-                return &backend.data;
-            };
-        }
-
-        const WaitAddress = struct {
-            WakeByAddressSingle: stdcallcc fn(Address: *const c_void) void,
-            WaitOnAddress: stdcallcc fn (
-                Address: *const c_void,
-                CompareAddress: *const c_void,
-                AddressSize: windows.SIZE_T,
-                dwMilliseconds: windows.DWORD,
-            ) windows.BOOL,
-
-            fn init() ?Backend {
-                const dll_name = c"api-ms-win-core-synch-l1-2-0";
-                const dll = windows.kernel32.GetModuleHandleA(dll_name)
-                    orelse windows.kernel32.LoadLibraryA(dll_name)
-                    orelse return null;
-
-                var self: WaitAddress = undefined;
-                const WaitOnAddress = windows.kernel32.GetProcAddress(dll, c"WaitOnAddress") orelse return null;
-                self.WaitOnAddress = @intToPtr(@typeOf(self.WaitOnAddress), @ptrToInt(WaitOnAddress));
-                const WakeByAddressSingle = windows.kernel32.GetProcAddress(dll, c"WakeByAddressSingle") orelse return null;
-                self.WakeByAddressSingle = @intToPtr(@typeOf(self.WakeByAddressSingle), @ptrToInt(WakeByAddressSingle));
-                return Backend{ .WaitAddress = self };
-            }
-
-            fn unpark(self: WaitAddress, ptr: *const u32, waiters: *u32) void {
-                const addr = @ptrCast(*const c_void, ptr);
-                self.WakeByAddressSingle(addr);
-            }
-
-            fn park(self: WaitAddress, ptr: *const u32, expected: u32, waiters: *u32) void {
-                var compare = expected;
-                const addr = @ptrCast(*const c_void, ptr);
-                const cmp = @ptrCast(*const c_void, &compare);
-                while (@atomicLoad(u32, ptr, .Acquire) == expected)
-                    _ = self.WaitOnAddress(addr, cmp, @sizeOf(u32), windows.INFINITE);
-            }
+    fn getEventHandlePtr() *const windows.HANDLE {
+        return event_handle.get() orelse {
+            const access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE;
+            if (windows.ntdll.NtCreateKeyedEvent(&event_handle.data, access_mask, null, 0) != 0)
+                @panic("Failed to setup an NT Keyed Event handle for the process");
+            event_handle.resolve();
+            return &event_handle.data;
         };
-
-        const KeyedEvent = struct {
-            handle: windows.HANDLE,
-
-            fn init() ?Backend {
-                var self: KeyedEvent = undefined;
-                const access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE;
-                if (windows.ntdll.NtCreateKeyedEvent(&self.handle, access_mask, null, 0) != 0)
-                    return null;
-                return Backend{ .KeyedEvent = self };
-            }
-
-            fn unpark(self: KeyedEvent, ptr: *const u32, waiters: *u32) void {
-                const key = @ptrCast(*const c_void, ptr);
-                var waiting = @atomicLoad(u32, waiters, .Acquire);
-                while (waiting != 0) {
-                    waiting = @cmpxchgWeak(u32, waiters, waiting, waiting - 1, .Acquire, .Monotonic) orelse {
-                        const rc = windows.ntdll.NtReleaseKeyedEvent(self.handle, key, windows.FALSE, null);
-                        assert(rc == 0);
-                        return;
-                    };
-                }
-            }
-
-            fn park(self: KeyedEvent, ptr: *const u32, expected: u32, waiters: *u32) void {
-                const key = @ptrCast(*const c_void, ptr);
-                while (@atomicLoad(u32, ptr, .Acquire) == expected) {
-                    _ = @atomicRmw(u32, waiters, .Add, 1, .Release);
-                    const rc = windows.ntdll.NtWaitForKeyedEvent(self.handle, key, windows.FALSE, null);
-                    assert(rc == 0);
-                }
-            }
-        };
-    };
+    }
 };
 
 const PosixParker = struct {
