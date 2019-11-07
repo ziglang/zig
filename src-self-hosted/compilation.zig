@@ -242,7 +242,7 @@ pub const Compilation = struct {
 
     c_int_types: [CInt.list.len]*Type.Int,
 
-    fs_watch: *fs.Watch(*Scope.Root),
+    // fs_watch: *fs.Watch(*Scope.Root),
 
     const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
     const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
@@ -462,7 +462,7 @@ pub const Compilation = struct {
             .have_err_ret_tracing = false,
             .primitive_type_table = undefined,
 
-            .fs_watch = undefined,
+            // .fs_watch = undefined,
         };
         comp.link_libs_list = ArrayList(*LinkLib).init(comp.arena());
         comp.primitive_type_table = TypeTable.init(comp.arena());
@@ -531,8 +531,8 @@ pub const Compilation = struct {
             comp.root_package = try Package.create(comp.arena(), ".", "");
         }
 
-        comp.fs_watch = try fs.Watch(*Scope.Root).create(16);
-        defer comp.fs_watch.destroy();
+        // comp.fs_watch = try fs.Watch(*Scope.Root).create(16);
+        // defer comp.fs_watch.destroy();
 
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
@@ -791,46 +791,47 @@ pub const Compilation = struct {
                 self.events.put(Event{ .Error = err });
             }
 
-            // First, get an item from the watch channel, waiting on the channel.
-            var group = event.Group(BuildError!void).init(self.gpa());
-            {
-                const ev = (self.fs_watch.channel.get()) catch |err| {
-                    build_result = err;
-                    continue;
-                };
-                const root_scope = ev.data;
-                group.call(rebuildFile, self, root_scope) catch |err| {
-                    build_result = err;
-                    continue;
-                };
-            }
-            // Next, get all the items from the channel that are buffered up.
-            while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
-                if (ev_or_err) |ev| {
-                    const root_scope = ev.data;
-                    group.call(rebuildFile, self, root_scope) catch |err| {
-                        build_result = err;
-                        continue;
-                    };
-                } else |err| {
-                    build_result = err;
-                    continue;
-                }
-            }
-            build_result = group.wait();
+            // // First, get an item from the watch channel, waiting on the channel.
+            // var group = event.Group(BuildError!void).init(self.gpa());
+            // {
+            //     const ev = (self.fs_watch.channel.get()) catch |err| {
+            //         build_result = err;
+            //         continue;
+            //     };
+            //     const root_scope = ev.data;
+            //     group.call(rebuildFile, self, root_scope) catch |err| {
+            //         build_result = err;
+            //         continue;
+            //     };
+            // }
+            // // Next, get all the items from the channel that are buffered up.
+            // while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
+            //     if (ev_or_err) |ev| {
+            //         const root_scope = ev.data;
+            //         group.call(rebuildFile, self, root_scope) catch |err| {
+            //             build_result = err;
+            //             continue;
+            //         };
+            //     } else |err| {
+            //         build_result = err;
+            //         continue;
+            //     }
+            // }
+            // build_result = group.wait();
         }
     }
 
     async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) !void {
         const tree_scope = blk: {
-            const source_code = fs.readFile(
-                root_scope.realpath,
-                max_src_size,
-            ) catch |err| {
-                try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
-                return;
-            };
-            errdefer self.gpa().free(source_code);
+            const source_code = "";
+            // const source_code = fs.readFile(
+            //     root_scope.realpath,
+            //     max_src_size,
+            // ) catch |err| {
+            //     try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
+            //     return;
+            // };
+            // errdefer self.gpa().free(source_code);
 
             const tree = try std.zig.parse(self.gpa(), source_code);
             errdefer {
@@ -972,7 +973,7 @@ pub const Compilation = struct {
             };
             defer root_scope.base.deref(self);
 
-            assert((try self.fs_watch.addFile(root_scope.realpath, root_scope)) == null);
+            // assert((try self.fs_watch.addFile(root_scope.realpath, root_scope)) == null);
             try self.rebuildFile(root_scope);
         }
     }

@@ -711,32 +711,33 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code =  event.fs.readFile(
-        file_path,
-        max_src_size,
-    ) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => {
-            // TODO make event based (and dir.next())
-            var dir = try fs.Dir.open(file_path);
-            defer dir.close();
+    const source_code = "";
+    // const source_code =  event.fs.readFile(
+    //     file_path,
+    //     max_src_size,
+    // ) catch |err| switch (err) {
+    //     error.IsDir, error.AccessDenied => {
+    //         // TODO make event based (and dir.next())
+    //         var dir = try fs.Dir.open(file_path);
+    //         defer dir.close();
 
-            var group = event.Group(FmtError!void).init(fmt.allocator);
-            while (try dir.next()) |entry| {
-                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
-                    try group.call(fmtPath, fmt, full_path, check_mode);
-                }
-            }
-            return group.wait();
-        },
-        else => {
-            // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
-            fmt.any_error = true;
-            return;
-        },
-    };
-    defer fmt.allocator.free(source_code);
+    //         var group = event.Group(FmtError!void).init(fmt.allocator);
+    //         while (try dir.next()) |entry| {
+    //             if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+    //                 const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+    //                 try group.call(fmtPath, fmt, full_path, check_mode);
+    //             }
+    //         }
+    //         return group.wait();
+    //     },
+    //     else => {
+    //         // TODO lock stderr printing
+    //         try stderr.print("unable to open '{}': {}\n", file_path, err);
+    //         fmt.any_error = true;
+    //         return;
+    //     },
+    // };
+    // defer fmt.allocator.free(source_code);
 
     const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
