@@ -75,8 +75,8 @@ test "peer resolve array and const slice" {
     comptime testPeerResolveArrayConstSlice(true);
 }
 fn testPeerResolveArrayConstSlice(b: bool) void {
-    const value1 = if (b) "aoeu" else ([]const u8)("zz");
-    const value2 = if (b) ([]const u8)("zz") else "aoeu";
+    const value1 = if (b) "aoeu" else @as([]const u8, "zz");
+    const value2 = if (b) @as([]const u8, "zz") else "aoeu";
     expect(mem.eql(u8, value1, "aoeu"));
     expect(mem.eql(u8, value2, "zz"));
 }
@@ -258,7 +258,7 @@ test "@floatToInt" {
 fn testFloatToInts() void {
     const x = @as(i32, 1e4);
     expect(x == 10000);
-    const y = @floatToInt(i32, f32(1e4));
+    const y = @floatToInt(i32, @as(f32, 1e4));
     expect(y == 10000);
     expectFloatToInt(f16, 255.1, u8, 255);
     expectFloatToInt(f16, 127.2, i8, 127);
@@ -392,7 +392,7 @@ fn MakeType(comptime T: type) type {
         }
 
         fn getNonNull() ?T {
-            return T(undefined);
+            return @as(T, undefined);
         }
     };
 }
@@ -535,12 +535,12 @@ test "peer type resolution: unreachable, error set, unreachable" {
 }
 
 test "implicit cast comptime_int to comptime_float" {
-    comptime expect(comptime_float(10) == f32(10));
+    comptime expect(@as(comptime_float, 10) == @as(f32, 10));
     expect(2 == 2.0);
 }
 
 test "implicit cast *[0]T to E![]const u8" {
-    var x = (anyerror![]const u8)(&[0]u8{});
+    var x = @as(anyerror![]const u8, &[0]u8{});
     expect((x catch unreachable).len == 0);
 }
 

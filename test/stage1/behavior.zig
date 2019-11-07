@@ -1,7 +1,7 @@
 comptime {
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
-    //_ = @import("behavior/array.zig");
+    _ = @import("behavior/array.zig");
     _ = @import("behavior/asm.zig");
     _ = @import("behavior/async_fn.zig");
     _ = @import("behavior/atomics.zig");
@@ -50,7 +50,7 @@ comptime {
     _ = @import("behavior/bugs/920.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
-    //_ = @import("behavior/cast.zig");
+    _ = @import("behavior/cast.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");

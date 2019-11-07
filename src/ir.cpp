@@ -15537,6 +15537,26 @@ static bool ir_result_has_type(ResultLoc *result_loc) {
     zig_unreachable();
 }
 
+static IrInstruction *ir_resolve_no_result_loc(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+    ResultLoc *result_loc, ZigType *value_type, bool force_runtime, bool non_null_comptime)
+{
+    Error err;
+
+    IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
+    if ((err = type_resolve(ira->codegen, value_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+    alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
+            PtrLenSingle, 0, 0, 0, false);
+    set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
+        fn_entry->alloca_gen_list.append(alloca_gen);
+    }
+    result_loc->written = true;
+    result_loc->resolved_loc = &alloca_gen->base;
+    return result_loc->resolved_loc;
+}
+
 // when calling this function, at the callsite must check for result type noreturn and propagate it up
 static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspend_source_instr,
         ResultLoc *result_loc, ZigType *value_type, IrInstruction *value, bool force_runtime, bool non_null_comptime)
@@ -15559,19 +15579,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return nullptr;
             }
             // need to return a result location and don't have one. use a stack allocation
-            IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
-            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusZeroBitsKnown)))
-                return ira->codegen->invalid_instruction;
-            alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
-                    PtrLenSingle, 0, 0, 0, false);
-            set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
-            ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
-                fn_entry->alloca_gen_list.append(alloca_gen);
-            }
-            result_loc->written = true;
-            result_loc->resolved_loc = &alloca_gen->base;
-            return result_loc->resolved_loc;
+            return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                    force_runtime, non_null_comptime);
         }
         case ResultLocIdVar: {
             ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
@@ -15710,6 +15719,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             return result_loc->resolved_loc;
         }
         case ResultLocIdCast: {
+            if (!non_null_comptime && value != nullptr && value->value.special != ConstValSpecialRuntime)
+                return nullptr;
             ResultLocCast *result_cast = reinterpret_cast<ResultLocCast *>(result_loc);
             ZigType *dest_type = ir_resolve_type(ira, result_cast->base.source_instruction->child);
             if (type_is_invalid(dest_type))
@@ -15720,9 +15731,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             if (const_cast_result.id == ConstCastResultIdInvalid)
                 return ira->codegen->invalid_instruction;
             if (const_cast_result.id != ConstCastResultIdOk) {
-                // We will not be able to provide a result location for this value. Allow the
-                // code to create a new result location and then type coerce to the old one.
-                return nullptr;
+                // We will not be able to provide a result location for this value. Create
+                // a new result location.
+                return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                        force_runtime, non_null_comptime);
             }
 
             // In this case we can pointer cast the result location.
@@ -15754,6 +15766,9 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
             if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
                 return ira->codegen->invalid_instruction;
+            }
+            if (!type_has_bits(value_type)) {
+                parent_ptr_align = 0;
             }
             ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value_type,
                     parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
