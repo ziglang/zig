@@ -199,6 +199,8 @@ const PosixParker = struct {
     }
 
     pub fn unpark(self: *PosixParker, ptr: *const u32) void {
+        assert(pthread_mutex_lock(&self.mutex) == 0);
+        defer assert(pthread_mutex_unlock(&self.mutex) == 0);
         assert(pthread_cond_signal(&self.cond) == 0);
     }
 
