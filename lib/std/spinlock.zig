@@ -32,11 +32,8 @@ pub const SpinLock = struct {
         var i = iterations;
         while (i != 0) : (i -= 1) {
             switch (builtin.arch) {
-                .i386, .x86_64 => asm volatile("pause" ::: "memory"),
-                // .arm, .aarch64 => asm volatile("yield"),
-                //
-                // Causes CI to fail
-                // See: https://github.com/ziglang/zig/pull/3585#issuecomment-549962765
+                .i386, .x86_64 => asm volatile("pause"),
+                .arm, .aarch64 => asm volatile("yield"),
                 else => time.sleep(0),
             }
         }
