@@ -2,8 +2,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const time = std.time;
-const linux = std.os.linux;
-const windows = std.os.windows;
+const os = std.os;
 
 pub const SpinLock = struct {
     lock: u8, // TODO use a bool or enum
