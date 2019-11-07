@@ -3171,11 +3171,8 @@ pub fn dn_expand(
 }
 
 pub fn sched_yield() void {
-    if (builtin.os == .windows) {
-        _ = windows.kernel32.SwitchToThread();
-    } else if (builtin.os == .linux and !builtin.link_libc) {
-        assert(linux.sched_yield() == 0);
-    } else if (builtin.link_libc) {
-        assert(std.c.sched_yield() == 0);
+    switch (builtin.os) {
+        .windows => _ = windows.kernel32.SwitchToThread(),
+        else => assert(system.sched_yield() == 0),
     }
 }
