@@ -1901,7 +1901,6 @@ pub const Builder = struct {
             );
         }
         return error.Unimplemented;
-
     }
 
     const Ident = union(enum) {

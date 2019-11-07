@@ -153,7 +153,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //bool shared = !g->is_static && is_lib;
     //Buf *soname = nullptr;
     if (ctx.comp.is_static) {
-        if (ctx.comp.target.isArmOrThumb()) {
+        if (util.isArmOrThumb(ctx.comp.target)) {
             try ctx.args.append(c"-Bstatic");
         } else {
             try ctx.args.append(c"-static");
@@ -221,7 +221,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
         if (!ctx.comp.is_static) {
             const dl = blk: {
                 if (ctx.libc.dynamic_linker_path) |dl| break :blk dl;
-                if (ctx.comp.target.getDynamicLinkerPath()) |dl| break :blk dl;
+                if (util.getDynamicLinkerPath(ctx.comp.target)) |dl| break :blk dl;
                 return error.LibCMissingDynamicLinker;
             };
             try ctx.args.append(c"-dynamic-linker");
@@ -688,7 +688,7 @@ const DarwinPlatform = struct {
         if (result.kind == .IPhoneOS) {
             switch (comp.target.getArch()) {
                 .i386,
-               .x86_64,
+                .x86_64,
                 => result.kind = .IPhoneOSSimulator,
                 else => {},
             }

@@ -30,6 +30,7 @@ const link = @import("link.zig").link;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const CInt = @import("c_int.zig").CInt;
 const fs = event.fs;
+const util = @import("util.zig");
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -48,7 +49,7 @@ pub const ZigCompiler = struct {
 
     pub fn init(allocator: *Allocator) !ZigCompiler {
         lazy_init_targets.get() orelse {
-            llvm.initializeAllTargets();
+            util.initializeAllTargets();
             lazy_init_targets.resolve();
         };
 
@@ -372,7 +373,6 @@ pub const Compilation = struct {
         is_static: bool,
         zig_lib_dir: []const u8,
     ) !void {
-
         const allocator = zig_compiler.allocator;
         var comp = Compilation{
             .arena_allocator = std.heap.ArenaAllocator.init(allocator),
@@ -476,8 +476,8 @@ pub const Compilation = struct {
         }
 
         comp.name = try Buffer.init(comp.arena(), name);
-        comp.llvm_triple = try llvm.getTriple(comp.arena(), target);
-        comp.llvm_target = try llvm.targetFromTriple(comp.llvm_triple);
+        comp.llvm_triple = try util.getTriple(comp.arena(), target);
+        comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
         comp.zig_std_dir = try std.fs.path.join(comp.arena(), [_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
@@ -507,7 +507,7 @@ pub const Compilation = struct {
             opt_level,
             reloc_mode,
             llvm.CodeModelDefault,
-            false // TODO: add -ffunction-sections option
+            false, // TODO: add -ffunction-sections option
         ) orelse return error.OutOfMemory;
         defer llvm.DisposeTargetMachine(comp.target_machine);
 
