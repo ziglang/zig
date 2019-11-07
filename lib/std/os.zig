@@ -3170,12 +3170,12 @@ pub fn dn_expand(
     return error.InvalidDnsPacket;
 }
 
-pub fn yield() void {
-    switch (builtin.os) {
-        .windows => _ = windows.kernel32.SwitchToThread(),
-        .linux => _ = assert(linux.sched_yield() == 0),
-        else => if (builtin.link_libc) {
-            assert(std.c.pthread_yield() == 0);
-        },
+pub fn sched_yield() void {
+    if (builtin.os == .windows) {
+        _ = windows.kernel32.SwitchToThread();
+    } else if (builtin.os == .linux and !builtin.link_libc) {
+        assert(linux.sched_yield() == 0);
+    } else if (builtin.link_libc) {
+        assert(std.c.sched_yield() == 0);
     }
 }

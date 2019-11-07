@@ -54,7 +54,7 @@ pub const SpinLock = struct {
             if (self.iteration < 20) {
                 SpinLock.yield(self.iteration);
             } else if (self.iteration < 24) {
-                os.yield();
+                os.sched_yield();
             } else if (self.iteration < 26) {
                 time.sleep(1 * time.millisecond);
             } else {

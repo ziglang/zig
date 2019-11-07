@@ -100,7 +100,7 @@ else struct {
                 var value = @atomicLoad(u32, &self.state, .Monotonic);
                 while (value == Unlocked)
                     value = @cmpxchgWeak(u32, &self.state, Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
-                std.os.yield();
+                std.os.sched_yield();
             }
 
             // failed to acquire the lock, go to sleep until woken up by `Held.release()`

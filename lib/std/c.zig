@@ -158,7 +158,6 @@ pub extern "c" fn pthread_attr_init(attr: *pthread_attr_t) c_int;
 pub extern "c" fn pthread_attr_setstack(attr: *pthread_attr_t, stackaddr: *c_void, stacksize: usize) c_int;
 pub extern "c" fn pthread_attr_destroy(attr: *pthread_attr_t) c_int;
 pub extern "c" fn pthread_self() pthread_t;
-pub extern "c" fn pthread_yield() c_int;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*c_void) c_int;
 
 pub extern "c" fn kqueue() c_int;
@@ -201,3 +200,5 @@ pub extern "c" fn dn_expand(
     exp_dn: [*]u8,
     length: c_int,
 ) c_int;
+
+pub extern "c" fn sched_yield() c_int;
