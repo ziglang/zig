@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 pub fn Group(comptime ReturnType: type) type {
     return struct {
         frame_stack: Stack,
-        alloc_stack: Stack,
+        alloc_stack: AllocStack,
         lock: Lock,
         allocator: *Allocator,
 
@@ -19,11 +19,17 @@ pub fn Group(comptime ReturnType: type) type {
             else => void,
         };
         const Stack = std.atomic.Stack(anyframe->ReturnType);
+        const AllocStack = std.atomic.Stack(Node);
+
+        pub const Node = struct {
+            bytes: []const u8 = [0]u8{},
+            handle: anyframe->ReturnType,
+        };
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
                 .frame_stack = Stack.init(),
-                .alloc_stack = Stack.init(),
+                .alloc_stack = AllocStack.init(),
                 .lock = Lock.init(),
                 .allocator = allocator,
             };
@@ -31,10 +37,12 @@ pub fn Group(comptime ReturnType: type) type {
 
         /// Add a frame to the group. Thread-safe.
         pub fn add(self: *Self, handle: anyframe->ReturnType) (error{OutOfMemory}!void) {
-            const node = try self.allocator.create(Stack.Node);
-            node.* = Stack.Node{
+            const node = try self.allocator.create(AllocStack.Node);
+            node.* = AllocStack.Node{
                 .next = undefined,
-                .data = handle,
+                .data = Node{
+                    .handle = handle,
+                },
             };
             self.alloc_stack.push(node);
         }
@@ -46,6 +54,24 @@ pub fn Group(comptime ReturnType: type) type {
         /// at least as long.
         pub fn addNode(self: *Self, node: *Stack.Node) void {
             self.frame_stack.push(node);
+        }
+
+        /// This is equivalent to adding a frame to the group but the memory of its frame is
+        /// allocated by the group and freed by `wait`.
+        /// `func` must be async and have return type `ReturnType`.
+        /// Thread-safe.
+        pub fn call(self: *Self, comptime func: var, args: ...) error{OutOfMemory}!void {
+            var frame = try self.allocator.create(@Frame(func));
+            const node = try self.allocator.create(AllocStack.Node);
+            node.* = AllocStack.Node{
+                .next = undefined,
+                .data = Node{
+                    .handle = frame,
+                    .bytes = @sliceToBytes((*[1]@Frame(func))(frame)[0..]),
+                },
+            };
+            frame.* = async func(args);
+            self.alloc_stack.push(node);
         }
 
         /// Wait for all the calls and promises of the group to complete.
@@ -67,8 +93,7 @@ pub fn Group(comptime ReturnType: type) type {
                 }
             }
             while (self.alloc_stack.pop()) |node| {
-                const handle = node.data;
-                self.allocator.destroy(node);
+                const handle = node.data.handle;
                 if (Error == void) {
                     await handle;
                 } else {
@@ -76,6 +101,8 @@ pub fn Group(comptime ReturnType: type) type {
                         result = err;
                     };
                 }
+                self.allocator.free(node.data.bytes);
+                self.allocator.destroy(node);
             }
             return result;
         }
