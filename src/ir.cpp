@@ -17542,6 +17542,10 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     if (peer_parent != nullptr && ir_result_has_type(peer_parent->parent)) {
         if (peer_parent->parent->id == ResultLocIdReturn) {
             resolved_type = ira->explicit_return_type;
+        } else if (peer_parent->parent->id == ResultLocIdCast) {
+            resolved_type = ir_resolve_type(ira, peer_parent->parent->source_instruction->child);
+            if (type_is_invalid(resolved_type))
+                return ira->codegen->invalid_instruction;
         } else {
             ZigType *resolved_loc_ptr_type = peer_parent->parent->resolved_loc->value.type;
             ir_assert(resolved_loc_ptr_type->id == ZigTypeIdPointer, &phi_instruction->base);

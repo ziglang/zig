@@ -59,7 +59,7 @@ comptime {
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
-    //_ = @import("behavior/fn.zig");
+    _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/fn_delegation.zig");
     _ = @import("behavior/for.zig");
