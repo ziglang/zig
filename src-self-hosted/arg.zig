@@ -119,9 +119,9 @@ pub const Args = struct {
 
                             // MergeN creation disallows 0 length flag entry (doesn't make sense)
                             switch (flag_args) {
-                                FlagArg.None => unreachable,
-                                FlagArg.Single => |inner| try prev.append(inner),
-                                FlagArg.Many => |inner| try prev.appendSlice(inner.toSliceConst()),
+                                .None => unreachable,
+                                .Single => |inner| try prev.append(inner),
+                                .Many => |inner| try prev.appendSlice(inner.toSliceConst()),
                             }
 
                             _ = try parsed.flags.put(flag_name_trimmed, FlagArg{ .Many = prev });
@@ -158,7 +158,7 @@ pub const Args = struct {
     pub fn single(self: *Args, name: []const u8) ?[]const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
-                FlagArg.Single => |inner| {
+                .Single => |inner| {
                     return inner;
                 },
                 else => @panic("attempted to retrieve flag with wrong type"),
@@ -172,7 +172,7 @@ pub const Args = struct {
     pub fn many(self: *Args, name: []const u8) []const []const u8 {
         if (self.flags.get(name)) |entry| {
             switch (entry.value) {
-                FlagArg.Many => |inner| {
+                .Many => |inner| {
                     return inner.toSliceConst();
                 },
                 else => @panic("attempted to retrieve flag with wrong type"),

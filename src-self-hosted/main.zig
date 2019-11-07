@@ -266,16 +266,16 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     const build_mode = blk: {
         if (flags.single("mode")) |mode_flag| {
             if (mem.eql(u8, mode_flag, "debug")) {
-                break :blk builtin.Mode.Debug;
+                break :blk std.builtin.Mode.Debug;
             } else if (mem.eql(u8, mode_flag, "release-fast")) {
-                break :blk builtin.Mode.ReleaseFast;
+                break :blk std.builtin.Mode.ReleaseFast;
             } else if (mem.eql(u8, mode_flag, "release-safe")) {
-                break :blk builtin.Mode.ReleaseSafe;
+                break :blk std.builtin.Mode.ReleaseSafe;
             } else if (mem.eql(u8, mode_flag, "release-small")) {
-                break :blk builtin.Mode.ReleaseSmall;
+                break :blk std.builtin.Mode.ReleaseSmall;
             } else unreachable;
         } else {
-            break :blk builtin.Mode.Debug;
+            break :blk std.builtin.Mode.Debug;
         }
     };
 
@@ -475,13 +475,13 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
         count += 1;
 
         switch (build_event) {
-            Compilation.Event.Ok => {
+            .Ok => {
                 stderr.print("Build {} succeeded\n", count) catch process.exit(1);
             },
-            Compilation.Event.Error => |err| {
+            .Error => |err| {
                 stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch process.exit(1);
             },
-            Compilation.Event.Fail => |msgs| {
+            .Fail => |msgs| {
                 stderr.print("Build {} compile errors:\n", count) catch process.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
@@ -795,8 +795,8 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Operating Systems:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Os)) : (i += 1) {
-            comptime const os_tag = @memberName(builtin.Os, i);
+        inline while (i < @memberCount(Target.Os)) : (i += 1) {
+            comptime const os_tag = @memberName(Target.Os, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
 
@@ -808,8 +808,8 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("C ABIs:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Abi)) : (i += 1) {
-            comptime const abi_tag = @memberName(builtin.Abi, i);
+        inline while (i < @memberCount(Target.Abi)) : (i += 1) {
+            comptime const abi_tag = @memberName(Target.Abi, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
 

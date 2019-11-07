@@ -1,6 +1,5 @@
 const std = @import("std");
 const mem = std.mem;
-const builtin = @import("builtin");
 const Target = std.Target;
 const Compilation = @import("compilation.zig").Compilation;
 const introspect = @import("introspect.zig");
@@ -45,7 +44,7 @@ pub const TestContext = struct {
         errdefer self.zig_compiler.deinit();
 
         self.group = std.event.Group(anyerror!void).init(allocator);
-        errdefer self.group.deinit();
+        errdefer self.group.wait();
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);
@@ -95,7 +94,7 @@ pub const TestContext = struct {
             file1_path,
             Target.Native,
             Compilation.Kind.Obj,
-            builtin.Mode.Debug,
+            .Debug,
             true, // is_static
             self.zig_lib_dir,
         );
@@ -129,7 +128,7 @@ pub const TestContext = struct {
             file1_path,
             Target.Native,
             Compilation.Kind.Exe,
-            builtin.Mode.Debug,
+            .Debug,
             false,
             self.zig_lib_dir,
         );
@@ -154,7 +153,7 @@ pub const TestContext = struct {
         const build_event = comp.events.get();
 
         switch (build_event) {
-            Compilation.Event.Ok => {
+            .Ok => {
                 const argv = []const []const u8{exe_file_2};
                 // TODO use event loop
                 const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
@@ -172,8 +171,8 @@ pub const TestContext = struct {
                     return error.OutputMismatch;
                 }
             },
-            Compilation.Event.Error => |err| return err,
-            Compilation.Event.Fail => |msgs| {
+            .Error => |err| return err,
+            .Fail => |msgs| {
                 var stderr = try std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
@@ -196,13 +195,13 @@ pub const TestContext = struct {
         const build_event = comp.events.get();
 
         switch (build_event) {
-            Compilation.Event.Ok => {
+            .Ok => {
                 @panic("build incorrectly succeeded");
             },
-            Compilation.Event.Error => |err| {
+            .Error => |err| {
                 @panic("build incorrectly failed");
             },
-            Compilation.Event.Fail => |msgs| {
+            .Fail => |msgs| {
                 testing.expect(msgs.len != 0);
                 for (msgs) |msg| {
                     if (mem.endsWith(u8, msg.realpath, path) and mem.eql(u8, msg.text, text)) {

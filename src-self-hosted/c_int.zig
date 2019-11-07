@@ -19,56 +19,56 @@ pub const CInt = struct {
 
     pub const list = [_]CInt{
         CInt{
-            .id = Id.Short,
+            .id = .Short,
             .zig_name = "c_short",
             .c_name = "short",
             .is_signed = true,
         },
         CInt{
-            .id = Id.UShort,
+            .id = .UShort,
             .zig_name = "c_ushort",
             .c_name = "unsigned short",
             .is_signed = false,
         },
         CInt{
-            .id = Id.Int,
+            .id = .Int,
             .zig_name = "c_int",
             .c_name = "int",
             .is_signed = true,
         },
         CInt{
-            .id = Id.UInt,
+            .id = .UInt,
             .zig_name = "c_uint",
             .c_name = "unsigned int",
             .is_signed = false,
         },
         CInt{
-            .id = Id.Long,
+            .id = .Long,
             .zig_name = "c_long",
             .c_name = "long",
             .is_signed = true,
         },
         CInt{
-            .id = Id.ULong,
+            .id = .ULong,
             .zig_name = "c_ulong",
             .c_name = "unsigned long",
             .is_signed = false,
         },
         CInt{
-            .id = Id.LongLong,
+            .id = .LongLong,
             .zig_name = "c_longlong",
             .c_name = "long long",
             .is_signed = true,
         },
         CInt{
-            .id = Id.ULongLong,
+            .id = .ULongLong,
             .zig_name = "c_ulonglong",
             .c_name = "unsigned long long",
             .is_signed = false,
         },
     };
 
-    pub fn sizeInBits(id: CInt.Id, self: Target) u32 {
+    pub fn sizeInBits(id: Id, self: Target) u32 {
         const arch = self.getArch();
         switch (self.getOs()) {
             .freestanding => switch (self.getArch()) {

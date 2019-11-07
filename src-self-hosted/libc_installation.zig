@@ -73,7 +73,7 @@ pub const LibCInstallation = struct {
                 if (std.mem.eql(u8, name, key)) {
                     found_keys[i].found = true;
                     switch (@typeInfo(@typeOf(@field(self, key)))) {
-                        builtin.TypeId.Optional => {
+                        .Optional => {
                             if (value.len == 0) {
                                 @field(self, key) = null;
                             } else {
@@ -208,7 +208,7 @@ pub const LibCInstallation = struct {
         }
 
         switch (exec_result.term) {
-            std.ChildProcess.Term.Exited => |code| {
+            .Exited => |code| {
                 if (code != 0) return error.CCompilerExitCode;
             },
             else => {
@@ -284,9 +284,9 @@ pub const LibCInstallation = struct {
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
             try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
             switch (builtin.arch) {
-                builtin.Arch.i386 => try stream.write("x86"),
-                builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64 => try stream.write("arm"),
+                .i386 => try stream.write("x86"),
+                .x86_64 => try stream.write("x64"),
+                .aarch64 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try fs.path.join(
@@ -362,9 +362,9 @@ pub const LibCInstallation = struct {
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
             try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
             switch (builtin.arch) {
-                builtin.Arch.i386 => try stream.write("x86\\"),
-                builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64 => try stream.write("arm\\"),
+                .i386 => try stream.write("x86\\"),
+                .x86_64 => try stream.write("x64\\"),
+                .aarch64 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try fs.path.join(

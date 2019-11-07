@@ -1,10 +1,9 @@
 const std = @import("std");
 const mem = std.mem;
 const c = @import("c.zig");
-const builtin = @import("builtin");
-const ObjectFormat = builtin.ObjectFormat;
 const Compilation = @import("compilation.zig").Compilation;
 const Target = std.Target;
+const ObjectFormat = Target.ObjectFormat;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const assert = std.debug.assert;
 
@@ -26,7 +25,7 @@ pub async fn link(comp: *Compilation) !void {
         .comp = comp,
         .arena = std.heap.ArenaAllocator.init(comp.gpa()),
         .args = undefined,
-        .link_in_crt = comp.haveLibC() and comp.kind == Compilation.Kind.Exe,
+        .link_in_crt = comp.haveLibC() and comp.kind == .Exe,
         .link_err = {},
         .link_msg = undefined,
         .libc = undefined,
@@ -41,13 +40,13 @@ pub async fn link(comp: *Compilation) !void {
     } else {
         ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
         switch (comp.kind) {
-            Compilation.Kind.Exe => {
+            .Exe => {
                 try ctx.out_file_path.append(comp.target.exeFileExt());
             },
-            Compilation.Kind.Lib => {
+            .Lib => {
                 try ctx.out_file_path.append(comp.target.libFileExt(comp.is_static));
             },
-            Compilation.Kind.Obj => {
+            .Obj => {
                 try ctx.out_file_path.append(comp.target.objFileExt());
             },
         }
@@ -121,21 +120,21 @@ fn linkDiagCallbackErrorable(ctx: *Context, msg: []const u8) !void {
 
 fn toExternObjectFormatType(ofmt: ObjectFormat) c.ZigLLVM_ObjectFormatType {
     return switch (ofmt) {
-        ObjectFormat.unknown => c.ZigLLVM_UnknownObjectFormat,
-        ObjectFormat.coff => c.ZigLLVM_COFF,
-        ObjectFormat.elf => c.ZigLLVM_ELF,
-        ObjectFormat.macho => c.ZigLLVM_MachO,
-        ObjectFormat.wasm => c.ZigLLVM_Wasm,
+        .unknown => c.ZigLLVM_UnknownObjectFormat,
+        .coff => c.ZigLLVM_COFF,
+        .elf => c.ZigLLVM_ELF,
+        .macho => c.ZigLLVM_MachO,
+        .wasm => c.ZigLLVM_Wasm,
     };
 }
 
 fn constructLinkerArgs(ctx: *Context) !void {
     switch (ctx.comp.target.getObjectFormat()) {
-        ObjectFormat.unknown => unreachable,
-        ObjectFormat.coff => return constructLinkerArgsCoff(ctx),
-        ObjectFormat.elf => return constructLinkerArgsElf(ctx),
-        ObjectFormat.macho => return constructLinkerArgsMachO(ctx),
-        ObjectFormat.wasm => return constructLinkerArgsWasm(ctx),
+        .unknown => unreachable,
+        .coff => return constructLinkerArgsCoff(ctx),
+        .elf => return constructLinkerArgsElf(ctx),
+        .macho => return constructLinkerArgsMachO(ctx),
+        .wasm => return constructLinkerArgsWasm(ctx),
     }
 }
 
@@ -324,9 +323,9 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     }
 
     switch (ctx.comp.target.getArch()) {
-        builtin.Arch.i386 => try ctx.args.append(c"-MACHINE:X86"),
-        builtin.Arch.x86_64 => try ctx.args.append(c"-MACHINE:X64"),
-        builtin.Arch.aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
+        .i386 => try ctx.args.append(c"-MACHINE:X86"),
+        .x86_64 => try ctx.args.append(c"-MACHINE:X64"),
+        .aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
         else => return error.UnsupportedLinkArchitecture,
     }
 
@@ -336,7 +335,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         try ctx.args.append(c"/SUBSYSTEM:console");
     }
 
-    const is_library = ctx.comp.kind == Compilation.Kind.Lib;
+    const is_library = ctx.comp.kind == .Lib;
 
     const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", ctx.out_file_path.toSliceConst());
     try ctx.args.append(out_arg.ptr);
@@ -349,7 +348,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
     if (ctx.link_in_crt) {
         const lib_str = if (ctx.comp.is_static) "lib" else "";
-        const d_str = if (ctx.comp.build_mode == builtin.Mode.Debug) "d" else "";
+        const d_str = if (ctx.comp.build_mode == .Debug) "d" else "";
 
         if (ctx.comp.is_static) {
             const cmt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", d_str);
@@ -400,7 +399,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     try addFnObjects(ctx);
 
     switch (ctx.comp.kind) {
-        Compilation.Kind.Exe, Compilation.Kind.Lib => {
+        .Exe, .Lib => {
             if (!ctx.comp.haveLibC()) {
                 @panic("TODO");
                 //Buf *builtin_o_path = build_o(g, "builtin");
@@ -412,7 +411,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
             //Buf *compiler_rt_o_path = build_compiler_rt(g);
             //lj->args.append(buf_ptr(compiler_rt_o_path));
         },
-        Compilation.Kind.Obj => {},
+        .Obj => {},
     }
 
     //Buf *def_contents = buf_alloc();
@@ -469,7 +468,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         try ctx.args.append(c"-export_dynamic");
     }
 
-    const is_lib = ctx.comp.kind == Compilation.Kind.Lib;
+    const is_lib = ctx.comp.kind == .Lib;
     const shared = !ctx.comp.is_static and is_lib;
     if (ctx.comp.is_static) {
         try ctx.args.append(c"-static");
@@ -512,14 +511,14 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
 
     const platform = try DarwinPlatform.get(ctx.comp);
     switch (platform.kind) {
-        DarwinPlatform.Kind.MacOS => try ctx.args.append(c"-macosx_version_min"),
-        DarwinPlatform.Kind.IPhoneOS => try ctx.args.append(c"-iphoneos_version_min"),
-        DarwinPlatform.Kind.IPhoneOSSimulator => try ctx.args.append(c"-ios_simulator_version_min"),
+        .MacOS => try ctx.args.append(c"-macosx_version_min"),
+        .IPhoneOS => try ctx.args.append(c"-iphoneos_version_min"),
+        .IPhoneOSSimulator => try ctx.args.append(c"-ios_simulator_version_min"),
     }
     const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", platform.major, platform.minor, platform.micro);
     try ctx.args.append(ver_str.ptr);
 
-    if (ctx.comp.kind == Compilation.Kind.Exe) {
+    if (ctx.comp.kind == .Exe) {
         if (ctx.comp.is_static) {
             try ctx.args.append(c"-no_pie");
         } else {
@@ -542,7 +541,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         try ctx.args.append(c"-lcrt0.o");
     } else {
         switch (platform.kind) {
-            DarwinPlatform.Kind.MacOS => {
+            .MacOS => {
                 if (platform.versionLessThan(10, 5)) {
                     try ctx.args.append(c"-lcrt1.o");
                 } else if (platform.versionLessThan(10, 6)) {
@@ -551,8 +550,8 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                     try ctx.args.append(c"-lcrt1.10.6.o");
                 }
             },
-            DarwinPlatform.Kind.IPhoneOS => {
-                if (ctx.comp.target.getArch() == builtin.Arch.aarch64) {
+            .IPhoneOS => {
+                if (ctx.comp.target.getArch() == .aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
                     try ctx.args.append(c"-lcrt1.o");
@@ -560,7 +559,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                     try ctx.args.append(c"-lcrt1.3.1.o");
                 }
             },
-            DarwinPlatform.Kind.IPhoneOSSimulator => {}, // no crt1.o needed
+            .IPhoneOSSimulator => {}, // no crt1.o needed
         }
     }
 
@@ -605,7 +604,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         try ctx.args.append(c"dynamic_lookup");
     }
 
-    if (platform.kind == DarwinPlatform.Kind.MacOS) {
+    if (platform.kind == .MacOS) {
         if (platform.versionLessThan(10, 5)) {
             try ctx.args.append(c"-lgcc_s.10.4");
         } else if (platform.versionLessThan(10, 6)) {
@@ -659,17 +658,17 @@ const DarwinPlatform = struct {
     fn get(comp: *Compilation) !DarwinPlatform {
         var result: DarwinPlatform = undefined;
         const ver_str = switch (comp.darwin_version_min) {
-            Compilation.DarwinVersionMin.MacOS => |ver| blk: {
-                result.kind = Kind.MacOS;
+            .MacOS => |ver| blk: {
+                result.kind = .MacOS;
                 break :blk ver;
             },
-            Compilation.DarwinVersionMin.Ios => |ver| blk: {
-                result.kind = Kind.IPhoneOS;
+            .Ios => |ver| blk: {
+                result.kind = .IPhoneOS;
                 break :blk ver;
             },
-            Compilation.DarwinVersionMin.None => blk: {
+            .None => blk: {
                 assert(comp.target.getOs() == .macosx);
-                result.kind = Kind.MacOS;
+                result.kind = .MacOS;
                 break :blk "10.14";
             },
         };
@@ -686,11 +685,11 @@ const DarwinPlatform = struct {
             return error.InvalidDarwinVersionString;
         }
 
-        if (result.kind == Kind.IPhoneOS) {
+        if (result.kind == .IPhoneOS) {
             switch (comp.target.getArch()) {
-                builtin.Arch.i386,
-                builtin.Arch.x86_64,
-                => result.kind = Kind.IPhoneOSSimulator,
+                .i386,
+               .x86_64,
+                => result.kind = .IPhoneOSSimulator,
                 else => {},
             }
         }

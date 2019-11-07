@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Compilation = @import("compilation.zig").Compilation;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
@@ -31,7 +30,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     llvm.SetTarget(module, comp.llvm_triple.ptr());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
-    if (comp.target.getObjectFormat() == builtin.ObjectFormat.coff) {
+    if (comp.target.getObjectFormat() == .coff) {
         llvm.AddModuleCodeViewFlag(module);
     } else {
         llvm.AddModuleDebugInfoFlag(module);
@@ -59,7 +58,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         comp.name.ptr(),
         comp.root_package.root_src_dir.ptr(),
     ) orelse return error.OutOfMemory;
-    const is_optimized = comp.build_mode != builtin.Mode.Debug;
+    const is_optimized = comp.build_mode != .Debug;
     const compile_unit = llvm.CreateCompileUnit(
         dibuilder,
         DW.LANG_C99,
@@ -105,8 +104,8 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     assert(comp.emit_file_type == Compilation.Emit.Binary); // TODO support other types
 
-    const is_small = comp.build_mode == builtin.Mode.ReleaseSmall;
-    const is_debug = comp.build_mode == builtin.Mode.Debug;
+    const is_small = comp.build_mode == .ReleaseSmall;
+    const is_debug = comp.build_mode == .Debug;
 
     var err_msg: [*]u8 = undefined;
     // TODO integrate this with evented I/O
@@ -114,7 +113,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         comp.target_machine,
         module,
         output_path.ptr(),
-        llvm.EmitBinary,
+        .EmitBinary,
         &err_msg,
         is_debug,
         is_small,
@@ -234,8 +233,8 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     // create debug variable declarations for variables and allocate all local variables
     for (var_list) |var_scope, i| {
         const var_type = switch (var_scope.data) {
-            Scope.Var.Data.Const => unreachable,
-            Scope.Var.Data.Param => |param| param.typ,
+            .Const => unreachable,
+            .Param => |param| param.typ,
         };
         //    if (!type_has_bits(var->value->type)) {
         //        continue;
@@ -266,7 +265,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
             var_scope.data.Param.llvm_value = llvm.GetParam(llvm_fn, @intCast(c_uint, i));
         } else {
             //            gen_type = var->value->type;
-            var_scope.data.Param.llvm_value = try renderAlloca(ofile, var_type, var_scope.name, Type.Pointer.Align.Abi);
+            var_scope.data.Param.llvm_value = try renderAlloca(ofile, var_type, var_scope.name, .Abi);
         }
         //        if (var->decl_node) {
         //            var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
@@ -300,8 +299,8 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
                 ofile,
                 llvm_param,
                 scope_var.data.Param.llvm_value,
-                Type.Pointer.Align.Abi,
-                Type.Pointer.Vol.Non,
+                .Abi,
+                .Non,
             );
         }
 
@@ -383,8 +382,8 @@ fn renderLoadUntyped(
 ) !*llvm.Value {
     const result = llvm.BuildLoad(ofile.builder, ptr, name) orelse return error.OutOfMemory;
     switch (vol) {
-        Type.Pointer.Vol.Non => {},
-        Type.Pointer.Vol.Volatile => llvm.SetVolatile(result, 1),
+        .Non => {},
+        .Volatile => llvm.SetVolatile(result, 1),
     }
     llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm.GetElementType(llvm.TypeOf(ptr))));
     return result;
@@ -414,8 +413,8 @@ pub fn renderStoreUntyped(
 ) !*llvm.Value {
     const result = llvm.BuildStore(ofile.builder, value, ptr) orelse return error.OutOfMemory;
     switch (vol) {
-        Type.Pointer.Vol.Non => {},
-        Type.Pointer.Vol.Volatile => llvm.SetVolatile(result, 1),
+        .Non => {},
+        .Volatile => llvm.SetVolatile(result, 1),
     }
     llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm.TypeOf(value)));
     return result;
@@ -445,7 +444,7 @@ pub fn renderAlloca(
 
 pub fn resolveAlign(ofile: *ObjectFile, alignment: Type.Pointer.Align, llvm_type: *llvm.Type) u32 {
     return switch (alignment) {
-        Type.Pointer.Align.Abi => return llvm.ABIAlignmentOfType(ofile.comp.target_data_ref, llvm_type),
-        Type.Pointer.Align.Override => |a| a,
+        .Abi => return llvm.ABIAlignmentOfType(ofile.comp.target_data_ref, llvm_type),
+        .Override => |a| a,
     };
 }

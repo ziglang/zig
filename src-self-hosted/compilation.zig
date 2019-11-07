@@ -5,7 +5,7 @@ const Allocator = mem.Allocator;
 const Buffer = std.Buffer;
 const llvm = @import("llvm.zig");
 const c = @import("c.zig");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Target = std.Target;
 const warn = std.debug.warn;
 const Token = std.zig.Token;
@@ -481,7 +481,7 @@ pub const Compilation = struct {
         comp.zig_std_dir = try std.fs.path.join(comp.arena(), [_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
-            builtin.Mode.Debug => llvm.CodeGenLevelNone,
+            .Debug => llvm.CodeGenLevelNone,
             else => llvm.CodeGenLevelAggressive,
         };
 
@@ -594,11 +594,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "type",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = undefined,
                     .ref_count = std.atomic.Int(usize).init(3), // 3 because it references itself twice
                 },
-                .id = builtin.TypeId.Type,
+                .id = .Type,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
             .value = undefined,
@@ -612,11 +612,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "void",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .id = builtin.TypeId.Void,
+                .id = .Void,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
         };
@@ -627,11 +627,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "noreturn",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .id = builtin.TypeId.NoReturn,
+                .id = .NoReturn,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
         };
@@ -642,11 +642,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "comptime_int",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .id = builtin.TypeId.ComptimeInt,
+                .id = .ComptimeInt,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
         };
@@ -657,11 +657,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "bool",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .id = builtin.TypeId.Bool,
+                .id = .Bool,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
         };
@@ -670,7 +670,7 @@ pub const Compilation = struct {
         comp.void_value = try comp.arena().create(Value.Void);
         comp.void_value.* = Value.Void{
             .base = Value{
-                .id = Value.Id.Void,
+                .id = .Void,
                 .typ = &Type.Void.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
@@ -679,7 +679,7 @@ pub const Compilation = struct {
         comp.true_value = try comp.arena().create(Value.Bool);
         comp.true_value.* = Value.Bool{
             .base = Value{
-                .id = Value.Id.Bool,
+                .id = .Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
@@ -689,7 +689,7 @@ pub const Compilation = struct {
         comp.false_value = try comp.arena().create(Value.Bool);
         comp.false_value.* = Value.Bool{
             .base = Value{
-                .id = Value.Id.Bool,
+                .id = .Bool,
                 .typ = &Type.Bool.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
@@ -699,7 +699,7 @@ pub const Compilation = struct {
         comp.noreturn_value = try comp.arena().create(Value.NoReturn);
         comp.noreturn_value.* = Value.NoReturn{
             .base = Value{
-                .id = Value.Id.NoReturn,
+                .id = .NoReturn,
                 .typ = &Type.NoReturn.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
@@ -711,11 +711,11 @@ pub const Compilation = struct {
                 .base = Type{
                     .name = cint.zig_name,
                     .base = Value{
-                        .id = Value.Id.Type,
+                        .id = .Type,
                         .typ = &Type.MetaType.get(comp).base,
                         .ref_count = std.atomic.Int(usize).init(1),
                     },
-                    .id = builtin.TypeId.Int,
+                    .id = .Int,
                     .abi_alignment = Type.AbiAlignment.init(),
                 },
                 .key = Type.Int.Key{
@@ -732,11 +732,11 @@ pub const Compilation = struct {
             .base = Type{
                 .name = "u8",
                 .base = Value{
-                    .id = Value.Id.Type,
+                    .id = .Type,
                     .typ = &Type.MetaType.get(comp).base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
-                .id = builtin.TypeId.Int,
+                .id = .Int,
                 .abi_alignment = Type.AbiAlignment.init(),
             },
             .key = Type.Int.Key{
@@ -884,15 +884,15 @@ pub const Compilation = struct {
         while (ast_it.next()) |decl_ptr| {
             const decl = decl_ptr.*;
             switch (decl.id) {
-                ast.Node.Id.Comptime => {
+                .Comptime => {
                     const comptime_node = @fieldParentPtr(ast.Node.Comptime, "base", decl);
 
                     // TODO connect existing comptime decls to updated source files
 
                     try self.prelink_group.call(addCompTimeBlock, self, tree_scope, &decl_scope.base, comptime_node);
                 },
-                ast.Node.Id.VarDecl => @panic("TODO"),
-                ast.Node.Id.FnProto => {
+                .VarDecl => @panic("TODO"),
+                .FnProto => {
                     const fn_proto = @fieldParentPtr(ast.Node.FnProto, "base", decl);
 
                     const name = if (fn_proto.name_token) |name_token| tree_scope.tree.tokenSlice(name_token) else {
@@ -945,7 +945,7 @@ pub const Compilation = struct {
                         try group.call(addTopLevelDecl, self, &fn_decl.base, locked_table);
                     }
                 },
-                ast.Node.Id.TestDecl => @panic("TODO"),
+                .TestDecl => @panic("TODO"),
                 else => unreachable,
             }
         }
@@ -1285,12 +1285,12 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
 /// The function that actually does the generation.
 async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     switch (decl.id) {
-        Decl.Id.Var => @panic("TODO"),
-        Decl.Id.Fn => {
+        .Var => @panic("TODO"),
+        .Fn => {
             const fn_decl = @fieldParentPtr(Decl.Fn, "base", decl);
             return generateDeclFn(comp, fn_decl);
         },
-        Decl.Id.CompTime => @panic("TODO"),
+        .CompTime => @panic("TODO"),
     }
 }
 
@@ -1385,8 +1385,8 @@ async fn analyzeFnType(
     fn_proto: *ast.Node.FnProto,
 ) !*Type.Fn {
     const return_type_node = switch (fn_proto.return_type) {
-        ast.Node.FnProto.ReturnType.Explicit => |n| n,
-        ast.Node.FnProto.ReturnType.InferErrorSet => |n| n,
+        .Explicit => |n| n,
+        .InferErrorSet => |n| n,
     };
     const return_type = try comp.analyzeTypeExpr(tree_scope, scope, return_type_node);
     return_type.base.deref(comp);
