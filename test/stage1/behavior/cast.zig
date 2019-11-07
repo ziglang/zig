@@ -538,3 +538,24 @@ test "implicit cast comptime_int to comptime_float" {
     comptime expect(comptime_float(10) == f32(10));
     expect(2 == 2.0);
 }
+
+test "implicit cast *[0]T to E![]const u8" {
+    var x = (anyerror![]const u8)(&[0]u8{});
+    expect((x catch unreachable).len == 0);
+}
+
+test "peer cast *[0]T to E![]const T" {
+    var buffer: [5]u8 = "abcde";
+    var buf: anyerror![]const u8 = buffer[0..];
+    var b = false;
+    var y = if (b) &[0]u8{} else buf;
+    expect(mem.eql(u8, "abcde", y catch unreachable));
+}
+
+test "peer cast *[0]T to []const T" {
+    var buffer: [5]u8 = "abcde";
+    var buf: []const u8 = buffer[0..];
+    var b = false;
+    var y = if (b) &[0]u8{} else buf;
+    expect(mem.eql(u8, "abcde", y));
+}

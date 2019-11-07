@@ -122,7 +122,7 @@ pub const Allocator = struct {
         }
 
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
-        const byte_slice = try self.reallocFn(self, ([*]u8)(undefined)[0..0], undefined, byte_count, a);
+        const byte_slice = try self.reallocFn(self, &[0]u8{}, undefined, byte_count, a);
         assert(byte_slice.len == byte_count);
         @memset(byte_slice.ptr, undefined, byte_slice.len);
         if (alignment == null) {
@@ -976,7 +976,7 @@ pub const SplitIterator = struct {
 /// Naively combines a series of slices with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []const u8) ![]u8 {
-    if (slices.len == 0) return (([*]u8)(undefined))[0..0];
+    if (slices.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = separator.len * (slices.len - 1);
@@ -1011,7 +1011,7 @@ test "mem.join" {
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
 pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T) ![]T {
-    if (slices.len == 0) return (([*]T)(undefined))[0..0];
+    if (slices.len == 0) return &[0]T{};
 
     const total_len = blk: {
         var sum: usize = 0;
