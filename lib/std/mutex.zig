@@ -46,11 +46,11 @@ else struct {
     const Locked = 2;
 
     /// number of iterations to spin yielding the cpu
-    const SpinCpu = 4;
+    const SPIN_CPU = 4;
     /// number of iterations to perform in the cpu yield loop
-    const SpinCpuCount = 30;
+    const SPIN_CPU_COUNT = 30;
     /// number of iterations to spin yielding the thread
-    const SpinThread = 1;
+    const SPIN_THREAD = 1;
 
     pub fn init() Mutex {
         return Mutex{
@@ -86,20 +86,21 @@ else struct {
 
         while (true) {
             // try and acquire the lock using cpu spinning on failure
-            for (([SpinCpu]void)(undefined)) |_| {
+            var spin: usize = 0;
+            while (spin < SPIN_CPU) : (spin += 1) {
                 var value = @atomicLoad(u32, &self.state, .Monotonic);
                 while (value == Unlocked)
                     value = @cmpxchgWeak(u32, &self.state, Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
-                for (([SpinCpuCount]void)(undefined)) |_|
-                    SpinLock.yieldCpu();
+                SpinLock.yield(SPIN_CPU_COUNT);
             }
 
             // try and acquire the lock using thread rescheduling on failure
-            for (([SpinThread]void)(undefined)) |_| {
+            spin = 0;
+            while (spin < SPIN_THREAD) : (spin += 1) {
                 var value = @atomicLoad(u32, &self.state, .Monotonic);
                 while (value == Unlocked)
                     value = @cmpxchgWeak(u32, &self.state, Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
-                SpinLock.yieldThread();
+                std.os.yield();
             }
 
             // failed to acquire the lock, go to sleep until woken up by `Held.release()`

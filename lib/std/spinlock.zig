@@ -28,22 +28,17 @@ pub const SpinLock = struct {
         return Held{ .spinlock = self };
     }
 
-    pub fn yieldCpu() void {
-        switch (builtin.arch) {
-            .i386, .x86_64 => asm volatile("pause" ::: "memory"),
-            // .arm, .aarch64 => asm volatile("yield"),
-            //
-            // Causes CI to fail
-            // See: https://github.com/ziglang/zig/pull/3585#issuecomment-549962765
-            else => time.sleep(0),
-        }
-    }
-
-    pub fn yieldThread() void {
-        switch (builtin.os) {
-            .linux => assert(linux.syscall0(linux.SYS_sched_yield) == 0),
-            .windows => _ = windows.kernel32.SwitchToThread(),
-            else => time.sleep(1 * time.microsecond),
+    pub fn yield(iterations: usize) void {
+        var i = iterations;
+        while (i != 0) : (i -= 1) {
+            switch (builtin.arch) {
+                .i386, .x86_64 => asm volatile("pause" ::: "memory"),
+                // .arm, .aarch64 => asm volatile("yield"),
+                //
+                // Causes CI to fail
+                // See: https://github.com/ziglang/zig/pull/3585#issuecomment-549962765
+                else => time.sleep(0),
+            }
         }
     }
 
@@ -55,16 +50,14 @@ pub const SpinLock = struct {
             return @This(){ .iteration = 0 };
         }
 
-        /// Hybrid yielding from
+        /// Modified hybrid yielding from
         /// http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
         pub fn yield(self: *@This()) void {
             defer self.iteration +%= 1;
-            if (self.iteration < 10) {
-                yieldCpu();
-            } else if (self.iteration < 20) {
-                for (([30]void)(undefined)) |_| yieldCpu();
+            if (self.iteration < 20) {
+                SpinLock.yield(self.iteration);
             } else if (self.iteration < 24) {
-                yieldThread();
+                os.yield();
             } else if (self.iteration < 26) {
                 time.sleep(1 * time.millisecond);
             } else {
