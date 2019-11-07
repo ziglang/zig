@@ -8070,6 +8070,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFrameType, "Frame", 1);
     create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
     create_builtin_fn(g, BuiltinFnIdFrameSize, "frameSize", 1);
+    create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
 }
 
 static const char *bool_to_str(bool b) {

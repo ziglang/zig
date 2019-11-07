@@ -48,6 +48,7 @@ struct ResultLoc;
 struct ResultLocPeer;
 struct ResultLocPeerParent;
 struct ResultLocBitCast;
+struct ResultLocCast;
 struct ResultLocReturn;
 
 enum PtrLen {
@@ -1691,6 +1692,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameType,
     BuiltinFnIdFrameHandle,
     BuiltinFnIdFrameSize,
+    BuiltinFnIdAs,
 };
 
 struct BuiltinFnEntry {
@@ -3458,6 +3460,13 @@ struct IrInstructionPtrCastGen {
     bool safety_check_on;
 };
 
+struct IrInstructionImplicitCast {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    ResultLocCast *result_loc_cast;
+};
+
 struct IrInstructionBitCastSrc {
     IrInstruction base;
 
@@ -3823,14 +3832,6 @@ struct IrInstructionEndExpr {
     ResultLoc *result_loc;
 };
 
-struct IrInstructionImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *dest_type;
-    IrInstruction *target;
-    ResultLoc *result_loc;
-};
-
 // This one is for writing through the result pointer.
 struct IrInstructionResolveResult {
     IrInstruction base;
@@ -3928,6 +3929,7 @@ enum ResultLocId {
     ResultLocIdPeerParent,
     ResultLocIdInstruction,
     ResultLocIdBitCast,
+    ResultLocIdCast,
 };
 
 // Additions to this struct may need to be handled in
@@ -3990,6 +3992,13 @@ struct ResultLocInstruction {
 
 // The source_instruction is the destination type
 struct ResultLocBitCast {
+    ResultLoc base;
+
+    ResultLoc *parent;
+};
+
+// The source_instruction is the destination type
+struct ResultLocCast {
     ResultLoc base;
 
     ResultLoc *parent;
