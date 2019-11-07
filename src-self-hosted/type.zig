@@ -294,7 +294,7 @@ pub const Type = struct {
                 if (self.alignment) |self_align| {
                     if (self_align != other.alignment.?) return false;
                 }
-                if (self.data != other.data) return false;
+                if (@TagType(Data)(self.data) != @TagType(Data)(other.data)) return false;
                 switch (self.data) {
                     .Generic => |*self_generic| {
                         const other_generic = &other.data.Generic;
@@ -341,7 +341,7 @@ pub const Type = struct {
             }
         };
 
-        const CallingConvention = builtin.CallingConvention;
+        const CallingConvention = builtin.TypeInfo.CallingConvention;
 
         pub const Param = struct {
             is_noalias: bool,

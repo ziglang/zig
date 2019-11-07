@@ -68,11 +68,11 @@ pub const CInt = struct {
         },
     };
 
-    pub fn sizeInBits(id: Id, self: Target) u32 {
+    pub fn sizeInBits(cint: CInt, self: Target) u32 {
         const arch = self.getArch();
         switch (self.getOs()) {
             .freestanding => switch (self.getArch()) {
-                .msp430 => switch (id) {
+                .msp430 => switch (cint.id) {
                     .Short,
                     .UShort,
                     .Int,
@@ -85,7 +85,7 @@ pub const CInt = struct {
                     .ULongLong,
                     => return 64,
                 },
-                else => switch (id) {
+                else => switch (cint.id) {
                     .Short,
                     .UShort,
                     => return 16,
@@ -106,7 +106,7 @@ pub const CInt = struct {
             .freebsd,
             .openbsd,
             .zen,
-            => switch (id) {
+            => switch (cint.id) {
                 .Short,
                 .UShort,
                 => return 16,
@@ -121,7 +121,7 @@ pub const CInt = struct {
                 => return 64,
             },
 
-            .windows, .uefi => switch (id) {
+            .windows, .uefi => switch (cint.id) {
                 .Short,
                 .UShort,
                 => return 16,

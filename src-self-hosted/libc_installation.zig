@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const event = std.event;
 const target = @import("target.zig");
-const Target = target.Target;
+const Target = std.Target;
 const c = @import("c.zig");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
@@ -322,7 +322,7 @@ pub const LibCInstallation = struct {
             },
         };
         var group = event.Group(FindError!void).init(allocator);
-        errdefer group.deinit();
+        errdefer group.wait() catch {};
         for (dyn_tests) |*dyn_test| {
             try group.call(testNativeDynamicLinker, self, allocator, dyn_test);
         }

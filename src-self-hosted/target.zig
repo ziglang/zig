@@ -1,3 +1,4 @@
+const Target = @import("std").Target;
 // const builtin = @import("builtin");
 
 pub const FloatAbi = enum {
@@ -55,7 +56,7 @@ pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
         .linux => {
             switch (env) {
                 .android => {
-                    if (is64bit(self)) {
+                    if (self.getArchPtrBitWidth() == 64) {
                         return "/system/bin/linker64";
                     } else {
                         return "/system/bin/linker";

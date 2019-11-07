@@ -309,7 +309,7 @@ pub fn initializeAllTargets() void {
     InitializeAllAsmParsers();
 }
 
-pub fn getTriple(allocator: *std.mem.Allocator, self: Target) !std.Buffer {
+pub fn getTriple(allocator: *std.mem.Allocator, self: std.Target) !std.Buffer {
     var result = try std.Buffer.initSize(allocator, 0);
     errdefer result.deinit();
 
