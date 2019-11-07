@@ -17,6 +17,7 @@ const TableHeader = uefi.tables.TableHeader;
 /// hdr.crc32 must be recomputed.
 pub const SystemTable = extern struct {
     hdr: TableHeader,
+
     /// A null-terminated string that identifies the vendor that produces the system firmware of the platform.
     firmware_vendor: [*]u16,
     firmware_revision: u32,

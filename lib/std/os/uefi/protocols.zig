@@ -1,3 +1,7 @@
+pub const LoadedImageProtocol = @import("protocols/loaded_image_protocol.zig").LoadedImageProtocol;
+
+pub const DevicePathProtocol = @import("protocols/device_path_protocol.zig").DevicePathProtocol;
+
 pub const InputKey = @import("protocols/simple_text_input_ex_protocol.zig").InputKey;
 pub const KeyData = @import("protocols/simple_text_input_ex_protocol.zig").KeyData;
 pub const KeyState = @import("protocols/simple_text_input_ex_protocol.zig").KeyState;
@@ -28,6 +32,46 @@ pub const EdidActiveProtocol = @import("protocols/edid_active_protocol.zig").Edi
 
 pub const EdidOverrideProtocol = @import("protocols/edid_override_protocol.zig").EdidOverrideProtocol;
 pub const EdidOverrideProtocolAttributes = @import("protocols/edid_override_protocol.zig").EdidOverrideProtocolAttributes;
+
+pub const SimpleNetworkProtocol = @import("protocols/simple_network_protocol.zig").SimpleNetworkProtocol;
+pub const MacAddress = @import("protocols/simple_network_protocol.zig").MacAddress;
+pub const SimpleNetworkMode = @import("protocols/simple_network_protocol.zig").SimpleNetworkMode;
+pub const SimpleNetworkReceiveFilter = @import("protocols/simple_network_protocol.zig").SimpleNetworkReceiveFilter;
+pub const SimpleNetworkState = @import("protocols/simple_network_protocol.zig").SimpleNetworkState;
+pub const NetworkStatistics = @import("protocols/simple_network_protocol.zig").NetworkStatistics;
+pub const SimpleNetworkInterruptStatus = @import("protocols/simple_network_protocol.zig").SimpleNetworkInterruptStatus;
+
+pub const ManagedNetworkServiceBindingProtocol = @import("protocols/managed_network_service_binding_protocol.zig").ManagedNetworkServiceBindingProtocol;
+pub const ManagedNetworkProtocol = @import("protocols/managed_network_protocol.zig").ManagedNetworkProtocol;
+pub const ManagedNetworkConfigData = @import("protocols/managed_network_protocol.zig").ManagedNetworkConfigData;
+pub const ManagedNetworkCompletionToken = @import("protocols/managed_network_protocol.zig").ManagedNetworkCompletionToken;
+pub const ManagedNetworkReceiveData = @import("protocols/managed_network_protocol.zig").ManagedNetworkReceiveData;
+pub const ManagedNetworkTransmitData = @import("protocols/managed_network_protocol.zig").ManagedNetworkTransmitData;
+pub const ManagedNetworkFragmentData = @import("protocols/managed_network_protocol.zig").ManagedNetworkFragmentData;
+
+pub const Ip6ServiceBindingProtocol = @import("protocols/ip6_service_binding_protocol.zig").Ip6ServiceBindingProtocol;
+pub const Ip6Protocol = @import("protocols/ip6_protocol.zig").Ip6Protocol;
+pub const Ip6ModeData = @import("protocols/ip6_protocol.zig").Ip6ModeData;
+pub const Ip6ConfigData = @import("protocols/ip6_protocol.zig").Ip6ConfigData;
+pub const Ip6Address = @import("protocols/ip6_protocol.zig").Ip6Address;
+pub const Ip6AddressInfo = @import("protocols/ip6_protocol.zig").Ip6AddressInfo;
+pub const Ip6RouteTable = @import("protocols/ip6_protocol.zig").Ip6RouteTable;
+pub const Ip6NeighborState = @import("protocols/ip6_protocol.zig").Ip6NeighborState;
+pub const Ip6NeighborCache = @import("protocols/ip6_protocol.zig").Ip6NeighborCache;
+pub const Ip6IcmpType = @import("protocols/ip6_protocol.zig").Ip6IcmpType;
+pub const Ip6CompletionToken = @import("protocols/ip6_protocol.zig").Ip6CompletionToken;
+
+pub const Ip6ConfigProtocol = @import("protocols/ip6_config_protocol.zig").Ip6ConfigProtocol;
+pub const Ip6ConfigDataType = @import("protocols/ip6_config_protocol.zig").Ip6ConfigDataType;
+
+pub const Udp6ServiceBindingProtocol = @import("protocols/udp6_service_binding_protocol.zig").Udp6ServiceBindingProtocol;
+pub const Udp6Protocol = @import("protocols/udp6_protocol.zig").Udp6Protocol;
+pub const Udp6ConfigData = @import("protocols/udp6_protocol.zig").Udp6ConfigData;
+pub const Udp6CompletionToken = @import("protocols/udp6_protocol.zig").Udp6CompletionToken;
+pub const Udp6ReceiveData = @import("protocols/udp6_protocol.zig").Udp6ReceiveData;
+pub const Udp6TransmitData = @import("protocols/udp6_protocol.zig").Udp6TransmitData;
+pub const Udp6SessionData = @import("protocols/udp6_protocol.zig").Udp6SessionData;
+pub const Udp6FragmentData = @import("protocols/udp6_protocol.zig").Udp6FragmentData;
 
 pub const hii = @import("protocols/hii.zig");
 pub const HIIDatabaseProtocol = @import("protocols/hii_database_protocol.zig").HIIDatabaseProtocol;
