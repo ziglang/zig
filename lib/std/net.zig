@@ -44,7 +44,7 @@ pub const Address = extern union {
         switch (family) {
             os.AF_INET => return parseIp4(name, port),
             os.AF_INET6 => return parseIp6(name, port),
-            os.AF_UNSPEC => return parse(name, port),
+            os.AF_UNSPEC => return parseIp(name, port),
             else => unreachable,
         }
     }
@@ -1034,7 +1034,7 @@ fn linuxLookupNameFromNumericUnspec(
     name: []const u8,
     port: u16,
 ) !void {
-    const addr = try Address.parse(name, port);
+    const addr = try Address.parseIp(name, port);
     (try addrs.addOne()).* = LookupAddr{ .addr = addr };
 }
 

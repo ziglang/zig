@@ -91,7 +91,7 @@ test "listen on a port, send bytes, receive bytes" {
     }
 
     // TODO doing this at comptime crashed the compiler
-    const localhost = net.Address.parse("127.0.0.1", 0);
+    const localhost = net.Address.parseIp("127.0.0.1", 0);
 
     var server = net.TcpServer.init(net.TcpServer.Options{});
     defer server.deinit();
