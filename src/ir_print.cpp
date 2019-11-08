@@ -2542,3 +2542,18 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
 
     ir_print_instruction(irp, instruction, false);
 }
+
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->pass = pass;
+    irp->codegen = codegen;
+    irp->f = f;
+    irp->indent = indent_size;
+    irp->indent_size = indent_size;
+    irp->printed = {};
+    irp->printed.init(4);
+    irp->pending = {};
+
+    ir_print_const_value(irp, value);
+}
